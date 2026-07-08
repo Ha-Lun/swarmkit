@@ -14,14 +14,40 @@ Self-contained, portable, designed to be cloned into `~/.config/opencode/` on a 
 
 ## Install
 
-Drop the contents into `~/.config/opencode/`:
+The target is `~/.config/opencode/`. If opencode is already installed on the
+machine, that directory exists and is **not empty** — `git clone <url> .` will
+refuse to run with `fatal: destination path '.' already exists and is not an
+empty directory.`. Pick one of the two flows below.
+
+### A. Replace existing config (clean install of this repo)
+
+Back up what's there, then clone into the now-empty target:
 
 ```bash
-cd ~/.config/opencode
-git clone https://github.com/Ha-Lun/opencode-config.git .
+mv ~/.config/opencode ~/.config/opencode.bak.$(date +%s)
+git clone https://github.com/Ha-Lun/opencode-config.git ~/.config/opencode
+cd ~/.config/opencode && npm install
 ```
 
-Or cherry-pick what you want.
+To roll back: `rm -rf ~/.config/opencode && mv ~/.config/opencode.bak.<timestamp> ~/.config/opencode`
+
+### B. Merge with existing config (keep your current `opencode.json`)
+
+Clone to a temp dir, then copy files in without overwriting anything:
+
+```bash
+git clone https://github.com/Ha-Lun/opencode-config.git /tmp/opencode-config
+cp -rn /tmp/opencode-config/. ~/.config/opencode/
+cd ~/.config/opencode && npm install
+```
+
+Diff your old config against the new one and merge the bits you want:
+
+```bash
+diff ~/.config/opencode.bak.<timestamp>/opencode.json ~/.config/opencode/opencode.json
+```
+
+After either path, restart opencode so it picks up the new config.
 
 ## Path conventions
 
