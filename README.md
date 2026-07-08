@@ -12,24 +12,33 @@ Self-contained, portable, designed to be cloned into `~/.config/opencode/` on a 
 - `skill/` — skill definitions
 - `package.json` / `package-lock.json` — opencode plugin dependencies
 
+````markdown
 ## Install
 
-The target is `~/.config/opencode/`. If opencode is already installed on the
-machine, that directory exists and is **not empty** — `git clone <url> .` will
-refuse to run with `fatal: destination path '.' already exists and is not an
-empty directory.`. Pick one of the two flows below.
+This config spans two locations on the machine:
+
+- `~/.config/opencode/` — `opencode.jsonc` config, plugins, octto agent, ponytail command/skill symlinks, `package.json`
+- `~/.opencode/` — the 12 specialist agents and 9 skills that drive the swarm
+
+If opencode is already installed, both directories may exist and be non-empty. Pick one of the two flows below.
 
 ### A. Replace existing config (clean install of this repo)
 
-Back up what's there, then clone into the now-empty target:
+Back up both locations, then clone into the now-empty config dir:
 
 ```bash
 mv ~/.config/opencode ~/.config/opencode.bak.$(date +%s)
+mv ~/.opencode ~/.opencode.bak.$(date +%s)
 git clone https://github.com/Ha-Lun/opencode-config.git ~/.config/opencode
+mkdir -p ~/.opencode/agents ~/.opencode/skills
+cp ~/.config/opencode/agents/{lead-dev,explore,security-auditor,code-proofreader,frontend-specialist,lovable-specialist,backend-specialist,db-specialist,release-tester,test-writer,git-specialist,junior-dev}.md ~/.opencode/agents/
+for d in backend-quality design-taste-frontend frontend-design-baseline frontend-quality git-workflow premium-frontend-system release-testing security-review swarm-handoff; do
+  cp -r ~/.config/opencode/skill/"$d" ~/.opencode/skills/
+done
 cd ~/.config/opencode && npm install
 ```
 
-To roll back: `rm -rf ~/.config/opencode && mv ~/.config/opencode.bak.<timestamp> ~/.config/opencode`
+To roll back: `rm -rf ~/.config/opencode ~/.opencode && mv ~/.config/opencode.bak.<ts> ~/.config/opencode && mv ~/.opencode.bak.<ts> ~/.opencode`
 
 ### B. Merge with existing config (keep your current `opencode.json`)
 
@@ -38,6 +47,11 @@ Clone to a temp dir, then copy files in without overwriting anything:
 ```bash
 git clone https://github.com/Ha-Lun/opencode-config.git /tmp/opencode-config
 cp -rn /tmp/opencode-config/. ~/.config/opencode/
+mkdir -p ~/.opencode/agents ~/.opencode/skills
+cp -rn /tmp/opencode-config/agents/{lead-dev,explore,security-auditor,code-proofreader,frontend-specialist,lovable-specialist,backend-specialist,db-specialist,release-tester,test-writer,git-specialist,junior-dev}.md ~/.opencode/agents/
+for d in backend-quality design-taste-frontend frontend-design-baseline frontend-quality git-workflow premium-frontend-system release-testing security-review swarm-handoff; do
+  cp -rn /tmp/opencode-config/skill/"$d" ~/.opencode/skills/
+done
 cd ~/.config/opencode && npm install
 ```
 
@@ -48,6 +62,7 @@ diff ~/.config/opencode.bak.<timestamp>/opencode.json ~/.config/opencode/opencod
 ```
 
 After either path, restart opencode so it picks up the new config.
+````
 
 ## Path conventions
 
