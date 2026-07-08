@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Local state
+.ponytail-active
+*.local
+
+# Secrets — never commit
+*accounts*.json
+*.env
+.env.*
+secrets/
+*-credentials.json
+
+# Logs and caches
+*.log
+.cache/
+tmp/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
