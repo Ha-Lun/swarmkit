@@ -1,8 +1,18 @@
+# Binaries
+bin/
+*.exe
+
 # Dependencies
 node_modules/
 
 # Local state
 .ponytail-active
+.octto/
+history.jsonl
+cache/
+tasks/
+plans/
+projects/
 *.local
 
 # Secrets — never commit
