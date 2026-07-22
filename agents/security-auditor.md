@@ -1,6 +1,6 @@
 ---
 description: Security reviewer that scans code for secrets leakage, hardcoded API keys, dangerous patterns, auth flaws, injection risks, and unsafe configurations. Defaults to read-only review; only proposes fixes with justification.
-model: opencode-go/glm-5.2
+model: opencode-go/minimax-m3
 mode: subagent
 temperature: 0.1
 permission:
