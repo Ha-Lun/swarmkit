@@ -15,11 +15,99 @@ echo "  OpenCode Config Installer"
 echo "========================================"
 echo ""
 echo "This script will:"
-echo "  1. Set up API keys in \$HOME/.local/share/opencode/auth.json"
-echo "  2. Create symlinks for agents, skills, and opencode.json"
-echo "  3. Copy .claude configuration files"
-echo "  4. Install npm dependencies in ~/.opencode/"
+echo "  1. Check for existing config (and offer to back up/wipe if found)"
+echo "  2. Set up API keys in \$HOME/.local/share/opencode/auth.json"
+echo "  3. Create symlinks for agents, skills, and opencode.json"
+echo "  4. Copy .claude configuration files"
+echo "  5. Install npm dependencies in ~/.opencode/"
 echo ""
+
+# ========== Existing Config Detection ==========
+
+echo ""
+echo "=== Checking for Existing Config ==="
+
+ALREADY_INSTALLED=false
+HAS_EXISTING_CONFIG=false
+EXISTING_PATHS=()
+MERGE_MODE=false
+
+# Check if already installed (agents symlinked to this repo)
+if [ -L "$HOME_DIR/.opencode/agents" ] && [ "$(readlink "$HOME_DIR/.opencode/agents")" = "$REPO_DIR/agents" ]; then
+  ALREADY_INSTALLED=true
+fi
+
+if [ "$ALREADY_INSTALLED" = true ]; then
+  echo "✓ Existing config is already symlinked to this repo — skipping config check."
+else
+  # Check each config path for existing content
+  for check_path in "$HOME_DIR/.opencode" "$HOME_DIR/.claude" "$HOME_DIR/.config/opencode"; do
+    if [ -e "$check_path" ]; then
+      if [ -d "$check_path" ]; then
+        FILE_COUNT=$(find "$check_path" -type f 2>/dev/null | wc -l)
+      else
+        FILE_COUNT=1
+      fi
+      if [ "$FILE_COUNT" -gt 0 ]; then
+        HAS_EXISTING_CONFIG=true
+        EXISTING_PATHS+=("$check_path ($FILE_COUNT files)")
+      fi
+    fi
+  done
+
+  if [ "$HAS_EXISTING_CONFIG" = true ]; then
+    echo ""
+    echo "⚠️  Existing opencode config detected!"
+    echo ""
+    echo "Found:"
+    for item in "${EXISTING_PATHS[@]}"; do
+      echo "  - $item"
+    done
+    echo ""
+    echo "Options:"
+    echo "  1) Back up existing config and install fresh"
+    echo "  2) Wipe existing config completely and install fresh"
+    echo "  3) Merge (keep existing files, only add missing ones — NOT RECOMMENDED)"
+    echo "  4) Cancel installation"
+    echo ""
+    read -rp "What would you like to do? (1/2/3/4): " CONFIG_CHOICE
+
+    case "$CONFIG_CHOICE" in
+      1)
+        BACKUP_DIR="$HOME_DIR/.opencode-backup-$(date +%Y%m%d-%H%M%S)"
+        echo ""
+        echo "Backing up to: $BACKUP_DIR"
+        mkdir -p "$BACKUP_DIR"
+        for path in "$HOME_DIR/.opencode" "$HOME_DIR/.claude" "$HOME_DIR/.config/opencode"; do
+          if [ -e "$path" ]; then
+            mv "$path" "$BACKUP_DIR/"
+          fi
+        done
+        echo "✓ Backup complete"
+        ;;
+      2)
+        echo ""
+        echo "Wiping existing config..."
+        rm -rf "$HOME_DIR/.opencode" "$HOME_DIR/.claude" "$HOME_DIR/.config/opencode"
+        echo "✓ Existing config wiped"
+        ;;
+      3)
+        echo ""
+        echo "⚠️  Merge mode selected — existing files will be kept, only missing files will be added."
+        echo "   This may cause conflicts if existing config is incompatible."
+        MERGE_MODE=true
+        ;;
+      4)
+        echo "Installation cancelled."
+        exit 0
+        ;;
+      *)
+        echo "Invalid option. Cancelling installation."
+        exit 1
+        ;;
+    esac
+  fi
+fi
 
 # ========== API Key Setup ==========
 
@@ -138,9 +226,17 @@ esac
 echo ""
 echo "=== Creating Symlinks ==="
 mkdir -p "$HOME_DIR/.opencode"
-ln -sf "$REPO_DIR/agents"   "$HOME_DIR/.opencode/agents"
-ln -sf "$REPO_DIR/skill"    "$HOME_DIR/.opencode/skills"
-ln -sf "$REPO_DIR/opencode.jsonc" "$HOME_DIR/.opencode/opencode.json"
+
+if [ "$MERGE_MODE" = true ]; then
+  # Merge: only symlink files that don't already exist
+  [ ! -e "$HOME_DIR/.opencode/agents" ]       && ln -s "$REPO_DIR/agents"   "$HOME_DIR/.opencode/agents"
+  [ ! -e "$HOME_DIR/.opencode/skills" ]       && ln -s "$REPO_DIR/skill"    "$HOME_DIR/.opencode/skills"
+  [ ! -e "$HOME_DIR/.opencode/opencode.json" ] && ln -s "$REPO_DIR/opencode.jsonc" "$HOME_DIR/.opencode/opencode.json"
+else
+  ln -sf "$REPO_DIR/agents"   "$HOME_DIR/.opencode/agents"
+  ln -sf "$REPO_DIR/skill"    "$HOME_DIR/.opencode/skills"
+  ln -sf "$REPO_DIR/opencode.jsonc" "$HOME_DIR/.opencode/opencode.json"
+fi
 echo "✓ Symlinks created"
 
 # ========== Free Mode: Comment Out Model Lines ==========
@@ -165,8 +261,13 @@ mkdir -p "$HOME_DIR/.claude"
 count=0
 for f in "$REPO_DIR/.claude/"*.md "$REPO_DIR/.claude/"*.json "$REPO_DIR/.claude/"*.sh; do
   if [ -f "$f" ]; then
-    cp "$f" "$HOME_DIR/.claude/"
-    count=$((count + 1))
+    dest="$HOME_DIR/.claude/$(basename "$f")"
+    if [ "$MERGE_MODE" = true ] && [ -f "$dest" ]; then
+      echo "  Skipping (exists): $(basename "$f")"
+    else
+      cp "$f" "$dest"
+      count=$((count + 1))
+    fi
   fi
 done
 echo "✓ Copied $count files to ~/.claude/"
