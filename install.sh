@@ -15,9 +15,12 @@ ln -sf "$REPO_DIR/agents" "$HOME_DIR/.opencode/agents"
 ln -sf "$REPO_DIR/skill" "$HOME_DIR/.opencode/skills"
 ln -sf "$REPO_DIR/opencode.jsonc" "$HOME_DIR/.opencode/opencode.json"
 
-# Copy .claude files (these can't be symlinked because opencode expects them in place)
+# Copy .claude config files (these can't be symlinked because opencode expects them in place)
+# Only copies config files — not skills (those are Gemini-managed, 76 MB)
 echo "Copying .claude config files..."
 mkdir -p "$HOME_DIR/.claude"
-cp -r "$REPO_DIR/.claude/"* "$HOME_DIR/.claude/" 2>/dev/null || true
+for f in "$REPO_DIR/.claude/"*.md "$REPO_DIR/.claude/"*.json "$REPO_DIR/.claude/"*.sh; do
+  [ -f "$f" ] && cp "$f" "$HOME_DIR/.claude/"
+done
 
 echo "✓ Config installed. Restart opencode to apply changes."
