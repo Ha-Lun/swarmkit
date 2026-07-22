@@ -1,7 +1,7 @@
 ---
 description: Database specialist for schema design, migrations, query optimization, and ORM code.
 mode: subagent
-model: opencode-go/deepseek-v4-flash
+model: opencode-go/qwen3.7-plus
 temperature: 0.2
 permission:
   read: allow
