@@ -46,9 +46,12 @@ fi
 # Ask about free mode (only if we're going to prompt for keys)
 if [ "${AUTH_MODE:-overwrite}" != "skip" ]; then
   echo ""
-  echo "=== OpenCode Go ==="
-  echo "  The recommended provider. Get a key at: https://opencode.ai/account/api-keys"
-  echo "  If you don't have a key, free mode will use default models."
+  echo "=== API Keys ==="
+  echo "  Paid mode requires both opencode-go and NVIDIA API keys."
+  echo "  Free mode uses default models and requires no keys."
+  echo ""
+  echo "  Get an opencode-go key at: https://opencode.ai/account/api-keys"
+  echo "  Get an NVIDIA key at:      https://build.nvidia.com/"
   echo ""
   read -rp "Do you have an opencode-go API key? (y/n): " HAS_OC_KEY
   case "$HAS_OC_KEY" in
@@ -65,9 +68,8 @@ build_auth() {
 
   if [ "$FREE_MODE" = false ]; then
     echo ""
-    echo "=== OpenCode Go API Key ==="
+    echo "=== OpenCode Go API Key (required) ==="
     echo "  Get yours at: https://opencode.ai/account/api-keys"
-    echo "  (or copy the key from your existing auth.json on another machine)"
     echo ""
     read -rsp "OpenCode Go API Key: " OPENCODE_GO_KEY
     echo ""
@@ -80,14 +82,19 @@ build_auth() {
     first=false
   fi
 
-  # NVIDIA (optional)
-  echo ""
-  echo "=== NVIDIA NIM (optional) ==="
-  echo "  Models: Llama, Nemotron, etc. Get key at: https://build.nvidia.com/"
-  read -rp "NVIDIA API Key (or skip): " NVIDIA_KEY
-  NVIDIA_KEY="${NVIDIA_KEY# }"
-  NVIDIA_KEY="${NVIDIA_KEY% }"
-  if [ -n "$NVIDIA_KEY" ] && [ "$NVIDIA_KEY" != "skip" ]; then
+  if [ "$FREE_MODE" = false ]; then
+    echo ""
+    echo "=== NVIDIA NIM (required) ==="
+    echo "  Models: Llama, Nemotron, etc. Get key at: https://build.nvidia.com/"
+    echo "  Required — agents (docker-specialist, server-specialist) use nvidia models."
+    echo ""
+    read -rsp "NVIDIA API Key: " NVIDIA_KEY
+    echo ""
+    while [ -z "$NVIDIA_KEY" ]; do
+      echo "This key is required."
+      read -rsp "NVIDIA API Key: " NVIDIA_KEY
+      echo ""
+    done
     if [ "$first" = false ]; then auth+=","; fi
     auth+='"nvidia": {"type": "api", "key": "'"$NVIDIA_KEY"'"}'
     first=false
@@ -186,10 +193,10 @@ echo ""
 if [ "$FREE_MODE" = true ]; then
   echo "Free mode is active:"
   echo "  - Agents are using default models (model selections commented out)"
-  echo "  - Some features may be limited without an opencode-go API key"
-  echo "  - To restore full functionality later, get a key at:"
-  echo "      https://opencode.ai/account/api-keys"
-  echo "    then run this installer again."
+  echo "  - No API keys are configured"
+  echo "  - To switch to paid mode later, run this installer again and get keys at:"
+  echo "      opencode-go: https://opencode.ai/account/api-keys"
+  echo "      NVIDIA:      https://build.nvidia.com/"
   echo ""
   echo "Next steps:"
   echo "  1. Restart opencode to apply changes"
