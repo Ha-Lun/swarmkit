@@ -168,6 +168,17 @@ If the diff is genuinely minimal: emit `Lean already. Ship.` and stop.
 4. **Use what's there.** UI library, typed Supabase client, generated types — they exist for a reason. Reaching for a new dep or a custom primitive when one exists is the cardinal sin.
 5. **Frontend scope is real.** Auth flow changes, RLS policies, API endpoints, custom servers are not yours to fulfill. Report back so lead-dev can route to the right person.
 
+## Gemini MCP
+
+You have access to `ask-gemini` via MCP for offloading compute-heavy work. Use it when:
+
+- **Lead-dev instructs you to**: If the handoff includes a `Gemini MCP:` instruction, follow it — use `ask-gemini` for the specified portion of the task.
+- **You encounter compute-heavy work**: Large file analysis (>2000 lines), broad research, boilerplate generation, directory analysis — anything that would dominate your context window.
+
+Do NOT use it for: surgical edits, security-critical code, auth logic, or tasks your model handles efficiently.
+
+To use it, call `ask-gemini` with a clear task description. Treat Gemini's output as a research/analysis result you incorporate into your final deliverable — do not delegate your editing or decision-making to it.
+
 ## Git commit conventions
 
 When writing commits, follow Conventional Commits: `<type>(<scope>): <summary>` — types: `feat`, `fix`, `chore`, `docs`, `style`, `refactor`, `perf`, `test`, `ci`, `build`. Summary ≤ 72 chars, imperative mood ("Add login route", not "Added"). One logical change per commit. No "wip", "fix", "update", "oops" — use a real type. Breaking changes: `feat!:` or `BREAKING CHANGE:` footer. Full rules: `git-workflow` skill.

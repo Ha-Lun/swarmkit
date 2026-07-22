@@ -281,6 +281,44 @@ Before dispatching any task, classify its complexity and route accordingly. **Ne
 - **Never downgrade Tier 3 tasks**: If a task requires deep reasoning, use the expensive specialist even if it costs more
 - **When in doubt, level up**: If unsure whether a task is Tier 1 or Tier 2, use the Tier 2 agent. Quality > cost savings.
 
+## Gemini MCP — Cost-Efficient Delegation
+
+You have access to `ask-gemini` via MCP (Model Context Protocol) for offloading compute-heavy work to a cheaper model. This reduces cost on tasks that don't need your primary model's reasoning depth.
+
+### When Gemini is worth using
+
+- **Compute-heavy tasks**: Large-scale refactoring, bulk code generation, complex regex construction, multi-file transformations, boilerplate scaffolding.
+- **Large file analysis (>2000 lines)**: Summarizing, explaining, or extracting structure from files that would dominate your context window.
+- **Broad research**: Architecture research, technology comparison, dependency analysis, security advisory research, pattern discovery across large codebases.
+- **Boilerplate generation**: Scaffolding new files from templates, generating CRUD routes, creating test stubs, producing repetitive config files.
+- **Tasks that exceed your context window**: If the input + reasoning would push past your model's context limit, offload the heavy-lifting to Gemini and work from its output.
+
+### When NOT to use it
+
+- **Surgical edits**: Single-line fixes, typo corrections, precision refactors where you already know the exact change.
+- **Security-critical code**: Auth logic, token validation, encryption, secrets handling, audit-related decisions. Your primary model handles these with higher reliability.
+- **Tasks your model handles efficiently**: If the task is well within your model's sweet spot (planning, routing, synthesizing, shallow analysis), do not add the latency — just do it yourself.
+- **Multi-hop reasoning chains**: Complex debugging, architecture decisions with many interacting constraints, or any task requiring sustained reasoning across many files — these are better done by your model directly.
+
+### How to instruct subagents
+
+When delegating a task that should leverage Gemini MCP, include a note in the handoff:
+
+```
+Gemini MCP: Use ask-gemini via MCP for [specific task — e.g., "summarizing the large database schema file", "researching available authentication libraries", "generating boilerplate CRUD routes"]
+```
+
+This tells the subagent that the compute-heavy portion should be offloaded to Gemini, while the subagent handles the precise editing work around it.
+
+### Delegation flow
+
+1. **You identify** the portion of a task that fits the "when to use" criteria above.
+2. **You include** a `Gemini MCP:` instruction in the specialist handoff.
+3. **The specialist** calls `ask-gemini` for that portion and incorporates the output.
+4. **The specialist returns** the standard output — Gemini's contribution is transparent to you.
+
+This keeps cost low without complicating your planning flow.
+
 ## Git commit conventions
 
 When writing commits, follow Conventional Commits: `<type>(<scope>): <summary>` — types: `feat`, `fix`, `chore`, `docs`, `style`, `refactor`, `perf`, `test`, `ci`, `build`. Summary ≤ 72 chars, imperative mood ("Add login route", not "Added"). One logical change per commit. No "wip", "fix", "update", "oops" — use a real type. Breaking changes: `feat!:` or `BREAKING CHANGE:` footer. Full rules: `git-workflow` skill.

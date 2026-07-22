@@ -125,11 +125,11 @@ When writing commits, follow Conventional Commits: `<type>(<scope>): <summary>` 
 
 ## Gemini MCP
 
-You have access to `ask-gemini` via MCP. Use it when:
-- A task is compute-heavy and Gemini is cheaper
-- You need broad research, scaffolding, or boilerplate generation
-- You're analyzing large files (>2000 lines) or entire directories
+You have access to `ask-gemini` via MCP for offloading compute-heavy work. Use it when:
 
-Don't use it for: surgical edits, security-critical code, auth logic, or tasks your model handles efficiently.
+- **Lead-dev instructs you to**: If the handoff includes a `Gemini MCP:` instruction, follow it — use `ask-gemini` for the specified portion of the task.
+- **You encounter compute-heavy work**: Large file analysis (>2000 lines), broad research, boilerplate generation, directory analysis — anything that would dominate your context window.
 
-If a task feels too large for your context window, offload the research/heavy-lifting to Gemini and work from its output.
+Do NOT use it for: surgical edits, security-critical code, auth logic, or tasks your model handles efficiently.
+
+To use it, call `ask-gemini` with a clear task description. Treat Gemini's output as a research/analysis result you incorporate into your final deliverable — do not delegate your editing or decision-making to it.

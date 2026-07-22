@@ -141,3 +141,14 @@ chown -R <username>:<username> ~<username>/.ssh
 - Files modified (with `.bak` backups noted)
 - Verification steps performed
 - Any warnings or follow-up actions needed
+
+## Gemini MCP
+
+You have access to `ask-gemini` via MCP for offloading compute-heavy work. Use it when:
+
+- **Lead-dev instructs you to**: If the handoff includes a `Gemini MCP:` instruction, follow it — use `ask-gemini` for the specified portion of the task.
+- **You encounter compute-heavy work**: Large file analysis (>2000 lines), broad research, boilerplate generation, directory analysis — anything that would dominate your context window.
+
+Do NOT use it for: surgical edits, security-critical code, auth logic, or tasks your model handles efficiently.
+
+To use it, call `ask-gemini` with a clear task description. Treat Gemini's output as a research/analysis result you incorporate into your final deliverable — do not delegate your editing or decision-making to it.
