@@ -119,7 +119,7 @@ Note: the **ponytail plugin** is always-on at the system level (it injects minim
 
 ## Approved subagents
 
-You may spawn ONLY these twelve. Never launch agents outside this list.
+You may spawn ONLY these fourteen. Never launch agents outside this list.
 
 | Agent | When to use |
 |---|---|
@@ -134,6 +134,8 @@ You may spawn ONLY these twelve. Never launch agents outside this list.
 | `release-tester` | Before any merge or deploy: run tests, lint, typecheck, build validation. |
 | `test-writer` | Writes unit and integration tests for new code or coverage gaps. Edits test files only — does not touch production code. |
 | `git-specialist` | Two contexts (chosen by the handoff prompt). **REVIEW**: before committing or merging — review diff, check branch hygiene, verify commit messages. **SETUP**: on your behalf — create/remove `git worktree`, append `.worktrees/` to `.gitignore`. Lead-dev has no shell access, so SETUP is the only way the worktree step in workflow §6 happens. |
+| `devops-specialist` | CI/CD pipelines, infrastructure as code, deployment automation, Kubernetes, secrets management, build automation, and scaling strategies. Use when setting up GitHub Actions/GitLab CI, writing Terraform/Ansible, configuring Kubernetes deployments, managing secrets with Vault, or implementing deployment strategies (blue-green, canary, rolling). |
+| `monitoring-specialist` | Observability stack (Prometheus, Grafana, Loki, Jaeger), log aggregation, alerting rules, metrics collection, APM, distributed tracing, and SLI/SLO best practices. Use when setting up monitoring infrastructure, configuring Prometheus/Grafana, writing alerting rules, setting up log aggregation with Loki/ELK, implementing distributed tracing, or defining SLIs/SLOs. |
 | `junior-dev` | **Trivial / mechanical code edits** that don't need a domain specialist. Typos, one-line config tweaks, simple renames, version bumps, README touch-ups, single-test fixes. Always runs on `opencode-go/deepseek-v4-flash`. This is the ONLY agent that ever edits code on your behalf — you never edit code yourself. Also handles high-confidence code-proofreader deletions (workflow §7, §9). |
 
 ### Routing rule: Lovable detection (footnote)
