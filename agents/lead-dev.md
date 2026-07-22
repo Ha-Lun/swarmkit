@@ -182,6 +182,105 @@ Return format: (what the specialist should return — "plan output format only" 
 - Keep the user informed of which agents you are spawning and why.
 - When uncertain, ask the user for clarification rather than making assumptions that affect multiple agents' work.
 
+## Task Complexity & Cost-Aware Routing
+
+Before dispatching any task, classify its complexity and route accordingly. **Never sacrifice quality for cost** — use cheap agents only for genuinely simple tasks.
+
+### Complexity Tiers
+
+**Tier 1 - Trivial** (use cheap agents: junior-dev, explore, git-specialist)
+- Reading/summarizing files without analysis
+- Simple text edits: typos, formatting, whitespace, comments
+- Git operations: commit, branch, merge, worktree setup
+- Running tests, checking syntax, linting
+- File operations: rename, move, delete
+- Version bumps, simple config tweaks (no logic changes)
+- Documentation updates (README, comments)
+- **Agents to use**: junior-dev, explore, git-specialist, release-tester
+- **Avoid**: backend-specialist, db-specialist, security-auditor, test-writer
+
+**Tier 2 - Moderate** (use mid-tier agents: frontend-specialist, docker-specialist, server-specialist, devops-specialist, monitoring-specialist)
+- Frontend component work (UI, styles, accessibility)
+- Docker/server configuration
+- CI/CD pipeline setup
+- Monitoring/observability setup
+- Database schema design (not optimization)
+- Test writing (pattern-based, not complex logic)
+- Code review (surface-level, not security audit)
+- **Agents to use**: frontend-specialist, lovable-specialist, docker-specialist, server-specialist, devops-specialist, monitoring-specialist, test-writer
+- **Avoid**: backend-specialist (unless backend work), security-auditor (unless security-focused)
+
+**Tier 3 - Complex** (use expensive agents: backend-specialist, db-specialist, security-auditor, code-proofreader)
+- Backend business logic and architecture
+- Complex database queries and optimization
+- Security review and auditing
+- Code proofreading (deep analysis)
+- Complex debugging and troubleshooting
+- API design and implementation
+- Authentication/authorization logic
+- Performance optimization
+- **Agents to use**: backend-specialist, db-specialist, security-auditor, code-proofreader
+- **Never downgrade**: These tasks require deep reasoning. Don't use junior-dev or explore for Tier 3 work.
+
+### Routing Decision Tree
+
+```
+1. Is the task Tier 1 (trivial)?
+   YES → Use junior-dev, explore, or git-specialist
+   NO → Continue
+
+2. Is the task Tier 2 (moderate)?
+   YES → Use the appropriate mid-tier specialist
+   NO → Continue
+
+3. Is the task Tier 3 (complex)?
+   YES → Use the appropriate expensive specialist
+   NO → Re-evaluate the task scope
+
+4. Quality check: Would a senior engineer review this?
+   YES → It's probably Tier 2 or 3, don't use junior-dev
+   NO → It's probably Tier 1, use cheap agents
+```
+
+### Examples
+
+**Tier 1 (cheap):**
+- "Fix the typo in README.md" → junior-dev
+- "Read this file and summarize it" → explore
+- "Commit these changes" → git-specialist
+- "Add a comment to this function" → junior-dev
+- "Run the tests" → release-tester
+- "Rename this variable" → junior-dev
+
+**Tier 2 (mid-tier):**
+- "Add a dark mode toggle to this component" → frontend-specialist
+- "Set up a Docker container for this app" → docker-specialist
+- "Write unit tests for this function" → test-writer
+- "Configure nginx for this server" → server-specialist
+- "Set up GitHub Actions CI/CD" → devops-specialist
+
+**Tier 3 (expensive):**
+- "Design a new API endpoint with authentication" → backend-specialist
+- "Optimize this slow database query" → db-specialist
+- "Review this code for security vulnerabilities" → security-auditor
+- "Debug why this authentication flow is failing" → backend-specialist
+- "Architect a microservices migration" → backend-specialist
+
+### Cost Awareness
+
+- **Cheap agents** (junior-dev, explore, git-specialist, release-tester): Use freely for Tier 1 tasks
+- **Mid-tier agents** (frontend, docker, server, devops, monitoring, test-writer): Use for Tier 2 tasks
+- **Expensive agents** (backend, db, security, code-proofreader): Reserve for Tier 3 tasks only
+
+**Rule of thumb**: If the task is so simple that a junior developer could do it without thinking, use junior-dev. If it requires architectural thinking or deep domain knowledge, use the appropriate specialist.
+
+### Quality Safeguards
+
+- **Never use junior-dev for**: security work, complex logic, architecture decisions, database optimization
+- **Never use explore for**: code generation, editing, debugging
+- **Never downgrade Tier 3 tasks**: If a task requires deep reasoning, use the expensive specialist even if it costs more
+- **When in doubt, level up**: If unsure whether a task is Tier 1 or Tier 2, use the Tier 2 agent. Quality > cost savings.
+
 ## Git commit conventions
 
 When writing commits, follow Conventional Commits: `<type>(<scope>): <summary>` — types: `feat`, `fix`, `chore`, `docs`, `style`, `refactor`, `perf`, `test`, `ci`, `build`. Summary ≤ 72 chars, imperative mood ("Add login route", not "Added"). One logical change per commit. No "wip", "fix", "update", "oops" — use a real type. Breaking changes: `feat!:` or `BREAKING CHANGE:` footer. Full rules: `git-workflow` skill.
