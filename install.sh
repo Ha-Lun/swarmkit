@@ -25,6 +25,8 @@ echo ""
 
 mkdir -p "$AUTH_DIR"
 
+FREE_MODE=false
+
 # Check for existing auth.json
 if [ -f "$AUTH_FILE" ]; then
   echo "Existing auth.json detected at: $AUTH_FILE"
@@ -41,35 +43,46 @@ if [ -f "$AUTH_FILE" ]; then
   done
 fi
 
+# Ask about free mode (only if we're going to prompt for keys)
+if [ "${AUTH_MODE:-overwrite}" != "skip" ]; then
+  echo ""
+  echo "=== OpenCode Go ==="
+  echo "  The recommended provider. Get a key at: https://opencode.ai/account/api-keys"
+  echo "  If you don't have a key, free mode will use default models."
+  echo ""
+  read -rp "Do you have an opencode-go API key? (y/n): " HAS_OC_KEY
+  case "$HAS_OC_KEY" in
+    [Yy]*) FREE_MODE=false;;
+    *)     FREE_MODE=true
+           echo "  Free mode selected — agents will use default models."
+           ;;
+  esac
+fi
+
 build_auth() {
   local auth="{"
   local first=true
 
-  # opencode-go (required)
-  echo ""
-  echo "=== OpenCode Go API Key (required) ==="
-  echo "  Get yours at: https://opencode.ai/account/api-keys"
-  echo "  (or copy the key from your existing auth.json on another machine)"
-  echo ""
-  read -rsp "OpenCode Go API Key: " OPENCODE_GO_KEY
-  echo ""
-  while [ -z "$OPENCODE_GO_KEY" ]; do
-    echo "This key is required."
+  if [ "$FREE_MODE" = false ]; then
+    echo ""
+    echo "=== OpenCode Go API Key ==="
+    echo "  Get yours at: https://opencode.ai/account/api-keys"
+    echo "  (or copy the key from your existing auth.json on another machine)"
+    echo ""
     read -rsp "OpenCode Go API Key: " OPENCODE_GO_KEY
     echo ""
-  done
-  auth+='"opencode-go": {"type": "api", "key": "'"$OPENCODE_GO_KEY"'"}'
-  first=false
+    while [ -z "$OPENCODE_GO_KEY" ]; do
+      echo "This key is required."
+      read -rsp "OpenCode Go API Key: " OPENCODE_GO_KEY
+      echo ""
+    done
+    auth+='"opencode-go": {"type": "api", "key": "'"$OPENCODE_GO_KEY"'"}'
+    first=false
+  fi
 
-  # --- Optional providers ---
+  # NVIDIA (optional)
   echo ""
-  echo "=== Optional Providers ==="
-  echo "You can add additional API keys for other models."
-  echo "Leave blank or type 'skip' for any provider you don't need."
-  echo ""
-
-  # NVIDIA
-  echo "--- NVIDIA NIM ---"
+  echo "=== NVIDIA NIM (optional) ==="
   echo "  Models: Llama, Nemotron, etc. Get key at: https://build.nvidia.com/"
   read -rp "NVIDIA API Key (or skip): " NVIDIA_KEY
   NVIDIA_KEY="${NVIDIA_KEY# }"
@@ -77,61 +90,6 @@ build_auth() {
   if [ -n "$NVIDIA_KEY" ] && [ "$NVIDIA_KEY" != "skip" ]; then
     if [ "$first" = false ]; then auth+=","; fi
     auth+='"nvidia": {"type": "api", "key": "'"$NVIDIA_KEY"'"}'
-    first=false
-  fi
-
-  # OpenRouter
-  echo ""
-  echo "--- OpenRouter ---"
-  echo "  Access many models (Claude, GPT, Gemini, etc.). Get key at: https://openrouter.ai/keys"
-  read -rp "OpenRouter API Key (or skip): " OPENROUTER_KEY
-  OPENROUTER_KEY="${OPENROUTER_KEY# }"
-  OPENROUTER_KEY="${OPENROUTER_KEY% }"
-  if [ -n "$OPENROUTER_KEY" ] && [ "$OPENROUTER_KEY" != "skip" ]; then
-    if [ "$first" = false ]; then auth+=","; fi
-    auth+='"openrouter": {"type": "api", "key": "'"$OPENROUTER_KEY"'"}'
-    first=false
-  fi
-
-  # Groq
-  echo ""
-  echo "--- Groq ---"
-  echo "  Fast inference for Llama, Mixtral, etc. Get key at: https://console.groq.com/keys"
-  read -rp "Groq API Key (or skip): " GROQ_KEY
-  GROQ_KEY="${GROQ_KEY# }"
-  GROQ_KEY="${GROQ_KEY% }"
-  if [ -n "$GROQ_KEY" ] && [ "$GROQ_KEY" != "skip" ]; then
-    if [ "$first" = false ]; then auth+=","; fi
-    auth+='"groq": {"type": "api", "key": "'"$GROQ_KEY"'"}'
-    first=false
-  fi
-
-  # Ollama Cloud
-  echo ""
-  echo "--- Ollama Cloud ---"
-  echo "  Hosted Ollama models. Get key at: https://cloud.ollama.com/"
-  read -rp "Ollama Cloud API Key (or skip): " OLLAMA_KEY
-  OLLAMA_KEY="${OLLAMA_KEY# }"
-  OLLAMA_KEY="${OLLAMA_KEY% }"
-  if [ -n "$OLLAMA_KEY" ] && [ "$OLLAMA_KEY" != "skip" ]; then
-    if [ "$first" = false ]; then auth+=","; fi
-    auth+='"ollama-cloud": {"type": "api", "key": "'"$OLLAMA_KEY"'"}'
-    first=false
-  fi
-
-  # Cloudflare Workers AI (needs account ID too)
-  echo ""
-  echo "--- Cloudflare Workers AI ---"
-  echo "  Run models on Cloudflare's network. Get key at: https://developers.cloudflare.com/workers-ai/"
-  read -rp "Cloudflare API Key (or skip): " CF_KEY
-  CF_KEY="${CF_KEY# }"
-  CF_KEY="${CF_KEY% }"
-  if [ -n "$CF_KEY" ] && [ "$CF_KEY" != "skip" ]; then
-    read -rp "Cloudflare Account ID: " CF_ACCOUNT
-    CF_ACCOUNT="${CF_ACCOUNT# }"
-    CF_ACCOUNT="${CF_ACCOUNT% }"
-    if [ "$first" = false ]; then auth+=","; fi
-    auth+='"cloudflare-workers-ai": {"type": "api", "key": "'"$CF_KEY"'", "metadata": {"accountId": "'"$CF_ACCOUNT"'"}}'
     first=false
   fi
 
@@ -149,12 +107,9 @@ case "${AUTH_MODE:-overwrite}" in
     echo "Merging new keys into existing auth.json..."
     EXISTING_AUTH=$(cat "$AUTH_FILE")
     NEW_AUTH=$(build_auth)
-    # Merge: take existing object, overlay new keys
-    # Use jq if available, otherwise do a simple approach
     if command -v jq &>/dev/null; then
       echo "$EXISTING_AUTH" | jq --argjson new "$NEW_AUTH" '. + $new' > "$AUTH_FILE"
     else
-      # Fallback: just overwrite (merge via jq only)
       echo "$NEW_AUTH" > "$AUTH_FILE"
       echo "  (install jq for proper merge; fell back to overwrite)"
     fi
@@ -162,8 +117,12 @@ case "${AUTH_MODE:-overwrite}" in
     ;;
   *)
     NEW_AUTH=$(build_auth)
-    echo "$NEW_AUTH" > "$AUTH_FILE"
-    echo "✓ API keys saved to $AUTH_FILE"
+    if [ "$NEW_AUTH" != "{}" ]; then
+      echo "$NEW_AUTH" > "$AUTH_FILE"
+      echo "✓ API keys saved to $AUTH_FILE"
+    else
+      echo "No API keys to save. Skipping auth.json creation."
+    fi
     ;;
 esac
 
@@ -176,6 +135,20 @@ ln -sf "$REPO_DIR/agents"   "$HOME_DIR/.opencode/agents"
 ln -sf "$REPO_DIR/skill"    "$HOME_DIR/.opencode/skills"
 ln -sf "$REPO_DIR/opencode.jsonc" "$HOME_DIR/.opencode/opencode.json"
 echo "✓ Symlinks created"
+
+# ========== Free Mode: Comment Out Model Lines ==========
+
+if [ "$FREE_MODE" = true ]; then
+  echo ""
+  echo "=== Free Mode ==="
+  echo "Enabling free mode (commenting out model selections)..."
+  for file in "$HOME_DIR/.opencode/agents/"*.md; do
+    if [ -f "$file" ]; then
+      sed -i 's/^model:/# model:/' "$file"
+    fi
+  done
+  echo "✓ Model selections commented out — agents will use default models"
+fi
 
 # ========== .claude Config ==========
 
@@ -209,12 +182,29 @@ echo "========================================"
 echo "  Installation Complete!"
 echo "========================================"
 echo ""
-echo "Next steps:"
-echo "  1. Restart opencode to apply changes"
-echo "  2. If you skipped Google/GitHub Copilot auth, run:"
-echo "       opencode auth login google"
-echo "       opencode auth login github-copilot"
-echo "  3. Verify your setup:"
-echo "       opencode doctor"
-echo ""
+
+if [ "$FREE_MODE" = true ]; then
+  echo "Free mode is active:"
+  echo "  - Agents are using default models (model selections commented out)"
+  echo "  - Some features may be limited without an opencode-go API key"
+  echo "  - To restore full functionality later, get a key at:"
+  echo "      https://opencode.ai/account/api-keys"
+  echo "    then run this installer again."
+  echo ""
+  echo "Next steps:"
+  echo "  1. Restart opencode to apply changes"
+  echo "  2. Verify your setup:"
+  echo "       opencode doctor"
+  echo ""
+else
+  echo "Next steps:"
+  echo "  1. Restart opencode to apply changes"
+  echo "  2. If you skipped Google/GitHub Copilot auth, run:"
+  echo "       opencode auth login google"
+  echo "       opencode auth login github-copilot"
+  echo "  3. Verify your setup:"
+  echo "       opencode doctor"
+  echo ""
+fi
+
 echo "Happy coding!"
