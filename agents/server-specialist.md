@@ -1,7 +1,7 @@
 ---
 description: Ubuntu server administration expert for system configuration, service management, security hardening, and infrastructure maintenance.
 mode: subagent
-model: opencode/nemotron-3-ultra-free
+model: opencode-go/mimo-v2.5-pro
 temperature: 0.1
 permission:
   read: allow
