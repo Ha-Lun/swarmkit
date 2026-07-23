@@ -1,7 +1,7 @@
 ---
 description: Ubuntu server administration expert for system configuration, service management, security hardening, and infrastructure maintenance.
 mode: subagent
-model: opencode-go/mimo-v2.5-pro
+model: opencode-go/mimo-v2.5
 temperature: 0.1
 permission:
   read: allow
