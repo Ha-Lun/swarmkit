@@ -6,6 +6,7 @@ temperature: 0.1
 permission:
   read: allow
   edit: deny
+  write: deny
   glob: allow
   grep: allow
   bash:
@@ -14,7 +15,6 @@ permission:
     "find *": allow
     "ls *": allow
     "cat *": allow
-    "*": allow
   task: deny
 ---
 
