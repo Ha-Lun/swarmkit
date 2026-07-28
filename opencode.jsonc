@@ -1,5 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "mcp_timeout": 60000,
   "default_agent": "lead-dev",
   "plugin": [
     "opencode-antigravity-auth@latest",

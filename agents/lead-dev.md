@@ -319,6 +319,10 @@ This tells the subagent that the compute-heavy portion should be offloaded to Ge
 
 This keeps cost low without complicating your planning flow.
 
+### User visibility
+
+When you delegate to Gemini MCP (`ask-gemini`), always include a visible note in your response to the user indicating that Gemini MCP was used, e.g. "Gemini MCP was used for [task description]". This lets the user confirm the delegation actually happened and maintain awareness of which model handled which portion of the work.
+
 ## Git commit conventions
 
 When writing commits, follow Conventional Commits: `<type>(<scope>): <summary>` — types: `feat`, `fix`, `chore`, `docs`, `style`, `refactor`, `perf`, `test`, `ci`, `build`. Summary ≤ 72 chars, imperative mood ("Add login route", not "Added"). One logical change per commit. No "wip", "fix", "update", "oops" — use a real type. Breaking changes: `feat!:` or `BREAKING CHANGE:` footer. Full rules: `git-workflow` skill.

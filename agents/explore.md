@@ -80,6 +80,10 @@ Do NOT use it for: surgical edits, security-critical code, auth logic, or tasks 
 
 To use it, call `ask-gemini` with a clear task description. Treat Gemini's output as a research/analysis result you incorporate into your final deliverable — do not delegate your editing or decision-making to it.
 
+### User visibility
+
+When you use Gemini MCP, include a visible note in your response to the user indicating that Gemini MCP was used, e.g. "Gemini MCP was used for [task description]". This lets the user confirm the delegation happened.
+
 ## Git commit conventions
 
 When writing commits, follow Conventional Commits: `<type>(<scope>): <summary>` — types: `feat`, `fix`, `chore`, `docs`, `style`, `refactor`, `perf`, `test`, `ci`, `build`. Summary ≤ 72 chars, imperative mood ("Add login route", not "Added"). One logical change per commit. No "wip", "fix", "update", "oops" — use a real type. Breaking changes: `feat!:` or `BREAKING CHANGE:` footer. Full rules: `git-workflow` skill.
