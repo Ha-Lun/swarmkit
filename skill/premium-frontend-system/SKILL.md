@@ -34,6 +34,7 @@ Before a single line of code, answer these in writing. If you cannot answer them
 3. **What is the product's voice?** Editorial / Technical / Playful / Authoritative / Rebellious / Tender / Clinical. Pick one and commit.
 4. **What is the brand fighting against?** Every premium brand is a reaction to something. "We're not another SaaS dashboard." "We're not a generic AI wrapper." Name it.
 5. **What are the constraints?** Browser support. Performance budget. No-3D. Existing brand. No-build. Dark-mode-first. Be honest.
+6. **What is the single most important thing they should see in the first 3 seconds?** Not "a clear headline." A specific element, feeling, or focal point.
 
 If any of these are missing, stop. Surface the gap to the orchestrator. Do not invent answers silently.
 
@@ -54,6 +55,19 @@ Pick a real typographic system. Not "Inter and a heading font." A *system*.
 - **Maximalist / brand-led**: A bold display (Söhne Breit, Tobias, Söhne Mono) as the lead voice, with everything else as support.
 
 Rule: **two families, three weights total, max**. Anything more is a system that doesn't exist.
+
+### Type anatomy & system metrics
+- **x-height** — high x-height reads modern and friendly; low x-height reads traditional and literary
+- **Contrast** — high-contrast (dramatic thin/thick) feels editorial; low-contrast feels neutral and utilitarian
+- **Aperture** — open apertures improve readability at small sizes
+- **Terminals** — angled terminals feel humanist; flat terminals feel geometric
+
+System-wide type values:
+- **Tracking**: display tight (-1% to -3%), body neutral, caption open (+1% to +2%)
+- **Leading**: body 1.5–1.7×, display 0.95–1.1×, caption 1.3–1.4×
+- **Measure**: 50–75 characters per line for body text. Wider is unreadable.
+
+Anti-pattern: Inter for everything with a "heading variant," mixed weights in one section, script/handwriting fonts for UI labels.
 
 ### Color philosophy
 Pick a philosophy, not a palette.
@@ -78,6 +92,13 @@ The grid is the personality.
 
 **Banned**: centered-everything layouts. Centered hero, centered text, centered CTA, centered everything. Centered layouts are the visual equivalent of shrugging.
 
+### Composition principles
+These apply regardless of grid system:
+- **One strong axis per viewport** — vertical (storytelling) or horizontal (split-screen). Mixing both reads as indecisive.
+- **Optical alignment** — the grid is a starting point, not the final position. Nudge 4–8px when the math is right but the eye is wrong.
+- **Overlap and cropping create energy** — a headline that breaks section boundaries, type that bleeds off the edge, images that crop faces. Intentional tension beats perfect containment.
+- **Density reveals intent** — marketing: low density, generous whitespace. Product: medium, scannable. Tools: high density, no marketing space. Pick one.
+
 ### Motion language
 Motion is voice. Pick one:
 
@@ -89,6 +110,25 @@ Motion is voice. Pick one:
 
 Rule: **one motion language per project**, not one per component. Consistency is the design.
 
+### Timing & easing reference
+
+| Context | Duration | Easing |
+|---|---|---|
+| Hover / state change | 150–200ms | ease-out |
+| Element entry | 300–500ms | ease-out |
+| Page transition | 400–600ms | ease-in-out |
+| Hero / editorial reveal | 800ms+ | cubic-bezier(0.16, 1, 0.3, 1) |
+
+- `ease-out` = `cubic-bezier(0, 0, 0.2, 1)` — workhorse for most UI transitions
+- `cubic-bezier(0.16, 1, 0.3, 1)` — premium ease, for deliberate reveals
+- Spring easing — for playful/reward moments only
+- Linear — for mechanical/progress indicators
+
+### Properties to animate
+`transform` (translate, scale, rotate), `opacity`, `filter` (sparingly — expensive), `background-color` / `color` / `border-color` (state changes only).
+
+**Never animate**: `width`, `height`, `top`, `left`, `right`, `bottom` (use transforms), `padding`, `margin`, `box-shadow` blur radius.
+
 ### Depth strategy
 How does the UI express depth?
 
@@ -98,6 +138,14 @@ How does the UI express depth?
 - **Real 3D** — model-driven depth. See the 3D section.
 - **Mixed** — most projects. Pick a default and define the exceptions.
 
+### Shadow recipes (if using layered/glass depth)
+- **Soft elevation**: `0 1px 2px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.06)`
+- **Lifted**: `0 4px 8px rgba(0,0,0,0.04), 0 16px 32px rgba(0,0,0,0.08)`
+- **Sharp / editorial**: `0 1px 0 rgba(0,0,0,0.08)` — a hairline, not a glow
+- **Colored glow** (hero moments only): `0 0 0 1px rgba(color,0.5), 0 8px 32px rgba(color,0.3)`
+- Dark mode: use lighter shadows (`rgba(255,255,255,0.05)`) or borders instead of shadows
+- Max **two elevation levels** per viewport
+
 ### Surface treatment
 Decide and commit:
 
@@ -106,6 +154,14 @@ Decide and commit:
 - Shadow style (none / soft / sharp / colored)
 - Grain or noise (yes / no / only in hero)
 
+### Iconography & imagery
+- Pick **one** icon set (Lucide, Phosphor, Heroicons, Tabler) — never mix
+- One stroke weight, one size scale across the product
+- Icons in headings: match cap-height, not line-height (16–20px)
+- **Real photography > stock > AI-generated**, in that order
+- Apply the same filter/grade to all images in a project
+- Pick 3–4 aspect ratios and use them consistently (16:9, 4:3, 1:1, 3:4, 9:16)
+
 ---
 
 ## Phase 3 — Map to a real system before coding
@@ -113,7 +169,7 @@ Decide and commit:
 Translate the direction into tokens, primitives, and components. **Do not start with pages.** Build the system, then the page consumes the system.
 
 ### Tokens (define these first)
-- Color: 8–12 named tokens, semantic mapping (`bg`, `surface`, `text`, `text-muted`, `border`, `accent`, `accent-fg`, `danger`, `success`, `warning`)
+- Color: shared token set — `bg` (page background), `surface` (cards/panels), `surface-2` (nested/hover), `border` (dividers), `text`, `text-muted`, `text-faint` (metadata), `accent`, `accent-fg` (text on accent), `danger`, `success`, `warning`, `focus` (keyboard ring). Both themes share names; only values change.
 - Type: 5–7 type roles (`display`, `h1`, `h2`, `body`, `caption`, `mono`)
 - Space: 4px or 8px base scale, 6–8 named steps
 - Radius: 2–4 named steps
@@ -187,6 +243,9 @@ These are not preferences. They are bans. If you ship any of them, you have fail
 - **Decorative blobs** — floating gradient orbs in the background of a hero, doing nothing, just glowing. Banned. If a gradient is on screen, it is doing work (atmosphere, hierarchy, depth).
 - **Dashboard wallpaper** — a hero that looks like a dashboard. If you want to show a product, show a real surface, not a fake one.
 - **Three-card testimonial row** — five stars, headshot, quote, name. The cliche of social proof. Use editorial pull-quotes or a single large voice instead.
+- **"Trusted by" logo strip** — especially without context or curation. If you show logos, explain why they matter.
+- **Six-column footer** — the "dump every link" footer. Edit down to the essential handful.
+- **Three-tier pricing table** with "Pro" highlighted — the default template. If you use this, justify the deviation.
 
 ### Banned aesthetics
 - **The AI purple/blue gradient** — `#6366F1` to `#8B5CF6` on a hero, often with a glow. Banned.
@@ -201,6 +260,8 @@ These are not preferences. They are bans. If you ship any of them, you have fail
 - **Untyped props** — `any` is a smell. Type everything.
 - **Unnecessary `"use client"`** — every client component is a cost. Default to server.
 - **Unused imports / dead code** — leave nothing behind.
+- **Three icon libraries in one project** — pick one system, commit to it.
+- **Copy-paste component with a different name** — if a component appears twice, extract it.
 
 ### Banned motion
 - **Animation spam** — every element bouncing, fading, sliding, on load. Pick a load state. One.
@@ -248,6 +309,8 @@ Every frontend deliverable must satisfy these. They are not nice-to-haves.
 ### Dark mode
 - If the product has dark mode, treat it as a first-class theme, not an afterthought
 - Both themes share the same token names; only the values change
+- **Avoid extremes**: pure black (`#000`) on dark is rarely right — use `#0A0A0A` / `#0E0E10` for surfaces. Pure white (`#FFF`) for text is also wrong — use `#EDEDED` for less contrast strain
+- Shadows in dark mode: use lighter shadows (`rgba(255,255,255,0.05)`) or borders instead of shadow layers
 - Test both themes at every breakpoint
 - Imagery must work in both (or be theme-aware)
 
@@ -301,6 +364,8 @@ Tick every box. If you cannot, the work is not done.
 - [ ] Motion language is consistent — no mixed easing languages
 - [ ] No anti-patterns from the ban list are present
 - [ ] Dark mode parity is achieved (if dark mode is in scope)
+- [ ] Taste test: could this page appear on any other SaaS site unchanged? If yes, redesign.
+- [ ] Portfolio test: would you put this in a portfolio with your name on it? If no, iterate.
 
 ### Production readiness
 - [ ] Semantic HTML throughout
@@ -342,3 +407,4 @@ Tick every box. If you cannot, the work is not done.
 4. **Taste is a discipline, not a talent.** Apply the rules until the rules become instinct.
 5. **Production beats demo.** If it does not ship clean, it does not ship.
 6. **Anti-slop is a habit.** When in doubt, ask: "Would a senior design engineer approve this?" If the answer is "it looks like every other AI site," restart.
+7. **Median is failure.** The default AI output is the median of the web. To escape it, commit to a specific direction and remove the tropes. Generic is failure. Specific is success.
