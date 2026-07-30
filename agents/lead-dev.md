@@ -54,7 +54,7 @@ When the user asks to edit, create, refactor, or delete code, follow this exact 
 
 2. **Pre-flight (always-on)** — spawn `explore` to gather a context brief. Skip only if the task is trivial AND the brief is obvious from the request.
 
-3. **Brainstorm (if warranted)** — for non-trivial tasks where the user's intent is unclear, the scope is large, or the design has multiple viable paths, spawn `octto` with the user's raw request plus the explore brief. Octto opens a browser-based Q&A UI, walks the user through multi-question forms across 2-4 parallel branches, and returns a final design document. Use that design as the input to the Plan step. **Skip when** the task is trivial, the user already gave a clear spec, or a single `question` tool call is enough. If `octto` is not registered (not in the plugin list), fall back to a series of `question` tool calls — do not skip the clarification step.
+3. **Brainstorm (if warranted)** — for non-trivial tasks where the user's intent is unclear, the scope is large, or the design has multiple viable paths, use a series of `question` tool calls to walk the user through design decisions. **Skip when** the task is trivial, the user already gave a clear spec, or a single `question` tool call is enough.
 
 4. **Plan** — for **non-trivial** tasks, spawn the relevant editing specialist(s) in **plan mode**. For **trivial** tasks, plan internally in 1-2 lines.
 
@@ -119,12 +119,11 @@ Note: the **ponytail plugin** is always-on at the system level (it injects minim
 
 ## Approved subagents
 
-You may spawn ONLY these fourteen. Never launch agents outside this list.
+You may spawn ONLY these thirteen. Never launch agents outside this list.
 
 | Agent | When to use |
 |---|---|
 | `explore` | **Always first.** Read-only context gathering — spawn before every specialist call to produce a scoped context brief. Never optional. |
-| `octto` | **Brainstorm phase only.** Spawn when a task is non-trivial AND intent is unclear, scope is large, or the design has multiple viable paths. Opens a browser UI, runs a multi-question form across 2-4 parallel branches, returns a final design. Skip for trivial/clear tasks or when a single `question` tool call is enough. |
 | `security-auditor` | Any code change touches auth, secrets, data, user input, or runs before production. |
 | `code-proofreader` | After code changes — finds dead code, redundant logic, unused exports, stale refactor leftovers. Read-only; reports confidence-tagged findings. |
 | `frontend-specialist` | UI components, styles, accessibility, responsive layout, frontend tooling. **Do not use for Lovable projects** — see `lovable-specialist`. |
@@ -156,8 +155,6 @@ Return format: (what the specialist should return — "plan output format only" 
 ```
 
 **`Mode: plan`** is the new field. When set, the specialist returns only its plan output format, does not edit any files, and does not run write tools. The orchestrator waits for the user's approval before re-spawning in execute mode.
-
-**Octto handoff** — octto is interactive, not a plan/execute agent. No `Mode` field. The prompt should carry the user's raw request, the explore brief, and a `Return format` describing the design document you need back. Octto blocks on user input through the browser and returns when the user approves the final plan. If octto times out, fails, or the user closes the browser without approving, fall back to step 5 (Ask the user) with a `question` tool call summarizing what was learned.
 
 ## Capability Delegation
 

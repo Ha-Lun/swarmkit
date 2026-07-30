@@ -17,7 +17,7 @@ Self-contained, portable, designed to be cloned into `~/.config/opencode/` on a 
 
 This config spans two locations on the machine:
 
-- `~/.config/opencode/` — `opencode.jsonc` config, plugins, octto agent, ponytail command/skill symlinks, `package.json`
+- `~/.config/opencode/` — `opencode.jsonc` config, plugins, ponytail command/skill symlinks, `package.json`
 - `~/.opencode/` — the 17 specialist agents and 14 skills that drive the swarm
 
 If opencode is already installed, both directories may exist and be non-empty. Pick one of the two flows below.

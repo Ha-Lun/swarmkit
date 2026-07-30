@@ -7,7 +7,7 @@ node_modules/
 
 # Local state
 .ponytail-active
-.octto/
+
 history.jsonl
 cache/
 tasks/

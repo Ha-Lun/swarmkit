@@ -3,7 +3,6 @@
   "default_agent": "lead-dev",
   "plugin": [
     "opencode-antigravity-auth@latest",
-    "octto@latest",
     "$HOME/tools/ponytail/.opencode/plugins/ponytail.mjs"
   ],
   "provider": {
