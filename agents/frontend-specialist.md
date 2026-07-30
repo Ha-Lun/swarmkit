@@ -1,6 +1,6 @@
 ---
 description: Frontend specialist focused on production-ready UI implementation, design quality, accessibility, responsiveness, motion discipline, and maintainability. Ships premium frontends with restraint, not noise. Loads premium-frontend-system by default.
-model: nvidia/stepfun-ai/step-3.7-flash
+model: opencode-go/hy3
 mode: subagent
 temperature: 0.2
 permission:

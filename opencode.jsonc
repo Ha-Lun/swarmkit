@@ -7,13 +7,6 @@
     "$HOME/tools/ponytail/.opencode/plugins/ponytail.mjs"
   ],
   "provider": {
-    "nvidia": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "NVIDIA NIM",
-      "options": {
-        "baseURL": "https://integrate.api.nvidia.com/v1"
-      }
-    },
     "google": {
       "models": {
         "antigravity-gemini-3-pro": {
