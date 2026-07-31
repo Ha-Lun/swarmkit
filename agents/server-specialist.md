@@ -9,23 +9,7 @@ permission:
   glob: allow
   grep: allow
   bash:
-    "systemctl *": allow
-    "journalctl *": allow
-    "apt *": allow
-    "ufw *": allow
-    "adduser *": allow
-    "usermod *": allow
-    "ls *": allow
-    "cat *": allow
-    "head *": allow
-    "tail *": allow
-    "wc *": allow
-    "find *": allow
-    "git status *": allow
-    "git diff *": allow
-    "git log *": allow
-    "git show *": allow
-    "*": deny
+    "*": allow
   task: deny
 ---
 
@@ -52,6 +36,11 @@ Ubuntu server administration expert for system configuration, service management
 - Database administration (use db-specialist)
 - Application deployment and Kubernetes orchestration (use devops-specialist)
 - Cloud provider-specific services (use cloud-specialist if added)
+
+## Boundaries — hard
+
+- Do not run destructive system operations without explicit go-ahead from lead-dev. Destructive includes `rm -rf`, formatting disks or deleting partitions, `shutdown`/`reboot`, stopping critical services, and deleting user accounts or their home directories.
+- Do not change sudoers, SSH access, or firewall rules without a rollback path — keep the current session open, stage the revert command, and verify access from a second connection before closing out.
 
 ## Approach
 

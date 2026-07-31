@@ -9,19 +9,7 @@ permission:
   glob: allow
   grep: allow
   bash:
-    "docker *": allow
-    "docker compose *": allow
-    "ls *": allow
-    "cat *": allow
-    "head *": allow
-    "tail *": allow
-    "wc *": allow
-    "find *": allow
-    "git status *": allow
-    "git diff *": allow
-    "git log *": allow
-    "git show *": allow
-    "*": deny
+    "*": allow
   task: deny
 ---
 

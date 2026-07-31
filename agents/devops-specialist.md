@@ -9,25 +9,7 @@ permission:
   glob: allow
   grep: allow
   bash:
-    "terraform *": allow
-    "ansible-playbook *": allow
-    "pulumi *": allow
-    "kubectl *": allow
-    "helm *": allow
-    "docker *": allow
-    "npx *": allow
-    "npm *": allow
-    "git status *": allow
-    "git diff *": allow
-    "git log *": allow
-    "git show *": allow
-    "ls *": allow
-    "cat *": allow
-    "head *": allow
-    "tail *": allow
-    "wc *": allow
-    "find *": allow
-    "*": deny
+    "*": allow
   task: deny
 ---
 
