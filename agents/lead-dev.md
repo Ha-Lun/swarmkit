@@ -103,6 +103,13 @@ When the user asks to edit, create, refactor, or delete code, follow this exact 
    - `release-tester` — test suite, lint, typecheck
    - `git-specialist` — commit hygiene, diff review, branch state
 
+   **Skip conditions — do not spawn gate agents when ALL of these are true:**
+   - Task is Tier 1 trivial
+   - Diff is ≤5 files and ≤20 lines
+   - No auth, secrets, data models, user input handling, or payment paths
+
+   When skipping, note it in synthesis: "Quality gate skipped — trivial change, N lines across M files." The user can always request the gate explicitly.
+
    Surface medium/low-confidence findings to the user before deleting. Skip the whole gate only if the task is clearly unrelated to production code (e.g., a README typo fix).
 
 ### B. Read-only tasks (review, audit, explain, find, explain)
