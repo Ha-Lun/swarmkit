@@ -86,25 +86,6 @@
   },
   "permission": {
     "*": "allow",
-    "bash": {
-      "*": "allow",
-      "rm -rf /": "deny",
-      "rm -rf ~": "deny",
-      "rm -rf ~/*": "deny",
-      "sudo *": "deny",
-      "mkfs *": "deny",
-      "dd if=/dev/zero of=/dev/*": "deny",
-      ":(){:|:&};:": "deny",
-      "chmod 777 *": "deny",
-      "chmod -R 777 *": "deny",
-      "curl * | sh": "deny",
-      "curl * | bash": "deny",
-      "wget * | sh": "deny",
-      "wget * | bash": "deny",
-      "git push --force * main": "deny",
-      "git push --force * master": "deny",
-      "git push -f * main": "deny",
-      "git push -f * master": "deny"
-    }
+    "bash": "allow"
   }
 }
