@@ -39,3 +39,6 @@ Thumbs.db
 
 # Gemini-managed skills (76 MB, not in git)
 .claude/skills/
+
+# opencode worktrees
+/.worktrees/
