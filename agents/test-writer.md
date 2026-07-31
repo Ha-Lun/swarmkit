@@ -1,7 +1,7 @@
 ---
 description: Writes unit and integration tests for new code. Identifies coverage gaps. Follows project conventions.
 mode: subagent
-model: opencode-go/mimo-v2.5
+model: opencode-go/deepseek-v4-flash
 temperature: 0.2
 permission:
   read: allow

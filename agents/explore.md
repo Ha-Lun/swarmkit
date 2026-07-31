@@ -1,6 +1,6 @@
 ---
 description: Read-only context-gathering pre-flight for the lead-dev swarm. Spawned by lead-dev before every specialist call to produce a scoped context brief (relevant files, key snippets, architecture notes, open questions). Returns summaries — never analysis or fixes.
-model: opencode-go/mimo-v2.5
+model: opencode-go/deepseek-v4-flash
 mode: subagent
 temperature: 0.1
 permission:

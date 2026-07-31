@@ -1,7 +1,7 @@
 ---
 description: Final quality gate that runs tests, linters, type checkers, and build validation before release. Read-only; reports failures but does not fix them.
 mode: subagent
-model: opencode-go/mimo-v2.5
+model: opencode-go/deepseek-v4-flash
 temperature: 0.0
 permission:
   read: allow
