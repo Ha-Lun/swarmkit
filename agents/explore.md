@@ -1,5 +1,5 @@
 ---
-description: Read-only context-gathering pre-flight for the lead-dev swarm. Spawned by lead-dev before every specialist call to produce a scoped context brief (relevant files, key snippets, architecture notes, open questions). Returns summaries — never analysis or fixes.
+description: Read-only context-gathering pre-flight for the lead-dev swarm. Spawned by lead-dev for non-trivial or uncertain-context tasks to produce a scoped context brief (relevant files, key snippets, architecture notes, open questions); may be skipped for trivial/self-contained tasks. Returns summaries — never analysis or fixes.
 model: opencode-go/deepseek-v4-flash
 mode: subagent
 temperature: 0.1
