@@ -49,7 +49,7 @@ Verify the connection works:
 
 ```bash
 # List all workflows
-python .opencode/skills/n8n-api/scripts/n8n_client.py list-workflows
+python ~/.opencode/skills/n8n-api/scripts/n8n_client.py list-workflows
 
 # Should return JSON array of your workflows
 ```
@@ -114,22 +114,22 @@ Systematic debugging methodology.
 
 ### List workflows
 ```bash
-python .opencode/skills/n8n-api/scripts/n8n_client.py list-workflows
+python ~/.opencode/skills/n8n-api/scripts/n8n_client.py list-workflows
 ```
 
 ### Get workflow details
 ```bash
-python .opencode/skills/n8n-api/scripts/n8n_client.py get-workflow <workflow-id>
+python ~/.opencode/skills/n8n-api/scripts/n8n_client.py get-workflow <workflow-id>
 ```
 
 ### Analyze failed execution
 ```bash
-python .opencode/skills/n8n-debugging/scripts/workflow_debugger.py analyze-execution <execution-id>
+python ~/.opencode/skills/n8n-debugging/scripts/workflow_debugger.py analyze-execution <execution-id>
 ```
 
 ### Check Telegram webhook
 ```bash
-python .opencode/skills/n8n-debugging/scripts/workflow_debugger.py check-telegram-webhook <bot-token>
+python ~/.opencode/skills/n8n-debugging/scripts/workflow_debugger.py check-telegram-webhook <bot-token>
 ```
 
 ### Create Telegram bot workflow
@@ -144,7 +144,7 @@ cat > telegram-config.json << 'EOF'
 }
 EOF
 
-python .opencode/skills/n8n-api/scripts/workflow_builder.py create-telegram-bot telegram-config.json
+python ~/.opencode/skills/n8n-api/scripts/workflow_builder.py create-telegram-bot telegram-config.json
 ```
 
 ## Troubleshooting

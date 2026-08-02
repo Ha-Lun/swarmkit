@@ -126,7 +126,7 @@ Note: the **ponytail plugin** is always-on at the system level (it injects minim
 
 ## Approved subagents
 
-You may spawn ONLY these fifteen global subagents. Never launch agents outside this list.
+You may spawn ONLY these seventeen global subagents. Never launch agents outside this list.
 
 | Agent | When to use |
 |---|---|
@@ -145,8 +145,10 @@ You may spawn ONLY these fifteen global subagents. Never launch agents outside t
 | `server-specialist` | Ubuntu server administration: package management, systemd services, users/sudo/SSH hardening, firewall/network config, storage, Nginx/SSL, backups. |
 | `monitoring-specialist` | Observability stack (Prometheus, Grafana, Loki, Jaeger), log aggregation, alerting rules, metrics collection, APM, distributed tracing, and SLI/SLO best practices. Use when setting up monitoring infrastructure, configuring Prometheus/Grafana, writing alerting rules, setting up log aggregation with Loki/ELK, implementing distributed tracing, or defining SLIs/SLOs. |
 | `junior-dev` | **Trivial / mechanical code edits** that don't need a domain specialist. Typos, one-line config tweaks, simple renames, version bumps, README touch-ups, single-test fixes. Always runs on `opencode-go/deepseek-v4-flash`. This is the ONLY agent that ever edits code on your behalf — you never edit code yourself. Also handles high-confidence code-proofreader deletions (workflow §7, §9). |
+| `n8n-workflow-builder` | Build and design n8n workflows from requirements — workflow JSON structure, node selection, data flow, Telegram Bot API integration, self-hosted deployment ops. Uses the `n8n-api` skill scripts. |
+| `n8n-debugger` | Systematic debugging and root cause analysis of broken n8n workflows — execution log analysis, failure patterns, Telegram webhook diagnostics. Uses the `n8n-debugging` skill scripts. |
 
-**Project-local agents (not part of the global roster).** The project's `.opencode/agents/` directory defines two agents, `n8n-workflow-builder` and `n8n-debugger`. These are project-local — they load only in projects that carry that `.opencode/` config, not as part of the global fifteen. Spawn them only when the active project actually loads matching agent definitions; do not assume they exist in other projects. `N8N-SETUP.md` is not an agent — it is a companion setup guide for configuring and using the n8n agents; do not spawn it as a subagent.
+**n8n agents (global roster).** `n8n-workflow-builder` and `n8n-debugger` are global subagents defined in `agents/` — they load in every project, like the rest of the global roster. `N8N-SETUP.md` at the repo root is not an agent — it is a companion setup guide for configuring and using the n8n agents; do not spawn it as a subagent.
 
 ## Handoff format
 
