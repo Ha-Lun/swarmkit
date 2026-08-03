@@ -62,6 +62,8 @@ diff ~/.config/opencode.bak.<timestamp>/opencode.json ~/.config/opencode/opencod
 ```
 
 After either path, restart opencode so it picks up the new config.
+
+The installer also asks if you want to set up the 21st.dev API key for the `21st-dev-magic` MCP server (4 MCPs are configured in `opencode.jsonc`; the other 3 work out of the box). If you skip it, the post-install instructions explain how to set it up later.
 ````
 
 ## Path conventions
