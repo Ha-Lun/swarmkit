@@ -220,6 +220,51 @@ else
 fi
 echo "✓ Symlinks created"
 
+# ========== MCP Servers ==========
+
+echo ""
+echo "=== MCP Servers ==="
+echo "4 MCP servers are configured in opencode.jsonc:"
+echo "  - gemini-mcp-tool       (works out of the box)"
+echo "  - shadcn                (works out of the box)"
+echo "  - chrome-devtools       (works out of the box)"
+echo "  - 21st-dev-magic        (needs a 21st.dev API key)"
+echo ""
+
+# Default to "no" (skip) so the script stays non-interactive-friendly
+SETUP_MAGIC_KEY=""
+MAGIC_KEY=""
+
+read -rp "Set up the 21st.dev API key now? (y/N): " SETUP_MAGIC_KEY
+
+if [ "$SETUP_MAGIC_KEY" = "y" ] || [ "$SETUP_MAGIC_KEY" = "Y" ]; then
+  echo ""
+  echo "Get a key at: https://21st.dev/mcp"
+  read -rsp "21st.dev API key (input hidden): " MAGIC_KEY
+  echo ""
+
+  if [ -n "$MAGIC_KEY" ]; then
+    BASHRC="$HOME/.bashrc"
+    if [ -f "$BASHRC" ] && grep -q "MAGIC_MCP_API_KEY" "$BASHRC" 2>/dev/null; then
+      echo ""
+      echo "⚠️  MAGIC_MCP_API_KEY already exists in $BASHRC"
+      echo "   Leaving it as-is. To update, edit $BASHRC manually."
+    else
+      {
+        echo ""
+        echo "# 21st.dev MCP API key (added by opencode-config installer)"
+        echo "export MAGIC_MCP_API_KEY=\"$MAGIC_KEY\""
+      } >> "$BASHRC"
+      echo "✓ Added MAGIC_MCP_API_KEY to $BASHRC"
+    fi
+  else
+    echo ""
+    echo "⚠️  No key entered — skipping. See post-install instructions to set it up later."
+    SETUP_MAGIC_KEY=""  # reset so post-install falls through to the "instructions" path
+  fi
+fi
+echo ""
+
 # ========== Free Mode: Comment Out Model Lines ==========
 
 if [ "$FREE_MODE" = true ]; then
@@ -292,6 +337,26 @@ else
   echo "       opencode auth login github-copilot"
   echo "  3. Verify your setup:"
   echo "       opencode doctor"
+  echo ""
+fi
+
+# MCP server status
+if [ "$SETUP_MAGIC_KEY" = "y" ] || [ "$SETUP_MAGIC_KEY" = "Y" ]; then
+  if [ -n "$MAGIC_KEY" ]; then
+    echo "MCP servers:"
+    echo "  ✓ MAGIC_MCP_API_KEY added to ~/.bashrc"
+    echo "  → Restart your shell or run: source ~/.bashrc"
+    echo "  → Verify with: opencode mcp list"
+    echo ""
+  fi
+else
+  echo "MCP servers:"
+  echo "  3 of 4 MCPs work out of the box (gemini-mcp-tool, shadcn, chrome-devtools)"
+  echo "  21st-dev-magic needs MAGIC_MCP_API_KEY in your shell. To set it up:"
+  echo "    1. Get a key at: https://21st.dev/mcp"
+  echo "    2. Add to ~/.bashrc:  export MAGIC_MCP_API_KEY=\"21st_sk_...\""
+  echo "    3. Reload:  source ~/.bashrc"
+  echo "  → Verify with: opencode mcp list"
   echo ""
 fi
 
