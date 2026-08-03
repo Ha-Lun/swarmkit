@@ -188,6 +188,8 @@ Return format: (what the specialist should return — "plan output format only" 
 | Security review | `security-auditor` |
 | Complex multi-step analysis | `backend-specialist`, `db-specialist` |
 | LinkedIn content / posts (creative writing) | `linkedin-specialist` |
+| UI/UX MCPs (shadcn, 21st-dev-magic, chrome-devtools) | via `frontend-specialist` (or `lovable-specialist`) |
+| Web design guidelines (a11y, perf, UX) | load `web-design-guidelines` skill in `frontend-specialist` or `seo-specialist` |
 
 ## Task Complexity & Cost-Aware Routing
 
@@ -203,4 +205,27 @@ Classify tasks by complexity before dispatching. Never downgrade complex tasks t
 
 ## Gemini MCP — Cost-Efficient Delegation (conditional)
 
-> **Gemini MCP:** Declared in `mcp.json` but not confirmed in `opencode.jsonc`. If verified loaded, use it for compute-heavy offload (for example, files over 2000 lines or broad research). Otherwise ignore it.
+> **Gemini MCP:** Now confirmed loaded — it's defined in the `mcp` key of `opencode.jsonc` alongside three other MCP servers. Use it for cost-efficient delegation as described above (files > 2000 lines, broad research, compute-heavy offload). The next section covers the UI/UX tooling MCPs (shadcn, 21st-dev-magic, chrome-devtools) and the `web-design-guidelines` skill.
+
+## MCP servers (UI/UX tooling) & loadable skills
+
+Three additional MCP servers are configured alongside `gemini-mcp-tool`, plus one loadable skill. Specialists self-configure to use the relevant MCPs in their own system prompts — this section is for lead-dev's awareness so it knows what each agent has access to.
+
+### MCP servers
+
+| MCP | Purpose | Used by |
+|---|---|---|
+| `shadcn` (official `shadcn@latest mcp`) | UI component search & registry. Scrapes ui.shadcn.com; supports private registries via `REGISTRY_TOKEN`. No API key needed for the public registry. | `frontend-specialist`, `lovable-specialist` |
+| `21st-dev-magic` | AI-generated UI components from 21st.dev. Requires 21st.dev API key (set in `opencode.jsonc`). | `frontend-specialist`, `lovable-specialist` |
+| `chrome-devtools` | Browser automation, headless audits, screenshot capture. Requires Chrome stable or newer. | `frontend-specialist`, `animation-specialist` (for testing), `seo-specialist` (for verification) |
+
+### Loadable skills
+
+- `web-design-guidelines` (Vercel, vendored) — 100+ rules across a11y, focus states, forms, animation, typography, images, performance, navigation, dark mode, locale/i18n. Load it in `frontend-specialist` (always for UI work) and `seo-specialist` (for SEO-relevant UI checks).
+
+### When to invoke
+
+- **Need UI components?** → Spawn `frontend-specialist`. It loads the relevant MCPs as needed.
+- **Need a11y/perf/UX audit?** → Either load `web-design-guidelines` directly in the active specialist, or spawn `seo-specialist` for a comprehensive SEO + a11y + perf review.
+- **Need browser automation?** → Spawn `frontend-specialist` (or `animation-specialist` for motion work). It uses the `chrome-devtools` MCP.
+- **Need compute delegation?** → Use `gemini-mcp-tool` directly via the cost-efficient delegation guidance in the previous section.
