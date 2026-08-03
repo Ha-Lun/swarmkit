@@ -216,7 +216,7 @@ Three additional MCP servers are configured alongside `gemini-mcp-tool`, plus on
 | MCP | Purpose | Used by |
 |---|---|---|
 | `shadcn` (official `shadcn@latest mcp`) | UI component search & registry. Scrapes ui.shadcn.com; supports private registries via `REGISTRY_TOKEN`. No API key needed for the public registry. | `frontend-specialist`, `lovable-specialist` |
-| `21st-dev-magic` | AI-generated UI components from 21st.dev. Requires 21st.dev API key (set in `opencode.jsonc`). | `frontend-specialist`, `lovable-specialist` |
+| `21st-dev-magic` | AI-generated UI components from 21st.dev. Requires 21st.dev API key (set as `$MAGIC_MCP_API_KEY` env var in your shell rc — not committed to git). | `frontend-specialist`, `lovable-specialist` |
 | `chrome-devtools` | Browser automation, headless audits, screenshot capture. Requires Chrome stable or newer. | `frontend-specialist`, `animation-specialist` (for testing), `seo-specialist` (for verification) |
 
 ### Loadable skills
