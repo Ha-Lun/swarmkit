@@ -5,6 +5,27 @@
     "opencode-antigravity-auth@latest",
     "$HOME/tools/ponytail/.opencode/plugins/ponytail.mjs"
   ],
+  "mcp": {
+    "gemini-mcp-tool": {
+      "type": "local",
+      "command": ["npx", "-y", "gemini-mcp-tool@latest"],
+      "environment": {
+        "ANTIGGRAVITY_ACCOUNTS_PATH": "$HOME/.opencode/antigravity-accounts.json"
+      }
+    },
+    "shadcn": {
+      "type": "local",
+      "command": ["npx", "-y", "shadcn@latest", "mcp"]
+    },
+    "21st-dev-magic": {
+      "type": "local",
+      "command": ["npx", "-y", "@21st-dev/magic@latest"]
+    },
+    "chrome-devtools": {
+      "type": "local",
+      "command": ["npx", "-y", "chrome-devtools-mcp@latest"]
+    }
+  },
   "provider": {
     "google": {
       "models": {

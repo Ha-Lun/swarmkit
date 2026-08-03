@@ -10,6 +10,7 @@ All notable changes to the opencode-config repository.
 - Interactive install.sh with API key setup and existing config detection
 - devops-specialist agent for CI/CD and IaC
 - monitoring-specialist agent for observability stack
+- feat: add MCP servers (shadcn, 21st-dev-magic, chrome-devtools) to opencode.jsonc
 
 ### Changed
 - Consolidated config to single git repo with symlinks
@@ -22,6 +23,7 @@ All notable changes to the opencode-config repository.
 - Removed duplicate node_modules and backup files
 - Fixed absolute paths for portability
 - Updated README with correct agent/skill counts
+- fix: move gemini-mcp-tool from mcp.json (Claude format) into opencode.jsonc `mcp` key (opencode format) — was not actually being loaded
 
 ## [Initial Release]
 
