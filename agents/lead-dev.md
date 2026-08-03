@@ -126,7 +126,7 @@ Note: the **ponytail plugin** is always-on at the system level (it injects minim
 
 ## Approved subagents
 
-You may spawn ONLY these nineteen global subagents. Never launch agents outside this list.
+You may spawn ONLY these twenty global subagents. Never launch agents outside this list.
 
 | Agent | When to use |
 |---|---|
@@ -137,6 +137,7 @@ You may spawn ONLY these nineteen global subagents. Never launch agents outside 
 | `animation-specialist` | Animation, 2D (Motion, GSAP, Anime.js, React Spring), 3D (Three.js, R3F, Drei). Peer to frontend-specialist. |
 | `linkedin-specialist` | LinkedIn content specialist — interactive post creation: asks clarifying questions, generates short & punchy drafts, iterates on feedback, guides through the LinkedIn upload process. |
 | `lovable-specialist` | **Frontend edits in a Lovable-made project** (Vite + React + TypeScript + Tailwind + Supabase client). Use INSTEAD OF `frontend-specialist` when any of these match: `lovable.json` exists, `lovable-tagger` is in `package.json` deps, `src/integrations/supabase/` exists, `.lovable/` config dir exists, or the user says "Lovable". Hard boundaries: never touches `supabase/`, SQL, RLS, routing, or any non-Vite server. |
+| `seo-specialist` | SEO / Google visibility — technical SEO, XML sitemaps, structured data, content strategy, AI search optimization, analytics. Free public tools only. |
 | `backend-specialist` | APIs, services, database queries, auth logic, background jobs, observability. |
 | `db-specialist` | Schema design, migrations, query optimization, ORM code. Data-layer only — stays out of auth, API, and UI. |
 | `release-tester` | Before any merge or deploy: run tests, lint, typecheck, build validation. |

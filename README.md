@@ -18,7 +18,7 @@ Self-contained, portable, designed to be cloned into `~/.config/opencode/` on a 
 This config spans two locations on the machine:
 
 - `~/.config/opencode/` — `opencode.jsonc` config, plugins, ponytail command/skill symlinks, `package.json`
-- `~/.opencode/` — the 19 specialist agents and 14 skills that drive the swarm
+- `~/.opencode/` — the 21 specialist agents and 18 skills that drive the swarm
 
 If opencode is already installed, both directories may exist and be non-empty. Pick one of the two flows below.
 
@@ -31,8 +31,8 @@ mv ~/.config/opencode ~/.config/opencode.bak.$(date +%s)
 mv ~/.opencode ~/.opencode.bak.$(date +%s)
 git clone https://github.com/Ha-Lun/opencode-config.git ~/.config/opencode
 mkdir -p ~/.opencode/agents ~/.opencode/skills
-cp ~/.config/opencode/agents/{lead-dev,explore,security-auditor,code-proofreader,frontend-specialist,animation-specialist,linkedin-specialist,lovable-specialist,backend-specialist,db-specialist,release-tester,test-writer,git-specialist,junior-dev}.md ~/.opencode/agents/
-for d in backend-quality design-taste-frontend frontend-design-baseline frontend-quality git-workflow premium-frontend-system release-testing security-review swarm-handoff; do
+cp ~/.config/opencode/agents/{lead-dev,explore,security-auditor,code-proofreader,frontend-specialist,animation-specialist,linkedin-specialist,lovable-specialist,seo-specialist,backend-specialist,db-specialist,release-tester,test-writer,git-specialist,junior-dev}.md ~/.opencode/agents/
+for d in backend-quality design-taste-frontend frontend-design-baseline frontend-quality git-workflow premium-frontend-system release-testing security-review seo-engineering swarm-handoff; do
   cp -r ~/.config/opencode/skill/"$d" ~/.opencode/skills/
 done
 cd ~/.config/opencode && npm install
@@ -48,8 +48,8 @@ Clone to a temp dir, then copy files in without overwriting anything:
 git clone https://github.com/Ha-Lun/opencode-config.git /tmp/opencode-config
 cp -rn /tmp/opencode-config/. ~/.config/opencode/
 mkdir -p ~/.opencode/agents ~/.opencode/skills
-cp -rn /tmp/opencode-config/agents/{lead-dev,explore,security-auditor,code-proofreader,frontend-specialist,animation-specialist,linkedin-specialist,lovable-specialist,backend-specialist,db-specialist,release-tester,test-writer,git-specialist,junior-dev}.md ~/.opencode/agents/
-for d in backend-quality design-taste-frontend frontend-design-baseline frontend-quality git-workflow premium-frontend-system release-testing security-review swarm-handoff; do
+cp -rn /tmp/opencode-config/agents/{lead-dev,explore,security-auditor,code-proofreader,frontend-specialist,animation-specialist,linkedin-specialist,lovable-specialist,seo-specialist,backend-specialist,db-specialist,release-tester,test-writer,git-specialist,junior-dev}.md ~/.opencode/agents/
+for d in backend-quality design-taste-frontend frontend-design-baseline frontend-quality git-workflow premium-frontend-system release-testing security-review seo-engineering swarm-handoff; do
   cp -rn /tmp/opencode-config/skill/"$d" ~/.opencode/skills/
 done
 cd ~/.config/opencode && npm install

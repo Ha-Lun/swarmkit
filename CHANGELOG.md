@@ -12,6 +12,7 @@ All notable changes to the opencode-config repository.
 - monitoring-specialist agent for observability stack
 - feat: add MCP servers (shadcn, 21st-dev-magic, chrome-devtools) to opencode.jsonc
 - feat: add `web-design-guidelines` skill (vendored from vercel-labs/agent-skills, MIT)
+- feat: add `seo-specialist` agent (model: opencode-go/deepseek-v4-pro) and `seo-engineering` skill (practical recipes, JSON-LD cheat sheet, per-framework sitemaps)
 
 ### Changed
 - Consolidated config to single git repo with symlinks
