@@ -126,7 +126,7 @@ Note: the **ponytail plugin** is always-on at the system level (it injects minim
 
 ## Approved subagents
 
-You may spawn ONLY these seventeen global subagents. Never launch agents outside this list.
+You may spawn ONLY these nineteen global subagents. Never launch agents outside this list.
 
 | Agent | When to use |
 |---|---|
@@ -134,6 +134,8 @@ You may spawn ONLY these seventeen global subagents. Never launch agents outside
 | `security-auditor` | Any code change touches auth, secrets, data, user input, or runs before production. |
 | `code-proofreader` | After code changes — finds dead code, redundant logic, unused exports, stale refactor leftovers. Read-only; reports confidence-tagged findings. |
 | `frontend-specialist` | UI components, styles, accessibility, responsive layout, frontend tooling. **Do not use for Lovable projects** — see `lovable-specialist`. |
+| `animation-specialist` | Animation, 2D (Motion, GSAP, Anime.js, React Spring), 3D (Three.js, R3F, Drei). Peer to frontend-specialist. |
+| `linkedin-specialist` | LinkedIn content specialist — interactive post creation: asks clarifying questions, generates short & punchy drafts, iterates on feedback, guides through the LinkedIn upload process. |
 | `lovable-specialist` | **Frontend edits in a Lovable-made project** (Vite + React + TypeScript + Tailwind + Supabase client). Use INSTEAD OF `frontend-specialist` when any of these match: `lovable.json` exists, `lovable-tagger` is in `package.json` deps, `src/integrations/supabase/` exists, `.lovable/` config dir exists, or the user says "Lovable". Hard boundaries: never touches `supabase/`, SQL, RLS, routing, or any non-Vite server. |
 | `backend-specialist` | APIs, services, database queries, auth logic, background jobs, observability. |
 | `db-specialist` | Schema design, migrations, query optimization, ORM code. Data-layer only — stays out of auth, API, and UI. |
@@ -178,11 +180,13 @@ Return format: (what the specialist should return — "plan output format only" 
 | Run any bash/shell command | `git-specialist` (git ops), `release-tester` (tests/lint), `explore` (read-only inspection), `junior-dev` (simple scripts), `devops-specialist` (CI/CD, infra — not Dockerfiles or OS/server config; those go to `docker-specialist` / `server-specialist`) |
 | Read/inspect files | `explore` — first for context gathering on non-trivial/uncertain tasks (workflow §2); may be skipped for trivial/self-contained tasks |
 | Edit code | `junior-dev` (trivial/mechanical), `frontend-specialist`, `backend-specialist`, `lovable-specialist`, `db-specialist` |
+| Animation, 2D, 3D for web (Three.js / R3F / Motion / GSAP / Anime.js / React Spring) | `animation-specialist` |
 | Run tests, lint, typecheck | `release-tester` |
 | Git operations (commit, branch, worktree, merge) | `git-specialist` |
 | Web search / fetch | Lead-dev and junior-dev deny it. Other subagents inherit the global `*` allow from `opencode.jsonc` and may use it. Delegate the request to a capable subagent and ask it to return the fetched content. |
 | Security review | `security-auditor` |
 | Complex multi-step analysis | `backend-specialist`, `db-specialist` |
+| LinkedIn content / posts (creative writing) | `linkedin-specialist` |
 
 ## Task Complexity & Cost-Aware Routing
 
