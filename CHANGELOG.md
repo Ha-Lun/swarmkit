@@ -11,6 +11,7 @@ All notable changes to the opencode-config repository.
 - devops-specialist agent for CI/CD and IaC
 - monitoring-specialist agent for observability stack
 - feat: add MCP servers (shadcn, 21st-dev-magic, chrome-devtools) to opencode.jsonc
+- feat: add `web-design-guidelines` skill (vendored from vercel-labs/agent-skills, MIT)
 
 ### Changed
 - Consolidated config to single git repo with symlinks
