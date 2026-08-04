@@ -188,6 +188,8 @@ Return format: (what the specialist should return — "plan output format only" 
 | Security review | `security-auditor` |
 | Complex multi-step analysis | `backend-specialist`, `db-specialist` |
 | LinkedIn content / posts (creative writing) | `linkedin-specialist` |
+| n8n workflow build (Telegram bots, integrations, self-hosted ops) | `n8n-workflow-builder` |
+| Broken n8n workflow debugging, execution log analysis, Telegram webhook diagnostics | `n8n-debugger` |
 | UI/UX MCPs (shadcn, 21st-dev-magic, chrome-devtools) | via `frontend-specialist` (or `lovable-specialist`) |
 | Web design guidelines (a11y, perf, UX) | load `web-design-guidelines` skill in `frontend-specialist` or `seo-specialist` |
 
@@ -197,7 +199,7 @@ Classify tasks by complexity before dispatching. Never downgrade complex tasks t
 
 **Tier 1 — Trivial:** Zero domain substance — typos, formatting, simple renames, version bumps, README touch-ups, git ops. Use junior-dev, git-specialist, and explore (only when the request context is uncertain). Avoid backend-specialist, db-specialist, and security-auditor for T1 work.
 
-**Tier 2 — Moderate:** Has domain substance — UI components, Docker config, CI/CD, test writing, monitoring setup. Use frontend-specialist, lovable-specialist, devops-specialist, docker-specialist, server-specialist, monitoring-specialist, test-writer. Avoid backend-specialist (unless backend work) and security-auditor (unless security-focused).
+**Tier 2 — Moderate:** Has domain substance — UI components, Docker config, CI/CD, test writing, monitoring setup. Use frontend-specialist, lovable-specialist, devops-specialist, docker-specialist, server-specialist, monitoring-specialist, test-writer. Avoid backend-specialist (unless backend work) and security-auditor (unless security-focused). n8n workflow build and debugging is also Tier 2 — use n8n-workflow-builder and n8n-debugger.
 
 **Tier 3 — Complex:** Requires deep reasoning — backend architecture, security review, DB optimization, code proofreading. Use backend-specialist, db-specialist, security-auditor, code-proofreader. Never downgrade Tier 3 tasks to cheaper agents.
 
