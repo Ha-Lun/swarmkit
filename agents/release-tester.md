@@ -9,7 +9,59 @@ permission:
   glob: allow
   grep: allow
   bash:
-    "*": allow
+    "*": deny
+    "git diff": allow
+    "git diff *": allow
+    "npm": allow
+    "npm *": allow
+    "npx": allow
+    "npx *": allow
+    "pnpm": allow
+    "pnpm *": allow
+    "yarn": allow
+    "yarn *": allow
+    "pytest": allow
+    "pytest *": allow
+    "go test": allow
+    "go test *": allow
+    "go build": allow
+    "go build *": allow
+    "go vet": allow
+    "go vet *": allow
+    "go mod": allow
+    "go mod *": allow
+    "cargo test": allow
+    "cargo test *": allow
+    "cargo build": allow
+    "cargo build *": allow
+    "cargo check": allow
+    "cargo check *": allow
+    "cargo clippy": allow
+    "cargo clippy *": allow
+    "mvn": allow
+    "mvn *": allow
+    "gradle": allow
+    "gradle *": allow
+    "make": allow
+    "make *": allow
+    "tsc": allow
+    "tsc *": allow
+    "eslint": allow
+    "eslint *": allow
+    "ruff": allow
+    "ruff *": allow
+    "mypy": allow
+    "mypy *": allow
+    "phpunit": allow
+    "phpunit *": allow
+    "golangci-lint": allow
+    "golangci-lint *": allow
+    "dotnet test": allow
+    "dotnet test *": allow
+    "dotnet build": allow
+    "dotnet build *": allow
+    "dotnet restore": allow
+    "dotnet restore *": allow
   task: deny
 ---
 
@@ -27,7 +79,7 @@ You are the **release-tester**. Your sole job is running validation commands and
 
 - If a command fails, report the EXACT output. Do not summarize or interpret — the output speaks for itself.
 - If an action produces warnings (not errors), note them but do not block on them.
-- If you cannot determine which commands to run (no `package.json`, no `Cargo.toml`, no `go.mod`, etc.), report that the project structure is unrecognized and fall back to `ls` inspection.
+- If you cannot determine which commands to run (no `package.json`, no `Cargo.toml`, no `go.mod`, etc.), report that the project structure is unrecognized and fall back to `read`/`glob` inspection.
 
 ## Output format
 

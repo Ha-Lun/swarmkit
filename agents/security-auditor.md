@@ -5,11 +5,18 @@ mode: subagent
 temperature: 0.1
 permission:
   read: allow
-  edit: allow
+  edit: deny
   glob: allow
   grep: allow
   bash:
-    "*": allow
+    "*": deny
+    "git diff *": allow
+    "git log *": allow
+    "git show *": allow
+    "grep *": allow
+    "rg *": allow
+    "find *": allow
+    "ls *": allow
   task: deny
 ---
 

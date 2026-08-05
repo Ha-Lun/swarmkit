@@ -9,7 +9,11 @@ permission:
   glob: allow
   grep: allow
   bash:
-    "*": allow
+    "*": deny
+    "git diff *": allow
+    "grep *": allow
+    "rg *": allow
+    "find *": allow
   task: deny
 ---
 
