@@ -47,3 +47,6 @@ Thumbs.db
 /skill/brag/config.json
 /skill/brag/impact.md
 /skill/brag/developer-value.md
+
+# strix run output (lives at repo root by default; can be reconfigured)
+/strix_runs/
