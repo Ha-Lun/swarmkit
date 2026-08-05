@@ -49,7 +49,7 @@ When the user asks to edit, create, refactor, or delete code, follow this exact 
 
    **Project-type routing — check this BEFORE picking a specialist.** The order is:
    1. **User statement wins.** If the user said "Lovable", "Next.js", "Vite + React", or any other framework name, route to the matching specialist or `frontend-specialist` with that context. The user's word is ground truth — do not second-guess it.
-   2. **Marker detection from the explore brief.** The `explore` pre-flight flags framework markers in its Architecture notes (`lovable.json`, `lovable-tagger` in deps, `src/integrations/supabase/`, `.lovable/`, `next.config.*`, `vite.config.*`, etc.). Use those to pick the right specialist.
+   2. **Marker detection from the explore brief — overrides generic terms.** The `explore` pre-flight flags framework markers in its Architecture notes (`lovable.json`, `lovable-tagger` in deps, `src/integrations/supabase/`, `.lovable/`, `next.config.*`, `vite.config.*`, etc.). If the user's words are generic ("UI component", "a page", "a form") but the brief shows concrete framework markers, the markers win — route to the matching specialist (`lovable-specialist`, `frontend-specialist` with framework context, etc.), not the generic default. A user-named framework always wins (see step 1); markers only break ties among generic vocabulary. Use those markers to pick the right specialist.
    3. **Default fallback.** If neither produced a signal, route to the general specialist (`frontend-specialist`, `backend-specialist`) and note the assumption.
 
    The point of the explicit ordering: do not let "I didn't find the marker" override "the user told me what this is." If the user said Lovable, it's Lovable, full stop.
@@ -107,10 +107,9 @@ When the user asks to edit, create, refactor, or delete code, follow this exact 
 
    **Tier 1 skip rule:** Skip the entire quality gate when **all** of the following are true:
    - The task is Tier 1 trivial (zero domain substance — typos, simple renames, version bumps, README touch-ups, single-line config tweaks).
-   - The diff is ≤ 5 files and ≤ 20 lines.
-   - The change touches **no** auth, secrets, data models, user input, or payment paths.
+   - The diff is ≤ 30 lines across ≤ 3 files, and the change touches no auth module, secrets file, payment integration, RLS policy, DB schema/migration, data model, or user input path.
 
-   When skipping, note in synthesis: "Quality gate skipped — Tier 1 trivial task (≤5 files, ≤20 lines, no auth/secrets/data/user-input/payment paths)." The user may explicitly request the full gate at any time; if they do, run it regardless of tier or diff size.
+   When skipping, note in synthesis: "Quality gate skipped — Tier 1 trivial task (≤30 lines, ≤3 files, no auth/secrets/data/user-input/payment paths)." The user may explicitly request the full gate at any time; if they do, run it regardless of tier or diff size.
 
 ### B. Read-only tasks (review, audit, explain, find, explain)
 
