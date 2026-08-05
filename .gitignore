@@ -42,3 +42,8 @@ Thumbs.db
 
 # opencode worktrees
 /.worktrees/
+
+# brag-skill personal data
+/skill/brag/config.json
+/skill/brag/impact.md
+/skill/brag/developer-value.md
