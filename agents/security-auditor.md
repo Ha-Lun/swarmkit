@@ -1,6 +1,6 @@
 ---
 description: Security reviewer that scans code for secrets leakage, hardcoded API keys, dangerous patterns, auth flaws, injection risks, and unsafe configurations. Defaults to read-only review; only proposes fixes with justification.
-model: opencode-go/deepseek-v4-flash
+model: opencode-go/qwen3.7-plus
 mode: subagent
 temperature: 0.1
 permission:

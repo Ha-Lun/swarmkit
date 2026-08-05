@@ -2,7 +2,7 @@
 description: LinkedIn content specialist. Interactive post creation — asks clarifying questions,
   generates short & punchy drafts, iterates on feedback, and guides through the LinkedIn upload process.
 mode: subagent
-model: opencode-go/deepseek-v4-pro
+model: opencode-go/deepseek-v4-flash
 temperature: 0.5
 permission:
   read: deny

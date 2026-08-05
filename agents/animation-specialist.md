@@ -1,6 +1,6 @@
 ---
 description: Animation, 2D, and 3D specialist for web — Motion, GSAP, Anime.js, React Spring (2D), Three.js + R3F + Drei (3D). Peer to frontend-specialist. Hero scenes, product viewers, scroll-driven storytelling, micro-interactions, shader work. Loads premium-frontend-system.
-model: opencode-go/hy3
+model: opencode-go/qwen3.7-plus
 mode: subagent
 temperature: 0.3
 permission:
