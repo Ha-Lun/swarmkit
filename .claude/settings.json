@@ -1,0 +1,19 @@
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:4000",
+    "ANTHROPIC_AUTH_TOKEN": "litellm-local-key",
+    "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "kimi-k2.6",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "nemotron 3 ultra",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "minimax-m2.7"
+  },
+  "model": "opus",
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.claude/statusline.sh"
+  },
+  "skipDangerousModePermissionPrompt": true,
+  "hasCompletedOnboarding": true,
+  "telemetry": "off",
+  "autoUpdate": false
+}

@@ -1,0 +1,7 @@
+# Custom Machine Instructions
+
+Add any machine-specific context here. This file is local to your machine and ignored by git.
+Examples:
+- You have passwordless sudo
+- Dev servers always run at 0.0.0.0
+- Docker is aliased to podman

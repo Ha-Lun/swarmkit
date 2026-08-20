@@ -1,0 +1,10 @@
+{
+  "name": "swarmkit",
+  "version": "1.0.0",
+  "description": "Production-grade multi-agent specialist swarm & modular skills for OpenCode, Antigravity, and Claude Code",
+  "repository": "https://github.com/ha-lun/swarmkit",
+  "license": "MIT",
+  "dependencies": {
+    "@opencode-ai/plugin": "1.14.20"
+  }
+}

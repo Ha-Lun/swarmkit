@@ -1,0 +1,76 @@
+# Binaries
+bin/
+*.exe
+
+# Dependencies
+node_modules/
+
+# Local state
+.ponytail-active
+
+history.jsonl
+cache/
+tasks/
+plans/
+projects/
+scratch/
+*.local
+
+# Secrets & Private Keys — never commit
+*accounts*.json
+*.env
+.env.*
+!.env.example
+*.env.local
+secrets/
+*-credentials.json
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Logs and caches
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.cache/
+tmp/
+*.tmp
+
+# Python bytecode & environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Editor / OS
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Gemini-managed skills (76 MB, not in git)
+.claude/skills/
+
+# opencode worktrees
+/.worktrees/
+
+# Local pre-scrub backup artifacts (timestamped)
+.git.backup-*/
+
+.agents/
+custom-instructions.md
