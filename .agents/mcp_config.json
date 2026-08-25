@@ -1,19 +1,11 @@
 {
   "mcpServers": {
-    "shadcn": {
+    "gemini-mcp-tool": {
       "command": "npx",
-      "args": ["-y", "shadcn@latest", "mcp"]
-    },
-    "21st-dev-magic": {
-      "command": "npx",
-      "args": ["-y", "@21st-dev/magic@latest"],
+      "args": ["-y", "gemini-mcp-tool@latest"],
       "env": {
-        "API_KEY": "${MAGIC_MCP_API_KEY}"
+        "ANTIGRAVITY_ACCOUNTS_PATH": "$HOME/.opencode/antigravity-accounts.json"
       }
-    },
-    "chrome-devtools": {
-      "command": "npx",
-      "args": ["-y", "chrome-devtools-mcp@latest"]
     }
   }
 }

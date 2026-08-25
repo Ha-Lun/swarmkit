@@ -79,6 +79,10 @@ Follow this exact lifecycle for every user task:
 
 When delegating, define the subagent with `define_subagent` and launch it with `invoke_subagent`. **Every `invoke_subagent` call must always explicitly pass `Model: "flash"` or `Model: "pro"` matching the specialist roster:**
 
+**CRITICAL: Loading Specialist Prompts**
+Before defining a subagent, you MUST read its detailed system prompt from the file system. Use `view_file` (or `run_command` with `cat` if needed) to read the file located at `.agents/agents/<Agent Name>.md` (if in the project root) or `~/.gemini/config/agents/<Agent Name>.md` (global fallback). Pass the entire contents of this file as the `system_prompt` argument in your `define_subagent` call. Never use the 1-sentence descriptions below as the system prompt.
+
+
 | Agent Name | Subagent Model | Capabilities | Role & System Scope |
 | :--- | :--- | :--- | :--- |
 | `explore` | `flash` | Read-only | Rapid pre-flight code scan, signatures, architecture notes. Returns brief under 400 tokens. |
@@ -164,3 +168,6 @@ Whenever a destructive shell operation is required (file deletions, system confi
 - **Host Binding**: All dev servers and local services created or started on this machine must bind to `0.0.0.0` or `127.0.0.1` (e.g., `vite --host 0.0.0.0`, `uvicorn --host 0.0.0.0`, `next dev -H 0.0.0.0`).
 - **URL References**: All dev server URLs, API test endpoints, links, browser test targets, and messages must reference `http://localhost:<port>` or `http://127.0.0.1:<port>`.
 
+## Visual Engineering Workflows
+- **Scroll-driven landing page**: Autonomously apply the `scroll-craft` design floor (maximum 2 fonts, strict 8-point geometric spacing scale, exactly 6 semantic color tokens, and no generic UI tropes).
+- **Procedural 3D Components**: When tasked with generating a 3D component from a 2D image, output pure, procedural Three.js TypeScript code mapped with proper animation pivots, explicitly avoiding external asset imports.

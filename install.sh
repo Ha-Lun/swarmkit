@@ -120,14 +120,17 @@ install_agy() {
   echo "=== Installing Antigravity Swarm (agy) Config ==="
   local gemini_dir="$HOME/.gemini/config"
   mkdir -p "$gemini_dir/skills"
+  mkdir -p "$gemini_dir/agents"
 
   backup_if_exists "$gemini_dir/AGENTS.md"
   backup_if_exists "$gemini_dir/GEMINI.md"
   backup_if_exists "$gemini_dir/mcp_config.json"
+  backup_if_exists "$gemini_dir/agents"
 
   cp "$REPO_DIR/AGENTS.md" "$gemini_dir/AGENTS.md"
   cp "$REPO_DIR/AGENTS.md" "$gemini_dir/GEMINI.md"
   cp "$REPO_DIR/mcp.json" "$gemini_dir/mcp_config.json"
+  cp "$REPO_DIR"/agents/*.md "$gemini_dir/agents/"
 
   for skill_dir in "$REPO_DIR"/skill/*; do
     if [ -d "$skill_dir" ]; then
@@ -139,8 +142,10 @@ install_agy() {
   # Since .agents is gitignored, this is fine
   mkdir -p "$REPO_DIR/.agents/skills"
   mkdir -p "$REPO_DIR/.agents/rules"
+  mkdir -p "$REPO_DIR/.agents/agents"
   cp "$REPO_DIR/AGENTS.md" "$REPO_DIR/.agents/rules/AGENTS.md"
   cp "$REPO_DIR/mcp.json" "$REPO_DIR/.agents/mcp_config.json"
+  cp "$REPO_DIR"/agents/*.md "$REPO_DIR/.agents/agents/"
 
   for skill_dir in "$REPO_DIR"/skill/*; do
     if [ -d "$skill_dir" ]; then
@@ -159,7 +164,7 @@ install_claude() {
   backup_if_exists "$HOME/.claude.md"
   backup_if_exists "$claude_global/claude.json"
 
-  cp "$REPO_DIR/AGENTS.md" "$HOME/.claude.md"
+  cp "$REPO_DIR/.claude/CLAUDE.md" "$HOME/.claude.md"
   cp "$REPO_DIR/mcp.json" "$claude_global/claude.json"
 
   echo "✓ Claude Code installation complete"
