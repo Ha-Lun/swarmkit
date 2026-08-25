@@ -1,7 +1,8 @@
 ---
 description: Monitoring and observability specialist for Prometheus, Grafana, Loki, alerting, log aggregation, APM, distributed tracing, metrics dashboards, SLI/SLO best practices, and synthetic monitoring.
 mode: subagent
-model: google/antigravity-gemini-3-flash
+# model: opencode-go/deepseek-v4-flash
+model: opencode/x-preview-f-free
 temperature: 0.1
 permission:
   read: allow

@@ -1,7 +1,8 @@
 ---
 description: Ubuntu server administration expert for system configuration, service management, security hardening, and infrastructure maintenance.
 mode: subagent
-model: google/antigravity-gemini-3-flash
+# model: opencode-go/deepseek-v4-flash
+model: opencode/x-preview-f-free
 temperature: 0.1
 permission:
   read: allow

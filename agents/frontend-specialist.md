@@ -1,6 +1,7 @@
 ---
 description: Frontend specialist focused on production-ready UI implementation, design quality, accessibility, responsiveness, motion discipline, and maintainability. Ships premium frontends with restraint, not noise. Loads premium-frontend-system by default.
-model: google/antigravity-gemini-3.1-pro
+# model: opencode-go/deepseek-v4-pro
+model: opencode/x-preview-f-free
 mode: subagent
 temperature: 0.2
 permission:

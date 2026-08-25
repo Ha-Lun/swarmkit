@@ -1,7 +1,8 @@
 ---
 description: "Git workflow specialist — commit/branch review (default) AND environment setup on lead-dev's behalf: git worktree create/remove, .worktrees/ .gitignore append. Read-only for everything else."
 mode: subagent
-model: google/antigravity-gemini-3-flash
+# model: opencode-go/deepseek-v4-flash
+model: opencode/x-preview-f-free
 temperature: 0.1
 permission:
   read: allow

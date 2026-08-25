@@ -1,7 +1,8 @@
 ---
 description: DevOps specialist for CI/CD pipelines, infrastructure as code, deployment automation, container orchestration, secrets management, and build systems.
 mode: subagent
-model: google/antigravity-gemini-3.1-pro
+# model: opencode-go/deepseek-v4-pro
+model: opencode/x-preview-f-free
 temperature: 0.2
 permission:
   read: allow

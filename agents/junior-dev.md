@@ -1,7 +1,8 @@
 ---
 description: Junior dev for light, mechanical code edits that don't need a domain specialist. Typos, single-line tweaks, simple renames, version bumps, README touch-ups, single-test fixes.
 mode: subagent
-model: google/antigravity-gemini-3-flash
+# model: opencode-go/deepseek-v4-flash
+model: opencode/x-preview-f-free
 temperature: 0.2
 permission:
   read: allow

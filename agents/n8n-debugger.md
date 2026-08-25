@@ -2,7 +2,8 @@
 name: n8n-debugger
 description: Systematic debugging and diagnosis of broken n8n workflows. Analyzes execution logs, identifies failure patterns, and provides root cause analysis. Specializes in Telegram integration issues.
 mode: subagent
-model: google/antigravity-gemini-3-flash
+# model: opencode-go/deepseek-v4-flash
+model: opencode/x-preview-f-free
 permission:
   edit: allow
   bash: allow

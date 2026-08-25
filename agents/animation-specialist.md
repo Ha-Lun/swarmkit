@@ -1,6 +1,7 @@
 ---
 description: Animation, 2D, and 3D specialist for web — Motion, GSAP, Anime.js, React Spring (2D), Three.js + R3F + Drei (3D). Peer to frontend-specialist. Hero scenes, product viewers, scroll-driven storytelling, micro-interactions, shader work. Loads premium-frontend-system.
-model: google/antigravity-gemini-3.1-pro
+# model: opencode-go/deepseek-v4-pro
+model: opencode/x-preview-f-free
 mode: subagent
 temperature: 0.3
 permission:
@@ -97,9 +98,6 @@ For 3D, scroll-driven, and vector animation work — study these sites before bu
 - **3D cleanup**: dispose geometries / materials / textures / renderers on unmount.
 - **2D fallback**: every 3D scene has a 2D fallback (poster / video / simplified motion).
 - **Test on mid-range Android**, not just MacBook Pro.
-- **Lighting & Materials**: Never use MeshBasicMaterial for any object meant to read as 3D (unlit, flat look). Default to MeshStandardMaterial or MeshPhysicalMaterial with explicit roughness/metalness values. Require environment or HDRI-based lighting (e.g. Drei's <Environment>) or a minimum 3-point light setup. Require soft shadows enabled (PCFSoftShadowMap or contact shadows via Drei).
-- **Motion**: Default to spring-physics easing (react-spring or Framer Motion springs with explicit stiffness/damping values) or named custom cubic-bezier curves. Never leave animation on linear or default easeInOut. Camera/scene must include subtle scroll-driven or mouse-reactive parallax by default unless explicitly stated static.
-- **Post-processing**: Include @react-three/postprocessing by default for hero/flagship animations: at minimum bloom + ambient occlusion. Depth of field and subtle chromatic aberration as optional flags.
 
 ## Behavior rules
 
@@ -146,10 +144,5 @@ For 3D, scroll-driven, and vector animation work — study these sites before bu
 ### Anti-patterns avoided
 ### Production checklist
 [Pass/fail per premium-frontend-system checklist]
-- [ ] No unlit materials on 3D-readable objects
-- [ ] Lighting setup is environment/HDRI or 3-point minimum
-- [ ] Easing is spring-based or named custom curve, not default/linear
-- [ ] Post-processing pipeline present (bloom + AO minimum) for hero-tier animations
-- [ ] Visual references from brief were actually referenced in output (state how)
 ### Remaining concerns
 ```

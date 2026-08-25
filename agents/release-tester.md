@@ -1,7 +1,8 @@
 ---
 description: Final quality gate that runs tests, linters, type checkers, and build validation before release. Read-only; reports failures but does not fix them.
 mode: subagent
-model: google/antigravity-gemini-3-flash
+# model: opencode-go/deepseek-v4-flash
+model: opencode/x-preview-f-free
 temperature: 0.0
 permission:
   read: allow

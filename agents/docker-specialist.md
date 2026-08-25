@@ -1,7 +1,8 @@
 ---
 description: Docker specialist for containerization, Dockerfiles, Compose stacks, image optimization, build caching, runtime debugging, and container security hygiene.
 mode: subagent
-model: google/antigravity-gemini-3-flash
+# model: opencode-go/deepseek-v4-flash
+model: opencode/x-preview-f-free
 temperature: 0.2
 permission:
   read: allow
