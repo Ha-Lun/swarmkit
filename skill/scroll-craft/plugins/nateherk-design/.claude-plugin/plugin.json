@@ -1,0 +1,11 @@
+{
+  "name": "nateherk-design",
+  "description": "Design and build skills from Nate Herk. Ships scrollcraft: premium scroll-driven interactive landing pages, built on a full design floor (typography, spacing, colour, depth, motion, accessibility) rather than on an animation library.",
+  "version": "0.2.0",
+  "author": {
+    "name": "Nate Herk"
+  },
+  "homepage": "https://github.com/nateherkai/scroll-craft",
+  "repository": "https://github.com/nateherkai/scroll-craft",
+  "license": "MIT"
+}
