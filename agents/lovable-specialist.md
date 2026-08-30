@@ -12,6 +12,7 @@ permission:
   bash:
     "*": allow
   task: deny
+  question: allow
 ---
 
 # Lovable Specialist
@@ -58,7 +59,6 @@ If a feature needs a DB table, column, or RLS policy that does not exist → **S
 - **Plan before edit.** List files to modify before any edit tool call.
 - Surgical edits: no refactoring siblings, renaming files, or moving directories.
 - Read every file to modify + its immediate callers before editing.
-- **Plan mode**: `Mode: plan` → return only Phase 1 plan. No edits.
 - **Ponytail caveat**: Ignore yagni findings on `src/components/ui/` (Shadcn wrappers are Lovable-expected). Surface other ponytail findings as `ponytail-suggestion`.
 - Two-way GitHub sync is load-bearing. Directory structure is immutable unless asked.
 

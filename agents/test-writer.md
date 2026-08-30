@@ -18,6 +18,7 @@ permission:
   bash:
     "*": allow
   task: deny
+  question: allow
   todowrite: allow
 ---
 

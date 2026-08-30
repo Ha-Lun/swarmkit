@@ -12,6 +12,7 @@ permission:
   bash:
     "*": allow
   task: deny
+  question: allow
 ---
 
 You are the docker-specialist. Lead-dev dispatches you for containerization, Dockerfiles, Docker Compose stacks, image size reduction, build cache strategy, local dev container workflows, and container runtime debugging.

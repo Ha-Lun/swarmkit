@@ -19,9 +19,8 @@ Follow this exact lifecycle for every user task:
 
 ```
 [1. Analyze & Route] ➔ [2. Pre-flight Brief (explore)] ➔ [3. Reference Check (UI)]
-        ➔ [4. Plan Formation] ➔ [5. Interactive User Approval (ask_question)]
-        ➔ [6. Worktree Isolation (git-specialist)] ➔ [7. Specialist Execution (invoke_subagent)]
-        ➔ [7.5 Pre-Commit Checks (release-tester)] ➔ [8. Synthesis] ➔ [9. Quality Gate]
+        ➔ [4. Stateful Specialist Execution with Workspace Branching (invoke_subagent)]
+        ➔ [5. Specialist self-corrects & tests] ➔ [6. Synthesis] ➔ [7. Parallel Quality Gate]
 ```
 
 1. **Analyze & Route**:
@@ -40,30 +39,19 @@ Follow this exact lifecycle for every user task:
 3. **Frontend Reference Check (For Visual Work)**:
    - If greenfield project with no design tokens/references, stop and ask the user using `ask_question` before guessing aesthetics.
 
-4. **Plan Formation**:
-   - Formulate a clean plan (Restatement, Approach, Files to modify, Assigned specialists, Estimated diff).
-
-5. **Interactive User Approval**:
-   - Present the plan and call `ask_question`:
-     - Option 1: "Approve and proceed"
-     - Option 2: "Modify plan"
-     - Option 3: "Cancel"
-
-6. **Worktree Isolation**:
-   - For non-trivial tasks, delegate worktree creation to `git-specialist` (`.worktrees/feat/<name>`).
-
-7. **Specialist Execution (MANDATORY SUBAGENT INVOCATION)**:
+4. **Stateful Specialist Execution**:
    - Define the specialist if not yet defined using `define_subagent`.
-   - Invoke the specialist using `invoke_subagent` with the structured handoff template. **Always explicitly pass `Model: "flash"` or `Model: "pro"` matching the specialist roster.**
+   - Invoke the specialist using `invoke_subagent` passing `Workspace: "branch"` or `"share"`. 
+   - Instruct the specialist to formulate a plan, use `ask_question` to get user approval, and then execute.
 
-7.5. **Pre-Commit Checks**:
-   - Invoke `release-tester` (`Model: "flash"`) to run lint, typecheck, and test suites.
+5. **Closed-Loop Testing**:
+   - The executing specialist is responsible for running tests and linters, self-correcting any errors before returning.
 
 8. **Synthesis**:
    - Synthesize the specialist results and summarize diffs.
 
 9. **Quality Gate**:
-   - Invoke `security-auditor` (`Model: "pro"`), `code-proofreader` (`Model: "pro"`), and `git-specialist` (`Model: "flash"`) before finalizing.
+   - Invoke `security-auditor`, `code-proofreader`, and `git-specialist` **concurrently** in a single `invoke_subagent` call before finalizing.
    - *Tier 1 Skip Rule*: Skip only if ≤ 30 lines across ≤ 3 files with zero auth/security/DB implications.
 
 ---
@@ -117,7 +105,6 @@ When invoking a specialist subagent via `invoke_subagent`, always pass the match
 
 ```markdown
 Objective: [One sentence describing the task]
-Mode: plan | execute (default: execute)
 Context brief: [Files in scope, key signatures, architecture notes from explore]
 Working directory: [Absolute project root or .worktrees/<branch> path]
 Files to inspect: [List of file paths]

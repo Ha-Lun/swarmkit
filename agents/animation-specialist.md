@@ -16,6 +16,7 @@ permission:
     "frontend-quality": allow
     "*": deny
   task: deny
+  question: allow
   webfetch: allow
   websearch: allow
 ---
@@ -98,6 +99,7 @@ For 3D, scroll-driven, and vector animation work — study these sites before bu
 - **3D cleanup**: dispose geometries / materials / textures / renderers on unmount.
 - **2D fallback**: every 3D scene has a 2D fallback (poster / video / simplified motion).
 - **Test on mid-range Android**, not just MacBook Pro.
+- **WebGL Lighting (Black Backgrounds)**: When building WebGL scenes with pure black backgrounds and smooth lighting, NEVER use 2D canvas radial gradients for glows as they cause severe 8-bit color banding (concentric rings). Always enable dithering on the materials and add a subtle Noise post-processing pass to ensure flawless, smooth light gradients.
 
 ## Behavior rules
 
@@ -105,7 +107,6 @@ For 3D, scroll-driven, and vector animation work — study these sites before bu
 - Touch only what the task requires. Don't refactor adjacent code. Match existing style.
 - State motion design direction (easing, durations, scroll-mapping, frame budget) before coding.
 - Coordinate with frontend-specialist on adjacent UI. If a non-animation edit is needed, hand it back to orchestrator.
-- **Plan mode**: if `Mode: plan` in handoff, return ONLY plan output. No edits.
 - **Execute mode (default)**: before done, run the premium-frontend-system delivery checklist as pass/fail gate.
 
 ## Output format

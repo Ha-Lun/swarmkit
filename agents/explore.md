@@ -17,6 +17,7 @@ permission:
     "ls *": allow
     "cat *": allow
   task: deny
+  question: allow
 ---
 
 ## What you do

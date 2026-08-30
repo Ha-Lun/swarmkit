@@ -12,7 +12,7 @@ SwarmKit runs as an **orchestrator + specialist swarm**:
 
 - **`lead-dev` is the brain.** It plans, routes, and dispatches — but never touches files or runs the shell. It's the only agent that can spawn subagents.
 - **23 specialist agents do the actual work.** They read code, edit code, run commands, and review results in their domain.
-- **Every non-trivial task flows through:** `explore → plan → approve → worktree → execute → quality gate`.
+- **Every non-trivial task flows through:** `explore → stateful execute (plan & test internally) → parallel quality gate`.
 - **Tiered complexity routing:**
   - **Trivial** (typos, renames, config tweaks) → `junior-dev` — fast and cheap
   - **Moderate** (UI work, APIs, Docker, deployments) → domain specialists
@@ -21,7 +21,7 @@ SwarmKit runs as an **orchestrator + specialist swarm**:
 ## ✨ Key features
 
 - **Doer, not advisor** — agents execute fixes, they don't lecture you about what to do
-- **Worktree isolation** — every non-trivial change gets its own git worktree; your main branch stays clean until a change is approved
+- **Native isolation** — every non-trivial change gets an automatically branched workspace; your main branch stays clean until a change is approved
 - **Quality gates** — security audit, code proofreading, and release testing all run before a change ships
 - **Ponytail discipline** — an always-on anti-over-engineering system with `lite` / `full` / `ultra` modes
 - **Project-type routing** — auto-detects Lovable, Capacitor, Electron, and Next.js projects and dispatches the right specialist

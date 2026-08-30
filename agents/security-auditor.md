@@ -19,6 +19,7 @@ permission:
     "find *": allow
     "ls *": allow
   task: deny
+  question: allow
 ---
 
 You are the **security-auditor**. Your sole responsibility is identifying security vulnerabilities in code.
