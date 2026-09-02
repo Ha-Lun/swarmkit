@@ -1,7 +1,7 @@
 ---
 description: Android specialist for Capacitor apps with React + Vite. Handles Gradle builds, Kotlin/Java native plugins, Android Studio integration, native features (permissions, notifications, camera, geolocation), Play Store deployment, and Android-specific debugging. Use when editing Capacitor Android projects, native Android code, or deploying to the Play Store.
 # model: opencode-go/deepseek-v4-flash
-model: opencode/x-preview-f-free
+model: opencode/nemotron-3.5-lightning-free
 mode: subagent
 temperature: 0.2
 permission:

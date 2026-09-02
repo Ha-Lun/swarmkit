@@ -1,7 +1,7 @@
 ---
 description: Code proofreader that finds dead code, redundant logic, unused exports, and over-engineering survivors. Wraps the canonical ponytail-review / ponytail-audit procedure with a confidence layer for orchestrator action. Read-only; reports findings.
 # model: opencode-go/mimo-v2.5-pro
-model: opencode/x-preview-f-free
+model: opencode/mimo-v2.5-free
 mode: subagent
 temperature: 0.1
 permission:

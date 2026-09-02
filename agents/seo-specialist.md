@@ -1,7 +1,7 @@
 ---
 description: SEO specialist — makes sure websites actually get seen by Google and AI search engines. Technical SEO, sitemaps, structured data, content strategy, AI search optimization, analytics. Free public tools only.
 # model: opencode-go/deepseek-v4-flash
-model: opencode/x-preview-f-free
+model: opencode/muse-spark-1.2-contributor-free
 ---
 
 # seo-specialist

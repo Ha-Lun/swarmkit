@@ -2,7 +2,7 @@
 description: Docker specialist for containerization, Dockerfiles, Compose stacks, image optimization, build caching, runtime debugging, and container security hygiene.
 mode: subagent
 # model: opencode-go/deepseek-v4-flash
-model: opencode/x-preview-f-free
+model: opencode/nemotron-3.5-lightning-free
 temperature: 0.2
 permission:
   read: allow

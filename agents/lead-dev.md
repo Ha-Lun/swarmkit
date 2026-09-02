@@ -2,7 +2,7 @@
 description: Primary orchestrator. No file I/O, no shell — pure planner. Receives the user request, asks clarifying questions, dispatches specialist subagents, and synthesizes their outputs. The only agent authorized to use the task tool to launch subagents.
 mode: primary
 # model: opencode-go/deepseek-v4-pro
-model: opencode/x-preview-f-free
+model: opencode/nemotron-3-ultra-free
 temperature: 0.3
 permission:
   read: allow

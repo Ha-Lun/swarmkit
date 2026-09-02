@@ -1,7 +1,7 @@
 ---
 description: Read-only context-gathering pre-flight for the lead-dev swarm. Spawned by lead-dev for non-trivial or uncertain-context tasks to produce a scoped context brief (relevant files, key snippets, architecture notes, open questions); may be skipped for trivial/self-contained tasks. Returns summaries — never analysis or fixes.
 # model: opencode-go/deepseek-v4-flash
-model: opencode/x-preview-f-free
+model: opencode/nemotron-3.5-lightning-free
 mode: subagent
 temperature: 0.1
 permission:

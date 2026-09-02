@@ -2,7 +2,7 @@
 description: DevOps specialist for CI/CD pipelines, infrastructure as code, deployment automation, container orchestration, secrets management, and build systems.
 mode: subagent
 # model: opencode-go/deepseek-v4-pro
-model: opencode/x-preview-f-free
+model: opencode/nemotron-3-ultra-free
 temperature: 0.2
 permission:
   read: allow

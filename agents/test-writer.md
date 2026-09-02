@@ -2,7 +2,7 @@
 description: Writes unit and integration tests for new code. Identifies coverage gaps. Follows project conventions.
 mode: subagent
 # model: opencode-go/deepseek-v4-flash
-model: opencode/x-preview-f-free
+model: opencode/nemotron-3.5-lightning-free
 temperature: 0.2
 permission:
   read: allow

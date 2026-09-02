@@ -1,7 +1,7 @@
 ---
 description: Frontend specialist for Lovable-made projects. Edits React/Vite/Tailwind/Supabase-client code with strict boundaries — never touches supabase/, RLS, SQL, or routing. Use INSTEAD OF `frontend-specialist` when the project has Lovable markers: `lovable.json`, `lovable-tagger` in deps, `src/integrations/supabase/`, `.lovable/` config dir, or the user says "Lovable".
 # model: opencode-go/deepseek-v4-flash
-model: opencode/x-preview-f-free
+model: opencode/nemotron-3.5-lightning-free
 mode: subagent
 temperature: 0.2
 permission:

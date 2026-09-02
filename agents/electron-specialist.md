@@ -1,7 +1,7 @@
 ---
 description: Electron specialist for wrapping existing React + Vite web apps as desktop applications. Handles Electron main/renderer/preload architecture, electron-builder/forge packaging, auto-updates, native menus, system tray, file system access, and cross-platform desktop deployment (macOS, Windows, Linux). Use when building or modifying Electron desktop apps.
 # model: opencode-go/deepseek-v4-flash
-model: opencode/x-preview-f-free
+model: opencode/nemotron-3.5-lightning-free
 mode: subagent
 temperature: 0.2
 permission:

@@ -2,7 +2,7 @@
 description: Database specialist for schema design, migrations, query optimization, and ORM code.
 mode: subagent
 # model: opencode-go/deepseek-v4-pro
-model: opencode/x-preview-f-free
+model: opencode/nemotron-3-ultra-free
 temperature: 0.2
 permission:
   read: allow
