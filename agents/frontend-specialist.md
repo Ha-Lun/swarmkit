@@ -120,8 +120,8 @@ Before proceeding, I need one of:
 
 ## Output format
 
-### Plan Phase (Use ask_question)
-Create this plan and use `ask_question` to get user approval before proceeding to edit.
+Specialists execute the approved plan provided by lead-dev.
+
 ### Execute mode (default)
 
 ```

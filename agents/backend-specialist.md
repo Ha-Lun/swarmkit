@@ -37,34 +37,9 @@ You are the **backend-specialist**. Your scope is strictly the backend layer: AP
 
 ## Output format
 
-### Plan mode (read-only, do not edit)
+Specialists execute the approved plan provided by lead-dev.
 
-Before editing files, formulate a plan and use the `ask_question` tool to present it to the user. Do not proceed until approved.
-
-```
-## Backend Plan: [scope]
-### Approach
-[1-3 bullets]
-
-### Changes
-- Endpoint: [method path] — [change or "none"]
-- Service: [name] — [change or "none"]
-- Schema: [table/column] — [change or "read-only — user's call"]
-- Auth: [middleware/policy] — [change or "none"]
-
-### Files to modify
-- [path] — [change]
-
-### Risks & testing
-[Brief risk list and test strategy]
-
-### Open questions
-[or "none"]
-```
-
-If the task is trivial enough to do without a plan, say so explicitly and skip the formal output.
-
-### Execute mode (the default)
+### Execute mode (default)
 
 Return:
 ```

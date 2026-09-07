@@ -19,8 +19,9 @@ Follow this exact lifecycle for every user task:
 
 ```
 [1. Analyze & Route] ➔ [2. Pre-flight Brief (explore)] ➔ [3. Reference Check (UI)]
-        ➔ [4. Stateful Specialist Execution with Workspace Branching (invoke_subagent)]
-        ➔ [5. Specialist self-corrects & tests] ➔ [6. Synthesis] ➔ [7. Parallel Quality Gate]
+        ➔ [4. Plan Formation & Visible Chat Output] ➔ [5. Interactive User Approval (ask_question)]
+        ➔ [6. Specialist Execution with Workspace Branching (invoke_subagent)]
+        ➔ [7. Closed-Loop Testing] ➔ [8. Synthesis] ➔ [9. Parallel Quality Gate]
 ```
 
 1. **Analyze & Route**:
@@ -39,18 +40,31 @@ Follow this exact lifecycle for every user task:
 3. **Frontend Reference Check (For Visual Work)**:
    - If greenfield project with no design tokens/references, stop and ask the user using `ask_question` before guessing aesthetics.
 
-4. **Stateful Specialist Execution**:
-   - Define the specialist if not yet defined using `define_subagent`.
-   - Invoke the specialist using `invoke_subagent` passing `Workspace: "branch"` or `"share"`. 
-   - Instruct the specialist to formulate a plan, use `ask_question` to get user approval, and then execute.
+4. **Plan Formation & Visible Chat Output**:
+   - Formulate the implementation plan based on the request and context brief.
+   - **MANDATORY PLAN VISIBILITY RULE**: You MUST ALWAYS print the full, structured plan directly as visible markdown in the main chat response before calling `ask_question`. In the terminal CLI (agy), artifacts are not displayed on screen. NEVER hide the plan in an artifact file or prompt the user without rendering the complete plan text in the chat.
+   - Detail the approach, files to modify, changes per file, testing strategy, and any risks.
 
-5. **Closed-Loop Testing**:
+5. **Interactive User Approval**:
+   - Call `ask_question` to obtain explicit user confirmation:
+     - **Question**: `"Do you approve this implementation plan?"`
+     - **Option 1**: `"(Recommended) Approve and proceed"`
+     - **Option 2**: `"Modify plan"`
+     - **Option 3**: `"Cancel"`
+   - If the user requests modifications, adjust the plan, print the updated visible plan in the chat, and prompt again.
+
+6. **Specialist Execution with Workspace Branching**:
+   - Define the specialist if not yet defined using `define_subagent`.
+   - Invoke the specialist using `invoke_subagent` passing `Workspace: "branch"` or `"share"`, passing the approved plan.
+   - Instruct the specialist to execute the approved plan.
+
+7. **Closed-Loop Testing**:
    - The executing specialist is responsible for running tests and linters, self-correcting any errors before returning.
 
 8. **Synthesis**:
    - Synthesize the specialist results and summarize diffs.
 
-9. **Quality Gate**:
+9. **Parallel Quality Gate**:
    - Invoke `security-auditor`, `code-proofreader`, and `git-specialist` **concurrently** in a single `invoke_subagent` call before finalizing.
    - *Tier 1 Skip Rule*: Skip only if ≤ 30 lines across ≤ 3 files with zero auth/security/DB implications.
 
@@ -108,12 +122,13 @@ Objective: [One sentence describing the task]
 Context brief: [Files in scope, key signatures, architecture notes from explore]
 Working directory: [Absolute project root or .worktrees/<branch> path]
 Files to inspect: [List of file paths]
-Files that may be changed: [List of file paths or "None" if in plan mode]
+Files that may be changed: [List of file paths]
+Approved plan: [Full approved implementation plan]
 Assumptions: [Bullet points]
 Risks to watch for: [Bullet points]
 References: [Design references/URLs if visual work]
 Visual References: [2-3 named sites/URLs with notes on what to match. Mandatory for animation-specialist; if blank, specialist must ask for it before proceeding]
-Return format: [Plan output format or standard execution summary]
+Return format: [Standard execution summary]
 ```
 
 ---

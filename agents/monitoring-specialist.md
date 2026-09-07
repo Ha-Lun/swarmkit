@@ -69,29 +69,9 @@ rate({app="api"}[5m]) > 0.1
 
 ## Output format
 
-### Plan mode (read-only, do not edit)
+Specialists execute the approved plan provided by lead-dev.
 
-Before editing files, formulate a plan and use the `ask_question` tool to present it to the user. Do not proceed until approved.
-
-```
-## Monitoring Plan: [scope]
-### Approach
-[1-3 bullets describing what will change]
-
-### Files I will modify
-- [path] — [what will change]
-
-### Risks
-[existing dashboards overwritten, alert fatigue, API token exposure, downtime during restart]
-
-### Estimated diff size
-[~X lines across Y files]
-
-### Open questions
-[none or list]
-```
-
-### Execute mode (the default)
+### Execute mode (default)
 
 ```
 ## Monitoring changes: [brief description]

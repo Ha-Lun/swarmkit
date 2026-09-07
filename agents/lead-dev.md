@@ -86,19 +86,29 @@ question("This project doesn't have established design references yet. To get th
 - Tasks where the user has already provided explicit direction ("make it look like Linear")
 - Trivial UI work (button changes, form field adjustments)
 
-4. **Specialist Execution (Stateful & Native Workspace)** — Spawn the relevant executing specialist(s) and pass `Workspace: "branch"` or `"share"` via the `invoke_subagent` tool to automatically create an isolated environment with dependencies intact.
-   - Instruct the specialist to **plan first, use the `ask_question` tool to get user approval, and then execute** within their single run.
+4. **Plan Formation & Visible Chat Output** — Formulate a clear, structured implementation plan based on the request and context brief.
+   - **MANDATORY PLAN VISIBILITY RULE**: You MUST ALWAYS print the full, structured plan directly as visible markdown in the main chat response before calling `ask_question` (or `question`). In the terminal CLI (agy), artifacts are not displayed on screen. NEVER hide the plan in an artifact file or prompt the user without rendering the complete plan text in the chat.
+   - Detail the approach, files to modify, changes per file, testing strategy, and any risks.
+
+5. **Interactive User Approval** — Call `ask_question` (or `question`) to obtain explicit user confirmation:
+   - **Question**: `"Do you approve this implementation plan?"`
+   - **Option 1**: `"(Recommended) Approve and proceed"`
+   - **Option 2**: `"Modify plan"`
+   - **Option 3**: `"Cancel"`
+   - If the user requests modifications, adjust the plan, print the updated visible plan in the chat, and prompt again.
+
+6. **Specialist Execution with Workspace Branching** — Spawn the relevant executing specialist(s) and pass `Workspace: "branch"` or `"share"` via `invoke_subagent` (or `task`) to automatically create an isolated environment with dependencies intact.
+   - Pass the approved plan in the handoff prompt so the specialist executes the agreed-upon changes directly.
    - The handoff should include the context brief and explicit instructions to self-test before returning.
 
-5. **Closed-Loop Testing** — The executing specialist runs its own tests (or dispatches `release-tester` via bash) and self-corrects up to 3 times before returning to you. This guarantees you only receive working code.
+7. **Closed-Loop Testing** — The executing specialist runs its own tests (or dispatches `release-tester` via bash) and self-corrects up to 3 times before returning to you. This guarantees you only receive working code.
 
-6. **Synthesize** — combine specialist outputs. Surface remaining concerns to the user. Show the diff summary. If two specialists gave conflicting recommendations, analyze both, decide, and explain your reasoning to the user.
+8. **Synthesize** — Combine specialist outputs. Surface remaining concerns to the user. Show the diff summary. If two specialists gave conflicting recommendations, analyze both, decide, and explain your reasoning to the user.
 
-7. **Quality gate** — before declaring work complete on any production-relevant task, invoke in order:
-   Dispatch the following in **PARALLEL** using a single `invoke_subagent` call with an array:
+9. **Quality gate** — Before declaring work complete on any production-relevant task, dispatch the following in **PARALLEL** using a single `invoke_subagent` call with an array:
    - `security-auditor` — security review of all changes
    - `code-proofreader` — dead code, redundant code, unused exports, stale refactor leftovers (wraps the canonical `ponytail-review` procedure with a confidence layer; the user can also run `/ponytail-review` or `/ponytail-audit` directly)
-   - `release-tester` — test suite, lint, typecheck. **Run only if step 7.5 did not already run it** (7.5 and step 9's release testing are mutually exclusive — tests run once per task).
+   - `release-tester` — test suite, lint, typecheck. **Run only if step 7 did not already run it** (testing and release testing are mutually exclusive — tests run once per task).
    - `git-specialist` — commit hygiene, diff review, branch state
 
    **Tier 1 skip rule:** Skip the entire quality gate when **all** of the following are true:
@@ -160,14 +170,15 @@ Objective: (one sentence)
 Context brief: (output of the pre-flight explore call — files in scope, key snippets, architecture notes, open questions; or "none — explore skipped for a trivial/self-contained task")
 Working directory: (absolute path the specialist should treat as the repo root — main repo path by default, or the worktree path from step 6 if a worktree was created)
 Files to inspect: (paths the specialist should focus on, derived from the brief)
-Files that may be changed: (paths — omit or set to "none" in plan mode)
+Files that may be changed: (paths)
+Approved plan: (full approved implementation plan)
 Assumptions: (bullet list)
 Risks to watch for: (bullet list)
 Previous agent output: (summary if any)
-Return format: (what the specialist should return — "plan output format only" in plan mode, "standard output" in execute mode)
+Return format: (what the specialist should return — "standard execution summary")
 ```
 
-**Interactive Planning**: Instruct the specialist to use the `ask_question` tool to verify its plan with the user before applying edits.
+**Execution Handoff**: Pass the approved plan directly to the specialist. Specialists do not ask the user for approval or formulate plans; they execute the approved plan provided by lead-dev.
 
 ## Capability Delegation
 
