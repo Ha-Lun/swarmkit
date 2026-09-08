@@ -18,22 +18,28 @@ def process_file(filepath):
             '- You NEVER read project files. `explore` reads them and returns a context brief you consume as text.',
             '- You MAY read top-level configuration files (like package.json, opencode.jsonc, README.md) to make quick routing decisions. For deep codebase exploration, spawn `explore`.'
         )
+        if '(You MAY and MUST call `write_to_file` ONLY to create orchestration artifacts' not in content:
+            content = content.replace(
+                '- You NEVER write project files. `junior-dev`, `frontend-specialist`, `backend-specialist`, etc. do the writing.',
+                '- You NEVER write project files. `junior-dev`, `frontend-specialist`, `backend-specialist`, etc. do the writing. (You MAY and MUST call `write_to_file` ONLY to create orchestration artifacts in `<appDataDir>/brain/<conversation-id>/`, such as `implementation_plan.md` with `RequestFeedback: true`).'
+            )
         # Update workflow steps 4-9 in lead-dev.md
         lead_workflow_pattern = re.compile(
             r'4\. \*\*(Plan|Specialist Execution).*?(?=### B\. Read-only tasks)',
             re.DOTALL
         )
         
-        new_lead_workflow = """4. **Plan Formation & Visible Chat Output** — Formulate a clear, structured implementation plan based on the request and context brief.
-   - **MANDATORY PLAN VISIBILITY RULE**: You MUST ALWAYS print the full, structured plan directly as visible markdown in the main chat response before calling `ask_question` (or `question`). In the terminal CLI (agy), artifacts are not displayed on screen. NEVER hide the plan in an artifact file or prompt the user without rendering the complete plan text in the chat.
-   - Detail the approach, files to modify, changes per file, testing strategy, and any risks.
+        new_lead_workflow = """4. **Plan Formation (Artifact & Visible Plan)** — Formulate a clear, structured implementation plan based on the request and context brief.
+   - **Mandatory Artifact Creation**: Write the full implementation plan to `<appDataDir>/brain/<conversation-id>/implementation_plan.md` using `write_to_file` with `ArtifactMetadata` setting `RequestFeedback: true`, `UserFacing: true`, and a descriptive summary.
+   - Detail the approach, files to modify, changes per file, testing strategy, and any risks. Print the structured plan in the chat.
 
-5. **Interactive User Approval** — Call `ask_question` (or `question`) to obtain explicit user confirmation:
-   - **Question**: `"Do you approve this implementation plan?"`
-   - **Option 1**: `"(Recommended) Approve and proceed"`
-   - **Option 2**: `"Modify plan"`
-   - **Option 3**: `"Cancel"`
-   - If the user requests modifications, adjust the plan, print the updated visible plan in the chat, and prompt again.
+5. **Interactive User Approval (ask_question)** — Call `ask_question` (or `question`) to obtain explicit user confirmation:
+   - **MANDATORY PLAN EMBEDDING RULE**: You MUST embed the complete implementation plan directly inside the `question` argument string of `ask_question` (e.g. `"<full plan markdown>\\n\\nDo you approve this implementation plan?"`). Antigravity suppresses chat text during tool invocations; bare questions without the plan text are strictly forbidden.
+   - **Options**:
+     - **Option 1**: `"(Recommended) Approve and proceed"`
+     - **Option 2**: `"Modify plan"`
+     - **Option 3**: `"Cancel"`
+   - If the user requests modifications, adjust the plan, update the artifact, and prompt again with the updated plan embedded in `ask_question`.
 
 6. **Specialist Execution with Workspace Branching** — Spawn the relevant executing specialist(s) and pass `Workspace: "branch"` or `"share"` via `invoke_subagent` (or `task`) to automatically create an isolated environment with dependencies intact.
    - Pass the approved plan in the handoff prompt so the specialist executes the agreed-upon changes directly.
@@ -56,7 +62,7 @@ def process_file(filepath):
    When skipping, note in synthesis: "Quality gate skipped — Tier 1 trivial task (≤30 lines, ≤3 files, no auth/secrets/data/user-input/payment paths)." The user may explicitly request the full gate at any time; if they do, run it regardless of tier or diff size.
 
 """
-        content = lead_workflow_pattern.sub(new_lead_workflow, content)
+        content = lead_workflow_pattern.sub(lambda _: new_lead_workflow, content)
         
         # Handoff format updates
         content = content.replace('Mode: plan | execute   (default: execute)\n', '')
@@ -79,30 +85,36 @@ def process_file(filepath):
 
     # 2. Update AGENTS.md globally (the rules)
     if 'AGENTS.md' in filepath:
+        if '(You MAY and MUST call `write_to_file` ONLY to create orchestration artifacts' not in content:
+            content = content.replace(
+                '- **You NEVER write, edit, or refactor code files directly.** You are strictly prohibited from calling `write_to_file` or `replace_file_content` directly on project source code.',
+                '- **You NEVER write, edit, or refactor code files directly.** You are strictly prohibited from calling `write_to_file` or `replace_file_content` directly on project source code. (You MAY and MUST call `write_to_file` ONLY to create orchestration artifacts in `<appDataDir>/brain/<conversation-id>/`, such as `implementation_plan.md` with `RequestFeedback: true`).'
+            )
         # Replace the workflow diagram block
         workflow_diag_pattern = re.compile(r'```\n\[1\. Analyze & Route\].*?\[.*Quality Gate\]\n```', re.DOTALL)
         new_workflow_block = """```
 [1. Analyze & Route] ➔ [2. Pre-flight Brief (explore)] ➔ [3. Reference Check (UI)]
-        ➔ [4. Plan Formation & Visible Chat Output] ➔ [5. Interactive User Approval (ask_question)]
+        ➔ [4. Plan Formation (Artifact & Visible Plan)] ➔ [5. Interactive User Approval (ask_question)]
         ➔ [6. Specialist Execution with Workspace Branching (invoke_subagent)]
         ➔ [7. Closed-Loop Testing] ➔ [8. Synthesis] ➔ [9. Parallel Quality Gate]
 ```"""
-        content = workflow_diag_pattern.sub(new_workflow_block, content)
+        content = workflow_diag_pattern.sub(lambda _: new_workflow_block, content)
         
         # Replace steps 4-9
-        steps_pattern = re.compile(r'4\. \*\*(Plan Formation|Stateful Specialist Execution)\*\*.*?(?=### Flow B: Read-Only Tasks)', re.DOTALL)
-        new_steps = """4. **Plan Formation & Visible Chat Output**:
+        steps_pattern = re.compile(r'4\. \*\*Plan.*?(?=### Flow B: Read-Only Tasks)', re.DOTALL)
+        new_steps = """4. **Plan Formation (Artifact & Visible Plan)**:
    - Formulate the implementation plan based on the request and context brief.
-   - **MANDATORY PLAN VISIBILITY RULE**: You MUST ALWAYS print the full, structured plan directly as visible markdown in the main chat response before calling `ask_question`. In the terminal CLI (agy), artifacts are not displayed on screen. NEVER hide the plan in an artifact file or prompt the user without rendering the complete plan text in the chat.
-   - Detail the approach, files to modify, changes per file, testing strategy, and any risks.
+   - **Mandatory Artifact Creation**: Write the full implementation plan to `<appDataDir>/brain/<conversation-id>/implementation_plan.md` using `write_to_file` with `ArtifactMetadata` setting `RequestFeedback: true`, `UserFacing: true`, and a descriptive summary.
+   - Detail the approach, files to modify, changes per file, testing strategy, and any risks. Print the structured plan in the main chat response as visible markdown.
 
-5. **Interactive User Approval**:
+5. **Interactive User Approval (ask_question)**:
    - Call `ask_question` to obtain explicit user confirmation:
-     - **Question**: `"Do you approve this implementation plan?"`
+   - **MANDATORY PLAN EMBEDDING RULE**: You MUST embed the complete implementation plan directly inside the `question` argument string of `ask_question` (e.g. `"<full plan markdown>\\n\\nDo you approve this implementation plan?"`). Antigravity suppresses chat text during tool invocations; bare questions without the plan text are strictly forbidden.
+     - **Question**: `"<full plan markdown>\\n\\nDo you approve this implementation plan?"`
      - **Option 1**: `"(Recommended) Approve and proceed"`
      - **Option 2**: `"Modify plan"`
      - **Option 3**: `"Cancel"`
-   - If the user requests modifications, adjust the plan, print the updated visible plan in the chat, and prompt again.
+   - If the user requests modifications, update the artifact, adjust the plan, and prompt again with the updated plan embedded in `ask_question`.
 
 6. **Specialist Execution with Workspace Branching**:
    - Define the specialist if not yet defined using `define_subagent`.
@@ -122,7 +134,7 @@ def process_file(filepath):
 ---
 
 """
-        content = steps_pattern.sub(new_steps, content)
+        content = steps_pattern.sub(lambda _: new_steps, content)
 
         # Handoff template in AGENTS.md
         content = content.replace('Mode: plan | execute (default: execute)\n', '')

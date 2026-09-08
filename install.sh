@@ -67,16 +67,6 @@ if [ "$UNINSTALL_MODE" = true ]; then
   exit 0
 fi
 
-# Detect shell
-USER_SHELL=$(basename "$SHELL")
-RC_FILE=""
-case "$USER_SHELL" in
-  bash) RC_FILE="$HOME/.bashrc" ;;
-  zsh)  RC_FILE="$HOME/.zshrc" ;;
-  fish) RC_FILE="$HOME/.config/fish/config.fish" ;;
-  *)    RC_FILE="$HOME/.profile" ;;
-esac
-
 backup_if_exists() {
   local path="$1"
   if [ -e "$path" ] || [ -L "$path" ]; then
@@ -128,7 +118,7 @@ install_agy() {
   backup_if_exists "$gemini_dir/agents"
 
   cp "$REPO_DIR/AGENTS.md" "$gemini_dir/AGENTS.md"
-  cp "$REPO_DIR/AGENTS.md" "$gemini_dir/GEMINI.md"
+  rm -f "$gemini_dir/GEMINI.md"
   cp "$REPO_DIR/mcp.json" "$gemini_dir/mcp_config.json"
   cp "$REPO_DIR"/agents/*.md "$gemini_dir/agents/"
 
@@ -141,9 +131,8 @@ install_agy() {
   # Configure .agents in the repo safely without dirtying git if possible
   # Since .agents is gitignored, this is fine
   mkdir -p "$REPO_DIR/.agents/skills"
-  mkdir -p "$REPO_DIR/.agents/rules"
   mkdir -p "$REPO_DIR/.agents/agents"
-  cp "$REPO_DIR/AGENTS.md" "$REPO_DIR/.agents/rules/AGENTS.md"
+  rm -f "$REPO_DIR/.agents/rules/AGENTS.md"
   cp "$REPO_DIR/mcp.json" "$REPO_DIR/.agents/mcp_config.json"
   cp "$REPO_DIR"/agents/*.md "$REPO_DIR/.agents/agents/"
 
