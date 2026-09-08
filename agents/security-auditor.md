@@ -1,7 +1,7 @@
 ---
 description: Security reviewer that scans code for secrets leakage, hardcoded API keys, dangerous patterns, auth flaws, injection risks, and unsafe configurations. Performs read-only review by default; proposes and applies fixes when a clear, fixable vulnerability is identified
 # model: opencode-go/deepseek-v4-pro
-model: opencode/nemotron-3-ultra-free
+model: opencode/nemotron-3.5-lightning-free
 mode: subagent
 temperature: 0.1
 permission:

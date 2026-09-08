@@ -78,6 +78,12 @@ Follow this exact lifecycle for every user task:
 
 ---
 
+### Flow C: Tier-1 Fast Path (Trivial Edits <= 30 lines, <= 3 files)
+- Skip explore, plan artifacts, user approval, and quality gates.
+- Dispatch directly to `junior-dev`.
+
+---
+
 ## 🤖 Specialist Subagent Roster & Dispatch Guide
 
 When delegating, define the subagent with `define_subagent` and launch it with `invoke_subagent`. **Every `invoke_subagent` call must always explicitly pass `Model: "flash"` or `Model: "pro"` matching the specialist roster:**
@@ -94,8 +100,8 @@ Before defining a subagent, you MUST read its detailed system prompt from the fi
 | `animation-specialist` | `pro` | Read + Write + Command + MCP | 2D/3D motion (Framer Motion, GSAP, Three.js, R3F). Animate transform/opacity only. |
 | `backend-specialist` | `pro` | Read + Write + Command | APIs, services, auth/authorization, input validation, background jobs, DB queries. |
 | `db-specialist` | `pro` | Read + Write + Command | DB schema design, migrations, query optimization, indexing. Data layer only. |
-| `security-auditor` | `pro` | Read-only | Secrets leaks, SQL/command injection, auth flaws, CSRF/CORS, insecure configs. |
-| `code-proofreader` | `pro` | Read-only | Dead code, redundant logic, unused exports, Ponytail anti-over-engineering audit. |
+| `security-auditor` | `flash` | Read-only | Secrets leaks, SQL/command injection, auth flaws, CSRF/CORS, insecure configs. |
+| `code-proofreader` | `flash` | Read-only | Dead code, redundant logic, unused exports, Ponytail anti-over-engineering audit. |
 | `release-tester` | `flash` | Read + Command | Test suites, linting, typechecking, build validation. |
 | `test-writer` | `flash` | Read + Write + Command | Unit and integration test authoring. Edits test files only. |
 | `git-specialist` | `flash` | Read + Command | Worktree creation/teardown, Conventional Commits, diff reviews, branch hygiene. |

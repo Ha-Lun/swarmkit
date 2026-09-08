@@ -117,7 +117,7 @@ install_agy() {
   backup_if_exists "$gemini_dir/mcp_config.json"
   backup_if_exists "$gemini_dir/agents"
 
-  cp "$REPO_DIR/AGENTS.md" "$gemini_dir/AGENTS.md"
+  ln -sfn "$REPO_DIR/AGENTS.md" "$gemini_dir/AGENTS.md"
   rm -f "$gemini_dir/GEMINI.md"
   cp "$REPO_DIR/mcp.json" "$gemini_dir/mcp_config.json"
   cp "$REPO_DIR"/agents/*.md "$gemini_dir/agents/"
