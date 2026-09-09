@@ -146,8 +146,12 @@ install_agy() {
   if command -v npm &>/dev/null; then
     echo "Installing agyw (account switcher)..."
     npm install -g agyw
-    agyw init
-    echo "✓ agyw installed"
+    if [ -d "$HOME/.gemini/antigravity-cli" ]; then
+      agyw init
+      echo "✓ agyw installed and initialized"
+    else
+      echo "✓ agyw installed. Run 'agyw init' after launching agy for the first time."
+    fi
   else
     echo "⚠ npm not found — skipping agyw. Install Node.js then run: npm install -g agyw && agyw init"
   fi
