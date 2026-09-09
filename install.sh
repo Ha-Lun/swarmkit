@@ -142,6 +142,16 @@ install_agy() {
     fi
   done
 
+  # Install agyw account switcher
+  if command -v npm &>/dev/null; then
+    echo "Installing agyw (account switcher)..."
+    npm install -g agyw
+    agyw init
+    echo "✓ agyw installed"
+  else
+    echo "⚠ npm not found — skipping agyw. Install Node.js then run: npm install -g agyw && agyw init"
+  fi
+
   echo "✓ Antigravity (agy) installation complete"
 }
 

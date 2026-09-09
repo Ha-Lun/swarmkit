@@ -106,3 +106,23 @@ The `./install.sh` script is a unified setup tool that supports installing confi
 | `--free` | Enable free mode for OpenCode (uses default models, no API keys needed) |
 | `--uninstall` | Uninstall all configurations |
 | `--help` | Show the help message |
+
+## 🔄 Multi-account switching (agyw)
+
+`agyw` is installed automatically as part of `--agy` or `--all`. It lets you switch between multiple Google accounts in `agy` without logging out.
+
+> **Already have SwarmKit installed?** Run these two commands directly — no need to re-run the full installer:
+> ```sh
+> npm install -g agyw && agyw init
+> ```
+
+```sh
+agyw add work          # Create a new profile (clears auth for fresh login)
+agy auth login         # Log in with your work Google account
+agyw switch default    # Switch back to your personal account
+agyw list              # List all profiles
+agyw status            # Check active profile + symlink health
+```
+
+> **Important:** Quit any running `agy` or Antigravity IDE processes before switching profiles.
+
