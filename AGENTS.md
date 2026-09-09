@@ -47,12 +47,13 @@ Follow this exact lifecycle for every user task:
 
 5. **Interactive User Approval (ask_question)**:
    - Call `ask_question` to obtain explicit user confirmation:
-   - **MANDATORY PLAN EMBEDDING RULE**: You MUST embed the complete implementation plan directly inside the `question` argument string of `ask_question` (e.g. `"<full plan markdown>\n\nDo you approve this implementation plan?"`). Antigravity suppresses chat text during tool invocations; bare questions without the plan text are strictly forbidden.
-     - **Question**: `"<full plan markdown>\n\nDo you approve this implementation plan?"`
+   - You MUST reference or summarize the implementation plan inside the `question` argument string of `ask_question` rather than embedding the full markdown. (e.g. `"I have written the implementation plan in the artifact. Do you approve?"`). Antigravity suppresses chat text during tool invocations, but the artifact is visible.
+     - **Question**: `"I have written the implementation plan in the artifact. Do you approve?"`
      - **Option 1**: `"(Recommended) Approve and proceed"`
      - **Option 2**: `"Modify plan"`
      - **Option 3**: `"Cancel"`
-   - If the user requests modifications, update the artifact, adjust the plan, and prompt again with the updated plan embedded in `ask_question`.
+   - If the user requests modifications, update the artifact, adjust the plan, and prompt again.
+   - **Headless / Automated Execution**: In non-interactive or automated environments (e.g., CLI automation, scripts, or when --auto is specified), skip the interactive ask_question gate and proceed directly to Step 6 (Specialist Execution) with the formulated plan.
 
 6. **Specialist Execution with Workspace Branching**:
    - Define the specialist if not yet defined using `define_subagent`.
@@ -66,8 +67,11 @@ Follow this exact lifecycle for every user task:
    - Synthesize the specialist results and summarize diffs.
 
 9. **Parallel Quality Gate**:
-   - Invoke `security-auditor`, `code-proofreader`, and `git-specialist` **concurrently** in a single `invoke_subagent` call before finalizing.
-   - *Tier 1 Skip Rule*: Skip only if ≤ 30 lines across ≤ 3 files with zero auth/security/DB implications.
+   - Conditionally invoke quality agents **concurrently** in a single `invoke_subagent` call before finalizing:
+     - `security-auditor`: spawn ONLY if auth/secrets/database/user-input handlers were modified.
+     - `code-proofreader`: spawn ONLY on diffs > 100 lines or upon user request.
+     - `release-tester`: test suite, lint, typecheck (if not run in step 7).
+     - `git-specialist`: commit hygiene. Avoid spawning for simple diffs.
 
 ---
 
@@ -79,8 +83,11 @@ Follow this exact lifecycle for every user task:
 ---
 
 ### Flow C: Tier-1 Fast Path (Trivial Edits <= 30 lines, <= 3 files)
-- Skip explore, plan artifacts, user approval, and quality gates.
-- Dispatch directly to `junior-dev`.
+When a task is Tier-1 (typos, 1-line bug fixes, simple renames, version bumps, README touch-ups, single test fixes):
+- **Skip pre-flight `explore`**: No context gathering needed for obvious/contained edits.
+- **Skip plan artifacts & approval gates**: Do NOT create `implementation_plan.md` and do NOT call `ask_question`.
+- **Direct dispatch**: Skip the verbose 10-field handoff template. Dispatch immediately to `junior-dev` with a direct 1-line objective (e.g. `Fix the off-by-one bug in chunk.py so that test_chunk.py passes. Edit directly and verify.`).
+- **Immediate finish**: On completion from `junior-dev`, output a 1-sentence confirmation and finish. Skip quality gates completely.
 
 ---
 
@@ -89,7 +96,7 @@ Follow this exact lifecycle for every user task:
 When delegating, define the subagent with `define_subagent` and launch it with `invoke_subagent`. **Every `invoke_subagent` call must always explicitly pass `Model: "flash"` or `Model: "pro"` matching the specialist roster:**
 
 **CRITICAL: Loading Specialist Prompts**
-Before defining a subagent, you MUST read its detailed system prompt from the file system. Use `view_file` (or `run_command` with `cat` if needed) to read the file located at `.agents/agents/<Agent Name>.md` (if in the project root) or `~/.gemini/config/agents/<Agent Name>.md` (global fallback). Pass the entire contents of this file as the `system_prompt` argument in your `define_subagent` call. Never use the 1-sentence descriptions below as the system prompt.
+Before defining a subagent, you MUST read its detailed system prompt from the file system. Use `view_file` (or `run_command` with `cat` if needed) to read the file located at `agents/<Agent Name>.md` (if in the project root) or `~/.gemini/config/agents/<Agent Name>.md` (global fallback). Pass the entire contents of this file as the `system_prompt` argument in your `define_subagent` call. Never use the 1-sentence descriptions below as the system prompt.
 
 
 | Agent Name | Subagent Model | Capabilities | Role & System Scope |

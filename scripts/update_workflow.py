@@ -49,17 +49,11 @@ def process_file(filepath):
 
 8. **Synthesize** — Combine specialist outputs. Surface remaining concerns to the user. Show the diff summary. If two specialists gave conflicting recommendations, analyze both, decide, and explain your reasoning to the user.
 
-9. **Quality gate** — Before declaring work complete on any production-relevant task, dispatch the following in **PARALLEL** using a single `invoke_subagent` call with an array:
-   - `security-auditor` — security review of all changes
-   - `code-proofreader` — dead code, redundant code, unused exports, stale refactor leftovers (wraps the canonical `ponytail-review` procedure with a confidence layer; the user can also run `/ponytail-review` or `/ponytail-audit` directly)
-   - `release-tester` — test suite, lint, typecheck. **Run only if step 7 did not already run it** (testing and release testing are mutually exclusive — tests run once per task).
-   - `git-specialist` — commit hygiene, diff review, branch state
-
-   **Tier 1 skip rule:** Skip the entire quality gate when **all** of the following are true:
-   - The task is Tier 1 trivial (zero domain substance — typos, simple renames, version bumps, README touch-ups, single-line config tweaks).
-   - The diff is ≤ 30 lines across ≤ 3 files, and the change touches no auth module, secrets file, payment integration, RLS policy, DB schema/migration, data model, or user input path.
-
-   When skipping, note in synthesis: "Quality gate skipped — Tier 1 trivial task (≤30 lines, ≤3 files, no auth/secrets/data/user-input/payment paths)." The user may explicitly request the full gate at any time; if they do, run it regardless of tier or diff size.
+9. **Quality gate** — Before declaring work complete on any production-relevant task, conditionally dispatch the following in **PARALLEL** using a single `invoke_subagent` call with an array:
+   - `security-auditor` — spawn ONLY if auth/secrets/database/user-input handlers were modified.
+   - `code-proofreader` — spawn ONLY on diffs > 100 lines or upon user request.
+   - `release-tester` — test suite, lint, typecheck. **Run only if step 7 did not already run it**.
+   - `git-specialist` — commit hygiene, branch state. Avoid spawning for simple diffs.
 
 """
         content = lead_workflow_pattern.sub(lambda _: new_lead_workflow, content)
@@ -128,8 +122,11 @@ def process_file(filepath):
    - Synthesize the specialist results and summarize diffs.
 
 9. **Parallel Quality Gate**:
-   - Invoke `security-auditor`, `code-proofreader`, and `git-specialist` **concurrently** in a single `invoke_subagent` call before finalizing.
-   - *Tier 1 Skip Rule*: Skip only if ≤ 30 lines across ≤ 3 files with zero auth/security/DB implications.
+   - Conditionally invoke quality agents **concurrently** in a single `invoke_subagent` call before finalizing:
+     - `security-auditor`: spawn ONLY if auth/secrets/database/user-input handlers were modified.
+     - `code-proofreader`: spawn ONLY on diffs > 100 lines or upon user request.
+     - `release-tester`: test suite, lint, typecheck (if not run in step 7).
+     - `git-specialist`: commit hygiene. Avoid spawning for simple diffs.
 
 ---
 

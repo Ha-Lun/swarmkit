@@ -15,6 +15,7 @@ plans/
 projects/
 scratch/
 *.local
+benchmark_metrics.json
 
 # Secrets & Private Keys — never commit
 *accounts*.json
