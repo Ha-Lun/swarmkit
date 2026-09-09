@@ -111,6 +111,8 @@ The `./install.sh` script is a unified setup tool that supports installing confi
 
 `agyw` is installed automatically as part of `--agy` or `--all`. It lets you switch between multiple Google accounts in `agy` without logging out.
 
+`agyw` manages isolated profiles stored in `~/.agyw/profiles/`. Each profile has its own copy of OAuth credentials and private config. Switching profiles swaps a single symlink (`~/.gemini/antigravity-cli/`) to point at a different profile directory — so the next `agy` command runs as a completely different account with zero re-login required (as long as you've already authenticated that profile once).
+
 > **Already have SwarmKit installed?** Run these two commands directly — no need to re-run the full installer:
 > ```sh
 > npm install -g agyw && agyw init
