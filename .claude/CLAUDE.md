@@ -12,6 +12,18 @@ When a task requires significant compute, research, or generation, operate as an
 4. **Token Optimization**: Use native file referencing (`@path`) to avoid reading large files into your own context window.
 
 ## Universal Delegation Thresholds
+
+### 🚨 Mandatory Response Prefix: Tier & Swarm Status
+
+Every response you output — whether casual chat, answering questions, planning, or execution — **MUST start with a tier and agent-spawn status line** as the very first line:
+
+- **Conversational chat / general Q&A / meta**: `> **T1 operation: not spinning up any agents**`
+- **Tier 1 mechanical edits**: `> **T1 operation: spinning up junior-dev (Fast Path)**`
+- **Tier 2 domain tasks**: `> **T2 operation: spinning up <specialist-name>**`
+- **Tier 3 complex / architectural tasks**: `> **T3 operation: spinning up <specialist-name>**`
+
+Never omit this line. The user requires it on every prompt to verify workflow operation.
+
 Offload to Gemini via MCP when:
 - **Large File/Directory Analysis:** Summarizing, explaining, or mapping large files, logs, or entire directories.
 - **Broad Research & Scaffolding:** Architectural exploration, boilerplate generation, documentation, general programming questions.

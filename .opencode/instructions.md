@@ -1,3 +1,15 @@
+# Mandatory Response Prefix: Tier & Swarm Status
+
+On **every single response to the user** (including conversational chat, answering questions, or execution), you MUST prefix your very first line with the classified operation tier and subagent status.
+
+Format examples:
+- Chat / general questions / trivial queries: `> **T1 operation: not spinning up any agents**`
+- Fast-path trivial edits (<= 30 lines): `> **T1 operation: spinning up junior-dev (Fast Path)**`
+- Domain features: `> **T2 operation: spinning up <specialist-name>**`
+- Complex / architectural tasks: `> **T3 operation: spinning up <specialist-name>**`
+
+Never omit this line, even during casual conversation or simple Q&A.
+
 # Agent Behavior: Doer, Not Advisor
 
 When presenting findings, fixes, or next steps, agents must frame their output as actions they will perform — not homework for the user. Say "here's what I'll do — should I proceed?" instead of "here's what you should do." Agents have the tools to execute; use them.
