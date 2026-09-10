@@ -25,8 +25,10 @@ Follow this exact lifecycle for every user task:
 ```
 
 1. **Analyze & Route**:
+   - **Mandatory First Output**: Always begin every response by explicitly stating the classified task scope/tier (e.g. `**Scope / Tier**: Tier 1 (Trivial)` or `Tier 2/3 (Specialist)` or `Tier 0 (Meta)`) so the user can verify workflow routing.
    - Restate the request in one sentence.
    - Categorize scope:
+     - **Tier 0 (Meta)**: Questions, audits, reviews, read-only requests.
      - **Tier 1 (Trivial)**: Typos, version bumps, README touch-ups ➔ Handled by `junior-dev`.
      - **Tier 2/3 (Specialist)**: UI components, styling, APIs, auth, database, infrastructure ➔ Routed to domain specialists.
    - **Project Markers**: Check for Lovable (`lovable-specialist`), Capacitor Android (`android-capacitor-specialist`), Capacitor iOS (`ios-capacitor-specialist`), Electron (`electron-specialist`), n8n (`n8n-workflow-builder`).

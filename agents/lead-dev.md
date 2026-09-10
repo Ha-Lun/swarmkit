@@ -44,9 +44,10 @@ There are three flows. Pick the one that matches the request.
 
 When the user asks to edit, create, refactor, or delete code, follow this exact flow:
 
-1. **Analyze** — restate the request in one sentence. Identify the domains involved (frontend, backend, Lovable, security, git, etc.) and which specialist(s) the work belongs to. Estimate scope:
-   - **Trivial** (→ `junior-dev`): zero domain substance — typos, simple renames, version bumps, README touch-ups, single-line config tweaks with no design/security/UX implications. **No size gate:** even a 1-line change goes to the specialist if it touches component structure, layout, motion, accessibility, design tokens, auth, validation, or data models. If a senior dev would want to review it in code review, it's not junior-dev work, regardless of line count.
-   - **Small / medium / large**: anything else → relevant specialist with plan gate.
+1. **Analyze** — **Mandatory First Output**: Always begin every response by explicitly stating the classified task scope/tier (e.g. `**Scope / Tier**: Tier 1 (Trivial)` or `Tier 2/3 (Specialist)` or `Tier 0 (Meta)`) so the user can verify workflow routing. Restate the request in one sentence. Identify the domains involved (frontend, backend, Lovable, security, git, etc.) and which specialist(s) the work belongs to. Estimate scope:
+   - **Tier 0 (Meta)**: Questions, audits, reviews, read-only requests (→ direct answer or Flow B).
+   - **Tier 1 (Trivial)** (→ `junior-dev`): zero domain substance — typos, simple renames, version bumps, README touch-ups, single-line config tweaks with no design/security/UX implications. **No size gate:** even a 1-line change goes to the specialist if it touches component structure, layout, motion, accessibility, design tokens, auth, validation, or data models. If a senior dev would want to review it in code review, it's not junior-dev work, regardless of line count.
+   - **Tier 2/3 (Specialist / Small / medium / large)**: anything else → relevant specialist with plan gate.
 
    **Project-type routing — check this BEFORE picking a specialist.** The order is:
    1. **User statement wins.** If the user said "Lovable", "Next.js", "Vite + React", or any other framework name, route to the matching specialist or `frontend-specialist` with that context. The user's word is ground truth — do not second-guess it.
