@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chronograph 01 | Haute Horlogerie</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=JetBrains+Mono:wght@400;700&family=Plus+Jakarta+Sans:wght@300;400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Preloader -->
+  <div id="preloader">
+    <div class="preloader-content">
+      <div class="preloader-text">INITIALIZING CALIBRE</div>
+      <div class="preloader-bar-container">
+        <div id="preloader-bar"></div>
+      </div>
+      <div id="preloader-percentage">0%</div>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <header>
+    <div class="brand">CHRONO-CALIBRE 01 • ATELIER LE LOCLE</div>
+    <div class="header-controls">
+       <button id="audio-toggle">SOUND: OFF</button>
+       <div class="badge">360° INTERACTIVE VIEW</div>
+    </div>
+  </header>
+
+  <!-- Pinned Scrubber Section -->
+  <section id="scrubber-section">
+    <!-- Sticky Container -->
+    <div id="sticky-container">
+      <canvas id="scrubber-canvas"></canvas>
+      
+      <!-- Narrative Overlays -->
+      <div id="narrative-container">
+        <div class="narrative-card" data-start="0" data-end="0.15">
+          <h2>CALIBRE 01</h2>
+          <p>THE DEFINITION OF TIMELESS PRECISION</p>
+        </div>
+        <div class="narrative-card" data-start="0.25" data-end="0.45">
+          <h2>18K ROSE GOLD CASING</h2>
+          <p>HAND-SCULPTED FINISHES</p>
+        </div>
+        <div class="narrative-card" data-start="0.55" data-end="0.75">
+          <h2>EXHIBITION CASEBACK</h2>
+          <p>CALIBRE 4130 MOVEMENT</p>
+        </div>
+        <div class="narrative-card" data-start="0.85" data-end="1.0">
+          <h2>AEROSPACE TITANIUM</h2>
+          <p>& HERMÈS CALFSKIN</p>
+        </div>
+      </div>
+
+      <!-- HUD Controls -->
+      <div id="hud">
+        <div class="hud-top">
+          <div id="compass">0°</div>
+          <div id="frame-indicator">01 / 81</div>
+        </div>
+        <div class="hud-bottom">
+          <button id="autoplay-btn">AUTOPLAY</button>
+          <div class="scrub-container">
+            <input type="range" id="seek-bar" min="0" max="80" value="0">
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Bento Grid Specs -->
+  <section id="specs">
+    <h2>ENGINEERING SPECIFICATIONS</h2>
+    <div class="bento-grid">
+      <div class="bento-card">
+        <h3>CASE</h3>
+        <p>41mm 18K Rose Gold</p>
+      </div>
+      <div class="bento-card">
+        <h3>CRYSTAL</h3>
+        <p>Double AR Sapphire</p>
+      </div>
+      <div class="bento-card">
+        <h3>WATER RESISTANCE</h3>
+        <p>100m / 10 ATM</p>
+      </div>
+      <div class="bento-card">
+        <h3>POWER RESERVE</h3>
+        <p>72 Hours</p>
+      </div>
+      <div class="bento-card">
+        <h3>MOVEMENT</h3>
+        <p>Self-Winding Mechanical</p>
+      </div>
+      <div class="bento-card">
+        <h3>FREQUENCY</h3>
+        <p>4 Hz / 28,800 vph</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Feature Section -->
+  <section id="features">
+     <h2>SWISS MASTER CRAFTSMANSHIP</h2>
+     <div class="feature-cards">
+       <div class="feature-card">
+         <h3>Le Locle Hand Assembly</h3>
+         <p>Every component is meticulously assembled by master watchmakers in the heart of Switzerland.</p>
+       </div>
+       <div class="feature-card">
+         <h3>Column-Wheel Escapement</h3>
+         <p>Ensuring flawless chronograph actuation with zero jitter, a hallmark of haute horlogerie.</p>
+       </div>
+       <div class="feature-card">
+         <h3>Anti-Reflective Optics</h3>
+         <p>Nine layers of AR coating on both sides of the domed sapphire crystal provide edge-to-edge clarity.</p>
+       </div>
+     </div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

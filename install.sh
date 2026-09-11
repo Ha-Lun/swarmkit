@@ -5,6 +5,8 @@
 #   --opencode    Install OpenCode config
 #   --agy         Install Antigravity (agy) Swarm config
 #   --claude      Install Claude Code Swarm config
+#   --n8n         Configure local self-hosted n8n credentials
+#   --colab       Install and authenticate google-colab-cli
 #   --all         Install all of the above
 #   --free        Enable free mode for OpenCode (uses default models, no keys)
 #   --uninstall   Uninstall all configurations
@@ -20,6 +22,8 @@ CREATED_BACKUP=false
 INSTALL_OPENCODE=false
 INSTALL_AGY=false
 INSTALL_CLAUDE=false
+INSTALL_N8N=false
+INSTALL_COLAB=false
 FREE_MODE=false
 UNINSTALL_MODE=false
 
@@ -36,15 +40,19 @@ else
       --opencode) INSTALL_OPENCODE=true ;;
       --agy)      INSTALL_AGY=true ;;
       --claude)   INSTALL_CLAUDE=true ;;
+      --n8n)      INSTALL_N8N=true ;;
+      --colab)    INSTALL_COLAB=true ;;
       --all)      
         INSTALL_OPENCODE=true
         INSTALL_AGY=true
         INSTALL_CLAUDE=true
+        INSTALL_N8N=true
+        INSTALL_COLAB=true
         ;;
       --free)     FREE_MODE=true ;;
       --uninstall)UNINSTALL_MODE=true ;;
       --help)
-        sed -n '2,11p' "$0" | sed 's/^# *//'
+        sed -n '2,12p' "$0" | sed 's/^# *//'
         exit 0
         ;;
       *)
@@ -173,9 +181,59 @@ install_claude() {
   echo "✓ Claude Code installation complete"
 }
 
+install_n8n() {
+  echo "=== Configuring local n8n Credentials ==="
+  local n8n_env_dir="$HOME/.config/swarmkit"
+  local n8n_env_file="$n8n_env_dir/n8n.env"
+  mkdir -p "$n8n_env_dir"
+  chmod 700 "$n8n_env_dir"
+
+  if [ -t 0 ]; then
+    echo "This will link your local n8n instance to the swarm."
+    echo "Your credentials will be stored securely in $n8n_env_file and never committed."
+    read -p "Enter your n8n API URL (e.g. http://localhost:5678/api/v1): " n8n_url
+    read -sp "Enter your n8n API Key: " n8n_key
+    echo ""
+
+    touch "$n8n_env_file" && chmod 600 "$n8n_env_file"
+    printf 'export N8N_API_URL=%q\n' "$n8n_url" > "$n8n_env_file"
+    printf 'export N8N_API_KEY=%q\n' "$n8n_key" >> "$n8n_env_file"
+    echo "✓ Saved n8n credentials to $n8n_env_file"
+    
+    echo "To use these in your shell, add this to your ~/.bashrc or ~/.zshrc:"
+    echo "  source $n8n_env_file"
+  else
+    echo "Non-interactive mode. Please manually create $n8n_env_file with N8N_API_URL and N8N_API_KEY, or export them in your shell profile."
+  fi
+  echo "✓ n8n configuration complete"
+}
+
+install_colab() {
+  echo "=== Installing Google Colab CLI ==="
+  if command -v colab &>/dev/null; then
+    echo "✓ google-colab-cli is already installed."
+  else
+    if command -v uv &>/dev/null; then
+      echo "Installing via uv..."
+      uv tool install google-colab-cli
+    elif command -v pip &>/dev/null; then
+      echo "Installing via pip..."
+      pip install google-colab-cli
+    else
+      echo "Error: Neither uv nor pip is installed. Cannot install google-colab-cli."
+      exit 1
+    fi
+  fi
+  echo "Please authenticate with Colab:"
+  colab auth login
+  echo "✓ Colab CLI installation and authentication complete"
+}
+
 if [ "$INSTALL_OPENCODE" = true ]; then install_opencode; fi
 if [ "$INSTALL_AGY" = true ]; then install_agy; fi
 if [ "$INSTALL_CLAUDE" = true ]; then install_claude; fi
+if [ "$INSTALL_N8N" = true ]; then install_n8n; fi
+if [ "$INSTALL_COLAB" = true ]; then install_colab; fi
 
 echo ""
 echo "========================================"

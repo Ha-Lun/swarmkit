@@ -102,10 +102,64 @@ The `./install.sh` script is a unified setup tool that supports installing confi
 | `--opencode` | Install OpenCode config (agents, skills, opencode.jsonc) |
 | `--agy` | Install Antigravity (agy) Swarm config |
 | `--claude` | Install Claude Code Swarm config |
+| `--colab` | Install and authenticate google-colab-cli |
+| `--n8n` | Configure local self-hosted n8n credentials |
 | `--all` | Install all of the above |
 | `--free` | Enable free mode for OpenCode (uses default models, no API keys needed) |
 | `--uninstall` | Uninstall all configurations |
 | `--help` | Show the help message |
+
+## 🔗 Linking Your Own Self-Hosted n8n
+
+SwarmKit supports orchestrating external workflows securely using **n8n**. We use this heavily for external AI pipelines without exposing API endpoints directly in your project.
+
+To link your own self-hosted n8n securely:
+1. Run `./install.sh --n8n`
+2. Enter your n8n API URL and API Key when prompted.
+
+**🔒 Privacy & Security Guarantee**: 
+- **Zero hardcoded credentials**: No personal URLs, Tailscale hostnames, or API keys are committed to Git.
+- **Local-only config**: Endpoints reside strictly in `~/.config/swarmkit/n8n.env` (or your shell profile) making them accessible only to the running agent on your local machine.
+
+### 🎨 3D Animation Pipeline (Wan 2.1)
+
+SwarmKit includes a production-grade 3D camera turnaround pipeline powered by **Wan 2.1** (1.3B / 14B), automated frame extraction, super-resolution upscaling, and an Apple-grade interactive canvas scrubber.
+
+#### 1. Execution Modes
+
+- **Mode 1: Headless Colab CLI (Automated)**  
+  Run single-command headless generation that provisions a Colab GPU, generates the turnaround video, downloads the MP4, and extracts frames:
+  ```bash
+  ./scripts/trigger-3d-animation.sh \
+    --prompt "luxury Swiss premium chronograph watch, rose gold casing, sapphire crystal, rotating turntable, studio lighting, photorealistic 8k" \
+    --camera orbit_360 \
+    --steps 15 \
+    --frames 49 \
+    --resolution 640x360 \
+    --upscale 2560x1440
+  ```
+  Run `./install.sh --colab` to set up the CLI. See [COLAB_CLI_3D_PIPELINE.md](docs/COLAB_CLI_3D_PIPELINE.md) for full instructions.
+
+- **Mode 2: Colab Web UI Notebook (Interactive / Heavy Models)**  
+  For interactive runs or when using larger GPUs (A100/L4/T4), use [`notebooks/wan2_colab_worker.ipynb`](notebooks/wan2_colab_worker.ipynb). It features 1-click Google Drive (2TB) model caching (`HF_HOME`) and A100/T4 acceleration.
+
+- **Mode 3: n8n Webhook (Optional Automation)**  
+  For external triggers (e.g., Discord bots) or advanced workflows, you can route generations through an n8n webhook which acts as the orchestrator.
+
+#### 2. Super-Resolution Upscaling (1440p / 4K)
+
+The pipeline integrates automated super-resolution frame post-processing:
+- **Lanczos scaling with unsharp masking**: High-quality scaling that preserves fine mechanical details, metallic facets, and micro-textures.
+- **QHD Retina (`2560x1440`) & 4K (`3840x2160`)**: Outputs crisp WebP frames with progressive preloading and auto-generated `manifest.json`.
+
+#### 3. Interactive Swiss Horology Showcase Website
+
+Experience the turnaround in a standalone, Apple-grade product showcase:
+- **Local & Tailscale Access**: Served at `http://localhost:8081` and accessible over private mesh networks at `http://<tailscale-ip>:8081`.
+- **Ultra-Smooth 60fps Lerp Loop**: Canvas scrubber with inertia, momentum scrolling, and touch/drag controls.
+- **360° Compass HUD Telemetry**: Real-time azimuth degree tracking and dynamic frame indexing.
+- **Floating Narrative Cards & Specifications Bento Grid**: Contextual storytelling that adapts dynamically to viewing angles.
+- **Web Audio Precision Ticking Sound**: Procedural mechanical watch escapement audio synchronized with user interaction.
 
 ## 🔄 Multi-account switching (agyw)
 

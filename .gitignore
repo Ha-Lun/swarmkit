@@ -75,3 +75,12 @@ ehthumbs.db
 
 .agents/
 custom-instructions.md
+
+# Media & Video outputs
+*.mp4
+*.avi
+*.mov
+public/frames/frame_*.webp
+public/frames/*.mp4
+!public/frames/manifest.json
+!public/frames/wan2_colab_worker.ipynb
