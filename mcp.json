@@ -6,6 +6,18 @@
       "env": {
         "ANTIGRAVITY_ACCOUNTS_PATH": "$HOME/.opencode/antigravity-accounts.json"
       }
+    },
+    "firecrawl": {
+      "command": "npx",
+      "args": ["-y", "firecrawl-mcp@latest"]
+    },
+    "google-search-console": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-google-search-console@latest"]
+    },
+    "google-trends": {
+      "command": "npx",
+      "args": ["-y", "google-trends-mcp@latest"]
     }
   }
 }

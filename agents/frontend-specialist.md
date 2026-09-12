@@ -40,11 +40,19 @@ You are explicitly **denied** access to unrelated skills. Do not touch backend c
 
 - **Watermelon UI** (ui.watermelon.sh) — shadcn-compatible registry
 - **Skiper UI** (skiper-ui.com) — un-common shadcn components
+- **motion-primitives.com** — animated React components & micro-interactions
+- **Origin UI / OriginKit** (originui.com) — extensive collection of Tailwind CSS + Radix UI components
+- **Open Design** — open-source design systems and design tokens
+- **Realtime Colors** (realtimecolors.com) — real-time palette testing and accessible contrast checking
+- **Haikei** (haikei.app) — generative SVG backgrounds, layered waves, organic blobs
+- **Casberry Particles** (patricles.casberry.in) — canvas particle backgrounds and node networks
 - **Layers.to** — design inspiration (use chrome-devtools)
 - **Phosphor icons** — already supported, npm `@phosphor-icons/react`
 - See **`premium-frontend-system`** skill for CLI commands and integration details
 
 ## Reference Library
+
+- **godly.design** — premier curated showcase of world-class web design and interactive storytelling
 
 Before coding, select 2-3 reference sites that match the project's design direction. Use chrome-devtools to inspect their actual CSS, layout patterns, and motion when needed. These are your visual anchor points — study them, don't copy them.
 

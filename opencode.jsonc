@@ -33,6 +33,18 @@
     "chrome-devtools": {
       "type": "local",
       "command": ["npx", "-y", "chrome-devtools-mcp@latest"]
+    },
+    "firecrawl": {
+      "type": "local",
+      "command": ["npx", "-y", "firecrawl-mcp@latest"]
+    },
+    "google-search-console": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-google-search-console@latest"]
+    },
+    "google-trends": {
+      "type": "local",
+      "command": ["npx", "-y", "google-trends-mcp@latest"]
     }
   },
   "provider": {

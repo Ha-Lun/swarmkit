@@ -26,8 +26,8 @@ SwarmKit runs as an **orchestrator + specialist swarm**:
 - **Ponytail discipline** — an always-on anti-over-engineering system with `lite` / `full` / `ultra` modes
 - **Project-type routing** — auto-detects Lovable, Capacitor, Electron, and Next.js projects and dispatches the right specialist
 - **Cost-aware routing** — cheap models for trivial tasks, smart models for complex work
-- **4 MCP servers** — Gemini (compute offload), shadcn (UI components), 21st.dev (AI-generated components), Chrome DevTools (browser automation)
-- **18+ skills** — frontend quality, backend quality, git workflow, security review, premium frontend system, web design guidelines, SEO engineering, n8n API & debugging, and more
+- **7 MCP servers** — Gemini (compute offload), shadcn (UI components), 21st.dev (AI-generated components), Chrome DevTools (browser automation), Firecrawl (markdown crawling), Google Search Console (SEO metrics), and Google Trends (keyword data)
+- **19+ skills** — frontend quality, backend quality, git workflow, security review, premium frontend system, web design guidelines, SEO engineering, n8n API & debugging, curated resources (scrapeling, public-apis, awesome lists, etc.), and more
 - **5 slash commands** — `/ponytail-review`, `/ponytail-audit`, `/ponytail-debt`, `/ponytail-help`, and `/ponytail lite|full|ultra|off`
 
 ## 🤖 Agent roster

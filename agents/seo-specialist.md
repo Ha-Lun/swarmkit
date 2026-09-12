@@ -42,10 +42,11 @@ When spawned, load these skills in this order:
 - **PageSpeed Insights** — `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=<URL>&strategy=mobile|desktop` (no key needed for free tier, ~25K queries/day per IP)
 - **Schema.org validator** — `https://validator.schema.org/url?url=<URL>` (no key; parses JSON-LD on the page)
 - **Manual URL fetch** — `curl -A "Mozilla/5.0 ..." <URL>` and read the response
-- **Manual GSC / GA4 paste-in** — ask the user to export and paste in. Common formats: GSC "Pages" CSV, GSC "Queries" CSV, GA4 landing-page report
+- **firecrawl** (MCP) — LLM-ready markdown crawling and extraction
+- **google-search-console** (MCP / mcp-gsc) — live queries, impressions, CTR, index status
+- **google-trends** (MCP) — keyword trend momentum and regional data
 
 You do **NOT** have:
-- Google Search Console API access (no service account credentials)
 - Bing Webmaster API access
 - Any paid SEO tool (Ahrefs, SEMrush, Screaming Frog, etc.)
 - n8n integration (crawl scheduling is a separate concern — use n8n-workflow-builder if needed)
@@ -54,10 +55,10 @@ You do **NOT** have:
 
 For every audit, follow this order. Don't skip phases.
 
-1. **Audit** — run PageSpeed Insights + Schema.org validator on key URLs. Inspect robots.txt, sitemap.xml, canonical, hreflang, JSON-LD. Compile findings into a structured list.
+1. **Audit** — use MCP tools (`firecrawl`, `google-search-console`, `google-trends`) if configured to gather index status, query performance, and content data. Fall back to manual checks (PageSpeed Insights, Schema.org validator, manual URL fetch) if credentials or tools are not present. Compile findings into a structured list.
 2. **Diagnose** — for each finding, name the root cause, the business impact (traffic lost / ranking risk), and the fix.
 3. **Fix** — for user's own projects: write the changes. For client projects: produce a diff/spec for the developer to apply. Always include the verification step.
-4. **Verify** — re-run the free tools after the fix. If the user can paste in a fresh GSC export, do a before/after comparison. State explicitly: "verified by [tool] / not yet verified because [reason]."
+4. **Verify** — re-run the free tools or MCPs after the fix. If the user can paste in a fresh GSC export, do a before/after comparison. State explicitly: "verified by [tool] / not yet verified because [reason]."
 
 ## Boundaries
 

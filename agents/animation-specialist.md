@@ -52,10 +52,13 @@ Load **`premium-frontend-system`** for design direction, motion language rules, 
 ### UI resources
 
 - **motion-primitives.com** — animated React components
+- **Casberry Particles** (patricles.casberry.in) — canvas particle backgrounds and node networks
 - **animista.net** — CSS animation playground (respect the transform+opacity rule)
 - See **`premium-frontend-system`** skill for integration details
 
 ## Reference Library
+
+- **godly.design** — premier curated showcase of world-class web design, interaction, and motion benchmarks
 
 For 3D, scroll-driven, and vector animation work — study these sites before building. Open them with chrome-devtools to inspect actual implementations, timing curves, and performance patterns. These represent the state of the art for web animation.
 

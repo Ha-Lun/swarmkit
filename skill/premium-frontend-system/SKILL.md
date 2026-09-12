@@ -80,6 +80,9 @@ Pick a philosophy, not a palette.
 
 **Banned**: the "AI gradient" — purple-to-blue, indigo-to-cyan, on white, on a hero, with a glow. If your first instinct is a purple/blue gradient, stop and reconsider the brand.
 
+**Tools**:
+- **Realtime Colors** (realtimecolors.com) — Use for real-time palette testing and accessible contrast checking.
+
 ### Layout system
 The grid is the personality.
 
@@ -409,6 +412,8 @@ Curated external resources for when the project needs components, motion, icons,
 |---|---|---|---|
 | **ui.watermelon.sh** | shadcn-compatible registry | `npx shadcn add "https://registry.watermelon.sh/<name>.json"` | React 19 + Tailwind v4 + Radix + Framer Motion. URL-based registry (not a namespace). Check the JSON URL matches the component you want. |
 | **skiper-ui.com** | "un-common" shadcn components | `npx shadcn add @skiper-ui/skiper40` | Free tier + premium ($129). Reach for the unusual patterns — not for replacing basic shadcn primitives. |
+| **originkit / Origin UI** | Tailwind CSS + Radix UI components | Web based — copy-paste | Extensive collection of premium UI components. |
+| **haikei.app** | Generative SVG backgrounds | Web based | Generates organic SVG section dividers, layered waves, and background blobs. |
 
 ### Motion & animation
 
@@ -422,6 +427,7 @@ Curated external resources for when the project needs components, motion, icons,
 | Source | What it is | How to use | Notes |
 |---|---|---|---|
 | **layers.to** | Design inspiration gallery | Use `chrome-devtools` MCP to browse (login-gated) | Not a registry — no installable components. Use for layout, composition, and visual direction references during Phase 1–2. |
+| **godly.design** | Web design inspiration | Use `chrome-devtools` MCP to browse | Premier curated showcase of world-class web design and interactive storytelling. |
 
 ### Icons
 
