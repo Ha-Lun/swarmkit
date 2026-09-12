@@ -37,9 +37,9 @@ HEIGHT=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of de
 if [ -n "$SCALE" ] && [ "$SCALE" != "none" ]; then
   WIDTH="${SCALE%x*}"
   HEIGHT="${SCALE#*x}"
-  VF="fps=${FPS},scale=${WIDTH}:${HEIGHT}:flags=lanczos,unsharp=5:5:0.8:5:5:0.4"
+  VF="crop=in_w:in_h-60:0:0,fps=${FPS},scale=${WIDTH}:${HEIGHT}:flags=lanczos,unsharp=5:5:0.8:5:5:0.4"
 else
-  VF="fps=${FPS}"
+  VF="crop=in_w:in_h-60:0:0,fps=${FPS}"
 fi
 
 echo "Extracting frames at ${FPS} fps as .${FORMAT} into ${OUTPUT_DIR}..."

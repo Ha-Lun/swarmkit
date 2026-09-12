@@ -1,0 +1,179 @@
+{
+  "name": "Wan 2.1 3D Animation Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "generate-3d-animation",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "55f43da2-817e-46bb-86e7-010000000001",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        300
+      ],
+      "webhookId": "wan2-generate-3d-animation"
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\n\nif (!body.prompt || typeof body.prompt !== 'string' || body.prompt.trim() === '') {\n  throw new Error('Missing required parameter: \"prompt\" must be a non-empty string.');\n}\n\n// Resolve Colab worker URL\nconst colabUrl = (body.colab_url || $env.WAN2_COLAB_URL || '').replace(/\\/+$/, '');\nif (!colabUrl) {\n  throw new Error('Colab worker URL is not configured. Pass \"colab_url\" in request body or set WAN2_COLAB_URL in n8n environment variables.');\n}\n\nconst cameraMotion = body.camera_motion || body.camera || 'orbit_360';\nconst resolution = body.resolution || '832x480';\nconst frameCount = parseInt(body.frame_count || body.frames || 81, 10);\nconst fps = parseInt(body.fps || 30, 10);\nconst outputDir = body.output_dir || body.outputDir || './public/frames';\nif (!/^[a-zA-Z0-9_\\-\\/\\.]+$/.test(outputDir)) {\n  throw new Error('Invalid output_dir. Only alphanumeric characters, dashes, underscores, dots, and slashes are allowed.');\n}\nconst seed = body.seed !== undefined ? parseInt(body.seed, 10) : -1;\nconst guidanceScale = parseFloat(body.guidance_scale || 5.0);\nconst numInferenceSteps = parseInt(body.steps || body.num_inference_steps || 35, 10);\n\nreturn [{\n  json: {\n    prompt: body.prompt.trim(),\n    camera_motion: cameraMotion,\n    resolution: resolution,\n    frame_count: frameCount,\n    fps: fps,\n    seed: seed,\n    guidance_scale: guidanceScale,\n    num_inference_steps: numInferenceSteps,\n    output_dir: outputDir,\n    colab_url: colabUrl,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "55f43da2-817e-46bb-86e7-010000000002",
+      "name": "Validate & Configure Parameters",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.colab_url }}/api/generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  prompt: $json.prompt,\n  camera_motion: $json.camera_motion,\n  resolution: $json.resolution,\n  frame_count: $json.frame_count,\n  fps: $json.fps,\n  seed: $json.seed,\n  guidance_scale: $json.guidance_scale,\n  num_inference_steps: $json.num_inference_steps\n}) }}",
+        "options": {
+          "timeout": 360000
+        }
+      },
+      "id": "55f43da2-817e-46bb-86e7-010000000003",
+      "name": "Call Wan2.1 Colab Worker",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const genRes = $input.first().json;\nconst prevConfig = $('Validate & Configure Parameters').first().json;\n\nlet downloadUrl = genRes.download_url;\nif (downloadUrl && downloadUrl.startsWith('/')) {\n  downloadUrl = `${prevConfig.colab_url}${downloadUrl}`;\n} else if (!downloadUrl && genRes.filename) {\n  downloadUrl = `${prevConfig.colab_url}/api/download/${genRes.filename}`;\n}\n\nconst tempVideoPath = `/tmp/wan2_${genRes.filename || ('video_' + Date.now() + '.mp4')}`;\n\nreturn [{\n  json: {\n    ...prevConfig,\n    genStatus: genRes.status,\n    filename: genRes.filename,\n    downloadUrl: downloadUrl,\n    tempVideoPath: tempVideoPath,\n    genMeta: genRes.metadata || {}\n  }\n}];"
+      },
+      "id": "55f43da2-817e-46bb-86e7-010000000004",
+      "name": "Prepare Download & Temp Paths",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        920,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "command": "=curl -fsSL -o \"{{ $json.tempVideoPath }}\" \"{{ $json.downloadUrl }}\" && bash ./scripts/extract-frames.sh \"{{ $json.tempVideoPath }}\" \"{{ $json.output_dir }}\" webp {{ $json.fps }} 90 && rm -f \"{{ $json.tempVideoPath }}\""
+      },
+      "id": "55f43da2-817e-46bb-86e7-010000000005",
+      "name": "Download Video & Extract Frames",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const execOutput = $input.first().json;\nconst config = $('Prepare Download & Temp Paths').first().json;\n\nlet manifestData = {};\ntry {\n  const stdout = execOutput.stdout || '';\n  const jsonMatch = stdout.match(/\\{[\\s\\S]*\"frameCount\"[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    manifestData = JSON.parse(jsonMatch[0]);\n  }\n} catch (err) {\n  // Fallback\n}\n\nreturn [{\n  json: {\n    success: true,\n    message: \"3D camera trajectory frames generated and extracted successfully.\",\n    prompt: config.prompt,\n    cameraMotion: config.camera_motion,\n    resolution: config.resolution,\n    frameCount: manifestData.frameCount || config.frame_count,\n    outputDirectory: config.output_dir,\n    manifestPath: `${config.output_dir}/manifest.json`,\n    manifest: manifestData,\n    pipeline: {\n      model: config.genMeta?.model || \"Wan-AI/Wan2.1-T2V-1.3B-Diffusers\",\n      fps: manifestData.fps || config.fps,\n      format: manifestData.format || \"webp\",\n      pattern: manifestData.framePattern || \"frame_%04d.webp\",\n      samplePath: `${config.output_dir}/frame_0001.webp`\n    },\n    completedAt: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "55f43da2-817e-46bb-86e7-010000000006",
+      "name": "Format Pipeline Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate & Configure Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Configure Parameters": {
+      "main": [
+        [
+          {
+            "node": "Call Wan2.1 Colab Worker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Wan2.1 Colab Worker": {
+      "main": [
+        [
+          {
+            "node": "Prepare Download & Temp Paths",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Download & Temp Paths": {
+      "main": [
+        [
+          {
+            "node": "Download Video & Extract Frames",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Video & Extract Frames": {
+      "main": [
+        [
+          {
+            "node": "Format Pipeline Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "3d-animation"
+    },
+    {
+      "name": "wan2.1"
+    }
+  ]
+}
