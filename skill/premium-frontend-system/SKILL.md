@@ -444,6 +444,138 @@ Curated external resources for when the project needs components, motion, icons,
 
 ---
 
+## The 18 Curated Design Languages (Implementation Recipes)
+
+When the project requires a specific archetype, use these implementation guidelines and Tailwind/CSS snippets.
+
+### 1. Claymorphism
+- **Concept**: Soft, inflated 3D surfaces with a playful vibe.
+- **References**: `amritpaldesign.com`, `clay.earth`
+- **Study**: Soft 3D inflated cards, dual inner shadows (`inset`), smooth pill buttons, playful pastel palette.
+- **Recipe**: High border-radius, pastel backgrounds, double inner shadows.
+- **Snippet**: `rounded-[32px] bg-pastel-blue shadow-[8px_8px_16px_rgba(0,0,0,0.1),inset_-4px_-4px_8px_rgba(0,0,0,0.15),inset_4px_4px_8px_rgba(255,255,255,0.7)]`
+
+### 2. Cybercore
+- **Concept**: Y2K digital nostalgia, metallic gradients.
+- **References**: `poolsuite.net`, `heavencomputer.net`
+- **Study**: Y2K digital nostalgia, chrome/metallic silver gradients, iridescent overlays, scanlines, digital wireframes.
+- **Recipe**: Monospace fonts, neon accents, iridescent overlays.
+- **Snippet**: `bg-gradient-to-br from-gray-200 via-gray-400 to-gray-300 text-cyan-400 font-mono border border-cyan-500/50 backdrop-blur-sm`
+
+### 3. Neo-brutalism
+- **Concept**: High contrast, bold colors, raw edges.
+- **References**: `gumroad.com`, `neobrutalism.dev`
+- **Study**: 3px solid black borders, hard unblurred drop shadows (`4px 4px 0px #000`), bold primary blocks, hover translate offsets.
+- **Recipe**: Thick black borders, unblurred solid drop shadows, offset hover effects.
+- **Snippet**: `border-4 border-black bg-yellow-400 text-black shadow-[4px_4px_0px_#000] hover:translate-y-1 hover:translate-x-1 hover:shadow-[0px_0px_0px_#000] transition-all`
+
+### 4. Pixel Art
+- **Concept**: Retro 8-bit/16-bit arcade aesthetics.
+- **References**: `gather.town`, `stardewvalley.net`
+- **Study**: 8/16-bit retro arcade, stepped pixel borders, bitmap typography (Press Start 2P), arcade color palettes.
+- **Recipe**: Stepped pixel borders, bitmap typography.
+- **Snippet**: `font-['Press_Start_2P'] bg-black text-green-400 shadow-[0_-4px_0_0_#000,0_4px_0_0_#000,-4px_0_0_0_#000,4px_0_0_0_#000] ring-4 ring-white`
+
+### 5. Glassmorphism
+- **Concept**: Frosted glass panels over vibrant backgrounds.
+- **References**: `apple.com/macos`, `raycast.com`
+- **Study**: Frosted glass backdrop blur (`backdrop-blur-md`), 1px translucent borders, glowing background bleed.
+- **Recipe**: High backdrop blur, semi-transparent background, crisp 1px translucent border.
+- **Snippet**: `backdrop-blur-md bg-white/10 border border-white/20 shadow-lg`
+
+### 6. Neumorphism
+- **Concept**: Soft UI extruded from the background.
+- **References**: `neumorphism.io`, `bang-olufsen.com`
+- **Study**: Soft UI extruded elements with matching background/surface colors, paired light and dark drop shadows.
+- **Recipe**: Same background color as card, dual light/dark drop shadows, inset on press.
+- **Snippet**: `bg-[#e0e5ec] shadow-[9px_9px_16px_rgba(163,177,198,0.6),-9px_-9px_16px_rgba(255,255,255,0.8)] active:shadow-[inset_6px_6px_10px_0_rgba(163,177,198,0.7),inset_-6px_-6px_10px_0_rgba(255,255,255,0.8)]`
+
+### 7. Bento Grid
+- **Concept**: Apple-style modular product storytelling.
+- **References**: `apple.com/iphone`, `linear.app`
+- **Study**: Modular compartmentalized card grids, varied `col-span` & `row-span`, micro-interactions, Apple-style feature storytelling.
+- **Recipe**: Clean grid layouts, varied spans, rounded-2xl cards.
+- **Snippet**: `grid grid-cols-4 gap-4 [&>div]:bg-white [&>div]:rounded-2xl [&>div]:border [&>div]:border-gray-100 [&>div]:shadow-sm`
+
+### 8. Editorial Design
+- **Concept**: Magazine elegance and strong typographic rhythm.
+- **References**: `nytimes.com`, `kinfolk.com`, `readcv.com`
+- **Study**: Broadsheet/magazine elegance, high-contrast serif headlines (Playfair/Fraunces), multi-column text, hairline dividers.
+- **Recipe**: High-contrast serifs, multi-column layouts, hairline dividers.
+- **Snippet**: `font-serif text-gray-900 border-t-[0.5px] border-black pt-4 columns-2 gap-8 leading-relaxed`
+
+### 9. Swiss Design
+- **Concept**: International Typographic Style, absolute clarity.
+- **References**: `swissted.com`, `standards.site`
+- **Study**: International Typographic Style, mathematical 8/16px grid, stark grotesque sans-serifs, asymmetric red/black/white contrast.
+- **Recipe**: Strict mathematical grid, stark grotesque sans-serifs, high contrast.
+- **Snippet**: `font-sans font-bold tracking-tight text-black bg-white uppercase grid-cols-12 gap-x-4`
+
+### 10. Minimalism
+- **Concept**: Radical reduction and expansive whitespace.
+- **References**: `craigmod.com`, `minimalissimo.com`
+- **Study**: Radical reduction, expansive quiet whitespace, monochrome precision, zero gratuitous borders or shadows.
+- **Recipe**: Monochromatic palettes, perfect typographic hierarchy, zero decoration.
+- **Snippet**: `bg-white text-gray-900 p-24 font-light tracking-wide`
+
+### 11. Maximalism
+- **Concept**: Sensory density and layered complexity.
+- **References**: `msftsrep.com`, `gucci.com/vault`
+- **Study**: Sensory density, clashing vibrant palettes, layered textures, sticker collages, expressive overlapping typography.
+- **Recipe**: Clashing colors, mixed typography, overlapping elements.
+- **Snippet**: `bg-pink-500 text-yellow-300 font-extrabold mix-blend-multiply rotate-3 scale-110`
+
+### 12. Luxury Typography
+- **Concept**: High fashion elegance and cinematic presence.
+- **References**: `chanel.com`, `aesop.com`, `the-row.com`
+- **Study**: High-fashion prestige, Bodoni/Didot serifs, wide letter-spacing (`tracking-[0.2em]`), deep blacks, champagne gold accents.
+- **Recipe**: Ultra-refined serifs, deep blacks, expansive tracking.
+- **Snippet**: `font-serif text-[#d4af37] bg-black tracking-[0.2em] uppercase`
+
+### 13. Conceptual Sketch
+- **Concept**: Technical drafting and blueprints.
+- **References**: `tldraw.com`, `excalidraw.com`
+- **Study**: Blueprint/technical drafting, grid paper backgrounds, schematic diagrams, dashed borders, monospace annotations.
+- **Recipe**: Grid paper backgrounds, dashed lines, monospace annotations.
+- **Snippet**: `bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px] border-dashed border-2 border-blue-400 font-mono text-blue-500`
+
+### 14. Ethereal
+- **Concept**: Dreamy, misty glow gradients.
+- **References**: `phantom.app`, `endel.io`
+- **Study**: Dreamy misty glow gradients (`blur-[80px]`), iridescent pastels (lilac, misty cyan, blush), delicate floating micro-motion.
+- **Recipe**: Iridescent pastels, extreme blur, delicate typography.
+- **Snippet**: `relative before:absolute before:inset-0 before:bg-gradient-to-r before:from-purple-300 before:to-pink-300 before:blur-[80px] before:-z-10 font-light`
+
+### 15. Bohemian
+- **Concept**: Organic warmth and natural irregularity.
+- **References**: `urbanoutfitters.com`, `toast.co.uk`
+- **Study**: Organic warm earth tones (terracotta, sage, linen), hand-crafted asymmetric border-radii, natural botanical warmth.
+- **Recipe**: Earth tones, asymmetric border radii, tactile surfaces.
+- **Snippet**: `bg-[#d2b48c] text-[#4a3b32] rounded-[60%_40%_30%_70%/60%_30%_70%_40%] p-8`
+
+### 16. Victorian
+- **Concept**: Antique ornate richness.
+- **References**: `penhaligons.com`, `twilighttome.com`
+- **Study**: Antique ornamental flourishes, ornate decorative borders, deep velvet jewel tones (emerald, burgundy), engraved accents.
+- **Recipe**: Jewel tones, decorative SVG borders, classical Roman serifs.
+- **Snippet**: `bg-emerald-900 text-amber-100 font-serif border-8 border-double border-amber-700/50`
+
+### 17. Cyberpunk
+- **Concept**: High-tech low-life neon.
+- **References**: `cyberpunk.net`, `nightcity.io`
+- **Study**: High-tech low-life, obsidian black surfaces, neon cyan/magenta glows, angular clipped corners (`clip-path: polygon`), HUD overlays.
+- **Recipe**: Obsidian black, cyan/magenta glows, angular clipped corners.
+- **Snippet**: `bg-[#05050a] text-cyan-400 shadow-[0_0_15px_rgba(0,255,255,0.5)] [clip-path:polygon(0_0,100%_0,100%_calc(100%-20px),calc(100%-20px)_100%,0_100%)]`
+
+### 18. Wabi-sabi
+- **Concept**: Imperfect organic tranquility.
+- **References**: `muji.com`, `aman.com`
+- **Study**: Imperfect organic beauty, muted clay/matcha/ash/stone tones, subtle asymmetry, rough textures, tranquil quiet space.
+- **Recipe**: Muted clay/stone tones, generous whitespace, unhurried typography.
+- **Snippet**: `bg-[#e6e2d8] text-[#5c5b57] font-serif leading-loose tracking-wide p-16 border-l-[3px] border-[#c0b9aa]`
+
+---
+
 ## Working principles (last, most important)
 
 1. **Direction before code.** Always.

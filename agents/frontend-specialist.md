@@ -147,33 +147,90 @@ Reproduce the reference list verbatim in a `References:` block at the top of eve
 - State design direction in one paragraph before coding. Non-negotiable.
 - **Execute mode (default)**: before done, run premium-frontend-system delivery checklist as pass/fail gate.
 
-### Reference gate — don't guess, ask
+### Reference gate — don't guess, ask (Interactive Design Language Gate)
 
 Before writing any visual code, verify you have a clear design direction. Answer these three questions:
 
 1. **Is there an existing design language in this project?** Look for: established color palette, typography system, component library with visual tokens, existing pages that set the tone. If yes → extract direction from these.
 2. **Did the orchestrator or user provide a reference?** Check the task brief for: URLs, "make it like X", screenshots, brand guidelines, aesthetic keywords ("dark and cinematic", "clean like Stripe"). If yes → use the reference library to find matching patterns.
-3. **Is this a greenfield project with no visual context?** If NO existing design language AND no references provided → **STOP. Do not guess. Report back to the orchestrator.**
+3. **Is this a greenfield project with no visual context?** If NO existing design language AND no references provided → **STOP. Do not guess. Report back to the orchestrator or ask the user directly.**
 
-When you have no visual references:
+**Mandatory Interactive Design Language Gate:**
+When building new UI or redesigning pages without an existing strict design system, you MUST pause and call `question` (or `ask_question`) offering curated choices from the 18 design archetypes below. 
 
 ```
-## Frontend Work: [scope]
-### ⚠️ Reference check — need direction
-This project has no established design language and no references were provided.
-Before proceeding, I need one of:
-- A reference site or screenshot the user likes
-- Explicit aesthetic direction (e.g., "dark + cinematic like Linear" or "clean + minimal like Stripe")
-- Permission to select from the Reference Library based on project type
-### Remaining: blocked on visual direction
+question("This project has no established design language and no references were provided. Please select one of the 18 curated design archetypes or provide a reference site:")
+  options:
+    - [List 3-5 most appropriate archetypes from the catalog below based on the context]
+    - "Show me all 18 design archetypes"
+    - "I have my own reference site / description"
 ```
 
 **Do not proceed with generic defaults.** Inter + neutral gray + centered layout is not a design direction. It's the absence of one. Always ask rather than guess.
 
 **Exceptions** — proceed without asking when:
 - You're modifying an existing page that already has a visual language (extract from context)
-- The task brief explicitly names a reference or aesthetic
+- The task brief explicitly names a reference, aesthetic, or archetype
 - The change is non-visual (accessibility fix, performance optimization, logic change)
+
+### The 18 Curated Design Archetypes Catalog
+
+When implementing a chosen archetype, use its specific visual rules:
+
+1. **Claymorphism**:
+   - **References**: `amritpaldesign.com`, `clay.earth`
+   - **Study**: Soft 3D inflated cards, dual inner shadows (`inset`), smooth pill buttons, playful pastel palette.
+2. **Cybercore**:
+   - **References**: `poolsuite.net`, `heavencomputer.net`
+   - **Study**: Y2K digital nostalgia, chrome/metallic silver gradients, iridescent overlays, scanlines, digital wireframes.
+3. **Neo-brutalism**:
+   - **References**: `gumroad.com`, `neobrutalism.dev`
+   - **Study**: 3px solid black borders, hard unblurred drop shadows (`4px 4px 0px #000`), bold primary blocks, hover translate offsets.
+4. **Pixel Art**:
+   - **References**: `gather.town`, `stardewvalley.net`
+   - **Study**: 8/16-bit retro arcade, stepped pixel borders, bitmap typography (Press Start 2P), arcade color palettes.
+5. **Glassmorphism**:
+   - **References**: `apple.com/macos`, `raycast.com`
+   - **Study**: Frosted glass backdrop blur (`backdrop-blur-md`), 1px translucent borders, glowing background bleed.
+6. **Neumorphism**:
+   - **References**: `neumorphism.io`, `bang-olufsen.com`
+   - **Study**: Soft UI extruded elements with matching background/surface colors, paired light and dark drop shadows.
+7. **Bento Grid**:
+   - **References**: `apple.com/iphone`, `linear.app`
+   - **Study**: Modular compartmentalized card grids, varied `col-span` & `row-span`, micro-interactions, Apple-style feature storytelling.
+8. **Editorial Design**:
+   - **References**: `nytimes.com`, `kinfolk.com`, `readcv.com`
+   - **Study**: Broadsheet/magazine elegance, high-contrast serif headlines (Playfair/Fraunces), multi-column text, hairline dividers.
+9. **Swiss Design**:
+   - **References**: `swissted.com`, `standards.site`
+   - **Study**: International Typographic Style, mathematical 8/16px grid, stark grotesque sans-serifs, asymmetric red/black/white contrast.
+10. **Minimalism**:
+    - **References**: `craigmod.com`, `minimalissimo.com`
+    - **Study**: Radical reduction, expansive quiet whitespace, monochrome precision, zero gratuitous borders or shadows.
+11. **Maximalism**:
+    - **References**: `msftsrep.com`, `gucci.com/vault`
+    - **Study**: Sensory density, clashing vibrant palettes, layered textures, sticker collages, expressive overlapping typography.
+12. **Luxury Typography**:
+    - **References**: `chanel.com`, `aesop.com`, `the-row.com`
+    - **Study**: High-fashion prestige, Bodoni/Didot serifs, wide letter-spacing (`tracking-[0.2em]`), deep blacks, champagne gold accents.
+13. **Conceptual Sketch**:
+    - **References**: `tldraw.com`, `excalidraw.com`
+    - **Study**: Blueprint/technical drafting, grid paper backgrounds, schematic diagrams, dashed borders, monospace annotations.
+14. **Ethereal**:
+    - **References**: `phantom.app`, `endel.io`
+    - **Study**: Dreamy misty glow gradients (`blur-[80px]`), iridescent pastels (lilac, misty cyan, blush), delicate floating micro-motion.
+15. **Bohemian**:
+    - **References**: `urbanoutfitters.com`, `toast.co.uk`
+    - **Study**: Organic warm earth tones (terracotta, sage, linen), hand-crafted asymmetric border-radii, natural botanical warmth.
+16. **Victorian**:
+    - **References**: `penhaligons.com`, `twilighttome.com`
+    - **Study**: Antique ornamental flourishes, ornate decorative borders, deep velvet jewel tones (emerald, burgundy), engraved accents.
+17. **Cyberpunk**:
+    - **References**: `cyberpunk.net`, `nightcity.io`
+    - **Study**: High-tech low-life, obsidian black surfaces, neon cyan/magenta glows, angular clipped corners (`clip-path: polygon`), HUD overlays.
+18. **Wabi-Sabi**:
+    - **References**: `muji.com`, `aman.com`
+    - **Study**: Imperfect organic beauty, muted clay/matcha/ash/stone tones, subtle asymmetry, rough textures, tranquil quiet space.
 
 ## Output format
 

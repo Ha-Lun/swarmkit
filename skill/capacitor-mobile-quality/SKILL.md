@@ -1,0 +1,1 @@
+../../.agents/skills/capacitor-mobile-quality/SKILL.md

@@ -41,7 +41,9 @@ def process_file(filepath):
      - **Option 3**: `"Cancel"`
    - If the user requests modifications, adjust the plan, update the artifact, and prompt again with the updated plan embedded in `ask_question`.
 
-6. **Specialist Execution with Workspace Branching** — Spawn the relevant executing specialist(s) and pass `Workspace: "branch"` or `"share"` via `invoke_subagent` (or `task`) to automatically create an isolated environment with dependencies intact.
+6. **Specialist Execution with Workspace Branching** — 
+   - **Step 6a: Worktree Creation via `git-specialist (SETUP)`**: When executing HEAVY/RISKY/MULTI-FILE tasks (> 3 files, > 100 lines delta, cross-cutting architectural changes, or explicit user request) in a git repository, dispatch `git-specialist` with `SETUP` to create `.worktrees/<branch-name>`, verify `/.worktrees/` is in `.gitignore`, and return the path as `Working directory`. Standard, contained Tier-2 edits (single component, localized bug fix, small API tweak) execute directly in-place without creating a worktree. Then dispatch the executing specialist pointing to that directory. (In Antigravity runtime, this combines physical git worktree creation with agent isolation).
+   - Spawn the relevant executing specialist(s) via `invoke_subagent` (or `task`).
    - Pass the approved plan in the handoff prompt so the specialist executes the agreed-upon changes directly.
    - The handoff should include the context brief and explicit instructions to self-test before returning.
 
@@ -54,6 +56,7 @@ def process_file(filepath):
    - `code-proofreader` — spawn ONLY on diffs > 100 lines or upon user request.
    - `release-tester` — test suite, lint, typecheck. **Run only if step 7 did not already run it**.
    - `git-specialist` — commit hygiene, branch state. Avoid spawning for simple diffs.
+   - **Step 9b: Worktree Merge / Teardown**: Dispatch `git-specialist` with `SETUP remove` to review the worktree, merge it back to the main working directory, and tear down the worktree. Runs ONLY if a worktree was actually created in Step 6a.
 
 """
         content = lead_workflow_pattern.sub(lambda _: new_lead_workflow, content)
@@ -111,8 +114,9 @@ def process_file(filepath):
    - If the user requests modifications, update the artifact, adjust the plan, and prompt again with the updated plan embedded in `ask_question`.
 
 6. **Specialist Execution with Workspace Branching**:
+   - **Step 6a: Worktree Creation via `git-specialist (SETUP)`**: When executing HEAVY/RISKY/MULTI-FILE tasks (> 3 files, > 100 lines delta, cross-cutting architectural changes, or explicit user request) in a git repository, dispatch `git-specialist` with `SETUP` to create `.worktrees/<branch-name>`, verify `/.worktrees/` is in `.gitignore`, and return the path as `Working directory`. Standard, contained Tier-2 edits (single component, localized bug fix, small API tweak) execute directly in-place without creating a worktree. Then dispatch the executing specialist pointing to that directory. (In Antigravity runtime, this combines physical git worktree creation with agent isolation).
    - Define the specialist if not yet defined using `define_subagent`.
-   - Invoke the specialist using `invoke_subagent` passing `Workspace: "branch"` or `"share"`, passing the approved plan.
+   - Invoke the specialist using `invoke_subagent`, passing the approved plan.
    - Instruct the specialist to execute the approved plan.
 
 7. **Closed-Loop Testing**:
@@ -127,6 +131,7 @@ def process_file(filepath):
      - `code-proofreader`: spawn ONLY on diffs > 100 lines or upon user request.
      - `release-tester`: test suite, lint, typecheck (if not run in step 7).
      - `git-specialist`: commit hygiene. Avoid spawning for simple diffs.
+     - **Step 9b: Worktree Merge / Teardown**: Dispatch `git-specialist` with `SETUP remove` to review the worktree, merge it back to the main working directory, and tear down the worktree. Runs ONLY if a worktree was actually created in Step 6a.
 
 ---
 

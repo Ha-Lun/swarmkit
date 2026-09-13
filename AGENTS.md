@@ -51,7 +51,7 @@ Follow this exact lifecycle for every user task:
      - Architecture notes & framework markers
 
 3. **Frontend Reference Check (For Visual Work)**:
-   - If greenfield project with no design tokens/references, stop and ask the user using `ask_question` before guessing aesthetics.
+   - If greenfield project with no design tokens/references, stop and ask the user using `ask_question` before guessing aesthetics. Use the 18-archetype curated catalog to present choices and mandate a selection.
 
 4. **Plan Formation (Artifact & Visible Plan)**:
    - Formulate the implementation plan based on the request and context brief.
@@ -69,8 +69,9 @@ Follow this exact lifecycle for every user task:
    - **Headless / Automated Execution**: In non-interactive or automated environments (e.g., CLI automation, scripts, or when --auto is specified), skip the interactive ask_question gate and proceed directly to Step 6 (Specialist Execution) with the formulated plan.
 
 6. **Specialist Execution with Workspace Branching**:
+   - **Step 6a: Worktree Creation via `git-specialist (SETUP)`**: When executing HEAVY/RISKY/MULTI-FILE tasks (> 3 files, > 100 lines delta, cross-cutting architectural changes, or explicit user request) in a git repository, dispatch `git-specialist` with `SETUP` to create `.worktrees/<branch-name>`, verify `/.worktrees/` is in `.gitignore`, and return the path as `Working directory`. Standard, contained Tier-2 edits (single component, localized bug fix, small API tweak) execute directly in-place without creating a worktree. Then dispatch the executing specialist pointing to that directory. (In Antigravity runtime, this combines physical git worktree creation with agent isolation).
    - Define the specialist if not yet defined using `define_subagent`.
-   - Invoke the specialist using `invoke_subagent` passing `Workspace: "branch"` or `"share"`, passing the approved plan.
+   - Invoke the specialist using `invoke_subagent`, passing the approved plan.
    - Instruct the specialist to execute the approved plan.
 
 7. **Closed-Loop Testing**:
@@ -85,6 +86,7 @@ Follow this exact lifecycle for every user task:
      - `code-proofreader`: spawn ONLY on diffs > 100 lines or upon user request.
      - `release-tester`: test suite, lint, typecheck (if not run in step 7).
      - `git-specialist`: commit hygiene. Avoid spawning for simple diffs.
+     - **Step 9b: Worktree Merge / Teardown**: Dispatch `git-specialist` with `SETUP remove` to review the worktree, merge it back to the main working directory, and tear down the worktree. Runs ONLY if a worktree was actually created in Step 6a.
 
 ---
 
@@ -130,8 +132,8 @@ Before defining a subagent, you MUST read its detailed system prompt from the fi
 | `server-specialist` | `flash` | Read + Write + Command | Linux administration, systemd services, Nginx/SSL, firewall, hardening. |
 | `monitoring-specialist` | `flash` | Read + Write + Command | Prometheus, Grafana, Loki, metrics, alerting rules, SLI/SLO. |
 | `lovable-specialist` | `flash` | Read + Write + Command | Vite + React + Tailwind + Supabase client in Lovable projects. |
-| `android-capacitor-specialist` | `flash` | Read + Write + Command | Android Capacitor builds, Gradle, Kotlin plugins, Android Studio, Play Store. |
-| `ios-capacitor-specialist` | `flash` | Read + Write + Command | iOS Capacitor builds, Xcode, Swift plugins, code signing, App Store. |
+| `android-capacitor-specialist` | `pro` | Read + Write + Command | Android Capacitor builds, Gradle, Kotlin plugins, Android Studio, Play Store. |
+| `ios-capacitor-specialist` | `pro` | Read + Write + Command | iOS Capacitor builds, Xcode, Swift plugins, code signing, App Store. |
 | `electron-specialist` | `flash` | Read + Write + Command | Desktop packaging with electron-builder / electron-forge. |
 | `seo-specialist` | `flash` | Read-only / Write | Technical SEO, JSON-LD structured data, sitemaps, Core Web Vitals. |
 | `linkedin-specialist` | `flash` | Read-only | Technical content creation, punchy posts. |

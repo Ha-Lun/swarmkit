@@ -80,13 +80,13 @@ Before dispatching frontend-specialist or animation-specialist on any non-trivia
 2. **Did the user provide a reference or mood board?** Check the task brief for: URLs, screenshots, "make it look like X", brand guidelines, or explicit aesthetic direction.
 3. **Is this a greenfield project with no visual context?** If the project is new or has no established visual language AND the user hasn't provided references → **STOP. Ask the user.**
 
-When stopping to ask, use the `question` tool:
+When stopping to ask, use the `question` tool to offer choices from the **18 Curated Design Archetypes catalog**:
 
 ```
-question("This project doesn't have established design references yet. To get the visual quality right, can you share:")
+question("This project doesn't have established design references yet. To get the visual quality right, can you share or select one:")
   options:
     - "Here's a reference site I like" (user provides URL or description)
-    - "Use the frontend-specialist's reference library to pick" (agent selects from its curated library based on project type)
+    - "Present the 18 curated design archetypes for me to choose from" (agent lists the 18 archetypes)
     - "I'll describe the aesthetic I want" (user describes in words)
 ```
 
@@ -110,7 +110,9 @@ question("This project doesn't have established design references yet. To get th
    - If the user requests modifications, adjust the plan, update the artifact, and prompt again.
    - **Headless / Automated Execution**: In non-interactive or automated environments (e.g., CLI automation, scripts, or when --auto is specified), skip the interactive ask_question gate and proceed directly to Step 6 (Specialist Execution) with the formulated plan.
 
-6. **Specialist Execution with Workspace Branching** — Spawn the relevant executing specialist(s) and pass `Workspace: "branch"` or `"share"` via `invoke_subagent` (or `task`) to automatically create an isolated environment with dependencies intact.
+6. **Specialist Execution with Workspace Branching** — 
+   - **Step 6a: Worktree Creation via `git-specialist (SETUP)`**: When executing HEAVY/RISKY/MULTI-FILE tasks (> 3 files, > 100 lines delta, cross-cutting architectural changes, or explicit user request) in a git repository, dispatch `git-specialist` with `SETUP` to create `.worktrees/<branch-name>`, verify `/.worktrees/` is in `.gitignore`, and return the path as `Working directory`. Standard, contained Tier-2 edits (single component, localized bug fix, small API tweak) execute directly in-place without creating a worktree. Then dispatch the executing specialist pointing to that directory. (In Antigravity runtime, this combines physical git worktree creation with agent isolation).
+   - Spawn the relevant executing specialist(s) via `invoke_subagent` (or `task`).
    - Pass the approved plan in the handoff prompt so the specialist executes the agreed-upon changes directly.
    - The handoff should include the context brief and explicit instructions to self-test before returning.
 
@@ -123,6 +125,7 @@ question("This project doesn't have established design references yet. To get th
    - `code-proofreader` — spawn ONLY on diffs > 100 lines or upon user request.
    - `release-tester` — test suite, lint, typecheck. **Run only if step 7 did not already run it**.
    - `git-specialist` — commit hygiene, branch state. Avoid spawning for simple diffs.
+   - **Step 9b: Worktree Merge / Teardown**: Dispatch `git-specialist` with `SETUP remove` to review the worktree, merge it back to the main working directory, and tear down the worktree. Runs ONLY if a worktree was actually created in Step 6a.
 
 ### B. Read-only tasks (review, audit, explain, find, explain)
 
