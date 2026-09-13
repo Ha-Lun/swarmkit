@@ -1,6 +1,6 @@
 ---
 name: premium-frontend-system
-description: Premium frontend implementation system. Use for any non-trivial frontend work — pages, components, design systems, marketing sites, product UI, motion, and 3D. Establishes design direction before code, enforces anti-slop rules, demands production-ready output, and treats restraint as a feature. Load this skill by default for frontend implementation tasks.
+description: Premium frontend implementation recipes and guidelines for UI, motion, and 3D. Enforces anti-slop rules and production-ready quality. Loaded by the frontend-specialist agent.
 ---
 
 # Premium Frontend System
