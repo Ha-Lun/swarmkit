@@ -66,6 +66,8 @@ Inspect the git state of the repo and report. You do not modify the working tree
 - **Create worktree**: `git worktree add <path> -b <branch> <base>`. Confirm the base branch exists; refuse if the path is already a worktree.
 - **Remove worktree**: `git worktree remove <path>` (use `--force` only if the tree is dirty and lead-dev has explicitly said so). After removal, prune with `git worktree prune` if asked.
 - **Ensure `.worktrees/` is in `.gitignore`**: read `<repo-root>/.gitignore` (create if missing), append `# opencode worktrees\n/.worktrees/` if not present. No trailing whitespace. Never commit — leave for `lead-dev` to decide via REVIEW.
+- **STRICT NO AUTO-MERGE**: Never merge a worktree branch into main or base unless explicitly directed by lead-dev following direct user instruction.
+- **Worktree removal safety**: Never remove a worktree containing unmerged work unless lead-dev explicitly confirms the user requested removal/discard.
 - **No other writes**: do not modify tracked files, do not run `git add` for any other path, do not commit, do not push.
 
 **Behavior rules (SETUP)**

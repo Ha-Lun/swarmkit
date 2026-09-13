@@ -56,7 +56,7 @@ def process_file(filepath):
    - `code-proofreader` — spawn ONLY on diffs > 100 lines or upon user request.
    - `release-tester` — test suite, lint, typecheck. **Run only if step 7 did not already run it**.
    - `git-specialist` — commit hygiene, branch state. Avoid spawning for simple diffs.
-   - **Step 9b: Worktree Merge / Teardown**: Dispatch `git-specialist` with `SETUP remove` to review the worktree, merge it back to the main working directory, and tear down the worktree. Runs ONLY if a worktree was actually created in Step 6a.
+   - **Step 9b: Worktree Retention (STRICT NO AUTO-MERGE)**: Worktrees created during execution MUST NOT be merged to main or deleted/torn down automatically. The worktree and its branch MUST remain intact in `.worktrees/<branch-name>` for user inspection and testing. Merging a worktree to main or tearing it down requires explicit instructions from the user. In the final synthesis, explicitly inform the user of the worktree path and branch name, and note that it is awaiting their instruction to merge or remove.
 
 """
         content = lead_workflow_pattern.sub(lambda _: new_lead_workflow, content)
@@ -131,7 +131,7 @@ def process_file(filepath):
      - `code-proofreader`: spawn ONLY on diffs > 100 lines or upon user request.
      - `release-tester`: test suite, lint, typecheck (if not run in step 7).
      - `git-specialist`: commit hygiene. Avoid spawning for simple diffs.
-     - **Step 9b: Worktree Merge / Teardown**: Dispatch `git-specialist` with `SETUP remove` to review the worktree, merge it back to the main working directory, and tear down the worktree. Runs ONLY if a worktree was actually created in Step 6a.
+     - **Step 9b: Worktree Retention (STRICT NO AUTO-MERGE)**: Worktrees created during execution MUST NOT be merged to main or deleted/torn down automatically. The worktree and its branch MUST remain intact in `.worktrees/<branch-name>` for user inspection and testing. Merging a worktree to main or tearing it down requires explicit instructions from the user. In the final synthesis, explicitly inform the user of the worktree path and branch name, and note that it is awaiting their instruction to merge or remove.
 
 ---
 
@@ -181,7 +181,8 @@ search_paths = [
     os.path.join(REPO_DIR, 'agents', '*.md'),
     os.path.join(REPO_DIR, '.agents', 'agents', '*.md'),
     os.path.join(REPO_DIR, '.agents', 'rules', '*.md'),
-    os.path.join(REPO_DIR, 'AGENTS.md')
+    os.path.join(REPO_DIR, 'AGENTS.md'),
+    os.path.expanduser('~/.gemini/config/agents/*.md')
 ]
 
 files_to_process = []
