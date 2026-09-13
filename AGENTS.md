@@ -196,8 +196,8 @@ Whenever a destructive shell operation is required (file deletions, system confi
 
 ## 🌐 Dev Server Binding & Tailscale Network Policy
 
-- **Host Binding**: All dev servers and local services created or started on this machine must bind to `0.0.0.0` or `127.0.0.1` (e.g., `vite --host 0.0.0.0`, `uvicorn --host 0.0.0.0`, `next dev -H 0.0.0.0`).
-- **URL References**: All dev server URLs, API test endpoints, links, browser test targets, and messages must reference `http://localhost:<port>` or `http://127.0.0.1:<port>`.
+- **Host Binding**: All dev servers and local services created or started on this machine must bind to `0.0.0.0` (e.g., `vite --host 0.0.0.0`, `uvicorn --host 0.0.0.0`, `next dev -H 0.0.0.0`).
+- **URL References**: All dev server URLs, API endpoints, links, browser test targets, and messages on this machine must reference the Tailscale IP (`http://100.126.82.90:<port>`), falling back to localhost only if Tailscale is unavailable.
 
 ## Visual Engineering Workflows
 - **Scroll-driven landing page**: Autonomously apply the `scroll-craft` design floor (maximum 2 fonts, strict 8-point geometric spacing scale, exactly 6 semantic color tokens, and no generic UI tropes).

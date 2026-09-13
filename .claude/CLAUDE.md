@@ -100,6 +100,6 @@ For multi-step tasks, state a brief plan:
 
 ## 5. Dev Server Binding & Tailscale Network Policy
 
-- **Host Binding**: Dev servers on this machine must always bind to `0.0.0.0` or `127.0.0.1` (e.g. `vite --host 0.0.0.0`, `uvicorn --host 0.0.0.0`, `next dev -H 0.0.0.0`).
-- **URL References**: All dev server URLs, API test endpoints, links, test targets, and messages must reference `http://localhost:<port>` or `http://127.0.0.1:<port>`.
+- **Host Binding**: Dev servers on this machine must always bind to `0.0.0.0` (e.g. `vite --host 0.0.0.0`, `uvicorn --host 0.0.0.0`, `next dev -H 0.0.0.0`).
+- **URL References**: All dev server URLs, API test endpoints, links, test targets, and messages on this machine must reference the Tailscale IP (`http://100.126.82.90:<port>`), falling back to localhost only if Tailscale is unavailable.
 
