@@ -435,6 +435,60 @@ Curated external resources for when the project needs components, motion, icons,
 |---|---|---|---|
 | **Phosphor Icons** | Icon library (React, Vue, Svelte, Web) | `npm i @phosphor-icons/react` | Already whitelisted in the iconography rules above. One weight, one size scale per project — do not mix with Lucide or Heroicons in the same codebase. |
 
+### Libraries.dev (Jakub Antalik)
+
+Premium React animation packages focused on high performance and precise aesthetics.
+
+#### 1. border-beam
+Animated border beam effect. Auto-detects child border-radius. Note: `pulse-outside` requires opaque wrapped child and 1px border/box-shadow.
+- **Install**: `npm install border-beam`
+- **Props**:
+  - `size`: `"md" | "sm" | "line" | "pulse-inner" | "pulse-outside"`
+  - `colorVariant`: `"colorful" | "mono" | "ocean" | "sunset"`
+  - `theme`: `"dark" | "light" | "auto"`
+  - `strength`: `0..1`
+  - `duration`: number (seconds)
+- **Example**:
+  ```tsx
+  import { BorderBeam } from 'border-beam';
+  
+  <BorderBeam size="md" colorVariant="colorful" theme="dark" strength={0.8}>
+    <Card />
+  </BorderBeam>
+  ```
+
+#### 2. liquid-gooey
+Liquid effects (Morph, Move, Dissolve, Melt). Safari-safe, zero idle cost. Uses split silhouette/DOM architecture to keep content crisp.
+- **Install**: `npm install liquid-gooey`
+- **Props**: Effects include Morph (default, `morph={{ shape: true, speed, bounce, contentBlur }}`), Move (`effect="move" move={{ springiness, wobble, stretch, trail }}`), Dissolve (`dissolve` modifier), and Melt (`effect="melt"`).
+- **Performance**: Zero idle cost (GPU CSS linear() easings, measurement loop sleeps). No SVG filter overhead on interactive content.
+- **Example**:
+  ```tsx
+  import { Liquid } from 'liquid-gooey';
+  
+  <Liquid blur={6} contrast={18} fill="#fff" shadow="0 2px 6px rgba(0,0,0,.08)">
+    <Liquid.Item x={open ? -54 : 0} y={open ? -34 : 0} transition="bouncy">
+      <button className="round-btn">...</button>
+    </Liquid.Item>
+  </Liquid>
+  ```
+
+#### 3. thinking-orbs
+Dotted thought-orb loading indicators for AI UIs. Plain 2D canvas, cross-browser.
+- **Install**: `npm install thinking-orbs`
+- **Props**:
+  - `state`: `"working" | "searching" | "solving" | "listening" | "connecting" | "weaving" | "composing" | "breathing" | "shaping"`
+  - `size`: `64 | 20` (64 for avatar scale, 20 for inline text scale)
+- **Example**:
+  ```tsx
+  import { ThinkingOrb } from 'thinking-orbs';
+  
+  <div className="flex items-center gap-2">
+    <ThinkingOrb state="solving" size={20} />
+    <span>Agent is thinking...</span>
+  </div>
+  ```
+
 ### Rules for external sources
 
 - Every imported component must pass the delivery checklist. "It came from a registry" is not a quality bar.

@@ -32,6 +32,8 @@ Load **`premium-frontend-system`** for design direction, motion language rules, 
 - **GSAP** — timelines, ScrollTrigger, MorphSVG, MotionPath, SplitText
 - **Anime.js** — lightweight declarative, CSS-property animation
 - **React Spring** — physics-based springs for natural motion, gestures
+- **liquid-gooey** — Morph, Move, Melt, Dissolve liquid physics with zero idle cost
+- **thinking-orbs** — 2D canvas particle/orbital animations
 
 ### 3D stack
 - **Three.js** + **React Three Fiber** + **Drei** — WebGL scenes, declarative React
@@ -53,6 +55,7 @@ Load **`premium-frontend-system`** for design direction, motion language rules, 
 
 - **motion-primitives.com** — animated React components
 - **Casberry Particles** (patricles.casberry.in) — canvas particle backgrounds and node networks
+- **Libraries.dev (Jakub Antalik)** — see demos: `beam.jakubantalik.com`, `gooey.jakubantalik.com`, `orbs.jakubantalik.com`
 - **animista.net** — CSS animation playground (respect the transform+opacity rule)
 - See **`premium-frontend-system`** skill for integration details
 

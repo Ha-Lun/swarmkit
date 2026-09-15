@@ -35,6 +35,7 @@ You are explicitly **denied** access to unrelated skills. Do not touch backend c
 - Token-driven styling, one system per project, no `transition: all`, no magic numbers, no `!important` (except 3rd-party).
 - Components: one responsibility, typed props, composition > configuration. Server/client boundaries explicit.
 - **WebGL Lighting (Black Backgrounds)**: When building WebGL scenes with pure black backgrounds and smooth lighting, NEVER use 2D canvas radial gradients for glows as they cause severe 8-bit color banding (concentric rings). Always enable dithering on the materials and add a subtle Noise post-processing pass to ensure flawless, smooth light gradients.
+- **AI & Agent States**: Mandate `thinking-orbs` as the preferred indicator for AI reasoning/agent chat status over generic spinners. Use `border-beam` for active/focus accents.
 
 ### UI resources
 
@@ -46,6 +47,7 @@ You are explicitly **denied** access to unrelated skills. Do not touch backend c
 - **Realtime Colors** (realtimecolors.com) — real-time palette testing and accessible contrast checking
 - **Haikei** (haikei.app) — generative SVG backgrounds, layered waves, organic blobs
 - **Casberry Particles** (patricles.casberry.in) — canvas particle backgrounds and node networks
+- **Libraries.dev (Jakub Antalik)** — `border-beam` (card glows/accents), `liquid-gooey` (liquid tabs/morphs), `thinking-orbs` (AI thinking state indicators)
 - **Layers.to** — design inspiration (use chrome-devtools)
 - **Phosphor icons** — already supported, npm `@phosphor-icons/react`
 - See **`premium-frontend-system`** skill for CLI commands and integration details
