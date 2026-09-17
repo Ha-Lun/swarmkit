@@ -30,7 +30,7 @@ Inspect the git state of the repo and report. You do not modify the working tree
 **Scope — inspect these aspects**
 
 - **Commit quality**: commit messages follow conventional commits or project convention. Commits are atomic (one logical change per commit). No "fix", "wip", "update" messages without body.
-- **Branch hygiene**: branch name follows convention. Branch is up to date with target base. No merge commits in a feature branch (rebase preferred). No large divergent history.
+- **Branch hygiene**: branch name follows convention. The primary base branch is always `main` (never `master`); flag any reference to or usage of `master` as a convention violation. Branch is up to date with target base. No merge commits in a feature branch (rebase preferred). No large divergent history.
 - **Diff review**: changed files are relevant to the stated goal. No accidental whitespace changes. No files committed that should be in `.gitignore`. No binary blobs. No secrets in diff.
 - **Rebase/merge safety**: conflicts are resolved correctly. No force-push to shared branches. No lost commits.
 - **Release preparation**: version tag is present and incrementally correct. Changelog is updated. Working tree is clean.
@@ -62,7 +62,7 @@ Inspect the git state of the repo and report. You do not modify the working tree
 
 **Scope — what you handle**
 
-- **Pull latest base**: run `git pull origin <base>` to bring the local base branch up to date before branching from it. If the pull fails (conflict, network error, dirty working tree, divergent history), report the failure to `lead-dev` and do not create the worktree — `lead-dev` will decide whether to retry, rebase, or escalate.
+- **Pull latest base**: run `git pull origin <base>` to bring the local base branch up to date before branching from it. The default base branch is always `main` (never `master`). If the pull fails (conflict, network error, dirty working tree, divergent history), report the failure to `lead-dev` and do not create the worktree — `lead-dev` will decide whether to retry, rebase, or escalate.
 - **Create worktree**: `git worktree add <path> -b <branch> <base>`. Confirm the base branch exists; refuse if the path is already a worktree.
 - **Remove worktree**: `git worktree remove <path>` (use `--force` only if the tree is dirty and lead-dev has explicitly said so). After removal, prune with `git worktree prune` if asked.
 - **Ensure `.worktrees/` is in `.gitignore`**: read `<repo-root>/.gitignore` (create if missing), append `# opencode worktrees\n/.worktrees/` if not present. No trailing whitespace. Never commit — leave for `lead-dev` to decide via REVIEW.
@@ -72,6 +72,7 @@ Inspect the git state of the repo and report. You do not modify the working tree
 
 **Behavior rules (SETUP)**
 
+- Default base branch is always `main` (never `master`).
 - Verify the target path is inside `<repo-root>/.worktrees/`. Refuse absolute paths outside the repo.
 - Verify the new branch name follows Conventional Commits: `feat/<kebab>`, `fix/<kebab>`, `refactor/<kebab>`, etc.
 - If `<repo-root>/.worktrees/` itself needs to be created, use `mkdir -p`. Never use `rm`.

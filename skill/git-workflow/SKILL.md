@@ -36,6 +36,7 @@ Rules:
 Examples: `feat/user-auth`, `fix/login-crash`, `chore/update-deps`, `docs/api-readme`.
 
 Rules:
+- **Primary Branch**: Always `main`. Never use `master`.
 - Lowercase, hyphens for spaces.
 - Description is brief (2-5 words) and relates to the change.
 - No ticket numbers in branch names unless the team convention requires them.
@@ -62,7 +63,7 @@ Rules:
 - **Feature branch → main**: squash-merge or rebase-merge for clean history.
 - **main → feature branch**: rebase (not merge), to keep linear history.
 - **Release branch → main**: merge commit to preserve release boundary.
-- No force-push to `main`, `master`, `develop`, `release/*`, or any shared branch.
+- No force-push to `main`, `develop`, `release/*`, or any shared branch.
 
 ## Destructive operations — FLAG THESE
 
