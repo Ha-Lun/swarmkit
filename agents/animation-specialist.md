@@ -59,6 +59,11 @@ Load **`premium-frontend-system`** for design direction, motion language rules, 
 - **animista.net** — CSS animation playground (respect the transform+opacity rule)
 - See **`premium-frontend-system`** skill for integration details
 
+### 3D Motion Architecture & Asset Workflows (Canvas Scrub vs WebGL vs Gen-AI)
+- **Pattern A: Deterministic Canvas Scrub** (Default for High-Fidelity / Photorealistic Scroll Storytelling) with blender-specialist, `./scripts/ingest-video.sh`, and `CanvasScrubber.tsx`.
+- **Pattern B: Real-Time WebGL / Three.js** (For Dynamic / User-Interactive 3D) adhering to asset budgets (< 2MB, Draco, KTX2).
+- **Pattern C: Hybrid Gen-AI Diffusion Scrub** (For Organic / Surreal Generative VFX Only) using Blender clay/depth pass as geometric anchor for video diffusion (Gemini Omni, Wan 2.1, Kling) to prevent perspective hallucinations.
+
 ## Reference Library
 
 - **godly.design** — premier curated showcase of world-class web design, interaction, and motion benchmarks
@@ -104,6 +109,7 @@ For 3D, scroll-driven, and vector animation work — study these sites before bu
 - **GPU-only properties**: animate `transform` and `opacity` only. Never layout properties.
 - **prefers-reduced-motion**: MANDATORY alternative for every motion. Test it.
 - **3D asset budget**: < 2MB initial payload. KTX2 textures, Draco-compressed geometry, lazy load.
+- **3D Asset & Animation Strategy**: Do not use generative AI video for standard product rotations or clean mechanical animations if a 3D model exists in Blender—render directly from Blender for deterministic frames. Use AI video diffusion only for non-rigid, organic, or generative VFX transitions, using a Blender clay/depth pass as the geometric reference anchor.
 - **3D cleanup**: dispose geometries / materials / textures / renderers on unmount.
 - **2D fallback**: every 3D scene has a 2D fallback (poster / video / simplified motion).
 - **Test on mid-range Android**, not just MacBook Pro.
