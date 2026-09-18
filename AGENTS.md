@@ -48,6 +48,7 @@ Follow this exact lifecycle for every user task:
      - **Tier 1 (Trivial)**: Typos, version bumps, README touch-ups ➔ Handled by `junior-dev`.
      - **Tier 2/3 (Specialist)**: UI components, styling, APIs, auth, database, infrastructure ➔ Routed to domain specialists.
    - **Project Markers**: Check for Lovable (`lovable-specialist`), Capacitor Android (`android-capacitor-specialist`), Capacitor iOS (`ios-capacitor-specialist`), Electron (`electron-specialist`), n8n (`n8n-workflow-builder`).
+   - **Swarm Workflow Expansion**: For modifications to orchestrator logic, adding subagents, or wiring MCPs ➔ Route to `swarm-architect`.
 
 2. **Pre-flight Brief (Context Gathering)**:
    - For non-trivial codebases, call `invoke_subagent` with `explore` (or `research`) to gather:
@@ -144,6 +145,7 @@ Before defining a subagent, you MUST read its detailed system prompt from the fi
 | `linkedin-specialist` | `flash` | Read-only | Technical content creation, punchy posts. |
 | `n8n-workflow-builder` | `flash` | Read + Write + Command | n8n workflow JSON, Telegram Bot APIs, webhook flows. |
 | `n8n-debugger` | `flash` | Read + Command | Diagnostic root-cause analysis of failed n8n executions. |
+| `swarm-architect` | `pro` | Read + Write + Command | Swarm framework design, subagent scaffolding, MCP wiring. |
 
 ---
 

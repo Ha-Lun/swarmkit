@@ -60,6 +60,7 @@ SwarmKit runs as an **orchestrator + specialist swarm**:
 | **blender-specialist** | 3D modeling, mesh generation, asset staging, geometry nodes |
 | **backend-specialist** | APIs, services, auth, data, observability |
 | **db-specialist** | Schema design, migrations, query optimization |
+| **swarm-architect** | Swarm framework design, subagent scaffolding, MCP wiring |
 | **devops-specialist** | CI/CD, infrastructure as code, deployment |
 | **docker-specialist** | Containerization, Dockerfiles, Compose stacks |
 | **server-specialist** | Ubuntu server admin, systemd, nginx, security |

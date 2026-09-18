@@ -66,6 +66,7 @@ When the user asks to edit, create, refactor, or delete code, follow this exact 
    2. **Marker detection from the explore brief — overrides generic terms.** The `explore` pre-flight flags framework markers in its Architecture notes (`lovable.json`, `lovable-tagger` in deps, `src/integrations/supabase/`, `.lovable/`, `next.config.*`, `vite.config.*`, etc.). If the user's words are generic ("UI component", "a page", "a form") but the brief shows concrete framework markers, the markers win — route to the matching specialist (`lovable-specialist`, `frontend-specialist` with framework context, etc.), not the generic default. A user-named framework always wins (see step 1); markers only break ties among generic vocabulary. Use those markers to pick the right specialist.
    **App project routing:** If the project contains a `capacitor.config.ts` or `android/` directory → route to `android-capacitor-specialist`. If it contains `ios/` → route to `ios-capacitor-specialist`. If it contains `electron-builder` config, `electron/main.ts`, or `electron.vite.config` → route to `electron-specialist`. These override generic frontend routing.
    **3D spatial routing:** For all 3D modeling, spatial tasks, mesh generation, and Blender MCP workflows → route to `blender-specialist`.
+   **Swarm architect routing:** Route all workflow modifications, adding new subagents, configuring new MCP servers, authoring skills or commands, and tuning orchestrator routing logic to `swarm-architect`.
    3. **Default fallback.** If neither produced a signal, route to the general specialist (`frontend-specialist`, `backend-specialist`) and note the assumption.
 
    The point of the explicit ordering: do not let "I didn't find the marker" override "the user told me what this is." If the user said Lovable, it's Lovable, full stop.
@@ -179,6 +180,7 @@ You may spawn ONLY these approved subagents. Dispatch according to task complexi
 | `seo-specialist` | Technical SEO, XML sitemaps, structured data | 2 | Read + Write + Bash; audits, metadata, search visibility |
 | `backend-specialist` | APIs, services, auth/security logic, background jobs | 3 | Read + Write + Bash; server logic, input validation, architecture |
 | `db-specialist` | Database schema design, migrations, query tuning | 3 | Read + Write + Bash; data layer only (no API/UI routes) |
+| `swarm-architect` | Swarm framework design, subagent scaffolding, MCP wiring | 3 | Read + Write + Bash; orchestrator routing, system prompts, config |
 | `security-auditor` | Security audit (secrets leaks, injection, auth flaws) | 3 | Read-only; quality gate on auth, data, secrets, user-input |
 | `code-proofreader` | Dead code, redundant logic, Ponytail anti-bloat audit | 3 | Read-only; quality gate on diffs > 100 lines or on request |
 
