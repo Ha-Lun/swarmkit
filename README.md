@@ -184,3 +184,7 @@ agyw status            # Check active profile + symlink health
 
 > **Important:** Quit any running `agy` or Antigravity IDE processes before switching profiles.
 
+
+### Showroom Specialist Swarm
+- **`showroom`**: Orchestrates premium, scroll-driven, dark-theme product detail pages using Astro, Tailwind, GSAP, Lenis, and human-in-the-loop Google Flow assets.
+- Includes peer workers: `showroom-intake`, `showroom-art-director`, `showroom-asset-processor`, `showroom-frontend-builder`, `showroom-motion-engineer`.

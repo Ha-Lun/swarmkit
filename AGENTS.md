@@ -210,3 +210,11 @@ Whenever a destructive shell operation is required (file deletions, system confi
 - **Scroll-driven landing page**: Autonomously apply the `scroll-craft` design floor (maximum 2 fonts, strict 8-point geometric spacing scale, exactly 6 semantic color tokens, and no generic UI tropes).
 - **Procedural 3D Components**: When tasked with generating a 3D component from a 2D image, output pure, procedural Three.js TypeScript code mapped with proper animation pivots, explicitly avoiding external asset imports.
 - **Spatial/3D Modeling**: For spatial reasoning, raw mesh generation, and Blender tasks, handoff to `blender-specialist`. Ensure the handoff specifies iterative execution steps with validation between operations to prevent monolithic scripts.
+
+## Showroom (Specialist Subagent Swarm)
+- **`showroom`**: Coordinator for scroll-driven, dark-theme product detail pages.
+- **`showroom-intake`**: Manages brief completeness and validation.
+- **`showroom-art-director`**: Extracts design tokens and authors asset request packs.
+- **`showroom-asset-processor`**: Validates dropped assets in `/assets/raw`.
+- **`showroom-frontend-builder`**: Builds section components in Astro + Tailwind.
+- **`showroom-motion-engineer`**: Configures GSAP ScrollTrigger and Lenis smooth scrolling.
