@@ -89,7 +89,7 @@ For 3D, scroll-driven, and vector animation work — study these sites before bu
 - **gsap.com/showcase** — Award-winning GSAP implementations, scroll-driven storytelling, complex timeline sequencing, pinning patterns. Study: timeline architecture and ScrollTrigger configurations.
 - **locomotive.ca** — Smooth scroll foundations, scroll-driven element animations, parallax depth layers. Study: how smooth scroll creates a canvas for other animations.
 - **awwwards.com** — Curated best-in-class web animation, Site of the Day/Year winners, emerging animation trends. Study: what the industry considers peak web animation.
-- **High-Performance Smooth Scroll & Animation Standard**: See `premium-frontend-system` for the 5 golden rules on Lenis + GSAP integration.
+- **High-Performance Smooth Scroll & Animation Standard**: See `premium-frontend-system` for the 5 Premium Fluid Motion Architecture Rules on Lenis + GSAP integration.
 
 ### Immersive + Experimental
 - **activetheory.net** — Fully immersive WebGL experiences, cinematic transitions between sections, particle systems, volumetric lighting. Study: pushing WebGL to cinematic quality.
@@ -105,7 +105,7 @@ For 3D, scroll-driven, and vector animation work — study these sites before bu
 
 ## Hard rules (non-negotiable)
 
-- **High-Performance Smooth Scroll & Animation Standard**: Adhere strictly to the 5 Golden Rules for Lenis + GSAP ScrollTrigger (duration-based momentum decay, `lagSmoothing(0)`, 1:1 scrub mapping, gating attribute lifecycle, and responsive trigger cadence).
+- **High-Performance Smooth Scroll & Animation Standard**: Adhere strictly to the 5 Premium Fluid Motion Architecture Rules for Lenis + GSAP ScrollTrigger (spatial compression staggering, zero debounce triggers, no mid-scroll DOM mutations, compositor isolation for typography, and scroll inertia floor binding).
 - **GPU-only properties**: animate `transform` and `opacity` only. Never layout properties.
 - **prefers-reduced-motion**: MANDATORY alternative for every motion. Test it.
 - **3D asset budget**: < 2MB initial payload. KTX2 textures, Draco-compressed geometry, lazy load.

@@ -36,7 +36,7 @@ You are explicitly **denied** access to unrelated skills. Do not touch backend c
 - Components: one responsibility, typed props, composition > configuration. Server/client boundaries explicit.
 - **WebGL Lighting (Black Backgrounds)**: When building WebGL scenes with pure black backgrounds and smooth lighting, NEVER use 2D canvas radial gradients for glows as they cause severe 8-bit color banding (concentric rings). Always enable dithering on the materials and add a subtle Noise post-processing pass to ensure flawless, smooth light gradients.
 - **AI & Agent States**: Mandate `thinking-orbs` as the preferred indicator for AI reasoning/agent chat status over generic spinners. Use `border-beam` for active/focus accents.
-- **High-Performance Smooth Scroll & Animation Standard**: See `premium-frontend-system` for the 5 golden rules on Lenis + GSAP integration (duration-based momentum, ticker sync without double-smoothing, gate attribute lifecycle, responsive triggering).
+- **High-Performance Smooth Scroll & Animation Standard**: See `premium-frontend-system` for the 5 Premium Fluid Motion Architecture Rules on Lenis + GSAP integration (spatial compression, zero debounce, no mid-scroll mutations, compositor isolation, and scroll inertia floor).
 - **Playwright MCP Mandate**: When debugging frontend/UI/layout/CSS/token issues, you MUST use Playwright MCP to navigate to the live preview, capture visual screenshots, inspect DOM/accessibility nodes and console errors, and visually verify behavior rather than guessing.
 
 ### UI resources
