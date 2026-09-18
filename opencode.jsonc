@@ -45,6 +45,10 @@
     "google-trends": {
       "type": "local",
       "command": ["npx", "-y", "google-trends-mcp@latest"]
+    },
+    "playwright": {
+      "type": "local",
+      "command": ["npx", "-y", "@playwright/mcp@latest"]
     }
   },
   "provider": {

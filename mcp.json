@@ -18,6 +18,10 @@
     "google-trends": {
       "command": "npx",
       "args": ["-y", "google-trends-mcp@latest"]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"]
     }
   }
 }

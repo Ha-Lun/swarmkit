@@ -36,6 +36,7 @@ You are explicitly **denied** access to unrelated skills. Do not touch backend c
 - Components: one responsibility, typed props, composition > configuration. Server/client boundaries explicit.
 - **WebGL Lighting (Black Backgrounds)**: When building WebGL scenes with pure black backgrounds and smooth lighting, NEVER use 2D canvas radial gradients for glows as they cause severe 8-bit color banding (concentric rings). Always enable dithering on the materials and add a subtle Noise post-processing pass to ensure flawless, smooth light gradients.
 - **AI & Agent States**: Mandate `thinking-orbs` as the preferred indicator for AI reasoning/agent chat status over generic spinners. Use `border-beam` for active/focus accents.
+- **Playwright MCP Mandate**: When debugging frontend/UI/layout/CSS/token issues, you MUST use Playwright MCP to navigate to the live preview, capture visual screenshots, inspect DOM/accessibility nodes and console errors, and visually verify behavior rather than guessing.
 
 ### UI resources
 
@@ -90,9 +91,10 @@ Before coding, select 2-3 reference sites that match the project's design direct
 4. Extract specific patterns (not wholesale copies) — e.g., "Linear's border-subtle card treatment" or "Stripe's gradient angle on the hero"
 5. Apply those patterns within the project's own design token system
 
-## Chrome-Devtools Usage Guidelines
+## Chrome-Devtools / Playwright MCP Usage Guidelines
 
-To minimize token usage, follow these rules when using chrome-devtools MCP:
+To minimize token usage and maximize visual context, follow these rules when using chrome-devtools or Playwright MCP.
+**MANDATE**: When debugging frontend/UI/layout/CSS/token issues, you MUST use Playwright MCP to actually view the page, capture visual screenshots, inspect DOM/accessibility nodes, and verify behavior.
 
 ### Avoid includeSnapshot:true unless necessary
 - Default behavior: DO NOT pass `includeSnapshot: true` to click(), fill(), hover(), drag(), etc.

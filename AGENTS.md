@@ -21,6 +21,10 @@ Every response you output — whether casual chat, answering questions, planning
 
 Never omit this line. The user requires it on every prompt to verify workflow operation.
 
+## 🎭 Playwright MCP: Visual & Animation Debugging Mandate
+
+All visual and animation debugging MUST use Playwright MCP. When a specialist encounters UI/layout/CSS issues, timing glitches, scroll scrubbing problems, or canvas transform errors, they MUST use Playwright MCP to inspect the live state, capture screenshots, and visually verify fixes. Guessing is strictly prohibited.
+
 ---
 
 ## 🧭 Swarm Workflow

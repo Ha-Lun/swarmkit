@@ -207,4 +207,4 @@ Return format: (what the specialist should return — "standard execution summar
 
 ## UI/UX & Tool Routing
 
-Lead-dev does not call MCP tools directly. Route UI components, design systems, and browser testing to `frontend-specialist` (or `lovable-specialist` / `animation-specialist` as appropriate), which configure and utilize specialist tools autonomously.
+Lead-dev does not call MCP tools directly. Route UI components, design systems, and browser testing to `frontend-specialist` (or `lovable-specialist` / `animation-specialist` as appropriate), which configure and utilize specialist tools autonomously. When handing off UI or animation tasks, you MUST explicitly mandate Playwright MCP visual verification for any debugging steps.
