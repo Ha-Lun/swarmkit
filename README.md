@@ -123,30 +123,17 @@ To link your own self-hosted n8n securely:
 - **Zero hardcoded credentials**: No personal URLs, Tailscale hostnames, or API keys are committed to Git.
 - **Local-only config**: Endpoints reside strictly in `~/.config/swarmkit/n8n.env` (or your shell profile) making them accessible only to the running agent on your local machine.
 
-### 🎨 3D Animation Pipeline (Wan 2.1)
+### 🎨 3D Animation Pipeline
 
-SwarmKit includes a production-grade 3D camera turnaround pipeline powered by **Wan 2.1** (1.3B / 14B), automated frame extraction, super-resolution upscaling, and an Apple-grade interactive canvas scrubber.
+SwarmKit includes a production-grade 3D camera turnaround pipeline for human-in-the-loop video ingestion, automated frame extraction, super-resolution upscaling, and an Apple-grade interactive canvas scrubber.
 
-#### 1. Execution Modes
+#### 1. Video Ingestion & Frame Extraction
 
-- **Mode 1: Headless Colab CLI (Automated)**  
-  Run single-command headless generation that provisions a Colab GPU, generates the turnaround video, downloads the MP4, and extracts frames:
-  ```bash
-  ./scripts/trigger-3d-animation.sh \
-    --prompt "luxury Swiss premium chronograph watch, rose gold casing, sapphire crystal, rotating turntable, studio lighting, photorealistic 8k" \
-    --camera orbit_360 \
-    --steps 15 \
-    --frames 49 \
-    --resolution 640x360 \
-    --upscale 2560x1440
-  ```
-  Run `./install.sh --colab` to set up the CLI. See [COLAB_CLI_3D_PIPELINE.md](docs/COLAB_CLI_3D_PIPELINE.md) for full instructions.
-
-- **Mode 2: Colab Web UI Notebook (Interactive / Heavy Models)**  
-  For interactive runs or when using larger GPUs (A100/L4/T4), use [`notebooks/wan2_colab_worker.ipynb`](notebooks/wan2_colab_worker.ipynb). It features 1-click Google Drive (2TB) model caching (`HF_HOME`) and A100/T4 acceleration.
-
-- **Mode 3: n8n Webhook (Optional Automation)**  
-  For external triggers (e.g., Discord bots) or advanced workflows, you can route generations through an n8n webhook which acts as the orchestrator.
+The standard human-in-the-loop pipeline allows you to ingest any generated or captured turnaround video, extract optimized WebP frames, and prepare them for the canvas scrubber:
+```bash
+./scripts/ingest-video.sh /path/to/turnaround.mp4
+```
+For detailed execution steps, see [3D_ANIMATION_WORKFLOW.md](docs/3D_ANIMATION_WORKFLOW.md).
 
 #### 2. Super-Resolution Upscaling (1440p / 4K)
 
@@ -184,3 +171,7 @@ agyw status            # Check active profile + symlink health
 
 > **Important:** Quit any running `agy` or Antigravity IDE processes before switching profiles.
 
+
+### Showroom Specialist Swarm
+- **`showroom`**: Orchestrates premium, scroll-driven, dark-theme product detail pages using Astro, Tailwind, GSAP, Lenis, and human-in-the-loop Google Flow assets.
+- Includes peer workers: `showroom-intake`, `showroom-art-director`, `showroom-asset-processor`, `showroom-frontend-builder`, `showroom-motion-engineer`.

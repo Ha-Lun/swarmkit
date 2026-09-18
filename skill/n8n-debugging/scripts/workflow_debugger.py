@@ -277,7 +277,7 @@ def main():
     
     # check-telegram-webhook
     parser_tg = subparsers.add_parser('check-telegram-webhook', help='Check Telegram webhook status')
-    parser_tg.add_argument('bot_token', help='Telegram bot token')
+    parser_tg.add_argument('bot_token', nargs='?', default=None, help='Telegram bot token (or use TELEGRAM_BOT_TOKEN env var)')
     
     # trace-data-flow
     parser_trace = subparsers.add_parser('trace-data-flow', help='Trace data flow through a node')
@@ -306,7 +306,10 @@ def main():
             print(json.dumps(report, indent=2))
         
         elif args.command == 'check-telegram-webhook':
-            report = debugger.check_telegram_webhook(args.bot_token)
+            token = args.bot_token or os.environ.get('TELEGRAM_BOT_TOKEN')
+            if not token:
+                raise ValueError("Telegram bot token must be provided via argument or TELEGRAM_BOT_TOKEN environment variable")
+            report = debugger.check_telegram_webhook(token)
             print(json.dumps(report, indent=2))
         
         elif args.command == 'trace-data-flow':

@@ -25,7 +25,7 @@ Log analysis and systematic debugging.
 ```bash
 python scripts/workflow_debugger.py analyze-execution <execution-id>
 python scripts/workflow_debugger.py analyze-workflow <workflow-id>
-python scripts/workflow_debugger.py check-telegram-webhook <bot-token>
+python scripts/workflow_debugger.py check-telegram-webhook [bot-token] # Or set TELEGRAM_BOT_TOKEN env var
 python scripts/workflow_debugger.py trace-data-flow <execution-id> <node-name>
 python scripts/workflow_debugger.py find-error-patterns [--workflow-id <id>]
 ```
@@ -120,7 +120,11 @@ python scripts/workflow_debugger.py analyze-workflow 67
 
 ### Check Telegram webhook status
 ```bash
+# Option 1: Pass as argument (may leak in process list)
 python scripts/workflow_debugger.py check-telegram-webhook YOUR_BOT_TOKEN
+
+# Option 2: Use environment variable (more secure)
+TELEGRAM_BOT_TOKEN=YOUR_BOT_TOKEN python scripts/workflow_debugger.py check-telegram-webhook
 ```
 
 ### Trace data flow through a specific node

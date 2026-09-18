@@ -212,3 +212,7 @@ Return format: (what the specialist should return — "standard execution summar
 ## UI/UX & Tool Routing
 
 Lead-dev does not call MCP tools directly. Route UI components, design systems, and browser testing to `frontend-specialist` (or `lovable-specialist` / `animation-specialist` as appropriate), which configure and utilize specialist tools autonomously. For 3D modeling, spatial tasks, mesh generation, and Blender MCP workflows, route to `blender-specialist`. When handing off UI or animation tasks, you MUST explicitly mandate Playwright MCP visual verification for any debugging steps.
+
+- **Showroom Capabilities**:
+  - Route product detail page (Astro/Tailwind/GSAP) requests to the `showroom` coordinator subagent.
+  - The `showroom` agent orchestrates its own subagent swarm (`showroom-intake`, `showroom-art-director`, `showroom-asset-processor`, `showroom-frontend-builder`, `showroom-motion-engineer`). Do not invoke them directly unless explicitly requested.

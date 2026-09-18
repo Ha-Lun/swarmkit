@@ -203,10 +203,18 @@ Whenever a destructive shell operation is required (file deletions, system confi
 
 ## 🌐 Dev Server Binding & Tailscale Network Policy
 
-- **Host Binding**: All dev servers and local services created or started on this machine must bind to `0.0.0.0` (e.g., `vite --host 0.0.0.0`, `uvicorn --host 0.0.0.0`, `next dev -H 0.0.0.0`).
-- **URL References**: All dev server URLs, API endpoints, links, browser test targets, and messages on this machine must reference the Tailscale IP (`http://100.126.82.90:<port>`), falling back to localhost only if Tailscale is unavailable.
+- **Host Binding**: All dev servers and local services created or started on this machine must bind to `127.0.0.1` for local safety (e.g., `vite --host 127.0.0.1`, `uvicorn --host 127.0.0.1`). Use `0.0.0.0` or Tailscale IP only when multi-device testing is needed.
+- **URL References**: All dev server URLs, API endpoints, links, browser test targets, and messages on this machine must reference `http://localhost:<port>` or `${TAILSCALE_IP:-localhost}:<port>`.
 
 ## Visual Engineering Workflows
 - **Scroll-driven landing page**: Autonomously apply the `scroll-craft` design floor (maximum 2 fonts, strict 8-point geometric spacing scale, exactly 6 semantic color tokens, and no generic UI tropes).
 - **Procedural 3D Components**: When tasked with generating a 3D component from a 2D image, output pure, procedural Three.js TypeScript code mapped with proper animation pivots, explicitly avoiding external asset imports.
 - **Spatial/3D Modeling**: For spatial reasoning, raw mesh generation, and Blender tasks, handoff to `blender-specialist`. Ensure the handoff specifies iterative execution steps with validation between operations to prevent monolithic scripts.
+
+## Showroom (Specialist Subagent Swarm)
+- **`showroom`**: Coordinator for scroll-driven, dark-theme product detail pages.
+- **`showroom-intake`**: Manages brief completeness and validation.
+- **`showroom-art-director`**: Extracts design tokens and authors asset request packs.
+- **`showroom-asset-processor`**: Validates dropped assets in `/assets/raw`.
+- **`showroom-frontend-builder`**: Builds section components in Astro + Tailwind.
+- **`showroom-motion-engineer`**: Configures GSAP ScrollTrigger and Lenis smooth scrolling.

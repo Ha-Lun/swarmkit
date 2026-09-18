@@ -4,7 +4,7 @@ cd agents
 update_model() {
   local file=$1
   local new_model=$2
-  sed -i "s|model: opencode/x-preview-f-free|model: $new_model|g" "$file"
+  sed -i "s|^model:.*|model: $new_model|g" "$file"
 }
 
 # Ultra (Pro tier)
@@ -17,6 +17,11 @@ update_model devops-specialist.md "opencode/nemotron-3-ultra-free"
 update_model security-auditor.md "opencode/nemotron-3-ultra-free"
 update_model animation-specialist.md "opencode/nemotron-3-ultra-free"
 
+update_model showroom.md "opencode/nemotron-3-ultra-free"
+update_model showroom-art-director.md "opencode/nemotron-3-ultra-free"
+update_model showroom-frontend-builder.md "opencode/nemotron-3-ultra-free"
+update_model showroom-motion-engineer.md "opencode/nemotron-3-ultra-free"
+
 # Mimo (Proofreader)
 update_model code-proofreader.md "opencode/mimo-v2.5-free"
 
@@ -27,7 +32,7 @@ update_model linkedin-specialist.md "opencode/muse-spark-1.2-contributor-free"
 # Lightning (Flash tier / all others)
 for file in *.md; do
   # If it still has x-preview-f-free, it hasn't been updated yet
-  sed -i "s|model: opencode/x-preview-f-free|model: opencode/nemotron-3.5-lightning-free|g" "$file"
+  sed -i "s|^model: opencode/x-preview-f-free|model: opencode/nemotron-3.5-lightning-free|g" "$file"
 done
 
 echo "Update complete"

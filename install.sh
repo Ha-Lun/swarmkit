@@ -6,7 +6,6 @@
 #   --agy         Install Antigravity (agy) Swarm config
 #   --claude      Install Claude Code Swarm config
 #   --n8n         Configure local self-hosted n8n credentials
-#   --colab       Install and authenticate google-colab-cli
 #   --all         Install all of the above
 #   --free        Enable free mode for OpenCode (uses default models, no keys)
 #   --uninstall   Uninstall all configurations
@@ -23,7 +22,6 @@ INSTALL_OPENCODE=false
 INSTALL_AGY=false
 INSTALL_CLAUDE=false
 INSTALL_N8N=false
-INSTALL_COLAB=false
 FREE_MODE=false
 UNINSTALL_MODE=false
 
@@ -41,13 +39,11 @@ else
       --agy)      INSTALL_AGY=true ;;
       --claude)   INSTALL_CLAUDE=true ;;
       --n8n)      INSTALL_N8N=true ;;
-      --colab)    INSTALL_COLAB=true ;;
       --all)      
         INSTALL_OPENCODE=true
         INSTALL_AGY=true
         INSTALL_CLAUDE=true
         INSTALL_N8N=true
-        INSTALL_COLAB=true
         ;;
       --free)     FREE_MODE=true ;;
       --uninstall)UNINSTALL_MODE=true ;;
@@ -208,32 +204,10 @@ install_n8n() {
   echo "✓ n8n configuration complete"
 }
 
-install_colab() {
-  echo "=== Installing Google Colab CLI ==="
-  if command -v colab &>/dev/null; then
-    echo "✓ google-colab-cli is already installed."
-  else
-    if command -v uv &>/dev/null; then
-      echo "Installing via uv..."
-      uv tool install google-colab-cli
-    elif command -v pip &>/dev/null; then
-      echo "Installing via pip..."
-      pip install google-colab-cli
-    else
-      echo "Error: Neither uv nor pip is installed. Cannot install google-colab-cli."
-      exit 1
-    fi
-  fi
-  echo "Please authenticate with Colab:"
-  colab auth login
-  echo "✓ Colab CLI installation and authentication complete"
-}
-
 if [ "$INSTALL_OPENCODE" = true ]; then install_opencode; fi
 if [ "$INSTALL_AGY" = true ]; then install_agy; fi
 if [ "$INSTALL_CLAUDE" = true ]; then install_claude; fi
 if [ "$INSTALL_N8N" = true ]; then install_n8n; fi
-if [ "$INSTALL_COLAB" = true ]; then install_colab; fi
 
 echo ""
 echo "========================================"

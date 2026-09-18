@@ -20,6 +20,6 @@ Whenever sudo is needed for something destructive — removing files, altering s
 
 # Dev Server Binding & Tailscale Network Policy
 
-- **Host Binding**: All dev servers and local services created or started on this machine must bind to `0.0.0.0` (e.g. `vite --host 0.0.0.0`, `uvicorn --host 0.0.0.0`, `next dev -H 0.0.0.0`).
-- **URL References**: All dev server URLs, API endpoints, links, browser test targets, and user messages on this machine must reference the Tailscale IP (`http://100.126.82.90:<port>`), falling back to localhost only if Tailscale is unavailable.
+- **Host Binding**: All dev servers and local services created or started on this machine must bind to `127.0.0.1` for local safety (e.g. `vite --host 127.0.0.1`, `uvicorn --host 127.0.0.1`). Use `0.0.0.0` or Tailscale IP only when multi-device testing is needed.
+- **URL References**: All dev server URLs, API endpoints, links, browser test targets, and user messages on this machine must reference `http://localhost:<port>` or `${TAILSCALE_IP:-localhost}:<port>`.
 
