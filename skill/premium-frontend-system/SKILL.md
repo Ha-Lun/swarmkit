@@ -415,6 +415,69 @@ Curated external resources for when the project needs components, motion, icons,
 | **originkit / Origin UI** | Tailwind CSS + Radix UI components | Web based — copy-paste | Extensive collection of premium UI components. |
 | **haikei.app** | Generative SVG backgrounds | Web based | Generates organic SVG section dividers, layered waves, and background blobs. |
 
+### High-Performance Smooth Scroll & Animation Standard (Lenis + GSAP ScrollTrigger)
+
+When implementing scroll-driven animations, strictly adhere to these 5 Golden Rules to prevent micro-hitches, scrub lag, and floaty disconnects.
+
+#### 1. Lenis Momentum Physics (Never Use Default Stiff Lerp)
+A bare `lerp: 0.1` halts deceleration in ~180ms, creating short, stiff lurches on mouse wheels. Always configure Lenis with duration-based exponential decay for luxurious momentum glide:
+```ts
+lenis = new Lenis({
+  duration: 1.2,
+  easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+  smoothWheel: true,
+  wheelMultiplier: 1.0,
+  touchMultiplier: 1.5,
+});
+```
+
+#### 2. GSAP Ticker Synchronization & lagSmoothing(0)
+Always pass a named function reference to `gsap.ticker.add` so it can be cleanly unbound on teardown.
+**MANDATORY**: Keep `gsap.ticker.lagSmoothing(0)` active when using Lenis. Non-zero `lagSmoothing` clamps delta timestamps during minor CPU spikes, causing distorted velocity calculations and visible micro-hitches in Lenis.
+```ts
+function updateLenis(time: number) {
+  lenis?.raf(time * 1000);
+}
+gsap.ticker.add(updateLenis);
+gsap.ticker.lagSmoothing(0); // MANDATORY with Lenis
+```
+
+#### 3. No Double-Smoothing on Scrubbed Parallax
+Lenis already smooths the scroll trajectory. Adding a numerical scrub (e.g. `scrub: 1.5` or `2`) creates compounding lag and a desynchronized, floaty disconnect between the scrollbar and visual depth layers.
+Always use `scrub: true` (or `scrub: 0.1`) so parallax and timeline progress map 1:1 with Lenis's smoothed scroll position.
+
+#### 4. Gating Attribute Lifecycle & No Flat Reveals
+When pre-hiding elements via CSS selectors (e.g., `[data-motion-item]`), NEVER remove the attribute before GSAP evaluates target dataset properties:
+```ts
+// ❌ WRONG: Stripping before tween creation causes target.dataset.motionItem to be undefined!
+batch.forEach((el) => el.removeAttribute('data-motion-item'));
+gsap.fromTo(batch, { y: (i, target) => target.dataset.motionItem === 'lift' ? 10 : 0, ... });
+
+// ✅ CORRECT: Move attribute removal into onStart
+gsap.fromTo(batch, 
+  { y: (i, target) => target.dataset.motionItem === 'lift' ? 10 : 0, opacity: 0 },
+  {
+    y: 0,
+    opacity: 1,
+    duration: 0.55,
+    ease: 'power3.out',
+    clearProps: 'opacity,transform',
+    onStart: () => batch.forEach((el) => el.removeAttribute('data-motion-item')),
+  }
+);
+```
+
+#### 5. Responsive Trigger Cadence & GPU Compositor Budget
+Trigger section reveals slightly ahead of reading velocity (e.g. `start: 'top 90%'` or `'top 92%'`) with durations between 500ms and 600ms. Late triggers (`top 85%`) with long durations (>750ms) feel like the page is lagging behind your reading speed.
+Avoid global upfront `will-change: transform, opacity` across every element on page load (which exhausts GPU memory). Let GSAP handle composited layer promotion dynamically during active tweens.
+
+Always include root Lenis resets:
+```css
+html.lenis, html.lenis body {
+  height: auto;
+}
+```
+
 ### Motion & animation
 
 | Source | What it is | Install | Notes |
