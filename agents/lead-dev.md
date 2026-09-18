@@ -65,6 +65,7 @@ When the user asks to edit, create, refactor, or delete code, follow this exact 
    1. **User statement wins.** If the user said "Lovable", "Next.js", "Vite + React", or any other framework name, route to the matching specialist or `frontend-specialist` with that context. The user's word is ground truth — do not second-guess it.
    2. **Marker detection from the explore brief — overrides generic terms.** The `explore` pre-flight flags framework markers in its Architecture notes (`lovable.json`, `lovable-tagger` in deps, `src/integrations/supabase/`, `.lovable/`, `next.config.*`, `vite.config.*`, etc.). If the user's words are generic ("UI component", "a page", "a form") but the brief shows concrete framework markers, the markers win — route to the matching specialist (`lovable-specialist`, `frontend-specialist` with framework context, etc.), not the generic default. A user-named framework always wins (see step 1); markers only break ties among generic vocabulary. Use those markers to pick the right specialist.
    **App project routing:** If the project contains a `capacitor.config.ts` or `android/` directory → route to `android-capacitor-specialist`. If it contains `ios/` → route to `ios-capacitor-specialist`. If it contains `electron-builder` config, `electron/main.ts`, or `electron.vite.config` → route to `electron-specialist`. These override generic frontend routing.
+   **3D spatial routing:** For all 3D modeling, spatial tasks, mesh generation, and Blender MCP workflows → route to `blender-specialist`.
    3. **Default fallback.** If neither produced a signal, route to the general specialist (`frontend-specialist`, `backend-specialist`) and note the assumption.
 
    The point of the explicit ordering: do not let "I didn't find the marker" override "the user told me what this is." If the user said Lovable, it's Lovable, full stop.
@@ -162,6 +163,7 @@ You may spawn ONLY these approved subagents. Dispatch according to task complexi
 | `frontend-specialist` | Production UI, design systems, WCAG, styling | 2 | Read + Write + Bash + MCP; components, layout, web design rules |
 | `lovable-specialist` | Frontend edits in Lovable projects (Vite+React+Tailwind) | 2 | Read + Write + Bash; Lovable projects only (never touches SQL/backend) |
 | `animation-specialist` | 2D/3D motion (Framer Motion, GSAP, Three.js, R3F) | 2 | Read + Write + Bash + MCP; animate transform/opacity only |
+| `blender-specialist` | 3D modeling, mesh generation, spatial reasoning, Blender | 2 | Read + Write + Bash + MCP; raw 3D modeling, geometry nodes |
 | `android-capacitor-specialist` | Android Capacitor mobile apps (React + Vite) | 2 | Read + Write + Bash; Gradle, Kotlin/Java plugins, Android Studio |
 | `ios-capacitor-specialist` | iOS Capacitor mobile apps (React + Vite, macOS) | 2 | Read + Write + Bash; Xcode, Swift/Obj-C plugins, App Store |
 | `electron-specialist` | Desktop application wrapping (React + Vite to Electron) | 2 | Read + Write + Bash; electron-builder/forge, packaging |
@@ -207,4 +209,4 @@ Return format: (what the specialist should return — "standard execution summar
 
 ## UI/UX & Tool Routing
 
-Lead-dev does not call MCP tools directly. Route UI components, design systems, and browser testing to `frontend-specialist` (or `lovable-specialist` / `animation-specialist` as appropriate), which configure and utilize specialist tools autonomously. When handing off UI or animation tasks, you MUST explicitly mandate Playwright MCP visual verification for any debugging steps.
+Lead-dev does not call MCP tools directly. Route UI components, design systems, and browser testing to `frontend-specialist` (or `lovable-specialist` / `animation-specialist` as appropriate), which configure and utilize specialist tools autonomously. For 3D modeling, spatial tasks, mesh generation, and Blender MCP workflows, route to `blender-specialist`. When handing off UI or animation tasks, you MUST explicitly mandate Playwright MCP visual verification for any debugging steps.

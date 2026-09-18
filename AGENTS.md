@@ -124,6 +124,7 @@ Before defining a subagent, you MUST read its detailed system prompt from the fi
 | `junior-dev` | `flash` | Read + Write + Command | Tier-1 mechanical edits: typos, simple renames, README fixes, single-line config tweaks. |
 | `frontend-specialist` | `pro` | Read + Write + Command + MCP | Production UI, design systems, WCAG 2.2 AA, responsive layout, token-driven styles. |
 | `animation-specialist` | `pro` | Read + Write + Command + MCP | 2D/3D motion (Framer Motion, GSAP, Three.js, R3F). Animate transform/opacity only. |
+| `blender-specialist` | `pro` | Read + Write + Command + MCP | 3D modeling, spatial reasoning, mesh generation, asset staging, geometry nodes with Blender MCP. |
 | `backend-specialist` | `pro` | Read + Write + Command | APIs, services, auth/authorization, input validation, background jobs, DB queries. |
 | `db-specialist` | `pro` | Read + Write + Command | DB schema design, migrations, query optimization, indexing. Data layer only. |
 | `security-auditor` | `flash` | Read-only | Secrets leaks, SQL/command injection, auth flaws, CSRF/CORS, insecure configs. |
@@ -206,3 +207,4 @@ Whenever a destructive shell operation is required (file deletions, system confi
 ## Visual Engineering Workflows
 - **Scroll-driven landing page**: Autonomously apply the `scroll-craft` design floor (maximum 2 fonts, strict 8-point geometric spacing scale, exactly 6 semantic color tokens, and no generic UI tropes).
 - **Procedural 3D Components**: When tasked with generating a 3D component from a 2D image, output pure, procedural Three.js TypeScript code mapped with proper animation pivots, explicitly avoiding external asset imports.
+- **Spatial/3D Modeling**: For spatial reasoning, raw mesh generation, and Blender tasks, handoff to `blender-specialist`. Ensure the handoff specifies iterative execution steps with validation between operations to prevent monolithic scripts.

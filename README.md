@@ -57,6 +57,7 @@ SwarmKit runs as an **orchestrator + specialist swarm**:
 |---|---|
 | **frontend-specialist** | Production-ready UI, design quality, accessibility |
 | **animation-specialist** | 2D/3D animation (Motion, GSAP, Three.js, R3F) |
+| **blender-specialist** | 3D modeling, mesh generation, asset staging, geometry nodes |
 | **backend-specialist** | APIs, services, auth, data, observability |
 | **db-specialist** | Schema design, migrations, query optimization |
 | **devops-specialist** | CI/CD, infrastructure as code, deployment |
