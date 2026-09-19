@@ -6,6 +6,7 @@
 #   --agy         Install Antigravity (agy) Swarm config
 #   --claude      Install Claude Code Swarm config
 #   --n8n         Configure local self-hosted n8n credentials
+#   --cloudflare  Install Cloudflare skills and configure auth
 #   --all         Install all of the above
 #   --free        Enable free mode for OpenCode (uses default models, no keys)
 #   --uninstall   Uninstall all configurations
@@ -22,6 +23,7 @@ INSTALL_OPENCODE=false
 INSTALL_AGY=false
 INSTALL_CLAUDE=false
 INSTALL_N8N=false
+INSTALL_CLOUDFLARE=false
 FREE_MODE=false
 UNINSTALL_MODE=false
 
@@ -39,11 +41,13 @@ else
       --agy)      INSTALL_AGY=true ;;
       --claude)   INSTALL_CLAUDE=true ;;
       --n8n)      INSTALL_N8N=true ;;
+      --cloudflare) INSTALL_CLOUDFLARE=true ;;
       --all)      
         INSTALL_OPENCODE=true
         INSTALL_AGY=true
         INSTALL_CLAUDE=true
         INSTALL_N8N=true
+        INSTALL_CLOUDFLARE=true
         ;;
       --free)     FREE_MODE=true ;;
       --uninstall)UNINSTALL_MODE=true ;;
@@ -208,6 +212,22 @@ if [ "$INSTALL_OPENCODE" = true ]; then install_opencode; fi
 if [ "$INSTALL_AGY" = true ]; then install_agy; fi
 if [ "$INSTALL_CLAUDE" = true ]; then install_claude; fi
 if [ "$INSTALL_N8N" = true ]; then install_n8n; fi
+
+install_cloudflare() {
+  echo "=== Installing Cloudflare Skills & Config ==="
+  echo "Installing Cloudflare skills globally..."
+  npx -y skills add cloudflare/skills --skill '*' --yes --global
+
+  if command -v opencode &> /dev/null; then
+    echo "Authenticating OpenCode with Cloudflare MCP..."
+    opencode mcp auth cloudflare || echo "⚠ OpenCode auth failed or skipped. You can manually run: opencode mcp auth cloudflare"
+  else
+    echo "ℹ opencode CLI not found. Skipping auth step."
+  fi
+  echo "✓ Cloudflare installation complete"
+}
+
+if [ "$INSTALL_CLOUDFLARE" = true ]; then install_cloudflare; fi
 
 echo ""
 echo "========================================"

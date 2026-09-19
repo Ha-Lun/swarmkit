@@ -64,7 +64,7 @@ When the user asks to edit, create, refactor, or delete code, follow this exact 
    **Project-type routing — check this BEFORE picking a specialist.** The order is:
    1. **User statement wins.** If the user said "Lovable", "Next.js", "Vite + React", or any other framework name, route to the matching specialist or `frontend-specialist` with that context. The user's word is ground truth — do not second-guess it.
    2. **Marker detection from the explore brief — overrides generic terms.** The `explore` pre-flight flags framework markers in its Architecture notes (`lovable.json`, `lovable-tagger` in deps, `src/integrations/supabase/`, `.lovable/`, `next.config.*`, `vite.config.*`, etc.). If the user's words are generic ("UI component", "a page", "a form") but the brief shows concrete framework markers, the markers win — route to the matching specialist (`lovable-specialist`, `frontend-specialist` with framework context, etc.), not the generic default. A user-named framework always wins (see step 1); markers only break ties among generic vocabulary. Use those markers to pick the right specialist.
-   **App project routing:** If the project contains a `capacitor.config.ts` or `android/` directory → route to `android-capacitor-specialist`. If it contains `ios/` → route to `ios-capacitor-specialist`. If it contains `electron-builder` config, `electron/main.ts`, or `electron.vite.config` → route to `electron-specialist`. These override generic frontend routing.
+   **App project routing:** If the project contains a `capacitor.config.ts` or `android/` directory → route to `android-capacitor-specialist`. If it contains `ios/` → route to `ios-capacitor-specialist`. If it contains `electron-builder` config, `electron/main.ts`, or `electron.vite.config` → route to `electron-specialist`. If it contains `wrangler.toml` or `wrangler.json` → route to `backend-specialist` (or `devops-specialist`) for Cloudflare Workers/Pages tasks. These override generic frontend routing.
    **3D spatial routing:** For all 3D modeling, spatial tasks, mesh generation, and Blender MCP workflows → route to `blender-specialist`.
    **Swarm architect routing:** Route all workflow modifications, adding new subagents, configuring new MCP servers, authoring skills or commands, and tuning orchestrator routing logic to `swarm-architect`.
    3. **Default fallback.** If neither produced a signal, route to the general specialist (`frontend-specialist`, `backend-specialist`) and note the assumption.
@@ -208,6 +208,8 @@ Return format: (what the specialist should return — "standard execution summar
 ## Gemini MCP — Cost-Efficient Delegation (conditional)
 
 > **Gemini MCP:** Now confirmed loaded — it's defined in the `mcp` key of `opencode.jsonc` alongside three other MCP servers. Use it for cost-efficient delegation as described above (files > 2000 lines, broad research, compute-heavy offload). The next section covers the UI/UX tooling MCPs (shadcn, 21st-dev-magic, chrome-devtools) and the `web-design-guidelines` skill.
+
+> **Cloudflare MCP:** Cloudflare MCP servers (`cloudflare`, `cloudflare-docs`, `cloudflare-bindings`, `cloudflare-builds`, `cloudflare-observability`) are available for interacting with Cloudflare services. Use these via `backend-specialist` or `devops-specialist`.
 
 ## UI/UX & Tool Routing
 

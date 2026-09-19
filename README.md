@@ -26,7 +26,7 @@ SwarmKit runs as an **orchestrator + specialist swarm**:
 - **Ponytail discipline** — an always-on anti-over-engineering system with `lite` / `full` / `ultra` modes
 - **Project-type routing** — auto-detects Lovable, Capacitor, Electron, and Next.js projects and dispatches the right specialist
 - **Cost-aware routing** — cheap models for trivial tasks, smart models for complex work
-- **7 MCP servers** — Gemini (compute offload), shadcn (UI components), 21st.dev (AI-generated components), Chrome DevTools (browser automation), Firecrawl (markdown crawling), Google Search Console (SEO metrics), and Google Trends (keyword data)
+- **12 MCP servers** — Gemini (compute offload), shadcn (UI components), 21st.dev (AI-generated components), Chrome DevTools (browser automation), Firecrawl (markdown crawling), Google Search Console (SEO metrics), Google Trends (keyword data), and Cloudflare suite (5 servers for Workers, Pages, and resources)
 - **19+ skills** — frontend quality, backend quality, git workflow, security review, premium frontend system, web design guidelines, SEO engineering, n8n API & debugging, curated resources (scrapeling, public-apis, awesome lists, etc.), and more
 - **5 slash commands** — `/ponytail-review`, `/ponytail-audit`, `/ponytail-debt`, `/ponytail-help`, and `/ponytail lite|full|ultra|off`
 
@@ -106,6 +106,7 @@ The `./install.sh` script is a unified setup tool that supports installing confi
 | `--claude` | Install Claude Code Swarm config |
 | `--colab` | Install and authenticate google-colab-cli |
 | `--n8n` | Configure local self-hosted n8n credentials |
+| `--cloudflare` | Install Cloudflare skills and configure auth |
 | `--all` | Install all of the above |
 | `--free` | Enable free mode for OpenCode (uses default models, no API keys needed) |
 | `--uninstall` | Uninstall all configurations |
