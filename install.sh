@@ -5,9 +5,9 @@
 #   --opencode    Install OpenCode config
 #   --agy         Install Antigravity (agy) Swarm config
 #   --claude      Install Claude Code Swarm config
-#   --n8n         Configure local self-hosted n8n credentials
-#   --cloudflare  Install Cloudflare skills and configure auth
-#   --all         Install all of the above
+#   --n8n         Configure local self-hosted n8n credentials (optional add-on, not in --all)
+#   --cloudflare  Install Cloudflare skills and configure auth (optional add-on, not in --all)
+#   --all         Install all agent configs (opencode, agy, claude)
 #   --free        Enable free mode for OpenCode (uses default models, no keys)
 #   --uninstall   Uninstall all configurations
 #   --help        Show this help message
@@ -46,8 +46,6 @@ else
         INSTALL_OPENCODE=true
         INSTALL_AGY=true
         INSTALL_CLAUDE=true
-        INSTALL_N8N=true
-        INSTALL_CLOUDFLARE=true
         ;;
       --free)     FREE_MODE=true ;;
       --uninstall)UNINSTALL_MODE=true ;;
@@ -140,6 +138,7 @@ install_agy() {
   # Since .agents is gitignored, this is fine
   mkdir -p "$REPO_DIR/.agents/skills"
   mkdir -p "$REPO_DIR/.agents/agents"
+  backup_if_exists "$REPO_DIR/.agents/rules/AGENTS.md"
   rm -f "$REPO_DIR/.agents/rules/AGENTS.md"
   cp "$REPO_DIR/mcp.json" "$REPO_DIR/.agents/mcp_config.json"
   cp "$REPO_DIR"/agents/*.md "$REPO_DIR/.agents/agents/"
@@ -191,9 +190,26 @@ install_n8n() {
   if [ -t 0 ]; then
     echo "This will link your local n8n instance to the swarm."
     echo "Your credentials will be stored securely in $n8n_env_file and never committed."
-    read -p "Enter your n8n API URL (e.g. http://localhost:5678/api/v1): " n8n_url
-    read -sp "Enter your n8n API Key: " n8n_key
-    echo ""
+    local n8n_url=""
+    while true; do
+      read -p "Enter your n8n API URL (e.g. http://localhost:5678/api/v1): " n8n_url
+      if [ -z "$n8n_url" ] || [[ "$n8n_url" != http* ]]; then
+        echo "Error: URL cannot be empty and must start with http or https."
+      else
+        break
+      fi
+    done
+
+    local n8n_key=""
+    while true; do
+      read -sp "Enter your n8n API Key: " n8n_key
+      echo ""
+      if [ -z "$n8n_key" ]; then
+        echo "Error: API key cannot be empty."
+      else
+        break
+      fi
+    done
 
     touch "$n8n_env_file" && chmod 600 "$n8n_env_file"
     printf 'export N8N_API_URL=%q\n' "$n8n_url" > "$n8n_env_file"
@@ -208,25 +224,25 @@ install_n8n() {
   echo "✓ n8n configuration complete"
 }
 
-if [ "$INSTALL_OPENCODE" = true ]; then install_opencode; fi
-if [ "$INSTALL_AGY" = true ]; then install_agy; fi
-if [ "$INSTALL_CLAUDE" = true ]; then install_claude; fi
-if [ "$INSTALL_N8N" = true ]; then install_n8n; fi
-
 install_cloudflare() {
   echo "=== Installing Cloudflare Skills & Config ==="
   echo "Installing Cloudflare skills globally..."
-  npx -y skills add cloudflare/skills --skill '*' --yes --global
+  npx -y skills add cloudflare/skills --skill '*' --yes --global || true
+  echo "ℹ Note: PromptScript failures are expected and non-fatal (skills.sh platform limitation)."
 
   if command -v opencode &> /dev/null; then
     echo "Authenticating OpenCode with Cloudflare MCP..."
-    opencode mcp auth cloudflare || echo "⚠ OpenCode auth failed or skipped. You can manually run: opencode mcp auth cloudflare"
+    opencode mcp auth cloudflare || echo "⚠ Cloudflare MCP auth was not completed. Run manually when ready: opencode mcp auth cloudflare"
   else
     echo "ℹ opencode CLI not found. Skipping auth step."
   fi
   echo "✓ Cloudflare installation complete"
 }
 
+if [ "$INSTALL_OPENCODE" = true ]; then install_opencode; fi
+if [ "$INSTALL_AGY" = true ]; then install_agy; fi
+if [ "$INSTALL_CLAUDE" = true ]; then install_claude; fi
+if [ "$INSTALL_N8N" = true ]; then install_n8n; fi
 if [ "$INSTALL_CLOUDFLARE" = true ]; then install_cloudflare; fi
 
 echo ""
