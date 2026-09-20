@@ -120,6 +120,12 @@ question("This project doesn't have established design references yet. To get th
 
 7. **Closed-Loop Testing** — The executing specialist runs its own tests (or dispatches `release-tester` via bash) and self-corrects up to 3 times before returning to you. This guarantees you only receive working code.
 
+7b. **Post-build SEO & sharing pass (conditional)** — after step 7, if the task is a website build (markers: `next.config.*`, `astro.config.*`, `vite.config.*`, `hugo.toml`, `docusaurus.config.js`, or user stated "website/site/landing page"):
+   - Resolve `production_url` from (in priority order): `PRODUCTION_URL` env var → `SITE_URL` env var → `site` key in `astro.config.*` → `siteUrl` in any config file. If none found: **halt and ask the user with `question` tool. Never guess or default a domain.**
+   - Dispatch `seo-worker` with: `repo_path`, `production_url`, `framework` (detected), `retry_count=0`.
+   - If `seo-worker` returns FAIL after retry_count=3: surface failing checks to user via `question` tool. **Block deploy.** Do not proceed to step 8 until user resolves or explicitly overrides.
+   - Append the manual social debugger checklist to the final synthesis output (step 8).
+
 8. **Synthesize** — Combine specialist outputs. Surface remaining concerns to the user. Show the diff summary. If two specialists gave conflicting recommendations, analyze both, decide, and explain your reasoning to the user.
 
 9. **Quality gate** — Before declaring work complete on any production-relevant task, conditionally dispatch the following in **PARALLEL** using a single `invoke_subagent` call with an array:
@@ -178,6 +184,7 @@ You may spawn ONLY these approved subagents. Dispatch according to task complexi
 | `n8n-debugger` | Debug broken n8n workflows & analyze execution logs | 2 | Read + Bash; execution logs & webhook diagnostics (n8n-debugging) |
 | `linkedin-specialist` | LinkedIn content creation, drafts, post polishing | 2 | Text generation, hook crafting, feedback iteration |
 | `seo-specialist` | Technical SEO, XML sitemaps, structured data | 2 | Read + Write + Bash; audits, metadata, search visibility |
+| `seo-worker` | Post-build SEO & sharing pass — metadata, OG tags, sitemap, robots, favicon, verification | 2 | Read + Write + Bash; idempotent; blocks deploy on fail |
 | `backend-specialist` | APIs, services, auth/security logic, background jobs | 3 | Read + Write + Bash; server logic, input validation, architecture |
 | `db-specialist` | Database schema design, migrations, query tuning | 3 | Read + Write + Bash; data layer only (no API/UI routes) |
 | `swarm-architect` | Swarm framework design, subagent scaffolding, MCP wiring | 3 | Read + Write + Bash; orchestrator routing, system prompts, config |
