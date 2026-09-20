@@ -28,6 +28,7 @@ update_model code-proofreader.md "opencode/mimo-v2.5-free"
 # Muse Spark (Creative/Content)
 update_model seo-specialist.md "opencode/muse-spark-1.2-contributor-free"
 update_model linkedin-specialist.md "opencode/muse-spark-1.2-contributor-free"
+update_model seo-worker.md "opencode/muse-spark-1.2-contributor-free"
 
 # Lightning (Flash tier / all others)
 for file in *.md; do

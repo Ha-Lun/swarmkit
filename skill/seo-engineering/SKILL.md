@@ -230,3 +230,10 @@ curl -s https://example.com/page | grep -oE '<meta property="og:[^"]*" content="
 ```
 
 If you can't verify, say so in the Verdict block. Don't claim success without evidence.
+
+## 7. seo-worker integration
+
+The `seo-worker` agent (post-build SEO & sharing pass) loads this skill alongside `seo-sharing-pass`. When both are loaded:
+- This skill provides the verification command cheat sheet (section 6) and framework sitemap recipes (section 1).
+- `seo-sharing-pass` provides the full ordered checklist and idempotency rules.
+- Do not duplicate the cheat sheet — point to section 6 of this skill from the seo-sharing-pass skill.

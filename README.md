@@ -72,6 +72,7 @@ SwarmKit runs as an **orchestrator + specialist swarm**:
 | **n8n-workflow-builder** | Build n8n workflows (Telegram, integrations) |
 | **n8n-debugger** | Debug broken n8n workflows |
 | **seo-specialist** | Technical SEO, structured data, AI search |
+| **seo-worker** | Post-build SEO & sharing pass (metadata, sitemap, tags) |
 | **linkedin-specialist** | LinkedIn content creation |
 
 ### Quality & Review
