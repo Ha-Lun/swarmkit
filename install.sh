@@ -61,15 +61,41 @@ else
   done
 fi
 
+OPENCODE_DIR="$HOME/.config/opencode"
+GEMINI_DIR="$HOME/.gemini/config"
+CLAUDE_DIR="$HOME/.claude"
+
+# Remove symlinks in a directory that point into this repo but no longer resolve
+# (e.g. after files moved inside the repo).
+prune_dead_repo_links() {
+  local dir="$1" link
+  [ -d "$dir" ] || return 0
+  for link in "$dir"/*; do
+    if [ -L "$link" ] && [ ! -e "$link" ] && [[ "$(readlink "$link")" == "$REPO_DIR"/* ]]; then
+      rm -f "$link"
+    fi
+  done
+}
+
+# Remove symlinks in a directory that point into this repo.
+remove_repo_links() {
+  local dir="$1" link
+  [ -d "$dir" ] || return 0
+  for link in "$dir"/*; do
+    if [ -L "$link" ] && [[ "$(readlink "$link")" == "$REPO_DIR"/* ]]; then
+      rm -f "$link"
+    fi
+  done
+}
+
 if [ "$UNINSTALL_MODE" = true ]; then
   echo "Uninstalling configurations..."
-  rm -f "$HOME/.opencode/opencode.json"
-  rm -f "$HOME/.opencode/agents"
-  rm -f "$HOME/.opencode/skills"
-  rm -rf "$HOME/.gemini/config/AGENTS.md" "$HOME/.gemini/config/GEMINI.md" "$HOME/.gemini/config/skills" "$HOME/.gemini/config/mcp_config.json"
-  rm -f "$HOME/.claude.md"
-  rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/claude"
-  echo "Uninstall complete."
+  for d in "$OPENCODE_DIR" "$OPENCODE_DIR/skills" "$CLAUDE_DIR" "$CLAUDE_DIR/skills" "$CLAUDE_DIR/hooks" \
+           "$GEMINI_DIR/plugins" "$GEMINI_DIR/skills" "$HOME/.opencode"; do
+    remove_repo_links "$d"
+  done
+  rm -f "$GEMINI_DIR/mcp_config.json"
+  echo "Uninstall complete. MCP servers registered with 'claude mcp' are left in place."
   exit 0
 fi
 
@@ -81,32 +107,58 @@ backup_if_exists() {
       CREATED_BACKUP=true
       echo "Created backup directory: $BACKUP_DIR"
     fi
-    cp -R "$path" "$BACKUP_DIR/$(basename "$path")-$(date +%s)" 2>/dev/null || true
+    # Name backups by their path under $HOME so same-named files can't collide.
+    local rel="${path#$HOME/}"
+    cp -R "$path" "$BACKUP_DIR/${rel//\//__}" 2>/dev/null || true
   fi
+}
+
+# Back up whatever is at $2 (unless it already links into this repo), then symlink $1 there.
+link() {
+  local src="$1" dest="$2"
+  if [ -e "$dest" ] || [ -L "$dest" ]; then
+    if [[ "$(readlink "$dest" 2>/dev/null)" != "$REPO_DIR"/* ]]; then
+      backup_if_exists "$dest"
+    fi
+    rm -rf "$dest"
+  fi
+  ln -s "$src" "$dest"
+}
+
+# Symlink every shared skill into $1, dropping links left over from old repo paths.
+link_skills() {
+  local dest="$1" skill_dir
+  mkdir -p "$dest"
+  prune_dead_repo_links "$dest"
+  for skill_dir in "$REPO_DIR"/core/skills/*/; do
+    [ -f "$skill_dir/SKILL.md" ] || continue
+    ln -sfn "${skill_dir%/}" "$dest/$(basename "$skill_dir")"
+  done
 }
 
 install_opencode() {
   echo "=== Installing OpenCode Config ==="
-  mkdir -p "$HOME/.opencode"
-  mkdir -p "$HOME/.config/opencode"
+  mkdir -p "$OPENCODE_DIR"
 
-  backup_if_exists "$HOME/.opencode/agents"
-  backup_if_exists "$HOME/.opencode/skills"
-  backup_if_exists "$HOME/.opencode/opencode.json"
+  # Old installs linked into ~/.opencode (OpenCode's install dir); drop those links.
+  remove_repo_links "$HOME/.opencode"
 
-  ln -sfn "$REPO_DIR/agents" "$HOME/.opencode/agents"
-  ln -sfn "$REPO_DIR/skill" "$HOME/.opencode/skills"
-  
+  link "$REPO_DIR/opencode/agents" "$OPENCODE_DIR/agents"
+  link "$REPO_DIR/opencode/AGENTS.md" "$OPENCODE_DIR/AGENTS.md"
+  link "$REPO_DIR/opencode/command" "$OPENCODE_DIR/command"
+  link_skills "$OPENCODE_DIR/skills"
+
   if [ "$FREE_MODE" = true ]; then
     echo "Free mode: Creating customized opencode.jsonc without explicit models..."
-    # We do not dirty the repo file, we just sed it dynamically on installation
-    sed 's/"model": ".*"/"model": "opencode\/nemotron-3.5-lightning-free"/' "$REPO_DIR/opencode.jsonc" > "$HOME/.opencode/opencode.json"
+    backup_if_exists "$OPENCODE_DIR/opencode.jsonc"
+    rm -f "$OPENCODE_DIR/opencode.jsonc"
+    sed 's/"model": ".*"/"model": "opencode\/nemotron-3.5-lightning-free"/' "$REPO_DIR/opencode/opencode.jsonc" > "$OPENCODE_DIR/opencode.jsonc"
   else
-    ln -sfn "$REPO_DIR/opencode.jsonc" "$HOME/.opencode/opencode.json"
+    link "$REPO_DIR/opencode/opencode.jsonc" "$OPENCODE_DIR/opencode.jsonc"
   fi
 
-  if [ ! -f "$HOME/.config/opencode/custom-instructions.md" ]; then
-    cp "$REPO_DIR/custom-instructions.md.example" "$HOME/.config/opencode/custom-instructions.md"
+  if [ ! -f "$OPENCODE_DIR/custom-instructions.md" ]; then
+    cp "$REPO_DIR/opencode/custom-instructions.md.example" "$OPENCODE_DIR/custom-instructions.md"
   fi
 
   echo "✓ OpenCode installation complete"
@@ -114,41 +166,22 @@ install_opencode() {
 
 install_agy() {
   echo "=== Installing Antigravity Swarm (agy) Config ==="
-  local gemini_dir="$HOME/.gemini/config"
-  mkdir -p "$gemini_dir/skills"
-  mkdir -p "$gemini_dir/agents"
+  mkdir -p "$GEMINI_DIR/plugins"
 
-  backup_if_exists "$gemini_dir/AGENTS.md"
-  backup_if_exists "$gemini_dir/GEMINI.md"
-  backup_if_exists "$gemini_dir/mcp_config.json"
-  backup_if_exists "$gemini_dir/agents"
-
-  ln -sfn "$REPO_DIR/AGENTS.md" "$gemini_dir/AGENTS.md"
-  rm -f "$gemini_dir/GEMINI.md"
-  cp "$REPO_DIR/mcp.json" "$gemini_dir/mcp_config.json"
-  cp "$REPO_DIR"/agents/*.md "$gemini_dir/agents/"
-
-  for skill_dir in "$REPO_DIR"/skill/*; do
-    if [ -d "$skill_dir" ]; then
-      ln -sfn "$skill_dir" "$gemini_dir/skills/$(basename "$skill_dir")"
+  # Rules and specialists now ship in the swarmkit plugin; remove the old copies.
+  for old in "$GEMINI_DIR/AGENTS.md" "$GEMINI_DIR/GEMINI.md" "$GEMINI_DIR/agents"; do
+    if [ -e "$old" ] || [ -L "$old" ]; then
+      [[ "$(readlink "$old" 2>/dev/null)" == "$REPO_DIR"/* ]] || backup_if_exists "$old"
+      rm -rf "$old"
     fi
   done
 
-  # Configure .agents in the repo safely without dirtying git if possible
-  # Since .agents is gitignored, this is fine
-  mkdir -p "$REPO_DIR/.agents/skills"
-  mkdir -p "$REPO_DIR/.agents/agents"
-  backup_if_exists "$REPO_DIR/.agents/rules/AGENTS.md"
-  rm -f "$REPO_DIR/.agents/rules/AGENTS.md"
-  cp "$REPO_DIR/mcp.json" "$REPO_DIR/.agents/mcp_config.json"
-  rm -rf "$REPO_DIR/.agents/agents"
-  ln -sfn "$REPO_DIR/agents" "$REPO_DIR/.agents/agents"
-
-  for skill_dir in "$REPO_DIR"/skill/*; do
-    if [ -d "$skill_dir" ]; then
-      ln -sfn "$skill_dir" "$REPO_DIR/.agents/skills/$(basename "$skill_dir")"
-    fi
-  done
+  link "$REPO_DIR/antigravity/plugins/swarmkit" "$GEMINI_DIR/plugins/swarmkit"
+  link_skills "$GEMINI_DIR/skills"
+  if ! cmp -s "$REPO_DIR/core/mcp.json" "$GEMINI_DIR/mcp_config.json"; then
+    backup_if_exists "$GEMINI_DIR/mcp_config.json"
+    cp "$REPO_DIR/core/mcp.json" "$GEMINI_DIR/mcp_config.json"
+  fi
 
   # Install agyw account switcher
   if command -v npm &>/dev/null; then
@@ -169,14 +202,27 @@ install_agy() {
 
 install_claude() {
   echo "=== Installing Claude Code Config ==="
-  local claude_global="${XDG_CONFIG_HOME:-$HOME/.config}/claude"
-  mkdir -p "$claude_global"
-  
-  backup_if_exists "$HOME/.claude.md"
-  backup_if_exists "$claude_global/claude.json"
+  mkdir -p "$CLAUDE_DIR/hooks"
 
-  cp "$REPO_DIR/.claude/CLAUDE.md" "$HOME/.claude.md"
-  cp "$REPO_DIR/mcp.json" "$claude_global/claude.json"
+  link "$REPO_DIR/claude/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
+  link "$REPO_DIR/claude/agents" "$CLAUDE_DIR/agents"
+  link "$REPO_DIR/claude/hooks/guard.py" "$CLAUDE_DIR/hooks/guard.py"
+  link_skills "$CLAUDE_DIR/skills"
+
+  # MCP servers: register each one at user scope unless it already exists.
+  if command -v claude &>/dev/null; then
+    local name
+    for name in $(python3 -c "import json;print(' '.join(json.load(open('$REPO_DIR/core/mcp.json'))['mcpServers']))"); do
+      if claude mcp get "$name" &>/dev/null; then
+        echo "  MCP '$name' already registered, skipping"
+      else
+        claude mcp add-json -s user "$name" \
+          "$(python3 -c "import json;s=json.load(open('$REPO_DIR/core/mcp.json'))['mcpServers']['$name'];'url' in s and s.setdefault('type','http');print(json.dumps(s))")"
+      fi
+    done
+  else
+    echo "⚠ claude CLI not found — skipping MCP registration"
+  fi
 
   echo "✓ Claude Code installation complete"
 }
