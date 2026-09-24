@@ -107,7 +107,7 @@ changes to this swarm itself → `swarm-architect`.
 | `linkedin-specialist` | standard | LinkedIn posts: drafts, iteration, upload guidance. |
 | `showroom` (+ `-intake`, `-art-director`, `-asset-processor`, `-frontend-builder`, `-motion-engineer`) | standard / fast | Scroll-driven dark-theme product pages in Astro + Tailwind + GSAP, gated G1–G5. |
 | `db-specialist` | deep | Schema, migrations, query optimisation, indexing. Data layer only. |
-| `security-auditor` | deep | Secrets, injection, auth flaws, CSRF/CORS, insecure configs. |
+| `security-auditor` | deep | Secrets, injection, auth flaws, CSRF/CORS, insecure configs. Read-only. |
 | `swarm-architect` | deep | Changes to this swarm: agents, skills, MCP wiring, CLI parity. |
 | `lead-dev` | deep | Optional pure orchestrator for large multi-specialist jobs. |
 

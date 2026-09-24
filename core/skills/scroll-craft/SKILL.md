@@ -1,5 +1,5 @@
 ---
-name: scrollcraft
+name: scroll-craft
 description: >
   Build a premium, scroll-driven interactive landing page for any business:
   a service company, a physical product, a food brand, a drink brand. Scroll
