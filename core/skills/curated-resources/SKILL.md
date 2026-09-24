@@ -1,3 +1,8 @@
+---
+name: curated-resources
+description: Use when looking for vetted external developer resources — scraping tools, free public APIs, free-tier infrastructure, agent frameworks, awesome lists, and MCP server directories — before reaching for an unknown dependency or service.
+---
+
 # Curated Resources Skill
 
 This skill contains reference guides and usage patterns for the 16 curated developer, design, scraping, and MCP resources.
