@@ -1,23 +1,34 @@
 ---
+name: explore
 description: Read-only context-gathering pre-flight for the lead-dev swarm. Spawned by lead-dev for non-trivial or uncertain-context tasks to produce a scoped context brief (relevant files, key snippets, architecture notes, open questions); may be skipped for trivial/self-contained tasks. Returns summaries — never analysis or fixes.
-# model: opencode-go/deepseek-v4-flash
-model: opencode/nemotron-3.5-lightning-free
-mode: subagent
-temperature: 0.1
-permission:
-  read: allow
-  edit: deny
-  write: deny
-  glob: allow
-  grep: allow
-  bash:
-    "grep *": allow
-    "rg *": allow
-    "find *": allow
-    "ls *": allow
-    "cat *": allow
-  task: deny
-  question: allow
+role: reviewer
+tier: fast
+capabilities:
+- read
+- bash
+opencode:
+  model: opencode/nemotron-3.5-lightning-free
+  mode: subagent
+  temperature: 0.1
+  permission:
+    read: allow
+    edit: deny
+    write: deny
+    glob: allow
+    grep: allow
+    bash:
+      grep *: allow
+      rg *: allow
+      find *: allow
+      ls *: allow
+      cat *: allow
+    task: deny
+    question: allow
+claude:
+  tools:
+  - Read
+  - Glob
+  - Grep
 ---
 
 ## What you do

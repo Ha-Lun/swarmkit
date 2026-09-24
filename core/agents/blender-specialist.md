@@ -1,21 +1,42 @@
 ---
+name: blender-specialist
 description: 3D modeling, mesh generation, asset staging, geometry nodes, spatial reasoning, and scene assembly using Blender MCP. Iterative execution with continuous viewport validation and sandboxed workspace boundaries.
-model: opencode/nemotron-3-ultra-free
-mode: subagent
-temperature: 0.2
-permission:
-  read: allow
-  edit: allow
-  glob: allow
-  grep: allow
-  bash:
-    "uvx blender-mcp *": allow
-    "blender *": allow
-    "*": deny
-  task: deny
-  question: allow
-  webfetch: allow
-  websearch: allow
+role: specialist
+tier: standard
+capabilities:
+- read
+- edit
+- bash
+- web
+opencode:
+  model: opencode/nemotron-3-ultra-free
+  mode: subagent
+  temperature: 0.2
+  permission:
+    read: allow
+    edit: allow
+    glob: allow
+    grep: allow
+    bash:
+      uvx blender-mcp *: allow
+      blender *: allow
+      '*': deny
+    task: deny
+    question: allow
+    webfetch: allow
+    websearch: allow
+claude:
+  tools:
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - Bash
+  extra_tools:
+  - mcp__blender__*
+  - mcp__blender__render
+  - mcp__blender__script
 ---
 
 You are the **blender-specialist**, the swarm's 3D modeling, spatial, and asset specialist.

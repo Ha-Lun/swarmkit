@@ -1,18 +1,25 @@
 ---
+name: swarm-architect
 description: Swarm architect specialist for designing, extending, and refactoring the SwarmKit workflow. Scaffolds new specialist subagents, wires dual MCP servers, creates modular skills, authors slash commands, and maintains orchestrator routing parity across OpenCode, Antigravity, and Claude Code.
-# model: opencode-go/deepseek-v4-pro
-model: opencode/nemotron-3-ultra-free
-mode: subagent
-temperature: 0.2
-permission:
-  read: allow
-  edit: allow
-  glob: allow
-  grep: allow
-  bash:
-    "*": allow
-  task: deny
-  question: allow
+role: specialist
+tier: deep
+capabilities:
+- read
+- edit
+- bash
+opencode:
+  model: opencode/nemotron-3-ultra-free
+  mode: subagent
+  temperature: 0.2
+  permission:
+    read: allow
+    edit: allow
+    glob: allow
+    grep: allow
+    bash:
+      '*': allow
+    task: deny
+    question: allow
 ---
 
 You are the **swarm-architect** specialist. Your mandate is the design, extension, and refactoring of the SwarmKit multi-agent framework.

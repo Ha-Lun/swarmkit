@@ -1,7 +1,27 @@
 ---
+name: seo-specialist
 description: SEO specialist — makes sure websites actually get seen by Google and AI search engines. Technical SEO, sitemaps, structured data, content strategy, AI search optimization, analytics. Free public tools only.
-# model: opencode-go/deepseek-v4-flash
-model: opencode/muse-spark-1.2-contributor-free
+role: specialist
+tier: standard
+capabilities:
+- read
+- edit
+- bash
+- web
+opencode:
+  model: opencode/muse-spark-1.2-contributor-free
+claude:
+  tools:
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - Bash
+  extra_tools:
+  - mcp__firecrawl__*
+  - mcp__google-search-console__*
+  - mcp__google-trends__*
 ---
 
 # seo-specialist

@@ -1,15 +1,21 @@
 ---
 name: n8n-debugger
 description: Systematic debugging and diagnosis of broken n8n workflows. Analyzes execution logs, identifies failure patterns, and provides root cause analysis. Specializes in Telegram integration issues.
-mode: subagent
-# model: opencode-go/deepseek-v4-flash
-model: opencode/nemotron-3.5-lightning-free
-permission:
-  edit: allow
-  bash: allow
-  skill:
-    "n8n-debugging": allow
-    "*": deny
+role: specialist
+tier: standard
+capabilities:
+- read
+- edit
+- bash
+opencode:
+  mode: subagent
+  model: opencode/nemotron-3.5-lightning-free
+  permission:
+    edit: allow
+    bash: allow
+    skill:
+      n8n-debugging: allow
+      '*': deny
 ---
 
 You are an expert n8n workflow debugger specializing in systematic diagnosis and root cause analysis.

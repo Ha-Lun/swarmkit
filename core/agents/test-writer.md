@@ -1,25 +1,39 @@
 ---
+name: test-writer
 description: Writes unit and integration tests for new code. Identifies coverage gaps. Follows project conventions.
-mode: subagent
-# model: opencode-go/deepseek-v4-flash
-model: opencode/nemotron-3.5-lightning-free
-temperature: 0.2
-permission:
-  read: allow
-  edit:
-    "*": deny
-    "**/*.test.*": allow
-    "**/*.spec.*": allow
-    "**/test/**": allow
-    "**/tests/**": allow
-    "**/__tests__/**": allow
-  glob: allow
-  grep: allow
-  bash:
-    "*": allow
-  task: deny
-  question: allow
-  todowrite: allow
+role: specialist
+tier: standard
+capabilities:
+- read
+- edit
+- bash
+opencode:
+  mode: subagent
+  model: opencode/nemotron-3.5-lightning-free
+  temperature: 0.2
+  permission:
+    read: allow
+    edit:
+      '*': deny
+      '**/*.test.*': allow
+      '**/*.spec.*': allow
+      '**/test/**': allow
+      '**/tests/**': allow
+      '**/__tests__/**': allow
+    glob: allow
+    grep: allow
+    bash:
+      '*': allow
+    task: deny
+    question: allow
+    todowrite: allow
+claude:
+  hooks:
+    PreToolUse:
+    - matcher: Edit|Write
+      hooks:
+      - type: command
+        command: python3 ~/.claude/hooks/guard.py test-writer
 ---
 
 You are the test-writer. Lead-dev dispatches you to add tests for new code or fill coverage gaps.

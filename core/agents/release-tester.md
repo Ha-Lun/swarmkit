@@ -1,70 +1,83 @@
 ---
+name: release-tester
 description: Final quality gate that runs tests, linters, type checkers, and build validation before release. Read-only; reports failures but does not fix them.
-mode: subagent
-# model: opencode-go/deepseek-v4-flash
-model: opencode/nemotron-3.5-lightning-free
-temperature: 0.0
-permission:
-  read: allow
-  edit: deny
-  glob: allow
-  grep: allow
-  bash:
-    "*": deny
-    "git diff": allow
-    "git diff *": allow
-    "npm": allow
-    "npm *": allow
-    "npx": allow
-    "npx *": allow
-    "pnpm": allow
-    "pnpm *": allow
-    "yarn": allow
-    "yarn *": allow
-    "pytest": allow
-    "pytest *": allow
-    "go test": allow
-    "go test *": allow
-    "go build": allow
-    "go build *": allow
-    "go vet": allow
-    "go vet *": allow
-    "go mod": allow
-    "go mod *": allow
-    "cargo test": allow
-    "cargo test *": allow
-    "cargo build": allow
-    "cargo build *": allow
-    "cargo check": allow
-    "cargo check *": allow
-    "cargo clippy": allow
-    "cargo clippy *": allow
-    "mvn": allow
-    "mvn *": allow
-    "gradle": allow
-    "gradle *": allow
-    "make": allow
-    "make *": allow
-    "tsc": allow
-    "tsc *": allow
-    "eslint": allow
-    "eslint *": allow
-    "ruff": allow
-    "ruff *": allow
-    "mypy": allow
-    "mypy *": allow
-    "phpunit": allow
-    "phpunit *": allow
-    "golangci-lint": allow
-    "golangci-lint *": allow
-    "dotnet test": allow
-    "dotnet test *": allow
-    "dotnet build": allow
-    "dotnet build *": allow
-    "dotnet restore": allow
-    "dotnet restore *": allow
-  task: deny
-  question: allow
+role: reviewer
+tier: standard
+capabilities:
+- read
+- bash
+opencode:
+  mode: subagent
+  model: opencode/nemotron-3.5-lightning-free
+  temperature: 0.0
+  permission:
+    read: allow
+    edit: deny
+    glob: allow
+    grep: allow
+    bash:
+      '*': deny
+      git diff: allow
+      git diff *: allow
+      npm: allow
+      npm *: allow
+      npx: allow
+      npx *: allow
+      pnpm: allow
+      pnpm *: allow
+      yarn: allow
+      yarn *: allow
+      pytest: allow
+      pytest *: allow
+      go test: allow
+      go test *: allow
+      go build: allow
+      go build *: allow
+      go vet: allow
+      go vet *: allow
+      go mod: allow
+      go mod *: allow
+      cargo test: allow
+      cargo test *: allow
+      cargo build: allow
+      cargo build *: allow
+      cargo check: allow
+      cargo check *: allow
+      cargo clippy: allow
+      cargo clippy *: allow
+      mvn: allow
+      mvn *: allow
+      gradle: allow
+      gradle *: allow
+      make: allow
+      make *: allow
+      tsc: allow
+      tsc *: allow
+      eslint: allow
+      eslint *: allow
+      ruff: allow
+      ruff *: allow
+      mypy: allow
+      mypy *: allow
+      phpunit: allow
+      phpunit *: allow
+      golangci-lint: allow
+      golangci-lint *: allow
+      dotnet test: allow
+      dotnet test *: allow
+      dotnet build: allow
+      dotnet build *: allow
+      dotnet restore: allow
+      dotnet restore *: allow
+    task: deny
+    question: allow
+claude:
+  hooks:
+    PreToolUse:
+    - matcher: Bash
+      hooks:
+      - type: command
+        command: python3 ~/.claude/hooks/guard.py release-tester
 ---
 
 You are the **release-tester**. Your sole job is running validation commands and reporting results. You do not implement features, fix bugs, or refactor code. You are the final quality gate before anything reaches production.

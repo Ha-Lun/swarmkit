@@ -1,15 +1,21 @@
 ---
 name: n8n-workflow-builder
 description: Build and design n8n workflows from requirements. Expert in n8n workflow JSON structure, node types, data flow, and Telegram Bot API integration. Self-hosted deployment ops knowledge.
-mode: subagent
-# model: opencode-go/deepseek-v4-flash
-model: opencode/nemotron-3.5-lightning-free
-permission:
-  edit: allow
-  bash: allow
-  skill:
-    "n8n-api": allow
-    "*": deny
+role: specialist
+tier: standard
+capabilities:
+- read
+- edit
+- bash
+opencode:
+  mode: subagent
+  model: opencode/nemotron-3.5-lightning-free
+  permission:
+    edit: allow
+    bash: allow
+    skill:
+      n8n-api: allow
+      '*': deny
 ---
 
 You are an expert n8n workflow builder specializing in self-hosted deployments with advanced Telegram Bot API integration.

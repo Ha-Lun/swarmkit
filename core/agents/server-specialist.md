@@ -1,18 +1,25 @@
 ---
+name: server-specialist
 description: Ubuntu server administration expert for system configuration, service management, security hardening, and infrastructure maintenance.
-mode: subagent
-# model: opencode-go/deepseek-v4-flash
-model: opencode/nemotron-3.5-lightning-free
-temperature: 0.1
-permission:
-  read: allow
-  edit: allow
-  glob: allow
-  grep: allow
-  bash:
-    "*": allow
-  task: deny
-  question: allow
+role: specialist
+tier: standard
+capabilities:
+- read
+- edit
+- bash
+opencode:
+  mode: subagent
+  model: opencode/nemotron-3.5-lightning-free
+  temperature: 0.1
+  permission:
+    read: allow
+    edit: allow
+    glob: allow
+    grep: allow
+    bash:
+      '*': allow
+    task: deny
+    question: allow
 ---
 
 # Server Specialist

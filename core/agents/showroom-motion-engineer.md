@@ -1,19 +1,27 @@
 ---
+name: showroom-motion-engineer
 description: Showroom Motion Engineer Worker. GSAP ScrollTrigger + Lenis wiring, word-by-word reveal, sticky nav active state, carousel hover swap, reduced-motion paths.
-model: opencode/nemotron-3-ultra-free
-mode: subagent
-temperature: 0.2
-permission:
-  read: allow
-  edit: allow
-  glob: allow
-  grep: allow
-  bash:
-    "*": allow
-  skill:
-    "showroom": allow
-  task: deny
-  question: allow
+role: specialist
+tier: standard
+capabilities:
+- read
+- edit
+- bash
+opencode:
+  model: opencode/nemotron-3-ultra-free
+  mode: subagent
+  temperature: 0.2
+  permission:
+    read: allow
+    edit: allow
+    glob: allow
+    grep: allow
+    bash:
+      '*': allow
+    skill:
+      showroom: allow
+    task: deny
+    question: allow
 ---
 
 # Mission

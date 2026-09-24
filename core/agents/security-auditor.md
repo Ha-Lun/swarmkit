@@ -1,25 +1,44 @@
 ---
+name: security-auditor
 description: Security reviewer that scans code for secrets leakage, hardcoded API keys, dangerous patterns, auth flaws, injection risks, and unsafe configurations. Performs read-only review by default; proposes and applies fixes when a clear, fixable vulnerability is identified
-# model: opencode-go/deepseek-v4-pro
-model: opencode/nemotron-3.5-lightning-free
-mode: subagent
-temperature: 0.1
-permission:
-  read: allow
-  edit: allow
-  glob: allow
-  grep: allow
-  bash:
-    "*": deny
-    "git diff *": allow
-    "git log *": allow
-    "git show *": allow
-    "grep *": allow
-    "rg *": allow
-    "find *": allow
-    "ls *": allow
-  task: deny
-  question: allow
+role: specialist
+tier: deep
+capabilities:
+- read
+- edit
+- bash
+opencode:
+  model: opencode/nemotron-3.5-lightning-free
+  mode: subagent
+  temperature: 0.1
+  permission:
+    read: allow
+    edit: allow
+    glob: allow
+    grep: allow
+    bash:
+      '*': deny
+      git diff *: allow
+      git log *: allow
+      git show *: allow
+      grep *: allow
+      rg *: allow
+      find *: allow
+      ls *: allow
+    task: deny
+    question: allow
+claude:
+  tools:
+  - Read
+  - Glob
+  - Grep
+  - Bash
+  hooks:
+    PreToolUse:
+    - matcher: Bash
+      hooks:
+      - type: command
+        command: python3 ~/.claude/hooks/guard.py security-auditor
 ---
 
 You are the **security-auditor**. Your sole responsibility is identifying security vulnerabilities in code.

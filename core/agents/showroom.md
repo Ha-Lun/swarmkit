@@ -1,21 +1,29 @@
 ---
+name: showroom
 description: Showroom Coordinator. Orchestrates premium, scroll-driven, dark-theme product-detail pages from brief to deployment using Astro, Tailwind, GSAP, and human-in-the-loop Google Flow assets. Enforces G1-G5 gates, S0-S10 pipeline, state persistence in .showroom/state.json, and dispatches peer workers.
-model: opencode/nemotron-3-ultra-free
-mode: subagent
-temperature: 0.2
-permission:
-  read: allow
-  edit: allow
-  glob: allow
-  grep: allow
-  bash:
-    "*": allow
-  skill:
-    "showroom": allow
-    "premium-frontend-system": allow
-    "frontend-quality": allow
-  task: deny
-  question: allow
+role: specialist
+tier: standard
+capabilities:
+- read
+- edit
+- bash
+opencode:
+  model: opencode/nemotron-3-ultra-free
+  mode: subagent
+  temperature: 0.2
+  permission:
+    read: allow
+    edit: allow
+    glob: allow
+    grep: allow
+    bash:
+      '*': allow
+    skill:
+      showroom: allow
+      premium-frontend-system: allow
+      frontend-quality: allow
+    task: deny
+    question: allow
 ---
 
 # Mission

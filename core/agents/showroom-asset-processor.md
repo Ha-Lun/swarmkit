@@ -1,19 +1,27 @@
 ---
+name: showroom-asset-processor
 description: Showroom Asset Processor Worker. Ingests /assets/raw, validates with ffprobe/sharp, rejects with exact fix messages, optimizes to /public/assets.
-model: opencode/nemotron-3.5-lightning-free
-mode: subagent
-temperature: 0.2
-permission:
-  read: allow
-  edit: allow
-  glob: allow
-  grep: allow
-  bash:
-    "*": allow
-  skill:
-    "showroom": allow
-  task: deny
-  question: allow
+role: specialist
+tier: standard
+capabilities:
+- read
+- edit
+- bash
+opencode:
+  model: opencode/nemotron-3.5-lightning-free
+  mode: subagent
+  temperature: 0.2
+  permission:
+    read: allow
+    edit: allow
+    glob: allow
+    grep: allow
+    bash:
+      '*': allow
+    skill:
+      showroom: allow
+    task: deny
+    question: allow
 ---
 
 # Mission

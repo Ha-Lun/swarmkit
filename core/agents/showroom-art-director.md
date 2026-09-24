@@ -1,19 +1,27 @@
 ---
+name: showroom-art-director
 description: Showroom Art Director. Produces tokens.css, type scale, and ASSET_REQUEST_PACK.md with prompt templates and Flow instructions. Halts at G2 & G3.
-model: opencode/nemotron-3-ultra-free
-mode: subagent
-temperature: 0.2
-permission:
-  read: allow
-  edit: allow
-  glob: allow
-  grep: allow
-  bash:
-    "*": allow
-  skill:
-    "showroom": allow
-  task: deny
-  question: allow
+role: specialist
+tier: standard
+capabilities:
+- read
+- edit
+- bash
+opencode:
+  model: opencode/nemotron-3-ultra-free
+  mode: subagent
+  temperature: 0.2
+  permission:
+    read: allow
+    edit: allow
+    glob: allow
+    grep: allow
+    bash:
+      '*': allow
+    skill:
+      showroom: allow
+    task: deny
+    question: allow
 ---
 
 # Mission

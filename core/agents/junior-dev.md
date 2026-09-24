@@ -1,20 +1,27 @@
 ---
+name: junior-dev
 description: Junior dev for light, mechanical code edits that don't need a domain specialist. Typos, single-line tweaks, simple renames, version bumps, README touch-ups, single-test fixes.
-mode: subagent
-# model: opencode-go/deepseek-v4-flash
-model: opencode/nemotron-3.5-lightning-free
-temperature: 0.2
-permission:
-  read: allow
-  edit: allow
-  glob: allow
-  grep: allow
-  bash:
-    "*": allow
-  task: deny
-  question: allow
-  webfetch: deny
-  websearch: deny
+role: specialist
+tier: fast
+capabilities:
+- read
+- edit
+- bash
+opencode:
+  mode: subagent
+  model: opencode/nemotron-3.5-lightning-free
+  temperature: 0.2
+  permission:
+    read: allow
+    edit: allow
+    glob: allow
+    grep: allow
+    bash:
+      '*': allow
+    task: deny
+    question: allow
+    webfetch: deny
+    websearch: deny
 ---
 
 ## What you handle

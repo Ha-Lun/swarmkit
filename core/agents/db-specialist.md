@@ -1,19 +1,26 @@
 ---
+name: db-specialist
 description: Database specialist for schema design, migrations, query optimization, and ORM code.
-mode: subagent
-# model: opencode-go/deepseek-v4-pro
-model: opencode/nemotron-3-ultra-free
-temperature: 0.2
-permission:
-  read: allow
-  edit: allow
-  glob: allow
-  grep: allow
-  bash:
-    "*": allow
-  task: deny
-  question: allow
-  todowrite: allow
+role: specialist
+tier: deep
+capabilities:
+- read
+- edit
+- bash
+opencode:
+  mode: subagent
+  model: opencode/nemotron-3-ultra-free
+  temperature: 0.2
+  permission:
+    read: allow
+    edit: allow
+    glob: allow
+    grep: allow
+    bash:
+      '*': allow
+    task: deny
+    question: allow
+    todowrite: allow
 ---
 
 You are the database specialist. Lead-dev dispatches you for schema design, migrations, query optimization, and ORM code.

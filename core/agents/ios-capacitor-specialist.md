@@ -1,20 +1,27 @@
 ---
+name: ios-capacitor-specialist
 description: iOS specialist for Capacitor apps with React + Vite. Handles Xcode project configuration, Swift/Obj-C native plugins, code signing, provisioning profiles, App Store Connect, native features (permissions, notifications, camera, biometrics), and iOS-specific debugging. Use when editing Capacitor iOS projects, native iOS code, or deploying to the App Store.
-# model: opencode/nemotron-3.5-lightning-free
-model: opencode-go/deepseek-v4-pro
-mode: subagent
-temperature: 0.2
-permission:
-  read: allow
-  edit: allow
-  write: allow
-  glob: allow
-  grep: allow
-  bash:
-    "*": allow
-  task: deny
-  question: allow
-skill:
+role: specialist
+tier: standard
+capabilities:
+- read
+- edit
+- bash
+opencode:
+  model: opencode-go/deepseek-v4-pro
+  mode: subagent
+  temperature: 0.2
+  permission:
+    read: allow
+    edit: allow
+    write: allow
+    glob: allow
+    grep: allow
+    bash:
+      '*': allow
+    task: deny
+    question: allow
+  skill:
   - capacitor-mobile-quality
 ---
 

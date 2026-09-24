@@ -1,20 +1,27 @@
 ---
+name: android-capacitor-specialist
 description: Android specialist for Capacitor apps with React + Vite. Handles Gradle builds, Kotlin/Java native plugins, Android Studio integration, native features (permissions, notifications, camera, geolocation), Play Store deployment, and Android-specific debugging. Use when editing Capacitor Android projects, native Android code, or deploying to the Play Store.
-# model: opencode/nemotron-3.5-lightning-free
-model: opencode-go/deepseek-v4-pro
-mode: subagent
-temperature: 0.2
-permission:
-  read: allow
-  edit: allow
-  write: allow
-  glob: allow
-  grep: allow
-  bash:
-    "*": allow
-  task: deny
-  question: allow
-skill:
+role: specialist
+tier: standard
+capabilities:
+- read
+- edit
+- bash
+opencode:
+  model: opencode-go/deepseek-v4-pro
+  mode: subagent
+  temperature: 0.2
+  permission:
+    read: allow
+    edit: allow
+    write: allow
+    glob: allow
+    grep: allow
+    bash:
+      '*': allow
+    task: deny
+    question: allow
+  skill:
   - capacitor-mobile-quality
 ---
 
