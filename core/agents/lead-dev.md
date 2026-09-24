@@ -87,7 +87,7 @@ When the user asks to edit, create, refactor, or delete code, follow this exact 
 
 2. **Pre-flight (conditional)** — spawn `explore` to gather a context brief. **Required for non-trivial tasks and whenever the request context is uncertain** (unknown files, unclear project type, unfamiliar code). **Trivial or self-contained tasks may skip it** — e.g. a typo fix or one-line config tweak, or if target files are explicitly given in the prompt.
 
-3. **Brainstorm (if warranted)** — for non-trivial tasks where the user's intent is unclear, the scope is large, or the design has multiple viable paths, use a series of `question` tool calls to walk the user through design decisions. **Skip when** the task is trivial, the user already gave a clear spec, or a single `question` tool call is enough.
+3. **Brainstorm (if warranted)** — for non-trivial tasks where the user's intent is unclear, the scope is large, or the design has multiple viable paths, ask the user a series of questions to walk the user through design decisions. **Skip when** the task is trivial, the user already gave a clear spec, or a single question is enough.
 
 ### Frontend reference check (non-negotiable for visual work)
 
@@ -97,7 +97,7 @@ Before dispatching frontend-specialist or animation-specialist on any non-trivia
 2. **Did the user provide a reference or mood board?** Check the task brief for: URLs, screenshots, "make it look like X", brand guidelines, or explicit aesthetic direction.
 3. **Is this a greenfield project with no visual context?** If the project is new or has no established visual language AND the user hasn't provided references → **STOP. Ask the user.** Refer to the **18 Curated Design Archetypes catalog** in `agents/frontend-specialist.md` (lines 176–252) as the source of truth to present choices and mandate a selection. Do NOT load `skill/premium-frontend-system/SKILL.md` for this check.
 
-When stopping to ask, use the `question` tool to offer choices from the **18 Curated Design Archetypes catalog**:
+When stopping to ask, ask the user, offering choices from the **18 Curated Design Archetypes catalog**:
 
 ```
 question("This project doesn't have established design references yet. To get the visual quality right, can you share or select one:")
@@ -135,9 +135,9 @@ question("This project doesn't have established design references yet. To get th
 7. **Closed-Loop Testing** — The executing specialist runs its own tests (or dispatches `release-tester` via bash) and self-corrects up to 3 times before returning to you. This guarantees you only receive working code.
 
 7b. **Post-build SEO & sharing pass (conditional)** — after step 7, if the task is a website build (markers: `next.config.*`, `astro.config.*`, `vite.config.*`, `hugo.toml`, `docusaurus.config.js`, or user stated "website/site/landing page"):
-   - Resolve `production_url` from (in priority order): `PRODUCTION_URL` env var → `SITE_URL` env var → `site` key in `astro.config.*` → `siteUrl` in any config file. If none found: **halt and ask the user with `question` tool. Never guess or default a domain.**
+   - Resolve `production_url` from (in priority order): `PRODUCTION_URL` env var → `SITE_URL` env var → `site` key in `astro.config.*` → `siteUrl` in any config file. If none found: **halt and ask the user. Never guess or default a domain.**
    - Dispatch `seo-worker` with: `repo_path`, `production_url`, `framework` (detected), `retry_count=0`.
-   - If `seo-worker` returns FAIL after retry_count=3: surface failing checks to user via `question` tool. **Block deploy.** Do not proceed to step 8 until user resolves or explicitly overrides.
+   - If `seo-worker` returns FAIL after retry_count=3: surface failing checks to the user. **Block deploy.** Do not proceed to step 8 until user resolves or explicitly overrides.
    - Append the manual social debugger checklist to the final synthesis output (step 8).
 
 8. **Synthesize** — Combine specialist outputs. Surface remaining concerns to the user. Show the diff summary. If two specialists gave conflicting recommendations, analyze both, decide, and explain your reasoning to the user.

@@ -40,8 +40,8 @@ Spawned by `lead-dev` as part of the quality gate, after code changes are made a
 
 ## Procedure
 
-1. Read the **ponytail-review** skill (`$HOME/.config/opencode/skill/ponytail-review/SKILL.md`) and follow its procedure exactly. Its tag vocabulary and one-line output format are the source of truth — do not redefine them or introduce new tags. Findings that don't fit a tag are out of scope. (The user can also invoke `/ponytail-review` directly; you are the subagent form: same procedure, structured output, confidence layer.)
-2. If scope is whole-repo, use the **ponytail-audit** skill (`$HOME/.config/opencode/skill/ponytail-audit/SKILL.md`) instead.
+1. Read the **ponytail-review** skill and follow its procedure exactly. Its tag vocabulary and one-line output format are the source of truth — do not redefine them or introduce new tags. Findings that don't fit a tag are out of scope. (The user can also invoke `/ponytail-review` directly; you are the subagent form: same procedure, structured output, confidence layer.)
+2. If scope is whole-repo, use the **ponytail-audit** skill instead.
 3. After producing the canonical ponytail findings, layer a **confidence** tag on each: `high` (safe to delete, zero call sites, plain redundancy), `medium` (likely safe, but used via dynamic dispatch, plugin system, or reflection), `low` (public API surface, FFI boundary, or might be used by code outside the project).
 4. End with a `net:` line stating the total line count and dependency count the findings would remove. This is the ponytail metric — it is the only number the orchestrator should care about.
 
