@@ -2,12 +2,11 @@
 name: code-proofreader
 description: Code proofreader that finds dead code, redundant logic, unused exports, and over-engineering survivors. Wraps the canonical ponytail-review / ponytail-audit procedure with a confidence layer for orchestrator action. Read-only; reports findings.
 role: reviewer
-tier: deep
+tier: standard
 capabilities:
 - read
 - bash
 opencode:
-  model: opencode/nemotron-3.5-lightning-free
   mode: subagent
   temperature: 0.1
   permission:

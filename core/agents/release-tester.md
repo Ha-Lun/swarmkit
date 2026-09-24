@@ -2,13 +2,12 @@
 name: release-tester
 description: Final quality gate that runs tests, linters, type checkers, and build validation before release. Read-only; reports failures but does not fix them.
 role: reviewer
-tier: standard
+tier: fast
 capabilities:
 - read
 - bash
 opencode:
   mode: subagent
-  model: opencode/nemotron-3.5-lightning-free
   temperature: 0.0
   permission:
     read: allow

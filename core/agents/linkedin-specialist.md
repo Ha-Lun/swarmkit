@@ -6,7 +6,6 @@ tier: standard
 capabilities: []
 opencode:
   mode: subagent
-  model: opencode/muse-spark-1.2-contributor-free
   temperature: 0.5
   permission:
     read: deny

@@ -8,7 +8,6 @@ capabilities:
 - delegate
 opencode:
   mode: primary
-  model: opencode/muse-spark-1.3-contributor-free
   temperature: 0.3
   permission:
     read: allow

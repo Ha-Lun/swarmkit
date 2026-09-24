@@ -9,7 +9,6 @@ capabilities:
 - bash
 opencode:
   mode: subagent
-  model: opencode/nemotron-3.5-lightning-free
   permission:
     edit: allow
     bash: allow

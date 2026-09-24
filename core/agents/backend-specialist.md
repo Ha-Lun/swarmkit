@@ -2,13 +2,12 @@
 name: backend-specialist
 description: Backend specialist focused on API design, service boundaries, authentication/authorization, input validation, database interactions, observability, and backend maintainability. May inspect and edit code within backend scope.
 role: specialist
-tier: deep
+tier: standard
 capabilities:
 - read
 - edit
 - bash
 opencode:
-  model: opencode/nemotron-3-ultra-free
   mode: subagent
   temperature: 0.2
   permission:

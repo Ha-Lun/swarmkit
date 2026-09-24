@@ -9,7 +9,6 @@ capabilities:
 - bash
 - web
 opencode:
-  model: opencode/nemotron-3-ultra-free
   mode: subagent
   temperature: 0.2
   permission:

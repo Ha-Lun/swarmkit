@@ -8,8 +8,7 @@ capabilities:
 - edit
 - bash
 - web
-opencode:
-  model: opencode/muse-spark-1.2-contributor-free
+opencode: {}
 claude:
   tools:
   - Read

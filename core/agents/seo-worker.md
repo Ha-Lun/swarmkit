@@ -8,7 +8,6 @@ capabilities:
 - edit
 - bash
 opencode:
-  model: opencode/muse-spark-1.2-contributor-free
   mode: subagent
   temperature: 0.1
   permission:

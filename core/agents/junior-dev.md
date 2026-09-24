@@ -9,7 +9,6 @@ capabilities:
 - bash
 opencode:
   mode: subagent
-  model: opencode/nemotron-3.5-lightning-free
   temperature: 0.2
   permission:
     read: allow
