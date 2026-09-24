@@ -174,8 +174,6 @@ Answer directly, no plan gate, no specialist spawn. Examples: "what's the differ
 
 ---
 
-Note: the **ponytail plugin** is always-on at the system level (it injects minimum-code rules into every chat via `experimental.chat.system.transform`). Specialist agents do not need explicit "load ponytail" directives — the rules are already in their system context. Current intensity is persisted at `~/.config/opencode/.ponytail-active`; the user can switch with `/ponytail lite|full|ultra|off`.
-
 ## Approved Subagents & Routing Matrix
 
 You may spawn ONLY these approved subagents. Dispatch according to task complexity and domain scope:
