@@ -33,7 +33,8 @@ class N8nDebugger:
         
         headers = {
             'X-N8N-API-KEY': self.api_key,
-            'Accept': 'application/json'
+            'Accept': 'application/json',
+            'User-Agent': 'n8n-debugger/1.0'
         }
         
         try:
@@ -50,7 +51,7 @@ class N8nDebugger:
     
     def analyze_execution(self, execution_id: str) -> Dict[str, Any]:
         """Analyze a failed execution and identify issues."""
-        execution = self._make_request('GET', f'/executions/{execution_id}')
+        execution = self._make_request('GET', f'/executions/{execution_id}?includeData=true')
         
         report = {
             "execution_id": execution_id,
@@ -187,7 +188,7 @@ class N8nDebugger:
     
     def trace_data_flow(self, execution_id: str, node_name: str) -> Dict[str, Any]:
         """Trace data flow through a specific node."""
-        execution = self._make_request('GET', f'/executions/{execution_id}')
+        execution = self._make_request('GET', f'/executions/{execution_id}?includeData=true')
         
         trace = {
             "execution_id": execution_id,

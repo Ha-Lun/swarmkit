@@ -35,7 +35,8 @@ class N8nClient:
         headers = {
             'X-N8N-API-KEY': self.api_key,
             'Content-Type': 'application/json',
-            'Accept': 'application/json'
+            'Accept': 'application/json',
+            'User-Agent': 'n8n-client/1.0'
         }
         
         try:
@@ -102,7 +103,7 @@ class N8nClient:
     
     def get_execution(self, execution_id: str) -> Dict[str, Any]:
         """Get execution details with logs."""
-        return self._make_request('GET', f'/executions/{execution_id}')
+        return self._make_request('GET', f'/executions/{execution_id}?includeData=true')
 
 
 def main():
