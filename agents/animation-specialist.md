@@ -60,7 +60,7 @@ Load **`premium-frontend-system`** for design direction, motion language rules, 
 - See **`premium-frontend-system`** skill for integration details
 
 ### 3D Motion Architecture & Asset Workflows (Canvas Scrub vs WebGL vs Gen-AI)
-- **Pattern A: Deterministic Canvas Scrub** (Default for High-Fidelity / Photorealistic Scroll Storytelling) with blender-specialist, `./scripts/ingest-video.sh`, and `CanvasScrubber.tsx`.
+- **Pattern A: Deterministic Canvas Scrub** (Default for High-Fidelity / Photorealistic Scroll Storytelling) with blender-specialist.
 - **Pattern B: Real-Time WebGL / Three.js** (For Dynamic / User-Interactive 3D) adhering to asset budgets (< 2MB, Draco, KTX2).
 - **Pattern C: Hybrid Gen-AI Diffusion Scrub** (For Organic / Surreal Generative VFX Only) using Blender clay/depth pass as geometric anchor for video diffusion (Gemini Omni, Kling) to prevent perspective hallucinations.
 

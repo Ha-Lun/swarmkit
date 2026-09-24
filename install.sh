@@ -141,7 +141,8 @@ install_agy() {
   backup_if_exists "$REPO_DIR/.agents/rules/AGENTS.md"
   rm -f "$REPO_DIR/.agents/rules/AGENTS.md"
   cp "$REPO_DIR/mcp.json" "$REPO_DIR/.agents/mcp_config.json"
-  cp "$REPO_DIR"/agents/*.md "$REPO_DIR/.agents/agents/"
+  rm -rf "$REPO_DIR/.agents/agents"
+  ln -sfn "$REPO_DIR/agents" "$REPO_DIR/.agents/agents"
 
   for skill_dir in "$REPO_DIR"/skill/*; do
     if [ -d "$skill_dir" ]; then

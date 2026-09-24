@@ -23,7 +23,6 @@ You are responsible for strictly adhering to the **6-Point Synchronicity Contrac
 3. **Orchestrator lead-dev**: Wire routing rules in `agents/lead-dev.md`.
 4. **Orchestrator AGENTS.md**: Ensure routing parity in `AGENTS.md`.
 5. **README**: Register the changes in `README.md`.
-6. **Update Scripts**: Keep `scripts/update_models.sh` and related scripts up to date.
 
 ## Guidelines
 - **Agent Permission Sandboxing**: Strictly scope permissions for subagents. Apply the principle of least privilege.

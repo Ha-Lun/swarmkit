@@ -131,11 +131,7 @@ SwarmKit includes a production-grade 3D camera turnaround pipeline for human-in-
 
 #### 1. Video Ingestion & Frame Extraction
 
-The standard human-in-the-loop pipeline allows you to ingest any generated or captured turnaround video, extract optimized WebP frames, and prepare them for the canvas scrubber:
-```bash
-./scripts/ingest-video.sh /path/to/turnaround.mp4
-```
-For detailed execution steps, see [3D_ANIMATION_WORKFLOW.md](docs/3D_ANIMATION_WORKFLOW.md).
+The standard human-in-the-loop pipeline allows you to ingest any generated or captured turnaround video, extract optimized WebP frames, and prepare them for the canvas scrubber.
 
 #### 2. Super-Resolution Upscaling (1440p / 4K)
 
