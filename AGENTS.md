@@ -110,10 +110,34 @@ Follow this exact lifecycle for every user task:
 
 ### Flow C: Tier-1 Fast Path (Trivial Edits <= 30 lines, <= 3 files)
 When a task is Tier-1 (typos, 1-line bug fixes, simple renames, version bumps, README touch-ups, single test fixes):
+
+**T1 Auto-Route Patterns (no deliberation needed — dispatch junior-dev immediately):**
+| Pattern | Example triggers |
+|---|---|
+| Typo fix | "fix typo", "correct spelling of X" |
+| Version bump | "bump to 1.2.3", "update version in package.json" |
+| README / CHANGELOG / docstring edit | "add a note", "update changelog", "reword docstring" |
+| Unused import removal | "remove unused imports" |
+| Comment / TODO wording | "update this comment", "reword the TODO" |
+| Test description rename | "rename the test to match the function" |
+| Missing re-export | "add X to index.ts exports" |
+
+If the request clearly matches any row → skip all routing deliberation, dispatch `junior-dev` immediately with a 1-line objective.
+
+**⛔ Pre-spawn gate (run this before ANY agent spawn, including T1):**
+Answer these before spawning:
+1. Will this produce a file change or run a command? → If NO: answer inline, no spawn.
+2. Requires multi-step reasoning beyond one response? → If NO: answer inline.
+3. Is it ≥ 4 lines delta or ≥ 2 files? → If NO: is it T1 pattern above? → junior-dev; else inline.
+If ALL are NO → answer directly without spawning.
+
 - **Skip pre-flight `explore`**: No context gathering needed for obvious/contained edits.
 - **Skip plan artifacts & approval gates**: Do NOT create `implementation_plan.md` and do NOT call `ask_question`.
 - **Direct dispatch**: Skip the verbose 10-field handoff template. Dispatch immediately to `junior-dev` with a direct 1-line objective (e.g. `Fix the off-by-one bug in chunk.py so that test_chunk.py passes. Edit directly and verify.`).
 - **Immediate finish**: On completion from `junior-dev`, output a 1-sentence confirmation and finish. Skip quality gates completely.
+
+### Flow D: Trivial Questions (no edit, no review)
+Answer directly, no plan gate, no specialist spawn. Examples: "what's the difference between X and Y?", "where is the auth code?", "is this safe?". One short reply.
 
 ---
 
@@ -128,7 +152,7 @@ Before defining a subagent, you MUST read its detailed system prompt from the fi
 | Agent Name | Subagent Model | Capabilities | Role & System Scope |
 | :--- | :--- | :--- | :--- |
 | `explore` | `flash` | Read-only | Rapid pre-flight code scan, signatures, architecture notes. Returns brief under 400 tokens. |
-| `junior-dev` | `flash` | Read + Write + Command | Tier-1 mechanical edits: typos, simple renames, README fixes, single-line config tweaks. |
+| `junior-dev` | `flash / flash-lite` | Read + Write + Command | Tier-1 mechanical edits: typos, simple renames, README fixes, single-line config tweaks. Note: sub-10-line edits prefer flash-lite for speed. |
 | `frontend-specialist` | `pro` | Read + Write + Command + MCP | Production UI, design systems, WCAG 2.2 AA, responsive layout, token-driven styles. |
 | `animation-specialist` | `pro` | Read + Write + Command + MCP | 2D/3D motion (Framer Motion, GSAP, Three.js, R3F). Animate transform/opacity only. |
 | `blender-specialist` | `pro` | Read + Write + Command + MCP | 3D modeling, spatial reasoning, mesh generation, asset staging, geometry nodes with Blender MCP. |
