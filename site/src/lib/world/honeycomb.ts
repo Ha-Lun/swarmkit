@@ -25,7 +25,7 @@ const AGENT_STYLE: Record<Band, { h: number; grey: number }> = {
   gate: { h: 1.1, grey: 0.85 },
   satellite: { h: 0.9, grey: 0.75 },
 };
-const FILLER = { h: 0.3, grey: 0.32 };
+const FILLER = { h: 0.3, grey: 0.18 };
 
 export interface Cell {
   x: number;

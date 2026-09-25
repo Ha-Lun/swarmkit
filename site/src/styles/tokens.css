@@ -30,7 +30,7 @@
   --wax: #b9aa88;
   --wax-dim: #6e6653;
   --text: #d8d5cb;
-  --accent: #4fd8e8; /* candidate 1 of 3 (cyan); see accentCandidates in world/config.ts */
+  --accent: #a98bff; /* violet, chosen in round 1; see accentCandidates in world/config.ts */
 
   /* type */
   --font-display: 'Space Grotesk', system-ui, sans-serif;

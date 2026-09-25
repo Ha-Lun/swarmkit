@@ -69,7 +69,7 @@ const favicon =
       <p style="font: 700 var(--text-3xl)/var(--leading-tight) var(--font-display); margin: 0 0 var(--space-2)">Route the task. Prove the work.</p>
       <p style="font: 500 var(--text-xl)/var(--leading-tight) var(--font-display); margin: 0 0 var(--space-4)">One lead agent, {agents.length - 1} specialists, three CLIs.</p>
       <p style="font: var(--text-base)/var(--leading-body) var(--font-display); max-width: 60ch; margin: 0 0 var(--space-4)">Body copy in Space Grotesk 500 at base size. Short declarative sentences. Say what it does and what it costs.</p>
-      <p style="font: var(--text-lg)/var(--leading-body) var(--font-mono); margin: 0 0 var(--space-4); color: var(--wax)">./install.sh --all  # 0123456789 {'{}'} [] =&gt; !=</p>
+      <p style="font: var(--text-lg)/var(--leading-body) var(--font-mono); margin: 0 0 var(--space-4); color: var(--text)">./install.sh --all  # 0123456789 {'{}'} [] =&gt; !=</p>
       {typeScale.map((s) => (
         <div class="scale"><span>--text-{s}</span><span style={`font: 500 var(--text-${s})/var(--leading-tight) var(--font-display)`}>Hexagonal, quiet, exact</span></div>
       ))}
@@ -115,7 +115,7 @@ const favicon =
 
       let tier: Tier = q.get('tier') === 'medium' ? 'medium' : 'high';
       let panel: PanelId = (q.get('panel') as PanelId) in PANELS ? (q.get('panel') as PanelId) : 'cell';
-      let accentSel = 'all';
+      let accentSel = 'violet';
       let postOn = true;
       let activeBoost = 0, activeLift = 0;
       let dissolveProgress = Number(q.get('progress') ?? 0.5), dissolveAuto = q.get('auto') === '1';

@@ -23,7 +23,7 @@ export function readPalette(): Palette {
   };
 }
 
-/** Accent is undecided. Three candidates, shown as swatches and as packets on /lookdev. */
+/** Accent: violet chosen in round 1 (human). Candidates stay on /lookdev for comparison. */
 export const accentCandidates = [
   { name: 'cyan', hex: '#4fd8e8' },
   { name: 'violet', hex: '#a98bff' },
@@ -32,7 +32,7 @@ export const accentCandidates = [
 
 export const look = {
   cell: {
-    rim: 0.5, // fresnel rim intensity
+    rim: 0.8, // fresnel rim intensity
     rimPower: 3.0, // higher = thinner rim
     thickness: 0.45, // fake-subsurface warm bleed at thin regions (high tier only)
     density: 0.3, // darkening of the dense centre (high tier only)
@@ -47,10 +47,10 @@ export const look = {
     ambient: 0.05,
   },
   packet: {
-    headSize: 26, // px at 1080p
+    headSize: 34, // px at 1080p
     headBrightness: 1.0,
     speed: 0.05, // loops per second along the test curve
-    trailLength: 0.1, // fraction of the loop
+    trailLength: 0.16, // fraction of the loop
     trailWidth: 0.16, // world units at the head
     trailFade: 1.8, // fade exponent toward the tail
     height: 0.55, // world units above the cell top
@@ -58,7 +58,7 @@ export const look = {
   dissolve: {
     hexScale: 1.0, // multiplier on the on-screen lattice cell size (1 = native)
     spread: 0.35, // how long each hex takes relative to the whole transition
-    noise: 0.25, // 0 = clean radial wavefront, 1 = random per hex
+    noise: 0.12, // 0 = clean radial wavefront, 1 = random per hex
     edge: 1.25, // edge softness in px
   },
   particles: {
@@ -67,19 +67,19 @@ export const look = {
     curlScale: 0.35,
     curlStrength: 5.0,
     curlSpeed: 0.15,
-    cohesion: 0.15,
+    cohesion: 0.3,
     attract: 0.0, // 0..1, stand-in for chapterProgress
     attractStrength: 9.0,
     damping: 2.2,
     maxSpeed: 8.0,
     size: 2.2, // px at 1080p
-    opacity: 0.7,
+    opacity: 0.45,
     textWidth: 16, // world units the target text spans
     spawnRadius: 7,
   },
   post: {
-    chromaticAberration: 0.01, // RGB split, grows with distance from centre
-    grain: 0.03,
+    chromaticAberration: 0.014, // RGB split, grows with distance from centre
+    grain: 0.02,
     grainSize: 1.5, // px
   },
 };
