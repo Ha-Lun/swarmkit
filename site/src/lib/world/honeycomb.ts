@@ -1,6 +1,9 @@
 import {
-  CylinderGeometry, Color, DynamicDrawUsage, InstancedMesh, Matrix4, MeshStandardMaterial, Quaternion, Vector3,
+  CylinderGeometry, Color, DynamicDrawUsage, InstancedBufferAttribute, InstancedMesh, Matrix4, MeshStandardMaterial,
+  Quaternion, Vector3,
 } from 'three';
+import { CELL_RADIUS, look, readPalette, type Tier } from './config';
+import { createCellMaterial, type CellUniforms } from './cell-material';
 import type { Agent } from '../agents';
 import type { Band } from '../../content/tiers';
 
@@ -10,7 +13,9 @@ const DIRS: [number, number][] = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0
 const SKIRT_RINGS = 3; // filler rings beyond the outermost agent band
 export const SATELLITE_DIR = Math.PI / 6;
 export const SATELLITE_GAP = 4.5; // world units between lattice edge and cluster centre
-const CELL_GAP = 0.94; // prism radius; <1 leaves a visible seam
+const CELL_GAP = CELL_RADIUS; // prism radius; <1 leaves a visible seam
+const LEAD_CORE = 1.0; // emissive strength per agent band (filler cells have none)
+const AGENT_CORE = 0.7;
 
 // height and grey per band (agents vs filler differ only by these two values)
 const AGENT_STYLE: Record<Band, { h: number; grey: number }> = {
@@ -118,14 +123,31 @@ export interface Honeycomb {
   lattice: Lattice;
   /** growth 0..1 drives ring-by-ring extrusion; dim 0..1 darkens the lattice */
   update(growth: number, dim: number): void;
+  material: MeshStandardMaterial;
+  uniforms: CellUniforms;
+  /** re-read look.cell into the material uniforms */
+  syncLook(): void;
+  /** per-instance state: core strength multiplier (added to base) and lift 0..1 (scaled by look.cell.lift) */
+  setCellState(i: number, emissiveBoost: number, lift: number): void;
   dispose(): void;
 }
 
-export function createHoneycomb(agents: Agent[]): Honeycomb {
+export function createHoneycomb(agents: Agent[], tier: Tier = 'high'): Honeycomb {
   const lattice = layoutLattice(agents);
   const geometry = new CylinderGeometry(CELL_GAP, CELL_GAP, 1, 6, 1);
   geometry.translate(0, 0.5, 0); // origin at the base so scaling Y extrudes upward
-  const material = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, metalness: 0 });
+  const palette = readPalette();
+  const cellMat = createCellMaterial(tier, palette, look.cell);
+  const { material } = cellMat;
+  const waxColor = material.color.clone();
+  const baseEmissive = Float32Array.from(lattice.cells, (c) =>
+    c.agent ? (c.agent.band === 'core' ? LEAD_CORE : AGENT_CORE) : 0);
+  const emissive = new InstancedBufferAttribute(Float32Array.from(baseEmissive), 1);
+  const lift = new InstancedBufferAttribute(new Float32Array(lattice.cells.length), 1);
+  emissive.setUsage(DynamicDrawUsage);
+  lift.setUsage(DynamicDrawUsage);
+  geometry.setAttribute('aEmissive', emissive);
+  geometry.setAttribute('aLift', lift);
   const mesh = new InstancedMesh(geometry, material, lattice.cells.length);
   mesh.instanceMatrix.setUsage(DynamicDrawUsage);
   mesh.frustumCulled = false;
@@ -142,6 +164,15 @@ export function createHoneycomb(agents: Agent[]): Honeycomb {
   return {
     mesh,
     lattice,
+    material,
+    uniforms: cellMat.uniforms,
+    syncLook: () => cellMat.sync(look.cell),
+    setCellState(i, emissiveBoost, lf) {
+      emissive.setX(i, baseEmissive[i] + emissiveBoost);
+      lift.setX(i, lf * look.cell.lift);
+      emissive.needsUpdate = true;
+      lift.needsUpdate = true;
+    },
     update(growth, dim) {
       if (growth !== lastGrowth) {
         lastGrowth = growth;
@@ -157,7 +188,7 @@ export function createHoneycomb(agents: Agent[]): Honeycomb {
       }
       if (dim !== lastDim) {
         lastDim = dim;
-        material.color.setScalar(1 - 0.65 * dim);
+        material.color.copy(waxColor).multiplyScalar(1 - 0.65 * dim);
       }
     },
     dispose() {

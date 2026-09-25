@@ -1,0 +1,58 @@
+/* Design tokens, round 1 (proposed, NOT locked). Locking happens after the human's verdicts (PLAN §9).
+   Exactly six semantic colour tokens. The accent belongs to the task packet and its trail only. */
+
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/space-grotesk-latin-500-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/space-grotesk-latin-700-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/jetbrains-mono-latin-400-normal.woff2') format('woff2');
+}
+
+:root {
+  /* colour: A ink (cool blue-black), B wax (muted amber-bone), one accent */
+  --ink: #0c1016;
+  --ink-2: #151b24;
+  --wax: #b9aa88;
+  --wax-dim: #6e6653;
+  --text: #d8d5cb;
+  --accent: #4fd8e8; /* candidate 1 of 3 (cyan); see accentCandidates in world/config.ts */
+
+  /* type */
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.75rem;
+  --text-2xl: 2.5rem;
+  --text-3xl: clamp(2.5rem, 6vw, 4.5rem);
+  --leading-tight: 1.1;
+  --leading-body: 1.5;
+
+  /* spacing: 4/8 scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-24: 96px;
+}

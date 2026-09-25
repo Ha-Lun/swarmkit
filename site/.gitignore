@@ -3,3 +3,4 @@ dist/
 .astro/
 .previs-shots/
 .playwright-mcp/
+.lookdev-shots/

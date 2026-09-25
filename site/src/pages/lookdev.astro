@@ -1,0 +1,374 @@
+---
+// Look-dev bench (PLAN §9). Round 1: proposed values, nothing locked. Not linked, noindex.
+import '../styles/tokens.css';
+import { loadAgents } from '../lib/agents';
+const agents = loadAgents();
+const typeScale = ['3xl', '2xl', 'xl', 'lg', 'base', 'sm', 'xs'];
+const spacing = ['1', '2', '3', '4', '6', '8', '12', '16', '24'];
+const favicon =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2l12 7v14l-12 7-12-7V9z' fill='%23b9aa88'/%3E%3C/svg%3E";
+---
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <link rel="icon" href={favicon} />
+    <title>lookdev</title>
+    <style is:global>
+      html, body { margin: 0; height: 100%; background: var(--ink); color: var(--text); font: var(--text-xs)/var(--leading-body) var(--font-mono); }
+      #c { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+      #bar { position: fixed; top: 0; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3) var(--space-4); align-items: center; z-index: 2; }
+      button { font: inherit; color: var(--text); background: var(--ink-2); border: 1px solid var(--wax-dim); padding: var(--space-1) var(--space-3); cursor: pointer; }
+      button[aria-pressed='true'] { border-color: var(--text); background: var(--wax-dim); }
+      button:focus-visible, input:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+      .sep { width: var(--space-4); }
+      #side { position: fixed; top: var(--space-12); left: var(--space-4); bottom: var(--space-12); width: 320px; overflow: auto; z-index: 1;
+        background: color-mix(in srgb, var(--ink) 82%, transparent); border: 1px solid var(--ink-2); padding: var(--space-4); }
+      #side h2 { font: 700 var(--text-lg)/var(--leading-tight) var(--font-display); margin: 0 0 var(--space-2); }
+      #side p { margin: 0 0 var(--space-4); color: var(--wax); }
+      #side h3 { font: 500 var(--text-sm) var(--font-display); margin: var(--space-4) 0 var(--space-2); }
+      #side label { display: grid; grid-template-columns: 1fr auto; gap: 0 var(--space-2); margin-bottom: var(--space-2); }
+      #side label input[type='range'] { grid-column: 1 / -1; width: 100%; margin: 0; accent-color: var(--wax); }
+      #side label output { color: var(--wax); }
+      #side .row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
+      #readout { position: fixed; left: var(--space-4); right: var(--space-4); bottom: var(--space-3); white-space: pre; z-index: 2; color: var(--wax); }
+      #specimen { position: fixed; top: var(--space-12); left: calc(320px + var(--space-8)); right: var(--space-4); bottom: var(--space-12); overflow: auto; padding: var(--space-6); z-index: 1; background: var(--ink); border: 1px solid var(--ink-2); }
+      #specimen[hidden] { display: none; }
+      .sw { display: inline-grid; gap: var(--space-1); margin: 0 var(--space-4) var(--space-4) 0; width: 112px; }
+      .sw i { display: block; height: 56px; border: 1px solid var(--wax-dim); }
+      .scale { display: grid; grid-template-columns: 72px 1fr; align-items: baseline; gap: var(--space-4); margin-bottom: var(--space-2); }
+      .bar { height: 8px; background: var(--wax); }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="bar" role="toolbar" aria-label="lookdev">
+      <button data-panel="cell">cell</button>
+      <button data-panel="packet">packet</button>
+      <button data-panel="dissolve">dissolve</button>
+      <button data-panel="particles">particles</button>
+      <button data-panel="post">post</button>
+      <button data-panel="palette">palette + type</button>
+      <span class="sep"></span>
+      <button data-tier="high">high</button>
+      <button data-tier="medium">medium</button>
+    </div>
+    <aside id="side" aria-live="polite">
+      <h2 id="title"></h2>
+      <p id="note"></p>
+      <div id="extras"></div>
+      <div id="sliders"></div>
+    </aside>
+    <section id="specimen" hidden aria-label="palette and type specimen">
+      <h3>Colour tokens (6)</h3>
+      <div id="tokens"></div>
+      <h3>Accent candidates (packet + trail only)</h3>
+      <div id="accents"></div>
+      <h3>Type</h3>
+      <p style="font: 700 var(--text-3xl)/var(--leading-tight) var(--font-display); margin: 0 0 var(--space-2)">Route the task. Prove the work.</p>
+      <p style="font: 500 var(--text-xl)/var(--leading-tight) var(--font-display); margin: 0 0 var(--space-4)">One lead agent, {agents.length - 1} specialists, three CLIs.</p>
+      <p style="font: var(--text-base)/var(--leading-body) var(--font-display); max-width: 60ch; margin: 0 0 var(--space-4)">Body copy in Space Grotesk 500 at base size. Short declarative sentences. Say what it does and what it costs.</p>
+      <p style="font: var(--text-lg)/var(--leading-body) var(--font-mono); margin: 0 0 var(--space-4); color: var(--wax)">./install.sh --all  # 0123456789 {'{}'} [] =&gt; !=</p>
+      {typeScale.map((s) => (
+        <div class="scale"><span>--text-{s}</span><span style={`font: 500 var(--text-${s})/var(--leading-tight) var(--font-display)`}>Hexagonal, quiet, exact</span></div>
+      ))}
+      <h3>Spacing (4/8)</h3>
+      {spacing.map((s) => (
+        <div class="scale"><span>--space-{s}</span><span class="bar" style={`width: var(--space-${s})`}></span></div>
+      ))}
+    </section>
+    <div id="readout"></div>
+    <script id="agents-data" type="application/json" set:html={JSON.stringify(agents)} />
+    <script>
+      import {
+        AmbientLight, Color, DirectionalLight, Fog, HalfFloatType, HemisphereLight, PerspectiveCamera, Scene,
+        Vector2, WebGLRenderer, WebGLRenderTarget,
+      } from 'three';
+      import type { Agent } from '../lib/agents';
+      import { accentCandidates, look, ranges, readPalette, type Tier } from '../lib/world/config';
+      import { createHoneycomb, type Honeycomb } from '../lib/world/honeycomb';
+      import { createPacket, createTestCurve, type Packet } from '../lib/world/packet';
+      import { createHexDissolve, hexPixelSize } from '../lib/world/transitions';
+      import { createPost, type Post } from '../lib/world/post';
+      import { createSwarm, type Swarm } from '../lib/world/swarm-particles';
+
+      const agents: Agent[] = JSON.parse(document.getElementById('agents-data')!.textContent!);
+      const q = new URLSearchParams(location.search);
+      const palette = readPalette();
+      const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+      const canvas = $<HTMLCanvasElement>('c');
+
+      // ?cell.rim=0.7 style overrides make screenshots reproducible
+      const L = look as unknown as Record<string, Record<string, number>>;
+      q.forEach((v, k) => { const [g, key] = k.split('.'); if (L[g] && key in L[g] && !isNaN(Number(v))) L[g][key] = Number(v); });
+
+      type PanelId = 'cell' | 'packet' | 'dissolve' | 'particles' | 'post' | 'palette';
+      const PANELS: Record<PanelId, { title: string; note: string; groups: (keyof typeof look)[] }> = {
+        cell: { title: 'Cell material', groups: ['cell', 'light'], note: 'Judge: rim (neon outline vs vanishing), subsurface (waxy/flat vs jelly), core (too hot, too uniform, bleeding past the edge). Lift and core boost below are the hover/active state.' },
+        packet: { title: 'Task packet', groups: ['packet'], note: 'Judge: is it the first thing the eye finds; trail length, width, fade. Three accent candidates run the same loop.' },
+        dissolve: { title: 'Hex dissolve', groups: ['dissolve'], note: 'Judge: speed (use auto), hex size against the lattice, wavefront uniformity. Hex size is tied to the on-screen lattice cell.' },
+        particles: { title: 'Particle swarm', groups: ['particles'], note: 'Judge: curl flow reads as swarm not fireworks, dim-to-bright, convergence on the target. attract stands in for chapterProgress.' },
+        post: { title: 'Chromatic aberration + grain', groups: ['post'], note: 'High tier only. Judge: if either is noticeable at a glance it is too much. Toggle to compare.' },
+        palette: { title: 'Palette + type', groups: [], note: 'Round-1 tokens. Pick one accent (cyan / violet / coral).' },
+      };
+
+      let tier: Tier = q.get('tier') === 'medium' ? 'medium' : 'high';
+      let panel: PanelId = (q.get('panel') as PanelId) in PANELS ? (q.get('panel') as PanelId) : 'cell';
+      let accentSel = 'all';
+      let postOn = true;
+      let activeBoost = 0, activeLift = 0;
+      let dissolveProgress = Number(q.get('progress') ?? 0.5), dissolveAuto = q.get('auto') === '1';
+      L.particles.attract = q.has('attract') ? Number(q.get('attract')) : L.particles.attract;
+
+      // ---- renderer + shared scene ----
+      const renderer = new WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+      renderer.setClearColor(palette.ink);
+      const scene = new Scene();
+      scene.background = new Color(palette.ink); // (not just clear colour: render targets need the linear value)
+      scene.fog = new Fog(palette.ink, 20, 120);
+      const amb = new AmbientLight(0xffffff, look.light.ambient);
+      const hemi = new HemisphereLight(0xffffff, 0x222226, look.light.hemi);
+      scene.add(amb, hemi);
+      const key = new DirectionalLight(0xffffff, look.light.key);
+      key.position.set(-8, 20, 10);
+      scene.add(key);
+      const cam = new PerspectiveCamera(40, 1, 0.1, 400);
+
+      let comb: Honeycomb = createHoneycomb(agents, tier);
+      comb.update(1, 0);
+      scene.add(comb.mesh);
+      const curve = createTestCurve(comb.lattice);
+      const lat = comb.lattice;
+      const packets: Packet[] = accentCandidates.map((c) => createPacket(curve, c.hex, look.packet));
+      packets.forEach((p) => scene.add(p.group));
+      const leadIdx = comb.lattice.cells.findIndex((c) => c.agent?.band === 'core');
+      const t1Idx = comb.lattice.cells.findIndex((c) => c.agent?.band === 't1');
+
+      const POSE: Record<string, [number[], number[]]> = {
+        cell: [[0, 8, 12.5], [0, 0.3, 0]],
+        wide: [[0, lat.radius * 1.15, lat.radius * 1.3], [0, 0, 0]],
+        top: [[0, lat.radius * 2.3, 0.01], [0, 0, 0]],
+      };
+      function pose(name: string) {
+        const [p, t] = POSE[name];
+        cam.position.set(p[0], p[1], p[2]);
+        cam.lookAt(t[0], t[1], t[2]);
+        const d = cam.position.length();
+        (scene.fog as Fog).near = d * 0.6;
+        (scene.fog as Fog).far = d * 3 + 40;
+      }
+
+      const dissolve = createHexDissolve();
+      const rtA = new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples: 4 });
+      const rtB = new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples: 4 });
+      let post: Post | null = null;
+      let swarm: Swarm | null = null;
+      const swarmScene = new Scene();
+      swarmScene.background = new Color(palette.ink);
+      const swarmCam = new PerspectiveCamera(40, 1, 0.1, 100);
+      swarmCam.position.set(0, 0, 24);
+
+      function applyCellState() {
+        comb.setCellState(leadIdx, activeBoost, activeLift);
+        if (t1Idx >= 0) comb.setCellState(t1Idx, activeBoost * 0.5, activeLift * 0.6);
+      }
+      function resize() {
+        const w = window.innerWidth, h = window.innerHeight;
+        const pr = Math.min(window.devicePixelRatio || 1, tier === 'high' ? 2 : 1.5);
+        renderer.setPixelRatio(pr);
+        renderer.setSize(w, h, false);
+        // shift the view centre right so scenes sit in the free area beside the 320px sidebar
+        const shift = w > 900 ? 168 : 0;
+        for (const c of [cam, swarmCam]) { c.aspect = w / h; c.setViewOffset(w, h, -shift, 0, w, h); c.updateProjectionMatrix(); }
+        const bh = renderer.getDrawingBufferSize(new Vector2()).y;
+        rtA.setSize(w * pr, h * pr);
+        rtB.setSize(w * pr, h * pr);
+        post?.setSize(w, h, pr);
+        packets.forEach((p) => p.setViewportHeight(bh));
+        swarm?.setViewportHeight(bh);
+      }
+      window.addEventListener('resize', resize);
+
+      function buildSwarm() {
+        swarm?.dispose();
+        swarm = null;
+        swarmScene.clear();
+        swarm = createSwarm(renderer, tier, look.particles, palette);
+        swarmScene.add(swarm.points);
+        resize();
+      }
+      async function applyTier() {
+        scene.remove(comb.mesh);
+        comb.dispose();
+        comb = createHoneycomb(agents, tier);
+        comb.update(1, 0); // fully grown, undimmed
+        scene.add(comb.mesh);
+        applyCellState();
+        post?.dispose();
+        post = tier === 'high' ? createPost(renderer, scene, cam, look.post) : null;
+        if (swarm) buildSwarm();
+        resize();
+        document.querySelectorAll<HTMLButtonElement>('[data-tier]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tier === tier)));
+      }
+
+      // ---- UI ----
+      function slider(parent: HTMLElement, label: string, get: () => number, set: (v: number) => void, r: [number, number, number], onChange?: () => void) {
+        const lab = document.createElement('label');
+        const out = document.createElement('output');
+        const inp = document.createElement('input');
+        inp.type = 'range'; inp.min = String(r[0]); inp.max = String(r[1]); inp.step = String(r[2]); inp.value = String(get());
+        out.textContent = Number(get()).toFixed(r[2] < 0.01 ? 3 : 2);
+        inp.addEventListener('input', () => { set(Number(inp.value)); out.textContent = Number(inp.value).toFixed(r[2] < 0.01 ? 3 : 2); });
+        if (onChange) inp.addEventListener('change', onChange);
+        lab.append(document.createTextNode(label), out, inp);
+        parent.append(lab);
+      }
+      function button(parent: HTMLElement, text: string, on: () => void, pressed?: boolean) {
+        const b = document.createElement('button');
+        b.textContent = text;
+        if (pressed !== undefined) b.setAttribute('aria-pressed', String(pressed));
+        b.addEventListener('click', () => on());
+        parent.append(b);
+        return b;
+      }
+
+      function buildSpecimen() {
+        const sw = (name: string, hex: string) => `<div class="sw"><i style="background:${hex}"></i><span>${name}<br>${hex}</span></div>`;
+        const cs = getComputedStyle(document.documentElement);
+        $('tokens').innerHTML = ['ink', 'ink-2', 'wax', 'wax-dim', 'text', 'accent'].map((n) => sw(`--${n}`, cs.getPropertyValue(`--${n}`).trim())).join('');
+        $('accents').innerHTML = accentCandidates.map((c) => sw(c.name, c.hex)).join('');
+      }
+
+      function buildPanel() {
+        const def = PANELS[panel];
+        $('title').textContent = def.title;
+        $('note').textContent = def.note;
+        const sl = $('sliders'), ex = $('extras');
+        sl.replaceChildren(); ex.replaceChildren();
+        document.querySelectorAll<HTMLButtonElement>('[data-panel]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.panel === panel)));
+        $('specimen').hidden = panel !== 'palette';
+        canvas.style.visibility = panel === 'palette' ? 'hidden' : 'visible';
+
+        if (panel === 'cell') {
+          slider(ex, 'active core boost', () => activeBoost, (v) => { activeBoost = v; applyCellState(); }, [0, 1.5, 0.01]);
+          slider(ex, 'active lift (0..1 x lift)', () => activeLift, (v) => { activeLift = v; applyCellState(); }, [0, 1, 0.01]);
+          if (tier === 'medium') { const n = document.createElement('p'); n.textContent = 'medium tier: thickness and density are not compiled in.'; ex.append(n); }
+        }
+        if (panel === 'packet') {
+          const row = document.createElement('div'); row.className = 'row'; ex.append(row);
+          for (const id of ['all', ...accentCandidates.map((c) => c.name)]) {
+            const b = button(row, id, () => { accentSel = id; row.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); }, id === accentSel);
+          }
+        }
+        if (panel === 'dissolve') {
+          slider(ex, 'progress', () => dissolveProgress, (v) => (dissolveProgress = v), [0, 1, 0.001]);
+          button(ex, 'auto loop', () => { dissolveAuto = !dissolveAuto; buildPanel(); }, dissolveAuto);
+        }
+        if (panel === 'particles') {
+          button(ex, 'reseed', () => buildSwarm());
+          const n = document.createElement('p'); n.id = 'pcount'; ex.append(n);
+        }
+        if (panel === 'post') {
+          button(ex, 'post on', () => { postOn = !postOn; buildPanel(); }, postOn);
+          if (tier === 'medium') { const n = document.createElement('p'); n.textContent = 'medium tier: no post-processing.'; ex.append(n); }
+        }
+        for (const g of def.groups) {
+          const r = (ranges as Record<string, Record<string, [number, number, number]>>)[g];
+          for (const k of Object.keys(r)) slider(sl, `${g}.${k}`, () => L[g][k], (v) => (L[g][k] = v), r[k], g === 'particles' && k === 'textWidth' ? () => swarm?.retarget(L.particles.textWidth) : undefined);
+        }
+        if (panel === 'particles' && !swarm) buildSwarm();
+        if (panel !== 'particles' && swarm) { swarm.dispose(); swarm = null; swarmScene.clear(); }
+      }
+
+      document.querySelectorAll<HTMLButtonElement>('[data-panel]').forEach((b) => b.addEventListener('click', () => { panel = b.dataset.panel as PanelId; buildPanel(); }));
+      document.querySelectorAll<HTMLButtonElement>('[data-tier]').forEach((b) => b.addEventListener('click', () => { tier = b.dataset.tier as Tier; applyTier().then(buildPanel); }));
+      buildSpecimen();
+
+      // ---- loop ----
+      const frames: number[] = [];
+      let last = 0, time = 0, hexPx = 0;
+      const gl = canvas.getContext('webgl2');
+      const dbg = gl?.getExtension('WEBGL_debug_renderer_info');
+      const rendererName = gl && dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'unknown';
+      const median = (a: number[]) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
+      let sweepText = '';
+
+      function frame(now: number) {
+        requestAnimationFrame(frame);
+        const dt = last ? (now - last) / 1000 : 1 / 60;
+        last = now;
+        time += dt;
+        frames.push(dt * 1000);
+        if (frames.length > 600) frames.shift();
+
+        comb.syncLook();
+        amb.intensity = look.light.ambient; hemi.intensity = look.light.hemi; key.intensity = look.light.key;
+        const phase = (time * look.packet.speed) % 1;
+        const showPackets = panel === 'packet' || panel === 'post' || panel === 'dissolve';
+        packets.forEach((p, i) => {
+          p.group.visible = showPackets && (accentSel === 'all' || accentSel === accentCandidates[i].name);
+          if (p.group.visible) p.update(accentSel === 'all' ? phase + i / packets.length : phase, cam, look.packet);
+        });
+
+        if (panel === 'palette') return;
+        if (panel === 'particles') {
+          // ?warm=N runs N extra sim steps per frame so a slow (software GL) run still reaches the target
+          for (let i = 0; i < Number(q.get('warm') ?? 0); i++) swarm?.update(1 / 30, time, look.particles);
+          swarm?.update(dt, time, look.particles);
+          renderer.setRenderTarget(null);
+          renderer.render(swarmScene, swarmCam);
+          const pc = document.getElementById('pcount');
+          if (pc && swarm) pc.textContent = `${swarm.count} particles (${tier})`;
+        } else if (panel === 'dissolve') {
+          if (dissolveAuto) dissolveProgress = (Math.sin(time * 0.9) + 1) / 2;
+          pose('wide');
+          renderer.setRenderTarget(rtA); renderer.render(scene, cam);
+          hexPx = hexPixelSize(cam.fov, rtA.height, 1, cam.position.length());
+          pose('top');
+          renderer.setRenderTarget(rtB); renderer.render(scene, cam);
+          dissolve.render(renderer, rtA.texture, rtB.texture, dissolveProgress, hexPx, look.dissolve);
+        } else {
+          pose(panel === 'cell' ? 'cell' : 'wide');
+          if (panel === 'post' && postOn && post) { post.sync(look.post); post.render(dt, time); }
+          else { renderer.setRenderTarget(null); renderer.render(scene, cam); }
+        }
+      }
+
+      function paint() {
+        const recent = frames.slice(-60);
+        const fps = recent.length ? 1000 / (recent.reduce((s, v) => s + v, 0) / recent.length) : 0;
+        $('readout').textContent =
+          `panel ${panel}   tier ${tier}   fps ${fps.toFixed(1)} (software GL in headless is meaningless)   agent cells ${comb.lattice.agentCount} / agents ${agents.length}` +
+          (panel === 'dissolve' ? `   hex ${hexPx.toFixed(0)}px` : '') + `\nrenderer ${rendererName}` + (sweepText ? `\n${sweepText}` : '');
+        setTimeout(paint, 250);
+      }
+
+      applyTier().then(() => {
+        buildPanel();
+        requestAnimationFrame(frame);
+        paint();
+        if (q.get('sweep') === '1') runSweep();
+      });
+
+      // ?sweep=1: 3 s per rendered panel, per-panel min/median fps
+      async function runSweep() {
+        const result: Record<string, { minFps: number; medianFps: number }> = {};
+        for (const id of ['cell', 'packet', 'dissolve', 'particles', 'post'] as PanelId[]) {
+          panel = id; buildPanel(); frames.length = 0;
+          await new Promise((r) => setTimeout(r, 3000));
+          const f = frames.slice(5).map((d) => 1000 / d);
+          result[id] = { minFps: Math.min(...f), medianFps: median(f) };
+        }
+        sweepText = 'SWEEP DONE ' + Object.entries(result).map(([k, v]) => `${k} min ${v.minFps.toFixed(1)} med ${v.medianFps.toFixed(1)}`).join(' | ');
+        console.log(sweepText);
+        (window as unknown as { __sweep: unknown }).__sweep = { tier, renderer: rendererName, result };
+      }
+
+      window.addEventListener('pagehide', () => {
+        comb.dispose(); packets.forEach((p) => p.dispose()); dissolve.dispose(); rtA.dispose(); rtB.dispose();
+        post?.dispose(); swarm?.dispose(); renderer.dispose(); renderer.forceContextLoss();
+      });
+    </script>
+  </body>
+</html>
