@@ -41,6 +41,7 @@ Each agent has a **tier** (`fast`, `standard`, `deep`). The model for each tier 
 - **Doer, not advisor.** Agents carry out the fix instead of describing what you should do.
 - **Isolation for risky work.** Heavy, multi-file changes run in `.worktrees/<branch>`, and your main branch stays clean until you merge.
 - **Ponytail discipline.** An always-on anti-over-engineering system with `lite`, `full` and `ultra` modes.
+- **Caveman mode.** Terse output that cuts tokens without losing technical detail: `caveman`, `caveman-commit`, `caveman-review`, `caveman-compress` and `caveman-help`. MIT skills vendored from [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) v2.7.0 (`2fd153c`). `caveman-compress` needs the `claude` CLI or `ANTHROPIC_API_KEY`.
 - **Project-type routing.** Detects Lovable, Capacitor, Electron, n8n and Cloudflare projects and routes to the right specialist.
 - **Cost-aware models.** Cheap models for mechanical work, strong models only where mistakes are expensive.
 - **MCP servers.** Playwright, Chrome DevTools, Firecrawl, Blender, Google Search Console, Google Trends, shadcn, 21st.dev, Gemini, and the Cloudflare suite.
