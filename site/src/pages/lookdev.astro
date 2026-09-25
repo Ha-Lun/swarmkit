@@ -87,7 +87,7 @@ const favicon =
       import type { Agent } from '../lib/agents';
       import { accentCandidates, look, ranges, readPalette, type Tier } from '../lib/world/config';
       import { createHoneycomb, type Honeycomb } from '../lib/world/honeycomb';
-      import { createPacket, createTestCurve, type Packet } from '../lib/world/packet';
+      import { createPacket, createTestCurve, loopPath, type Packet } from '../lib/world/packet';
       import { createHexDissolve, hexPixelSize } from '../lib/world/transitions';
       import { createPost, type Post } from '../lib/world/post';
       import { createStudio, type Studio } from '../lib/world/studio';
@@ -105,8 +105,8 @@ const favicon =
 
       type PanelId = 'cell' | 'packet' | 'dissolve' | 'particles' | 'post' | 'palette';
       const PANELS: Record<PanelId, { title: string; note: string; groups: (keyof typeof look)[] }> = {
-        cell: { title: 'Cell material + surroundings', groups: ['cell', 'light', 'halo', 'dust'], note: 'Round 4, pearlescent ceramic. Judge: satin finish (sheen, roughness, no sparkle), pearl shift at cell edge and horizon (muted?), seam glow (lit channels, not dark gaps or a neon grid), bevel, core softness, halo at the limb, dust, and the moving key/kicker (swing the orbit slider). Lift and core boost are the hover/active state.' },
-        packet: { title: 'Task packet', groups: ['packet'], note: 'Judge: is it the first thing the eye finds; trail length, width, fade. Three accent candidates run the same loop.' },
+        cell: { title: 'Stone panels + lights', groups: ['cell', 'light'], note: 'Round 5, flush speckled stone, no glow. Judge: does the speckle read as stone at the wide view (not only close up; scale, density, contrast), seam width and evenness, hairline bevel, agent ring inlay per band (ring width), tone of agent vs filler stone, the moving key (swing the orbit slider), and the moon (view moon). Active tone and lift are the hover/focus state.' },
+        packet: { title: 'Comet', groups: ['packet'], note: 'Judge: is the head small and hard, does the tail lengthen with speed (move the speed slider) and taper crisply, are the sparks few. No glow. Three accent candidates run the same loop.' },
         dissolve: { title: 'Hex dissolve', groups: ['dissolve'], note: 'Judge: speed (use auto), hex size against the lattice, wavefront uniformity. Hex size is tied to the on-screen lattice cell.' },
         particles: { title: 'Particle swarm', groups: ['particles'], note: 'Judge: curl flow reads as swarm not fireworks, dim-to-bright, convergence on the target. attract stands in for chapterProgress.' },
         post: { title: 'Chromatic aberration + grain', groups: ['post'], note: 'High tier only. Judge: if either is noticeable at a glance it is too much. Toggle to compare.' },
@@ -117,7 +117,7 @@ const favicon =
       let panel: PanelId = (q.get('panel') as PanelId) in PANELS ? (q.get('panel') as PanelId) : 'cell';
       let accentSel = 'violet';
       let postOn = true;
-      let activeBoost = 0, activeLift = 0;
+      let activeBoost = 0, activeLift = 0, cometSpeed = 4.5;
       let cellView = q.get('view') ?? 'wide';
       let dissolveProgress = Number(q.get('progress') ?? 0.5), dissolveAuto = q.get('auto') === '1';
       L.particles.attract = q.has('attract') ? Number(q.get('attract')) : L.particles.attract;
@@ -133,16 +133,19 @@ const favicon =
       let comb: Honeycomb = createHoneycomb(agents, tier, renderer);
       comb.update(1, 0);
       scene.add(comb.object);
-      let studio: Studio = createStudio(scene, tier, palette, comb.lattice.radius);
+      let studio: Studio = createStudio(scene, tier, palette);
       const curve = createTestCurve(comb.lattice);
       const lat = comb.lattice;
-      const packets: Packet[] = accentCandidates.map((c) => createPacket(curve, c.hex, look.packet));
+      const loop = loopPath(curve);
+      const packets: Packet[] = accentCandidates.map((c) => createPacket(c.hex, look.packet));
       packets.forEach((p) => scene.add(p.group));
       const leadIdx = comb.lattice.cells.findIndex((c) => c.agent?.band === 'core');
       const t1Idx = comb.lattice.cells.findIndex((c) => c.agent?.band === 't1');
 
       const R = lat.radius;
+      const mc = lat.moon.centre, mn = lat.moon.normal;
       const POSE: Record<string, [number[], number[]]> = {
+        moon: [[mc.x + mn.x * 11, mc.y + mn.y * 11 + 1.5, mc.z + mn.z * 11], [mc.x, mc.y, mc.z]], // the moon close up
         cell: [[0, 3.2, R + 8], [0, 0, R + 0.4]], // close on the core cell
         wide: [[0.7 * R, 0.8 * R, 3.6 * R], [0.2 * R, 0, 0]], // the whole globe and its moon
         fly: [[-1.3 * R, 1.2 * R, 2.3 * R], [-0.1 * R, 0.1 * R, 0.4 * R]], // the cells fly-over distance and height
@@ -186,7 +189,6 @@ const favicon =
         rtB.setSize(w * pr, h * pr);
         post?.setSize(w, h, pr);
         packets.forEach((p) => p.setViewportHeight(bh));
-        studio.setViewportHeight(bh);
         swarm?.setViewportHeight(bh);
       }
       window.addEventListener('resize', resize);
@@ -206,7 +208,7 @@ const favicon =
         comb.update(1, 0); // fully grown, undimmed
         scene.add(comb.object);
         studio.dispose();
-        studio = createStudio(scene, tier, palette, comb.lattice.radius);
+        studio = createStudio(scene, tier, palette);
         applyCellState();
         post?.dispose();
         post = tier === 'high' ? createPost(renderer, scene, cam, look.post) : null;
@@ -254,14 +256,15 @@ const favicon =
         canvas.style.visibility = panel === 'palette' ? 'hidden' : 'visible';
 
         if (panel === 'cell') {
-          slider(ex, 'active core boost', () => activeBoost, (v) => { activeBoost = v; applyCellState(); }, [0, 1.5, 0.01]);
+          slider(ex, 'active tone brighten (0..1)', () => activeBoost, (v) => { activeBoost = v; applyCellState(); }, [0, 1, 0.01]);
           slider(ex, 'active lift (0..1 x lift)', () => activeLift, (v) => { activeLift = v; applyCellState(); }, [0, 1, 0.01]);
           slider(ex, 'orbit azimuth (deg): moves the camera, so the key and kicker travel', () => orbitAz, (v) => (orbitAz = v), [-180, 180, 1]);
           const views = document.createElement('div'); views.className = 'row'; ex.append(views);
-          for (const v of ['cell', 'wide', 'fly', 'top']) button(views, `view ${v}`, () => { cellView = v; }, undefined);
-          if (tier === 'medium') { const n = document.createElement('p'); n.textContent = 'medium tier: thickness and density are not compiled in.'; ex.append(n); }
+          for (const v of ['cell', 'wide', 'fly', 'top', 'moon']) button(views, `view ${v}`, () => { cellView = v; }, undefined);
+          if (tier === 'medium') { const n = document.createElement('p'); n.textContent = 'medium tier: no fine flecks, one mottle octave, no studio reflection.'; ex.append(n); }
         }
         if (panel === 'packet') {
+          slider(ex, 'comet speed (units/s: the tail follows it)', () => cometSpeed, (v) => (cometSpeed = v), [0, 12, 0.1]);
           const row = document.createElement('div'); row.className = 'row'; ex.append(row);
           for (const id of ['all', ...accentCandidates.map((c) => c.name)]) {
             const b = button(row, id, () => { accentSel = id; row.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); }, id === accentSel);
@@ -293,7 +296,7 @@ const favicon =
 
       // ---- loop ----
       const frames: number[] = [];
-      let last = 0, time = 0, hexPx = 0;
+      let last = 0, time = 0, hexPx = 0, cometDist = 0;
       const gl = canvas.getContext('webgl2');
       const dbg = gl?.getExtension('WEBGL_debug_renderer_info');
       const rendererName = gl && dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'unknown';
@@ -308,13 +311,13 @@ const favicon =
         frames.push(dt * 1000);
         if (frames.length > 600) frames.shift();
 
+        cometDist += cometSpeed * dt;
         comb.syncLook();
         comb.update(1, 0); // no-op unless look.cell.relief changed
-        const phase = (time * look.packet.speed) % 1;
         const showPackets = panel === 'packet' || panel === 'post' || panel === 'dissolve';
         packets.forEach((p, i) => {
           p.group.visible = showPackets && (accentSel === 'all' || accentSel === accentCandidates[i].name);
-          if (p.group.visible) p.update(accentSel === 'all' ? phase + i / packets.length : phase, cam, look.packet);
+          if (p.group.visible) p.update(loop, cometDist + (accentSel === 'all' ? (i * loop.length) / packets.length : 0), cam, look.packet, 1, dt);
         });
 
         if (panel === 'palette') return;
@@ -336,7 +339,7 @@ const favicon =
           dissolve.render(renderer, rtA.texture, rtB.texture, dissolveProgress, hexPx, look.dissolve);
         } else {
           pose(panel === 'cell' ? cellView : 'wide');
-          studio.update(cam, { timeSec: time, dim: 0, visible: true, growth: 1 });
+          studio.update(cam, { timeSec: time });
           if (panel === 'post' && postOn && post) { post.sync(look.post); post.render(dt, time); }
           else { renderer.setRenderTarget(null); renderer.render(scene, cam); }
         }

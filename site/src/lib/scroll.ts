@@ -5,7 +5,7 @@
 import Lenis from 'lenis';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { SEGMENTS } from './world/camera-path';
+import { scrollToProgress, SEGMENTS } from './world/camera-path';
 
 export interface ScrollState {
   chapter: number;
@@ -32,13 +32,13 @@ export function initScroll(): Scroll {
   if (sections.length !== SEGMENTS.length) throw new Error(`scroll: ${sections.length} chapter sections, ${SEGMENTS.length} camera segments`);
 
   const state: ScrollState = { chapter: 0, chapterProgress: 0, globalProgress: 0 };
-  // Every trigger starts where the previous one ends (same viewport line), so globalProgress is continuous.
+  // Every trigger starts where the previous one ends (same viewport line), so globalProgress is continuous (scrollToProgress hits
+  // SEGMENTS[i].t0/t1 exactly at the boundaries).
   const triggers = sections.map((el, i) => {
-    const seg = SEGMENTS[i];
     const write = (p: number) => {
       state.chapter = i;
       state.chapterProgress = p;
-      state.globalProgress = seg.t0 + p * (seg.t1 - seg.t0);
+      state.globalProgress = scrollToProgress(i, p); // arc-length balanced: the camera speed per scroll never jumps at a chapter boundary
     };
     return ScrollTrigger.create({
       trigger: el,

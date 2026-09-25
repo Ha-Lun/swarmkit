@@ -1,54 +1,66 @@
 import {
   BufferGeometry, Color, DynamicDrawUsage, Float32BufferAttribute, Group, InstancedBufferAttribute, InstancedMesh, Matrix4,
-  CylinderGeometry, Mesh, MeshBasicMaterial, MeshStandardMaterial, Quaternion, ShaderMaterial, SphereGeometry, Vector3, type WebGLRenderer,
+  Mesh, MeshBasicMaterial, MeshStandardMaterial, Quaternion, SphereGeometry, Vector3, type WebGLRenderer,
 } from 'three';
 import { CELL_RADIUS, look, readPalette, SINK, type Tier } from './config';
 import { createCellMaterial, createStudioEnv, type CellUniforms } from './cell-material';
-import { buildSphere } from './sphere';
+import { buildSphere, type Sphere } from './sphere';
 import type { Agent } from '../agents';
 import type { Band } from '../../content/tiers';
 
-// The lattice is a Goldberg sphere (sphere.ts): hexagon and pentagon prisms extruded along the surface normal,
-// plus a small moon cluster of flat hexes floating beside it. Cell circumradius is ~1 world unit.
+// The lattice is two Goldberg spheres (sphere.ts): the globe GP(5,0) and a small moon GP(2,0), both built the same way.
+// Every cell is a flush stone panel: its footprint is the cell's own spherical-Voronoi polygon inset by half the seam, so
+// the seam has one constant width over the whole surface, and every panel stands the same small relief above its sphere.
+// Cell circumradius is ~1 world unit on the globe.
 const SQRT3 = Math.sqrt(3);
 export const GLOBE_FREQ = 5; // GP(5,0): 252 cells, 240 hex + 12 pentagons
-const CELL_GAP = CELL_RADIUS; // prism radius; <1 leaves a visible seam
-const LEAD_CORE = 1.0; // emissive strength per agent band (filler cells have none)
-const AGENT_CORE = 0.7;
-const GLOBE_HEIGHT = 0.35; // extrusion of globe cells relative to the old flat lattice: a smooth ball with subtle relief, not spikes (look.cell.relief scales it live)
-const MOON_SCALE = 0.7; // moon cell size relative to a globe cell
+export const MOON_FREQ = 2; // GP(2,0): 42 cells, 30 hex + 12 pentagons
+const RELIEF = 0.05; // layout default of the panel relief (look.cell.relief scales the meshes live)
+const MOON_CELL = 0.7; // moon cell size relative to a globe cell
 const MOON_OFFSET = 1.85; // moon centre distance in globe radii
 const MOON_DIR = new Vector3(0.86, 0.3, 0.4).normalize();
+const HIVE_EYE = new Vector3(0, 0.37, 0.93).multiplyScalar(4.2); // the hive camera, in globe radii: the moon turns its core cell towards it
+const SEAM_DEFAULT = 0.085;
 
-// height and grey per band (agents vs filler differ only by these two values)
-const AGENT_STYLE: Record<Band, { h: number; grey: number }> = {
-  core: { h: 1.8, grey: 1.0 },
-  t1: { h: 1.1, grey: 0.95 },
-  domain: { h: 0.9, grey: 0.9 },
-  gate: { h: 1.1, grey: 0.95 },
-  satellite: { h: 0.9, grey: 0.9 },
+// Inlay per band (agents only, filler panels are plain stone): ring count, ring width (of the panel half-width), centre dot.
+// Bands read apart by ring count and width: core 3 rings + dot, T1 one wide ring, domain two rings, gate a ring + dot, moon a fine ring.
+const INLAY: Record<Band, { n: number; w: number; dot: number }> = {
+  core: { n: 3, w: 0.05, dot: 1 },
+  t1: { n: 1, w: 0.13, dot: 0 },
+  domain: { n: 2, w: 0.075, dot: 0 },
+  gate: { n: 1, w: 0.06, dot: 1 },
+  satellite: { n: 1, w: 0.085, dot: 0 },
 };
-const FILLER = { h: 0.3, grey: 0.68 };
 
 export interface Cell {
-  /** base surface point of the prism (on the sphere, or on the moon plate) */
+  /** base surface point of the panel (on its sphere) */
   pos: Vector3;
-  /** outward unit normal: the prism extrudes along it */
+  /** outward unit normal: the panel extrudes along it */
   normal: Vector3;
   /** geodesic ring index from the core cell (graph distance); moon cells use maxRing so they appear last */
   ring: number;
   agent?: Agent;
+  /** panel height above the sphere */
   height: number;
-  grey: number;
   /** 0..1 stagger inside a ring so growth sweeps around */
   sweep: number;
   sides: 5 | 6;
-  /** prism footprint scale (footprint circumradius = CELL_RADIUS * scale) */
+  /** local xz corners (world units, seam 0) of the cell's Voronoi polygon, in the local frame of `quat`, ascending atan2(x, z) */
+  poly: number[];
+  /** how far each polygon edge's true (great-circle) position bulges past the straight chord between its corners, world units.
+   *  It matters on the small moon (its cells are big against its radius): the inset subtracts it so the seam stays even there. */
+  sag: number[];
+  /** distance from the cell centre to its nearest edge (seam 0) */
+  half: number;
+  /** panel footprint size with the default seam: circumradius = CELL_RADIUS * scale */
   scale: number;
-  /** orients the footprint: local +Y = normal, local +Z = towards a polygon corner */
+  /** radius of the sphere the panel sits on and its seam width */
+  bodyRadius: number;
+  seam: number;
+  /** orients the footprint: local +Y = normal, local +Z = towards polygon corner 0 */
   quat: Quaternion;
   moon: boolean;
-  /** unit-sphere polygon corners (globe cells only) for outlines */
+  /** unit-sphere polygon corners for outlines (in the body's own frame, never the moon's centre offset) */
   corners?: Vector3[];
 }
 
@@ -61,11 +73,12 @@ export interface Lattice {
   radius: number;
   /** mean hexagon circumradius (world units), for screen-space sizing */
   cellRadius: number;
-  moon: { centre: Vector3; normal: Vector3; radius: number };
+  moon: { centre: Vector3; normal: Vector3; radius: number; cells: number };
+  /** pentagons on the globe (the moon has its own 12) */
   pentagons: number;
 }
 
-/** World-space top of a cell (prism apex centre). */
+/** World-space top of a cell (panel top centre). */
 export const cellTopOf = (c: Cell, out = new Vector3()): Vector3 => out.copy(c.normal).multiplyScalar(c.height).add(c.pos);
 
 const basisQuat = (y: Vector3, z: Vector3) => {
@@ -73,18 +86,74 @@ const basisQuat = (y: Vector3, z: Vector3) => {
   return new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(x, y, new Vector3().crossVectors(x, y)));
 };
 
-// pointy-top axial hex spiral for the moon cluster (circumradius 1, centre spacing sqrt(3))
-const DIRS: [number, number][] = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
-function ringCells(k: number): [number, number][] {
-  if (k === 0) return [[0, 0]];
-  const out: [number, number][] = [];
-  let q = -k, r = k;
-  for (let i = 0; i < 6; i++) for (let j = 0; j < k; j++) {
-    out.push([q, r]);
-    q += DIRS[i][0]; r += DIRS[i][1];
+/** Local axes of a cell: x, y (normal), z (towards corner 0). */
+export function cellFrame(c: Cell): { x: Vector3; y: Vector3; z: Vector3 } {
+  return { x: new Vector3(1, 0, 0).applyQuaternion(c.quat), y: new Vector3(0, 1, 0).applyQuaternion(c.quat), z: new Vector3(0, 0, 1).applyQuaternion(c.quat) };
+}
+
+/** Inset a convex polygon (flat [x0, z0, x1, z1, ...] around the origin) by `d` on every edge; mitred corners. */
+export function insetPolygon(poly: number[], d: number, out: number[] = [], sag?: number[]): number[] {
+  const n = poly.length / 2;
+  const nx: number[] = [], nz: number[] = [];
+  for (let k = 0; k < n; k++) {
+    const k1 = (k + 1) % n;
+    const ex = poly[k1 * 2] - poly[k * 2], ez = poly[k1 * 2 + 1] - poly[k * 2 + 1];
+    const l = Math.hypot(ex, ez) || 1;
+    let ax = -ez / l, az = ex / l; // an edge normal; flip it to point at the cell centre
+    if (ax * (poly[k * 2] + poly[k1 * 2]) + az * (poly[k * 2 + 1] + poly[k1 * 2 + 1]) > 0) { ax = -ax; az = -az; }
+    nx.push(ax); nz.push(az);
   }
+  for (let k = 0; k < n; k++) {
+    const p = (k + n - 1) % n; // the edge before corner k is edge k-1, the edge after it is edge k
+    // per-edge inset d - sag: mitre point of the two offset lines (offsets dp, dk along their inward normals)
+    const dp = d - (sag ? sag[p] : 0), dk = d - (sag ? sag[k] : 0);
+    const c = nx[p] * nx[k] + nz[p] * nz[k], det = 1 - c * c;
+    if (det < 1e-9) { out[k * 2] = poly[k * 2] + nx[k] * dk; out[k * 2 + 1] = poly[k * 2 + 1] + nz[k] * dk; continue; }
+    const a = (dp - c * dk) / det, b = (dk - c * dp) / det;
+    out[k * 2] = poly[k * 2] + nx[p] * a + nx[k] * b;
+    out[k * 2 + 1] = poly[k * 2 + 1] + nz[p] * a + nz[k] * b;
+  }
+  out.length = n * 2;
   return out;
 }
+
+/** The panel footprint of a cell for a given seam width (flat [x, z, ...] in the cell's local frame). */
+export const footprint = (c: Cell, seam: number) => insetPolygon(c.poly, seam / 2, [], c.sag);
+
+/** Voronoi polygon of a sphere cell in a local frame (world units, sphere radius R). Corners come out ascending atan2(x, z). */
+function polygonOf(corners: Vector3[], normal: Vector3, R: number) {
+  const toCorner = corners[0].clone().addScaledVector(normal, -corners[0].dot(normal)).normalize();
+  const quat = basisQuat(normal, toCorner);
+  const x = new Vector3(1, 0, 0).applyQuaternion(quat), z = new Vector3(0, 0, 1).applyQuaternion(quat);
+  const pts = corners.map((c) => [R * c.dot(x), R * c.dot(z)] as const).sort((a, b) => Math.atan2(a[0], a[1]) - Math.atan2(b[0], b[1]));
+  const poly = pts.flatMap(([px, pz]) => [px, pz]);
+  // sorted corner order: recover the 3D corner for each sorted point to find the great-circle midpoint of every edge
+  const sorted = corners.map((c) => ({ c, a: Math.atan2(R * c.dot(x), R * c.dot(z)) })).sort((u, v) => u.a - v.a).map((o) => o.c);
+  let half = Infinity;
+  const sag: number[] = [];
+  for (let k = 0; k < pts.length; k++) {
+    const a = pts[k], b = pts[(k + 1) % pts.length];
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    half = Math.min(half, Math.abs(a[0] * (b[1] - a[1]) - a[1] * (b[0] - a[0])) / l);
+    const m = sorted[k].clone().add(sorted[(k + 1) % pts.length]).normalize().multiplyScalar(R);
+    const mx = m.dot(x) - (a[0] + b[0]) / 2, mz = m.dot(z) - (a[1] + b[1]) / 2;
+    // signed bulge of the true edge past the chord, positive away from the cell centre
+    const nxo = (b[1] - a[1]) / l, nzo = -(b[0] - a[0]) / l;
+    const outward = nxo * (a[0] + b[0]) + nzo * (a[1] + b[1]) > 0 ? 1 : -1;
+    sag.push(outward * (mx * nxo + mz * nzo));
+  }
+  return { poly, half, sag, quat };
+}
+
+const ringsFrom = (sphere: Sphere, start: number) => {
+  const ringOf = new Array<number>(sphere.cells.length).fill(-1);
+  ringOf[start] = 0;
+  const queue = [start];
+  for (let h = 0; h < queue.length; h++) {
+    for (const j of sphere.cells[queue[h]].neighbours) if (ringOf[j] < 0) { ringOf[j] = ringOf[queue[h]] + 1; queue.push(j); }
+  }
+  return ringOf;
+};
 
 const layoutCache = new WeakMap<Agent[], Lattice>();
 
@@ -97,12 +166,7 @@ export function layoutLattice(agents: Agent[]): Lattice {
   const n = sphere.cells.length;
 
   // geodesic rings: graph distance from the core cell
-  const ringOf = new Array<number>(n).fill(-1);
-  ringOf[sphere.core] = 0;
-  const queue = [sphere.core];
-  for (let h = 0; h < queue.length; h++) {
-    for (const j of sphere.cells[queue[h]].neighbours) if (ringOf[j] < 0) { ringOf[j] = ringOf[queue[h]] + 1; queue.push(j); }
-  }
+  const ringOf = ringsFrom(sphere, sphere.core);
   const azimuth = (i: number) => Math.atan2(sphere.cells[i].center[1], sphere.cells[i].center[0]);
   const ringSlots = (k: number) => sphere.cells.map((_, i) => i).filter((i) => ringOf[i] === k).sort((a, b) => azimuth(a) - azimuth(b));
 
@@ -132,52 +196,56 @@ export function layoutLattice(agents: Agent[]): Lattice {
   const cells: Cell[] = [];
   sphere.cells.forEach((sc, i) => {
     const agent = slotOwner.get(i);
-    const s = agent ? AGENT_STYLE[agent.band] : FILLER;
     const normal = new Vector3(...sc.center);
-    const slots = ringSlots(ringOf[i]);
-    const dists = sc.neighbours.map((j) => Math.hypot(
-      sc.center[0] - sphere.cells[j].center[0], sc.center[1] - sphere.cells[j].center[1], sc.center[2] - sphere.cells[j].center[2]));
-    const apothem = (R * (0.5 * (dists.reduce((a, b) => a + b, 0) / dists.length) + 0.5 * Math.min(...dists))) / 2; // mean and nearest neighbour: never overlaps a closer one
     const corners = sc.corners.map((c) => new Vector3(...c));
-    const toCorner = corners[0].clone().addScaledVector(normal, -corners[0].dot(normal)).normalize();
+    const slots = ringSlots(ringOf[i]);
+    const { poly, half, sag, quat } = polygonOf(corners, normal, R);
     cells.push({
-      pos: normal.clone().multiplyScalar(R), normal, ring: ringOf[i], agent, height: s.h * GLOBE_HEIGHT, grey: s.grey,
-      sweep: slots.indexOf(i) / slots.length, sides: sc.sides, scale: apothem / Math.cos(Math.PI / sc.sides),
-      quat: basisQuat(normal, toCorner), moon: false, corners,
+      pos: normal.clone().multiplyScalar(R), normal, ring: ringOf[i], agent, height: RELIEF,
+      sweep: slots.indexOf(i) / slots.length, sides: sc.sides, poly, half, sag,
+      scale: 1, bodyRadius: R, seam: SEAM_DEFAULT, quat, moon: false, corners,
     });
   });
 
-  // moon cluster: hexes on a small plate beside the globe, showroom at the centre, its workers around it
+  // moon: a small Goldberg sphere beside the globe, showroom on the cell that faces the hive camera, its workers on the rings around it
   const sats = agents.filter((a) => a.band === 'satellite')
     .sort((a, b) => (a.name === 'showroom' ? -1 : b.name === 'showroom' ? 1 : a.name.localeCompare(b.name)));
   const centre = MOON_DIR.clone().multiplyScalar(R * MOON_OFFSET);
-  const moonNormal = centre.clone().normalize().add(new Vector3(0.05, 0.35, 1).normalize()).normalize(); // turned towards the hive camera
-  const up = new Vector3(0, 1, 0).addScaledVector(moonNormal, -moonNormal.y).normalize();
-  const right = new Vector3().crossVectors(moonNormal, up);
-  const moonQuat = basisQuat(moonNormal, up);
+  const facing = HIVE_EYE.clone().multiplyScalar(R).sub(centre).normalize();
   let moonRadius = 0;
+  let moonCells = 0;
   if (sats.length) {
-    const spiral: [number, number][] = [];
-    for (let k = 0; spiral.length < Math.max(sats.length, 7); k++) spiral.push(...ringCells(k));
-    spiral.forEach(([q, r], i) => {
-      const x = SQRT3 * (q + r / 2) * MOON_SCALE, z = 1.5 * r * MOON_SCALE;
-      const agent = sats[i];
-      const s = agent ? AGENT_STYLE.satellite : FILLER;
-      const pos = centre.clone().addScaledVector(right, x).addScaledVector(up, z);
-      moonRadius = Math.max(moonRadius, pos.distanceTo(centre) + MOON_SCALE);
+    const ms = buildSphere(MOON_FREQ);
+    const Rm = (SQRT3 / ms.meanSpacing) * MOON_CELL;
+    const rot = new Quaternion().setFromUnitVectors(new Vector3(0, 0, 1), facing); // the moon's core cell (+Z) turns towards the camera
+    const mring = ringsFrom(ms, ms.core);
+    const order = ms.cells.map((_, i) => i).sort((a, b) => mring[a] - mring[b] || Math.atan2(ms.cells[a].center[1], ms.cells[a].center[0]) - Math.atan2(ms.cells[b].center[1], ms.cells[b].center[0]));
+    const owner = new Map<number, Agent>();
+    sats.slice(0, order.length).forEach((a, k) => owner.set(order[k], a));
+    ms.cells.forEach((sc, i) => {
+      const normal = new Vector3(...sc.center).applyQuaternion(rot);
+      const corners = sc.corners.map((c) => new Vector3(...c).applyQuaternion(rot));
+      const { poly, half, sag, quat } = polygonOf(corners, normal, Rm);
       cells.push({
-        pos, normal: moonNormal.clone(), ring: maxRing, agent, height: s.h * MOON_SCALE, grey: s.grey,
-        sweep: i / spiral.length, sides: 6, scale: MOON_SCALE, quat: moonQuat.clone(), moon: true,
+        pos: centre.clone().addScaledVector(normal, Rm), normal, ring: maxRing, agent: owner.get(i), height: RELIEF,
+        sweep: i / ms.cells.length, sides: sc.sides, poly, half, sag, scale: 1, bodyRadius: Rm, seam: SEAM_DEFAULT * MOON_CELL,
+        quat, moon: true, corners,
       });
     });
+    moonRadius = Rm + RELIEF;
+    moonCells = ms.cells.length;
   }
 
+  cells.forEach((c) => {
+    const fp = footprint(c, c.seam);
+    c.scale = fp.reduce((m, _, k) => (k % 2 ? m : Math.max(m, Math.hypot(fp[k], fp[k + 1]))), 0) / CELL_RADIUS;
+  });
   const hexRadii = cells.filter((c) => !c.moon && c.sides === 6).map((c) => c.scale * CELL_RADIUS);
   const lattice: Lattice = {
     cells, agentCount: cells.filter((c) => c.agent).length, maxRing, radius: R,
     cellRadius: hexRadii.reduce((a, b) => a + b, 0) / hexRadii.length,
-    moon: { centre, normal: moonNormal, radius: moonRadius },
-    pentagons: cells.filter((c) => c.sides === 5).length,
+    moon: { centre, normal: facing, radius: moonRadius, cells: moonCells },
+    pentagons: cells.filter((c) => !c.moon && c.sides === 5).length,
   };
   layoutCache.set(agents, lattice);
   return lattice;
@@ -186,21 +254,21 @@ export function layoutLattice(agents: Agent[]): Lattice {
 const ease = (t: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
 
 export interface Honeycomb {
-  /** root object: two instanced prism meshes (hex, pentagon) sharing one material, plus a dark occluding core */
+  /** root object: two instanced panel meshes (hex, pentagon) sharing one material, plus the dark seam floors */
   object: Group;
   /** the pickable instanced meshes */
   meshes: InstancedMesh[];
   /** cell index for an instance of one of `meshes` */
   cellAt(mesh: unknown, instanceId: number): number;
   lattice: Lattice;
-  /** growth 0..1 drives ring-by-ring extrusion; dim 0..1 darkens the lattice */
+  /** growth 0..1 drives the ring-by-ring rise; dim 0..1 darkens the lattice */
   update(growth: number, dim: number): void;
   material: MeshStandardMaterial;
   uniforms: CellUniforms;
-  /** re-read look.cell into the material uniforms */
+  /** re-read look.cell into the material uniforms (and rebuild the seam footprints when the seam slider moved) */
   syncLook(): void;
-  /** per-instance state: core strength multiplier (added to base) and lift 0..1 (scaled by look.cell.lift) */
-  setCellState(i: number, emissiveBoost: number, lift: number): void;
+  /** per-instance state: tone brightening 0..1 and lift 0..1 (scaled by look.cell.lift). Never self-lit. */
+  setCellState(i: number, bright: number, lift: number): void;
   dispose(): void;
 }
 
@@ -208,45 +276,57 @@ export interface Honeycomb {
 const FILLET = [0, 22.5, 45, 67.5, 90].map((d) => (d * Math.PI) / 180);
 
 /**
- * Prism with a filleted top edge: flat-shaded walls, a quarter-round edge in four steps with smooth normals, and a top cap.
- * The fillet size is applied in the vertex shader (cell-material.ts) in world units: aBev.x drops a ring by (1 - sin a),
- * aBev.y insets it by (1 - cos a), both times the bevel.
+ * Prism with a hairline filleted top edge: flat-shaded walls, a quarter-round edge in four steps with smooth normals, and a top cap.
+ * The unit geometry is a regular polygon of circumradius 1 (used for picking); the vertex shader (cell-material.ts) replaces every
+ * corner with the instance's own Voronoi corner (aK = corner index, -1 = centre) and applies the fillet size in world units:
+ * aBev.x drops a ring by (1 - sin a), aBev.y insets it by (1 - cos a), both times the bevel.
  */
 function prism(sides: 5 | 6): BufferGeometry {
-  const R = CELL_GAP;
-  const pos: number[] = [], nor: number[] = [], bev: number[] = [], idx: number[] = [];
-  const vert = (x: number, y: number, z: number, nx: number, ny: number, nz: number, bx: number, by: number) => {
-    pos.push(x, y, z); nor.push(nx, ny, nz); bev.push(bx, by);
+  const R = CELL_RADIUS;
+  const pos: number[] = [], nor: number[] = [], bev: number[] = [], kk: number[] = [], idx: number[] = [];
+  const vert = (k: number, y: number, nx: number, ny: number, nz: number, bx: number, by: number) => {
+    const a = (k / sides) * Math.PI * 2;
+    pos.push(k < 0 ? 0 : R * Math.sin(a), y, k < 0 ? 0 : R * Math.cos(a)); nor.push(nx, ny, nz); bev.push(bx, by); kk.push(k < 0 ? -1 : k % sides);
     return pos.length / 3 - 1;
   };
   for (let k = 0; k < sides; k++) {
-    const a0 = (k / sides) * Math.PI * 2, a1 = ((k + 1) / sides) * Math.PI * 2, m = (a0 + a1) / 2;
+    const m = ((k + 0.5) / sides) * Math.PI * 2;
     const nx = Math.sin(m), nz = Math.cos(m);
     // wall, from the base to the top of the wall (where the fillet starts)
-    const wall = [[a0, 0], [a1, 0], [a1, 1], [a0, 1]].map(([a, y]) => vert(R * Math.sin(a), y, R * Math.cos(a), nx, 0, nz, y, 0));
+    const wall = [[k, 0], [k + 1, 0], [k + 1, 1], [k, 1]].map(([c, y]) => vert(c, y, nx, 0, nz, y, 0));
     idx.push(wall[0], wall[1], wall[2], wall[0], wall[2], wall[3]);
     // fillet rings, each with the normal tilted from the wall toward the top face
     let prev = [wall[3], wall[2]];
     for (let i = 1; i < FILLET.length; i++) {
       const f = FILLET[i], c = Math.cos(f), sn = Math.sin(f);
       const bx = 1 - sn, by = 1 - c;
-      const row = [a0, a1].map((a) => vert(R * Math.sin(a), 1, R * Math.cos(a), nx * c, sn, nz * c, bx, by));
+      const row = [k, k + 1].map((a) => vert(a, 1, nx * c, sn, nz * c, bx, by));
       idx.push(prev[0], prev[1], row[1], prev[0], row[1], row[0]);
       prev = row;
     }
     // top cap
-    const t0 = vert(R * Math.sin(a0), 1, R * Math.cos(a0), 0, 1, 0, 0, 1);
-    const t1 = vert(R * Math.sin(a1), 1, R * Math.cos(a1), 0, 1, 0, 0, 1);
-    const tc = vert(0, 1, 0, 0, 1, 0, 0, 0);
+    const t0 = vert(k, 1, 0, 1, 0, 0, 1);
+    const t1 = vert(k + 1, 1, 0, 1, 0, 0, 1);
+    const tc = vert(-1, 1, 0, 1, 0, 0, 0);
     idx.push(tc, t0, t1);
   }
   const g = new BufferGeometry();
   g.setAttribute('position', new Float32BufferAttribute(pos, 3));
   g.setAttribute('normal', new Float32BufferAttribute(nor, 3));
   g.setAttribute('aBev', new Float32BufferAttribute(bev, 2));
-  g.setAttribute('aSides', new Float32BufferAttribute(new Float32Array(pos.length / 3).fill(sides), 1));
+  g.setAttribute('aK', new Float32BufferAttribute(kk, 1));
   g.setIndex(idx);
   return g;
+}
+
+// mulberry32: a fixed random layout per cell index, so screenshots and tier switches agree
+function rng(seed: number) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?: WebGLRenderer): Honeycomb {
@@ -254,36 +334,59 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
   const palette = readPalette();
   const cellMat = createCellMaterial(tier, palette, look.cell);
   const { material } = cellMat;
-  const waxColor = material.color.clone();
   // procedural studio reflection: high tier only, and only when the caller can give us the renderer to bake it with
   const env = tier === 'high' && renderer ? createStudioEnv(renderer, palette) : null;
   if (env) material.envMap = env.texture;
 
+  const attr = (n: number, count: number, dynamic = false) => {
+    const a = new InstancedBufferAttribute(new Float32Array(n * count), n ? count : count);
+    if (dynamic) a.setUsage(DynamicDrawUsage);
+    return a;
+  };
   const kinds = ([6, 5] as const).map((sides) => {
     const cellIdx = lattice.cells.flatMap((c, i) => (c.sides === sides ? [i] : []));
     const geometry = prism(sides);
-    const emissive = new InstancedBufferAttribute(new Float32Array(cellIdx.length), 1);
-    const lift = new InstancedBufferAttribute(new Float32Array(cellIdx.length), 1);
-    emissive.setUsage(DynamicDrawUsage);
-    lift.setUsage(DynamicDrawUsage);
-    geometry.setAttribute('aEmissive', emissive);
-    geometry.setAttribute('aLift', lift);
-    const mesh = new InstancedMesh(geometry, material, cellIdx.length);
+    const cnt = cellIdx.length;
+    const state = attr(cnt, 2, true); // bright, lift
+    const stone = attr(cnt, 4); // rotation, offset u, offset v, 1 / body radius
+    const inlay = attr(cnt, 4); // ring count (0 = plain stone), ring width, centre dot, panel half width
+    const corners = [attr(cnt, 4, true), attr(cnt, 4, true), attr(cnt, 4, true)];
+    geometry.setAttribute('aState', state);
+    geometry.setAttribute('aStone', stone);
+    geometry.setAttribute('aInlay', inlay);
+    ['aCornA', 'aCornB', 'aCornC'].forEach((n, k) => geometry.setAttribute(n, corners[k]));
+    const mesh = new InstancedMesh(geometry, material, cnt);
     mesh.instanceMatrix.setUsage(DynamicDrawUsage);
     mesh.frustumCulled = false;
-    return { cellIdx, geometry, emissive, lift, mesh };
+    return { cellIdx, geometry, state, stone, inlay, corners, mesh };
   });
   const slotOf = new Map<number, { k: number; slot: number }>();
   kinds.forEach((kd, k) => kd.cellIdx.forEach((ci, slot) => slotOf.set(ci, { k, slot })));
 
-  const baseEmissive = Float32Array.from(lattice.cells, (c) => (c.agent ? (c.agent.band === 'core' ? LEAD_CORE : AGENT_CORE) : 0));
-  const tmp = new Color();
   kinds.forEach((kd) => kd.cellIdx.forEach((ci, slot) => {
-    kd.emissive.setX(slot, baseEmissive[ci]);
-    // a few percent of tonal variance per cell (deterministic), so the glaze does not read as one flat print
-    const jitter = 1 + 0.09 * (Math.abs(Math.sin(ci * 12.9898) * 43758.5453 % 1) - 0.5);
-    kd.mesh.setColorAt(slot, tmp.setScalar(lattice.cells[ci].grey * jitter));
+    const c = lattice.cells[ci];
+    const r = rng(ci * 7919 + 13);
+    // every panel is its own stone piece: a random rotation and offset into the (shared) speckle field
+    kd.stone.setXYZW(slot, r() * Math.PI * 2, r() * 97, r() * 97, 1 / c.bodyRadius);
+    const spec = c.agent ? INLAY[c.agent.band] : { n: 0, w: 0, dot: 0 };
+    kd.inlay.setXYZW(slot, spec.n, spec.w, spec.dot, c.half);
   }));
+
+  let lastSeam = NaN;
+  const setFootprints = (seam: number) => {
+    const tmp: number[] = [];
+    kinds.forEach((kd) => {
+      kd.cellIdx.forEach((ci, slot) => {
+        const c = lattice.cells[ci];
+        const fp = insetPolygon(c.poly, (c.moon ? seam * MOON_CELL : seam) / 2, tmp, c.sag);
+        const at = (k: number) => (k < fp.length ? fp[k] : fp[0]);
+        kd.corners[0].setXYZW(slot, at(0), at(1), at(2), at(3));
+        kd.corners[1].setXYZW(slot, at(4), at(5), at(6), at(7));
+        kd.corners[2].setXYZW(slot, at(8), at(9), at(10), at(11));
+      });
+      kd.corners.forEach((a) => (a.needsUpdate = true));
+    });
+  };
 
   const ringSpan = Math.max(1, lattice.maxRing);
   // ring k starts at (k-1)/maxRing of the growth range; ring 0 is always present; the back hemisphere grows with the limb
@@ -292,66 +395,30 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
     return ring === 0 ? -1 : ((ring - 1) / ringSpan) * 0.72 + c.sweep * 0.06;
   };
 
-  // seam floor: a sphere just under the cells. It hides the far side through the seams and glows softly warm, so the
-  // engraved seams between the cells read as lit channels instead of dark gaps with the background showing through.
-  // It grows with the cells (per-vertex start taken from the nearest cell), so the glow never runs ahead of the lattice.
-  const coreGeo = new SphereGeometry(lattice.radius - SINK * 0.5, 96, 48);
-  {
-    const posA = coreGeo.attributes.position;
-    const globeCells = lattice.cells.filter((c) => !c.moon);
-    const starts = new Float32Array(posA.count);
-    const v = new Vector3();
-    for (let i = 0; i < posA.count; i++) {
-      v.fromBufferAttribute(posA, i).normalize();
-      let best = globeCells[0], bd = -2;
-      for (const c of globeCells) { const d = v.dot(c.normal); if (d > bd) { bd = d; best = c; } }
-      starts[i] = startOf(best);
-    }
-    coreGeo.setAttribute('aStart', new Float32BufferAttribute(starts, 1));
-  }
-  const coreMat = new ShaderMaterial({
-    uniforms: { uSeam: { value: new Color() }, uInk: { value: new Color(palette.ink) }, uGrowth: { value: 1 } },
-    vertexShader: `attribute float aStart; varying float vStart;
-      void main() { vStart = aStart; gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }`,
-    fragmentShader: `uniform vec3 uSeam, uInk; uniform float uGrowth; varying float vStart;
-      #include <common>
-      #include <dithering_pars_fragment>
-      void main() {
-        float t = clamp( ( uGrowth - vStart ) / 0.28, 0.0, 1.0 );
-        // the floor lights up only once the cells above it are mostly grown, so the glow never runs ahead of them
-        gl_FragColor = vec4( mix( uInk, uSeam, smoothstep( 0.6, 1.0, 1.0 - pow( 1.0 - t, 3.0 ) ) ), 1.0 );
-        #include <tonemapping_fragment>
-        #include <colorspace_fragment>
-        #include <dithering_fragment>
-      }`,
-    dithering: true,
-    fog: false,
-  });
-  const core = new Mesh(coreGeo, coreMat);
-  // the moon is flat: a hex tile per cell under it plays the same role
-  const moonIdx = lattice.cells.flatMap((c, i) => (c.moon ? [i] : []));
-  const tileGeo = new CylinderGeometry(1, 1, 1, 6, 1);
-  tileGeo.translate(0, 0.5, 0);
-  const tileMat = new MeshBasicMaterial({ color: cellMat.seamColor, fog: false, dithering: true });
-  const tiles = new InstancedMesh(tileGeo, tileMat, Math.max(moonIdx.length, 1));
-  tiles.count = moonIdx.length;
-  tiles.frustumCulled = false;
-  tiles.instanceMatrix.setUsage(DynamicDrawUsage);
-  let dimNow = 0;
-  const seamFloor = () => {
-    const k = look.cell.seamGlow * 0.55 * (1 - 0.65 * dimNow);
-    (coreMat.uniforms.uSeam.value as Color).copy(cellMat.seamColor).multiplyScalar(k);
-    tileMat.color.copy(cellMat.seamColor).multiplyScalar(k);
+  // Seam floor: a dark matte sphere just under each body. It hides the far side through the seams, so the engraved
+  // seams read as recessed dark channels. It is the background ink: no emission, no growth-driven colour.
+  const floorMat = new MeshBasicMaterial({ color: new Color(palette.ink), fog: false });
+  const floorGeos: SphereGeometry[] = [];
+  const floors: Mesh[] = [];
+  const addFloor = (radius: number, at?: Vector3) => {
+    const g = new SphereGeometry(radius - SINK * 0.5, 96, 48);
+    floorGeos.push(g);
+    const m = new Mesh(g, floorMat);
+    if (at) m.position.copy(at);
+    floors.push(m);
   };
-  seamFloor();
+  addFloor(lattice.radius);
+  const moonCell = lattice.cells.find((c) => c.moon);
+  if (moonCell) addFloor(moonCell.bodyRadius, lattice.moon.centre);
 
   const object = new Group();
-  object.add(core, tiles, ...kinds.map((kd) => kd.mesh));
+  object.add(...floors, ...kinds.map((kd) => kd.mesh));
 
   const m = new Matrix4();
   const p = new Vector3();
   const sc = new Vector3();
   let lastGrowth = NaN, lastDim = NaN, lastRelief = NaN;
+  const whiteBase = material.color.clone();
 
   return {
     object,
@@ -360,17 +427,16 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
     lattice,
     material,
     uniforms: cellMat.uniforms,
-    syncLook() { cellMat.sync(look.cell); seamFloor(); },
-    setCellState(i, emissiveBoost, lf) {
+    syncLook() { cellMat.sync(look.cell); },
+    setCellState(i, bright, lf) {
       const s = slotOf.get(i);
       if (!s) return;
       const kd = kinds[s.k];
-      kd.emissive.setX(s.slot, baseEmissive[i] + emissiveBoost);
-      kd.lift.setX(s.slot, lf * look.cell.lift);
-      kd.emissive.needsUpdate = true;
-      kd.lift.needsUpdate = true;
+      kd.state.setXY(s.slot, bright, lf * look.cell.lift);
+      kd.state.needsUpdate = true;
     },
     update(growth, dim) {
+      if (look.cell.seam !== lastSeam) { lastSeam = look.cell.seam; setFootprints(look.cell.seam); }
       if (growth !== lastGrowth || look.cell.relief !== lastRelief) {
         lastGrowth = growth;
         lastRelief = look.cell.relief;
@@ -378,35 +444,25 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
           kd.cellIdx.forEach((ci, slot) => {
             const c = lattice.cells[ci];
             const s = ease((growth - startOf(c)) / 0.28);
-            p.copy(c.normal).multiplyScalar(-SINK).add(c.pos);
-            sc.set(Math.max(s * c.scale, 1e-4), Math.max(s * (c.height * (c.moon ? 1 : look.cell.relief) + SINK), 1e-4), Math.max(s * c.scale, 1e-4));
+            // flush growth: the panel rises out of the seam floor, ring by ring, widening as it comes up; no scale on the height
+            const rise = (1 - s) * 0.5;
+            p.copy(c.normal).multiplyScalar(-(SINK + rise)).add(c.pos);
+            const w = s <= 0.001 ? 1e-4 : 0.6 + 0.4 * s;
+            sc.set(w, look.cell.relief + SINK, w);
             kd.mesh.setMatrixAt(slot, m.compose(p, c.quat, sc));
           });
           kd.mesh.instanceMatrix.needsUpdate = true;
         });
-        coreMat.uniforms.uGrowth.value = growth;
-        moonIdx.forEach((ci, slot) => {
-          const c = lattice.cells[ci];
-          const s = ease((growth - startOf(c)) / 0.28);
-          p.copy(c.normal).multiplyScalar(-SINK * 0.5).add(c.pos);
-          tiles.setMatrixAt(slot, m.compose(p, c.quat, sc.set(Math.max(s * c.scale, 1e-4), 0.004 * s + 1e-5, Math.max(s * c.scale, 1e-4))));
-        });
-        tiles.instanceMatrix.needsUpdate = true;
       }
       if (dim !== lastDim) {
         lastDim = dim;
-        dimNow = dim;
-        material.color.copy(waxColor).multiplyScalar(1 - 0.65 * dim);
-        seamFloor();
+        material.color.copy(whiteBase).multiplyScalar(1 - 0.65 * dim);
       }
     },
     dispose() {
       kinds.forEach((kd) => { kd.geometry.dispose(); kd.mesh.dispose(); });
-      coreGeo.dispose();
-      coreMat.dispose();
-      tileGeo.dispose();
-      tileMat.dispose();
-      tiles.dispose();
+      floorGeos.forEach((g) => g.dispose());
+      floorMat.dispose();
       material.dispose();
       env?.dispose();
     },

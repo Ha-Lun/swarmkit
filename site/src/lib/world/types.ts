@@ -3,6 +3,7 @@ import type { Agent } from '../agents';
 import type { ScrollState } from '../scroll';
 import type { Honeycomb, Lattice } from './honeycomb';
 import type { Flow } from './routes';
+import type { RingFx } from './rings';
 
 export interface RoutingNames {
   /** the three quality-gate agents */
@@ -42,6 +43,8 @@ export interface WorldCtx {
   readonly view: View;
   readonly lattice: Lattice;
   readonly flows: Flow[];
+  /** the comet's crisp ring effects on the globe surface (scan ring, arrival ripples) */
+  readonly rings: RingFx;
   /** agent names from content/routing.ts, resolved at build time */
   readonly routing: RoutingNames;
   readonly scroll: { lock(): void; unlock(): void };
@@ -51,12 +54,14 @@ export interface WorldCtx {
   dt: number;
   cellIndex(name: string): number;
   cellTop(name: string, out: Vector3): Vector3 | null;
-  /** request a cell glow/lift for this frame (0..1 scaled by motion.glow); the world smooths it */
-  glow(name: string, amount: number): void;
+  /** request a panel lift and tone brightening for this frame (0..1); the world smooths it. Never self-lit. */
+  hilite(name: string, amount: number): void;
 }
 
 export interface Chapter {
   enter(): void;
+  /** opacity of this chapter's pinned scene (the world drives it, so neighbouring scenes cross-fade with matched curves) */
+  fade(v: number): void;
   /** progress is chapterProgress 0..1 */
   update(progress: number): void;
   exit(): void;

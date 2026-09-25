@@ -1,16 +1,15 @@
 // Chapter 2. The camera flies along the lattice (camera-path.ts). Hovering a cell, or focusing its entry in the
-// hidden agent list, lifts and glows it and shows its label card (pick.ts). No roster panels: the roster lives in
+// hidden agent list, lifts and brightens it and shows its label card (pick.ts). No roster panels: the roster lives in
 // the Reference section. The tier legend chip of the active agent's band lights (opacity only).
 import { Vector3 } from 'three';
 import { motion } from '../motion-config';
 import { createPick } from '../pick';
-import { pinWindow, presence, sceneOf, setOpacity } from '../scene-dom';
+import { sceneOf, setOpacity } from '../scene-dom';
 import type { Chapter, WorldCtx } from '../types';
 
 export function createCells(ctx: WorldCtx): Chapter {
   const { view } = ctx;
   const scene = sceneOf('cells');
-  const win = pinWindow(motion.runway.cells);
   const pick = createPick(ctx, scene.root);
   const tmp = new Vector3();
   const bandOf = new Map(ctx.agents.map((a) => [a.name, a.band as string]));
@@ -20,11 +19,11 @@ export function createCells(ctx: WorldCtx): Chapter {
     enter() {
       pick.enable();
     },
-    update(p) {
-      scene.fade(presence(p, win));
+    fade: (v) => scene.fade(v),
+    update() {
       const { name, byKeyboard } = pick.update();
       if (name && ctx.cellTop(name, tmp)) {
-        ctx.glow(name, 1);
+        ctx.hilite(name, 1);
         if (byKeyboard) { // a keyboard-focused cell may be off screen: ease the camera toward it. A hovered one never moves the camera.
           view.focus.copy(tmp);
           view.focusWeight = motion.camera.hoverBias;

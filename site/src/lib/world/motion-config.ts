@@ -17,21 +17,23 @@ export const motion = {
     taglineMs: 1900,
   },
   packet: {
-    unitsPerSec: 4.5, // world units per second along a route
-    dwellSec: 0.45, // pause at each stop on a card route
-    coreDwellSec: 0.7, // "classified" pause on the hive route
+    meanSpeed: 4.2, // world units per second averaged over a leg (a leg eases in and out, so its peak is 1.875x this)
+    minLegSec: 0.7, // shortest a leg may last
+    coreHoldSec: 1.1, // "classified": the comet holds at the core while the scanning ring is engraved
+    holdSec: 0.4, // hold at each stop on a card route
+    specHoldSec: 0.35, // hold at the specialist before the fan-out
     fadeSec: 0.6,
-    arcLift: 0.6, // extra height of a hop between cells
-    arcLiftPerUnit: 0.05,
-    entryHeight: 4,
-    hiveHoldSec: 1.2,
-    hiveGapSec: 1.6,
+    entryHold: 0.15, // scroll-scrubbed route: seconds of stillness before the comet starts
+    hiveHoldSec: 1.2, // the gates hold at the end of the scrubbed route
+    ripple: { speed: 2.4, sec: 0.9, width: 0.055 }, // arrival ripple: world units/s across the surface, lifetime, line width
+    scan: { radius: 0.62, width: 0.06, fade: 0.4 }, // the scanning ring: fraction of the panel half-width, line width, fade-out seconds
   },
-  glow: { boost: 0.8, lift: 1, ratePerSec: 9 },
+  hilite: { ratePerSec: 9, strike: 0.6 }, // panel lift/brighten smoothing, and how strongly a comet landing lifts a panel
   camera: {
     focusRatePerSec: 4,
     hoverBias: 0.3, // keyboard focus only: how far the look-at target moves toward the focused cell (pointer hover never moves the camera)
-    routeBias: 0.5, // ... toward a replaying packet
+    routeBias: 0.5, // ... toward a replaying comet
+    hiveBias: 0.22, // the hive look-at leans this far toward the comet head while it is on screen
     routeOverview: 0.9, // a replaying route pulls the camera out to the full-lattice view
     routeDrop: 0.2,
   },

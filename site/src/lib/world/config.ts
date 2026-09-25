@@ -1,11 +1,11 @@
-// Look uniforms as data. Round 4 (pearlescent ceramic globe): the human unlocked cell, light, halo and dust for this round only;
+// Look uniforms as data. Round 5 (flush speckled-stone globe, hard-edged comet, no glow): the human unlocked cell, light and packet for this round only;
 // they re-lock after the verdict. The /lookdev sliders mutate these objects in memory only (nothing is persisted), so a reload restores the values here.
 
 export type Tier = 'high' | 'medium';
 
-/** Prism radius of one lattice cell; <1 leaves a visible seam (lattice circumradius is 1). */
-export const CELL_RADIUS = 0.958;
-/** Prisms start this far below the surface so seams never show a gap; the seam floor sits half of it below the surface. */
+/** Circumradius of the unit prism geometry. The seam is not baked in: every panel is scaled so the gap to its neighbours is `look.cell.seam` wide. */
+export const CELL_RADIUS = 1;
+/** Prisms start this far below the surface; the (dark, matte) seam floor sits half of it below the surface. */
 export const SINK = 0.12;
 
 // Fallback copy of the colour tokens in src/styles/tokens.css. readPalette() prefers the CSS values.
@@ -34,51 +34,46 @@ export const accentCandidates = [
 
 export const look = {
   cell: {
-    rim: 0.4, // fresnel rim intensity (softened in round 4)
-    rimPower: 2.6, // higher = thinner rim
-    thickness: 0.25, // warm bleed at cell edges (high tier only)
-    density: 0.15, // darkening of the dense centre (high tier only)
-    core: 0.4, // emissive core strength, agent cells only
-    coreRadius: 0.62, // core extent in cell-radius units (<1 stays inside the cell)
-    roughness: 0.36, // satin: low enough for a soft wide highlight, high enough for no sparkle
-    lift: 0.35, // world units a hovered/focused cell rises
-    bevel: 0.1, // world units: rounded edge on top of each cell, so silhouettes catch light
-    dome: 0.7, // how far the top face's shading leans outward at the cell edge (a soft pillow, not a flat puck)
-    relief: 0.75, // multiplier on the (already low) cell extrusion
-    sheen: 0.55, // satin sheen at grazing angles, driven by the key and kicker lights
-    pearl: 0.6, // pearl colour shift toward each cell's edge
-    pearlHorizon: 0.8, // pearl colour shift toward the horizon
-    seamGlow: 0.8, // soft warm glow in the engraved seams
-    seamDepth: 0.22, // world units: how far up the seam wall the glow reaches
-    envIntensity: 0.5, // procedural studio reflection (high tier only)
+    // geometry: every panel sits at the same radius; relief and seam are world units (a cell is about 1.7 across)
+    relief: 0.05, // how far every panel stands above the sphere (about 3% of a cell)
+    seam: 0.085, // width of the engraved seam between panels, constant over the whole globe
+    bevel: 0.025, // hairline rounded edge on the panel top, so the seam stays crisp
+    lift: 0.07, // world units a hovered/focused (or comet-struck) panel rises
+    // material
+    roughness: 0.52, // matte stone; the lights give it a gentle satin highlight
+    sheen: 0.3, // satin lift at grazing angles
+    envIntensity: 0.25, // procedural studio reflection (high tier only)
+    // speckled stone (procedural, anchored per panel with its own random rotation and offset)
+    speckle: 0.8, // fleck contrast
+    speckleScale: 1.0, // fleck size multiplier (1 = about 2-3 px at the hive distance; larger = coarser)
+    speckleDensity: 0.55, // share of grid cells that carry a fleck
+    mottle: 0.35, // slow blotchy tone variation of the stone body
+    tone: 0.04, // per-panel brightness variation
+    // agent panels: lighter stone and an engraved ring inlay
+    agentTone: 0.22, // how much lighter agent stone is than filler
+    ringWidth: 1.0, // multiplier on the inlay ring width (band-dependent widths are in honeycomb.ts)
+    ringDepth: 0.7, // how dark the engraved ring is
+    hover: 0.45, // tone brightening of a hovered/focused panel
   },
   light: {
-    key: 1.5, // directional key intensity
+    key: 1.7, // directional key intensity
     hemi: 0.08,
-    ambient: 0.04,
-    kicker: 0.6, // soft light from behind the globe
+    ambient: 0.05,
+    kicker: 0.5, // rim light from behind the globe
     sweep: 0.6, // 0 = key rides with the camera, 1 = fixed in the world; between, highlights travel as the camera orbits
     keyElevation: 42, // degrees
   },
-  halo: {
-    opacity: 0.13, // limb brightness
-    radius: 1.17, // shell radius in globe radii
-    power: 2.8, // falloff (higher = tighter to the limb)
-  },
-  dust: {
-    opacity: 0.55,
-    size: 2.4, // px at 1080p
-    drift: 0.35, // amplitude multiplier of the slow drift
-    parallax: 0.07, // how far the dust shifts against the camera position
-  },
   packet: {
-    headSize: 34, // px at 1080p
+    // the comet: small hard head, tapering tail that grows with speed, a few shed sparks. Nothing additive.
+    headSize: 13, // px at 1080p
     headBrightness: 1.0,
-    speed: 0.05, // loops per second along the test curve
-    trailLength: 0.16, // fraction of the loop
-    trailWidth: 0.16, // world units at the head
-    trailFade: 1.8, // fade exponent toward the tail
-    height: 0.55, // world units above the cell top
+    tailMin: 0.5, // world units of tail at rest
+    tailGain: 0.55, // extra tail per (unit/s) of visible speed
+    tailMax: 3.4,
+    tailWidth: 0.17, // world units at the head
+    tailFade: 1.5, // darkening exponent toward the tail end
+    sparks: 0.8, // emission strength (0 = none)
+    height: 0.16, // low constant lift above the panel tops
   },
   dissolve: {
     hexScale: 1.0, // multiplier on the on-screen lattice cell size (1 = native)
@@ -114,17 +109,15 @@ export type Look = typeof look;
 /** [min, max, step] for the lookdev sliders. Keys mirror `look`. */
 export const ranges: { [G in keyof Look]?: { [K in keyof Look[G]]?: [number, number, number] } } = {
   cell: {
-    rim: [0, 2, 0.01], rimPower: [1, 8, 0.1], thickness: [0, 2, 0.01], density: [0, 0.9, 0.01],
-    core: [0, 2, 0.01], coreRadius: [0.2, 1, 0.01], roughness: [0.15, 1, 0.01], lift: [0, 1, 0.01],
-    bevel: [0, 0.3, 0.005], dome: [0, 1.2, 0.01], relief: [0.3, 2.5, 0.01], sheen: [0, 2, 0.01], pearl: [0, 1.5, 0.01], pearlHorizon: [0, 1.5, 0.01],
-    seamGlow: [0, 2, 0.01], seamDepth: [0.05, 0.8, 0.01], envIntensity: [0, 2, 0.01],
+    relief: [0.01, 0.15, 0.005], seam: [0.02, 0.25, 0.005], bevel: [0, 0.06, 0.0025], lift: [0, 0.3, 0.005],
+    roughness: [0.15, 1, 0.01], sheen: [0, 1.5, 0.01], envIntensity: [0, 1.5, 0.01],
+    speckle: [0, 1.6, 0.01], speckleScale: [0.4, 3, 0.02], speckleDensity: [0.1, 1, 0.01], mottle: [0, 1, 0.01], tone: [0, 0.2, 0.005],
+    agentTone: [0, 0.6, 0.01], ringWidth: [0.4, 2.5, 0.02], ringDepth: [0, 1, 0.01], hover: [0, 1.2, 0.01],
   },
   light: { key: [0, 4, 0.05], hemi: [0, 2, 0.02], ambient: [0, 1, 0.01], kicker: [0, 3, 0.05], sweep: [0, 1, 0.01], keyElevation: [5, 80, 1] },
-  halo: { opacity: [0, 2, 0.01], radius: [1.04, 1.5, 0.01], power: [0.8, 6, 0.1] },
-  dust: { opacity: [0, 1.5, 0.01], size: [0.5, 8, 0.1], drift: [0, 2, 0.01], parallax: [0, 0.3, 0.005] },
   packet: {
-    headSize: [4, 48, 1], headBrightness: [0.2, 2, 0.01], speed: [0.01, 0.2, 0.005],
-    trailLength: [0.02, 0.3, 0.005], trailWidth: [0.02, 0.4, 0.005], trailFade: [0.5, 4, 0.05], height: [0.2, 1.5, 0.01],
+    headSize: [3, 24, 0.5], headBrightness: [0.2, 2, 0.01], tailMin: [0, 2, 0.02], tailGain: [0, 2, 0.01], tailMax: [0.5, 8, 0.05],
+    tailWidth: [0.02, 0.4, 0.005], tailFade: [0.3, 4, 0.05], sparks: [0, 2, 0.05], height: [0.05, 0.8, 0.01],
   },
   dissolve: { hexScale: [0.4, 4, 0.05], spread: [0.05, 0.9, 0.01], noise: [0, 1, 0.01], edge: [0.5, 6, 0.05] },
   particles: {

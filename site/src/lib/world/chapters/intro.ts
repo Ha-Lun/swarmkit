@@ -154,8 +154,8 @@ export function createIntro(ctx: WorldCtx): IntroChapter {
     },
     skip,
     enter() {},
+    fade: (v) => scene.fade(v),
     update(p) {
-      scene.fade(1);
       const lead = 1 - range(p, 0.1, 0.5);
       setOpacity(tagWrap, lead); // the tagline and the cue leave as the world starts to move
       setOpacity(foot, lead);

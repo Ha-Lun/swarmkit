@@ -12,7 +12,7 @@ export interface SphereCell {
   center: Vec3;
   /** indices of the cells sharing an edge */
   neighbours: number[];
-  /** unit-sphere polygon corners, counter-clockwise seen from outside */
+  /** unit-sphere polygon corners (spherical Voronoi vertices), counter-clockwise seen from outside */
   corners: Vec3[];
   sides: 5 | 6;
 }
@@ -135,9 +135,13 @@ export function buildSphere(freq = 4): Sphere {
   const cells: SphereCell[] = V.map((c, i) => {
     const e1 = norm(cross(c, Math.abs(c[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0]));
     const e2 = cross(c, e1);
+    // spherical Voronoi vertex of each triangle around the cell (its circumcentre on the sphere): every cell edge then lies
+    // exactly on the bisector with its neighbour, so a constant inset gives a constant seam width
     const centroids = around[i].map((ti) => {
       const t = tris[ti];
-      return norm(add(add(V[t[0]], V[t[1]]), V[t[2]]));
+      const a = V[t[0]], b = V[t[1]], d = V[t[2]];
+      const n = norm(cross(sub(b, a), sub(d, a)));
+      return dot(n, add(add(a, b), d)) < 0 ? mul(n, -1) : n;
     });
     const ang = (p: Vec3) => Math.atan2(dot(p, e2), dot(p, e1));
     centroids.sort((a, b) => ang(a) - ang(b));

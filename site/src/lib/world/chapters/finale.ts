@@ -13,6 +13,7 @@ export function createFinale(ctx: WorldCtx): Chapter {
   const chips = scene.q('[data-chip-in]');
   return {
     enter() {},
+    fade: (v) => scene.fade(v),
     update(p) {
       const f = motion.finale;
       const broken = range(p, 0, f.breakEnd);
@@ -23,7 +24,7 @@ export function createFinale(ctx: WorldCtx): Chapter {
       view.swarmFade = range(p, f.swarmInStart, f.swarmInEnd);
       view.swarmAttract = range(p, f.attractStart, f.attractEnd);
 
-      scene.fade(1); // the finale scene never leaves; its parts come in on their own clocks
+      // the finale scene never leaves (the world fades it in with the handover); its parts come in on their own clocks
       copy.forEach((el) => setOpacity(el, range(p, f.copyStart, f.copyEnd)));
       const n = Math.max(1, chips.length);
       const span = (f.chipsEnd - f.chipsStart) * 0.6; // each chip takes 60% of the window; starts are staggered across the rest

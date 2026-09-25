@@ -1,17 +1,20 @@
 // The one WebGL world: renderer, scene, locked lights, honeycomb, packets, hex-dissolve targets, post, swarm.
 // It reads the shared scroll state and the locked look; it never re-tunes either, and never listens to scroll.
+// The camera reads a critically damped copy of the scroll progress (about 0.15 s), so wheel and trackpad steps never reach it raw.
 import {
   Color, Fog, HalfFloatType, PerspectiveCamera, Scene, Vector2, Vector3, WebGLRenderer, WebGLRenderTarget,
 } from 'three';
 import type { Agent } from '../agents';
 import type { ScrollState } from '../scroll';
 import { createCameraPath, SEGMENTS } from './camera-path';
+import { arrival } from './scene-dom';
 import { accentCandidates, look, readPalette } from './config';
 import { cellTopOf, createHoneycomb, layoutLattice, type Honeycomb } from './honeycomb';
 import { motion, SWARM_CAM } from './motion-config';
 import { createPost, type Post } from './post';
 import { createStudio, type Studio } from './studio';
 import { createFlow, type Flow } from './routes';
+import { createRingFx } from './rings';
 import { createSwarm, type Swarm } from './swarm-particles';
 import { createHexDissolve, hexPixelSize, type HexDissolve } from './transitions';
 import type { ActiveTier, Chapter, RoutingNames, View, WorldCtx } from './types';
@@ -46,7 +49,7 @@ export interface World {
 const MAX_DPR: Record<ActiveTier, number> = { high: 2, medium: 1.5 };
 
 function readAccent(): string {
-  // The accent belongs to the packet and its trail only; this is the one place it is read.
+  // The accent belongs to the comet (head, tail, sparks, its rings) only; this is the one place it is read.
   const css = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
   return css || accentCandidates.find((c) => c.name === 'violet')!.hex;
 }
@@ -69,24 +72,27 @@ export function createWorld(opts: WorldOptions): World {
 
   let comb: Honeycomb = createHoneycomb(agents, tier, renderer);
   scene.add(comb.object);
-  // moving studio lights, atmosphere halo and drifting dust around the globe
-  let studio: Studio = createStudio(scene, tier, palette, lattice.radius);
+  // moving studio lights for the stone (lights only: nothing here draws a glow)
+  let studio: Studio = createStudio(scene, tier, palette);
   const path = createCameraPath(lattice);
 
   const accent = readAccent();
   const flows: Flow[] = Array.from({ length: 4 }, () => createFlow(accent));
   flows.forEach((f) => scene.add(f.packet.group));
+  // the comet's crisp scan ring and arrival ripples sit just above the panel tops
+  const rings = createRingFx(lattice.radius + look.cell.relief + 0.045, accent);
+  scene.add(rings.mesh);
 
-  // ---- view + glow ----
+  // ---- view + panel highlight ----
   const view: View = {
     growth: 1, dim: 0, dissolve: 0, canvasOpacity: 1, latticeVisible: true, swarmFade: 0, swarmAttract: 0,
     focus: new Vector3(), focusWeight: 0, focusDrop: 0, overview: 0, camFloor: 0,
   };
-  const glowTarget = new Map<number, number>();
-  const glowCur = new Map<number, number>();
+  const hiTarget = new Map<number, number>();
+  const hiCur = new Map<number, number>();
 
   const ctx: WorldCtx = {
-    agents, routing, scene, camera, renderer, state, view, lattice, flows, scroll,
+    agents, routing, scene, camera, renderer, state, view, lattice, flows, rings, scroll,
     get comb() { return comb; },
     time: 0,
     dt: 0,
@@ -96,9 +102,9 @@ export function createWorld(opts: WorldOptions): World {
       if (i === undefined) return null;
       return cellTopOf(lattice.cells[i], out);
     },
-    glow(name, amount) {
+    hilite(name, amount) {
       const i = cellByName.get(name);
-      if (i !== undefined) glowTarget.set(i, Math.max(glowTarget.get(i) ?? 0, amount));
+      if (i !== undefined) hiTarget.set(i, Math.max(hiTarget.get(i) ?? 0, amount));
     },
   };
 
@@ -107,6 +113,7 @@ export function createWorld(opts: WorldOptions): World {
   const chapters: Chapter[] = [intro, createHive(ctx), createCells(ctx), createProof(ctx), createFinale(ctx)];
   if (chapters.length !== SEGMENTS.length) throw new Error('world: chapter modules must match camera segments');
   let active = -1;
+  chapters.forEach((c, i) => c.fade(i === 0 ? 1 : 0)); // scenes start hidden (and inert) until their handover
 
   // ---- optional pieces ----
   let post: Post | null = null;
@@ -158,8 +165,8 @@ export function createWorld(opts: WorldOptions): World {
     comb = createHoneycomb(agents, tier, renderer);
     scene.add(comb.object);
     studio.dispose();
-    studio = createStudio(scene, tier, palette, lattice.radius);
-    glowCur.clear();
+    studio = createStudio(scene, tier, palette);
+    hiCur.clear();
     post?.dispose();
     post = tier === 'high' ? createPost(renderer, scene, camera, look.post) : null;
     freeTargets();
@@ -192,7 +199,6 @@ export function createWorld(opts: WorldOptions): World {
     const bh = renderer.getDrawingBufferSize(v2).y;
     flows.forEach((f) => f.packet.setViewportHeight(bh));
     swarm?.setViewportHeight(bh);
-    studio.setViewportHeight(bh);
     if (swarm) {
       const tw = swarmTextWidth();
       if (Math.abs(tw - swarmTextW) > 0.5) { swarmTextW = tw; swarm.retarget(tw); }
@@ -206,6 +212,17 @@ export function createWorld(opts: WorldOptions): World {
   const pos = new Vector3(), target = new Vector3(), focusSm = new Vector3();
   const posB = new Vector3(), targetB = new Vector3(), aim = new Vector3();
   let focusW = 0, dropSm = 0, overviewSm = 0;
+  // critically damped progress (smoothTime ~0.15 s): the camera never sees a raw wheel step
+  const SMOOTH_TIME = 0.15;
+  let gSm = state.globalProgress, gVel = 0;
+  function dampProgress(dt: number) {
+    const w = 2 / SMOOTH_TIME, e = Math.exp(-w * dt);
+    const change = gSm - state.globalProgress;
+    const temp = (gVel + w * change) * dt;
+    gVel = (gVel - w * temp) * e;
+    gSm = state.globalProgress + (change + temp) * e;
+    if (Math.abs(gSm - state.globalProgress) < 1e-6 && Math.abs(gVel) < 1e-6) { gSm = state.globalProgress; gVel = 0; }
+  }
   let canvasOpacity = 1;
 
   function pose(g: number) {
@@ -223,26 +240,26 @@ export function createWorld(opts: WorldOptions): World {
     camera.position.copy(pos);
     camera.lookAt(target);
     // the key sweeps round the globe as the camera orbits (studio.ts), with a soft kicker from behind
-    studio.update(camera, { timeSec: time, dim: view.dim, visible: view.latticeVisible, growth: view.growth });
+    studio.update(camera, { timeSec: time });
     // fog follows camera distance so the recede reads as dimming, not clipping
     const d = pos.length();
     (scene.fog as Fog).near = d * 0.6;
     (scene.fog as Fog).far = d * 3 + 40;
   }
 
-  function stepGlow(dt: number) {
-    const k = 1 - Math.exp(-motion.glow.ratePerSec * dt);
-    for (const i of new Set([...glowTarget.keys(), ...glowCur.keys()])) {
-      const t = glowTarget.get(i) ?? 0;
-      let c = glowCur.get(i) ?? 0;
+  function stepHilite(dt: number) {
+    const k = 1 - Math.exp(-motion.hilite.ratePerSec * dt);
+    for (const i of new Set([...hiTarget.keys(), ...hiCur.keys()])) {
+      const t = hiTarget.get(i) ?? 0;
+      let c = hiCur.get(i) ?? 0;
       const prev = c;
       c += (t - c) * k;
       if (t === 0 && c < 0.002) c = 0;
       if (c === prev) continue;
-      comb.setCellState(i, c * motion.glow.boost, c * motion.glow.lift);
-      if (c === 0) glowCur.delete(i); else glowCur.set(i, c);
+      comb.setCellState(i, c, c); // tone brightening and lift; never self-lit
+      if (c === 0) hiCur.delete(i); else hiCur.set(i, c);
     }
-    glowTarget.clear();
+    hiTarget.clear();
   }
 
   let last = 0, time = 0, disposed = false;
@@ -273,12 +290,19 @@ export function createWorld(opts: WorldOptions): World {
       if (ch !== active) {
         if (active >= 0) chapters[active].exit();
         active = ch;
+        chapters.forEach((c, i) => Math.abs(i - ch) > 1 && c.fade(0)); // a jump across chapters leaves no half-faded scene behind
         chapters[ch].enter();
       }
       // stateless per-frame outputs: chapters overwrite what they care about
       view.growth = 1; view.dim = 0; view.dissolve = 0; view.canvasOpacity = 1; view.latticeVisible = true;
       view.swarmFade = 0; view.swarmAttract = 0; view.focusWeight = 0; view.focusDrop = 0; view.overview = 0;
       chapters[ch].update(state.chapterProgress);
+      // pinned scenes cross-fade with one ease: the arriving scene is `a`, the one leaving is `1 - a`, so they always sum to 1
+      const a = arrival(ch, state.chapterProgress);
+      chapters[ch].fade(a);
+      if (ch + 1 < chapters.length) chapters[ch + 1].fade(0); // the next scene stays hidden until its own handover begins
+      if (ch > 0) chapters[ch - 1].fade(1 - a); // the scene above hands over (in either scroll direction) and is fully gone once this one has arrived
+      dampProgress(dt);
 
       // lazy pieces, built ahead of the chapter that needs them
       if (!swarm && !swarmBuilding && ch >= 2) void ensureSwarm();
@@ -290,7 +314,7 @@ export function createWorld(opts: WorldOptions): World {
       focusW += (view.focusWeight - focusW) * kf;
       dropSm += (view.focusDrop - dropSm) * kf;
       overviewSm += (view.overview - overviewSm) * kf;
-      stepGlow(dt);
+      stepHilite(dt);
       render(dt);
 
       if (Math.abs(view.canvasOpacity - canvasOpacity) > 0.002) {
@@ -304,6 +328,7 @@ export function createWorld(opts: WorldOptions): World {
       window.removeEventListener('resize', onResize);
       chapters.forEach((c) => c.dispose?.());
       flows.forEach((f) => f.dispose());
+      rings.dispose();
       dissolve.dispose();
       freeTargets();
       post?.dispose();
@@ -318,7 +343,7 @@ export function createWorld(opts: WorldOptions): World {
   };
 
   function render(dt: number) {
-    const g = Math.max(state.globalProgress, view.camFloor);
+    const g = Math.max(gSm, view.camFloor);
     comb.update(view.growth, view.dim);
     comb.object.visible = view.latticeVisible;
     pose(g);

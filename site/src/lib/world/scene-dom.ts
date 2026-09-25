@@ -2,6 +2,8 @@
 // opacity (plus `inert` on a scene that is fully faded), never layout, and never a node insert or remove.
 // Everything a chapter drives carries data-fx, so resetFx() can hand the page back to the static layout.
 
+import { motion } from './motion-config';
+
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 const smooth = (t: number) => t * t * (3 - 2 * t);
 export const range = (p: number, a: number, b: number) => smooth(clamp01((p - a) / (b - a)));
@@ -24,11 +26,22 @@ export function pinWindow(vh: number, lastChapter = false): [number, number] {
   return [0.6 / span, lastChapter ? 1 : (vh - 0.4) / span];
 }
 
-/** 0..1 presence of a scene: fades in as it arrives, out as it leaves (the last chapter never leaves). */
-export function presence(p: number, [ps, pe]: [number, number], lastChapter = false): number {
-  const inn = range(p, ps * 0.35, ps);
-  const out = lastChapter ? 1 : 1 - range(p, pe, pe + (1 - pe) * 0.7);
-  return Math.min(inn, out);
+/**
+ * Where, in scroll past a chapter boundary (percent of a viewport height, the unit of motion.runway), one pinned scene hands over
+ * to the next. Scene text sits at the bottom of its 100vh box, so the incoming scene's text only comes on screen as the box
+ * finishes sliding in (0.6 of a viewport past the boundary) and the outgoing scene's text leaves through the top by the same
+ * point. The window straddles that moment, so the outgoing text is already fading as it slides away and the incoming text is
+ * already partway up as it appears: one ease, two complementary opacities, no gap and no stack of both at full strength.
+ */
+export const HANDOVER: [number, number] = [30, 90];
+const RUNWAYS = [motion.runway.intro, motion.runway.hive, motion.runway.cells, motion.runway.proof, motion.runway.finale];
+
+/**
+ * How far chapter `chapter`'s scene has arrived, 0..1, from its chapterProgress. The world writes it to this scene and its
+ * complement (1 - arrival) to the previous one, with the same ease, so the two always sum to 1.
+ */
+export function arrival(chapter: number, p: number): number {
+  return chapter === 0 ? 1 : range(p * RUNWAYS[chapter], HANDOVER[0], HANDOVER[1]);
 }
 
 export interface Scene {

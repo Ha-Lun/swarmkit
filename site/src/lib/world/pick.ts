@@ -1,6 +1,6 @@
 // Cell picking for the roster scene. A pointer raycast against the honeycomb's two InstancedMeshes (hex, pentagon; instanceId -> cell -> agent via
 // the lattice) and a visually hidden but focusable agent list both resolve to one agent name; the caller lifts and
-// glows that cell, and this module places a pre-rendered label card at the cell's projected centre.
+// lifts and brightens that cell, and this module places a pre-rendered label card at the cell's projected centre.
 //
 // The pointer listens on window and is attached only while the roster scene is active (the canvas itself sits
 // under the DOM layers). The raycast runs at most once per frame, and every frame while the pointer is over the

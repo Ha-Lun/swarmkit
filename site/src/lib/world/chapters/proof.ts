@@ -2,7 +2,7 @@
 // competes with the numbers. The DOM is a slim HUD strip of instrument readouts that come up one after another
 // (opacity only) once the scene is pinned.
 import { motion } from '../motion-config';
-import { pinWindow, presence, range, sceneOf, setOpacity } from '../scene-dom';
+import { pinWindow, range, sceneOf, setOpacity } from '../scene-dom';
 import type { Chapter, WorldCtx } from '../types';
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
@@ -15,12 +15,12 @@ export function createProof(ctx: WorldCtx): Chapter {
   const readouts = scene.q('[data-hud]');
   return {
     enter() {},
+    fade: (v) => scene.fade(v),
     update(p) {
       const m = motion.proof;
       view.dissolve = clamp01(p / m.dissolveEnd);
       view.dim = smooth(clamp01(p / m.dimEnd));
       view.canvasOpacity = 1 - (1 - m.canvasOpacity) * smooth(clamp01(p / m.dimEnd));
-      scene.fade(presence(p, win));
       readouts.forEach((el, i) => setOpacity(el, range(p, win[0] * 0.7 + i * motion.hud.stagger, win[0] + 0.03 + i * motion.hud.stagger)));
     },
     exit() {
