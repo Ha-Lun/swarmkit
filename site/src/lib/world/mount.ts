@@ -5,6 +5,7 @@ import type { Agent } from '../agents';
 import { initScroll, type Scroll } from '../scroll';
 import type { RoutingNames } from './types';
 import { markTier, createFpsProbe, type PlayTier, type TierDecision } from './tiers';
+import { resetFx } from './scene-dom';
 import { createWorld, type World } from './world';
 
 export function mountWorld(decision: TierDecision, agents: Agent[], routing: RoutingNames) {
@@ -26,6 +27,7 @@ export function mountWorld(decision: TierDecision, agents: Agent[], routing: Rou
     world?.dispose();
     scroll?.dispose(); // back to native scrolling
     root!.remove();
+    resetFx(); // hand the scenes back to the static layout
     world = null;
     scroll = null;
     document.documentElement.dataset.world = 'fallback';

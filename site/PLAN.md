@@ -12,7 +12,7 @@ One site, two jobs:
 1. **Explain SwarmKit.** A developer should understand what it is, how routing works, and how to install it in under 90 seconds.
 2. **Prove SwarmKit.** The site is visually ambitious (a continuous scroll-driven 3D world) and shows, with evidence, that the swarm built it.
 
-**Core principle:** the 3D is not decoration. The world *is* the swarm: a procedurally grown honeycomb in which every agent is a cell. The part that impresses and the part that explains are the same thing.
+**Core principle (animation first):** the animation is the centre of the site and the text is small, at the edges, and never in the way. The world *is* the swarm: a procedurally grown honeycomb in which every agent is a cell, so the part that impresses and the part that explains are the same thing. The text only helps describe what the animation is already showing: one or two short lines per scene, small chips, and label cards that appear when you hover or focus a cell. Everything else lives in one compact Reference section after the finale. Text budget on a pinned scene at 1440x810: visible DOM text covers at most about 12% of the viewport, captions are one or two lines, and none sits over the centre of the scene (label cards and the finale command excepted).
 
 ### Non-goals
 
@@ -73,14 +73,15 @@ The site's credibility *is* the product claim.
 │  <canvas> position:fixed, full viewport     │  ← one WebGL world, one camera
 │  z-index: 0, pointer-events only on nodes   │
 ├─────────────────────────────────────────────┤
-│  DOM chapters (normal flow, z-index: 1)     │  ← all text lives here
-│  Each chapter's height = its scroll length  │
+│  DOM chapters (normal flow, z-index: 1)     │  ← all text lives here, small, at the edges
+│  Each chapter = a tall runway holding one   │
+│  position:sticky, 100vh scene               │
 └─────────────────────────────────────────────┘
 ```
 
 - **One scroll source of truth.** ScrollTrigger computes `{ chapter, chapterProgress, globalProgress }` into a plain shared state object. The scene reads it each frame. Nothing else in the scene listens to scroll.
 - **Camera path:** one `CatmullRomCurve3` for the whole site. Each chapter owns a segment of it plus a look-at target. Keyframes live in data (`src/lib/world/camera-path.ts`), not scattered through code.
-- **Text first.** DOM content renders immediately and is the LCP element. The canvas initialises after first paint (`requestIdleCallback`, with a timeout fallback) and fades in.
+- **Animation first, text small.** The canvas is the centre; each chapter `<section>` is a tall runway (`--runway`, in vh, from `motion-config.ts`) holding one sticky 100vh scene, and every piece of scene text sits on that layer. Captions are pre-rendered and stacked, and the chapter only writes their opacity (no DOM mutation mid-scroll). DOM content still renders immediately (the intro tagline is the LCP element) and the canvas initialises after first paint (`requestIdleCallback`, with a timeout fallback) and fades in. Hover or focus detail (agent name, tier, one-line role) is a label card placed at the projected cell centre by `pick.ts`, driven by a pointer raycast and by a hidden, focusable agent list. Reduced motion, `?tier=fallback` and no-JS get a static layout of the same captions plus the Reference section: a complete page with no canvas.
 - **Chapter modules:** each chapter is a module exposing `enter()`, `update(progress)`, `exit()` and operating on the shared world. No per-chapter renderers.
 
 ### Repo layout
@@ -106,9 +107,12 @@ swarmkit/
         │   ├── honeycomb.ts       # lattice growth + agent cells
         │   ├── transitions.ts     # hex-dissolve pass
         │   ├── swarm-particles.ts # GPGPU finale
+        │   ├── pick.ts            # pointer raycast + keyboard list -> cell highlight + label card
+        │   ├── scene-dom.ts       # opacity-only DOM driver for the pinned scenes
         │   └── chapters/          # intro, hive, cells, proof, finale
         ├── pages/lookdev.astro    # isolated material/effect test bench (not linked in nav)
-        ├── components/chapters/
+        ├── components/chapters/   # one pinned scene per chapter
+        ├── components/Reference.astro, Nav.astro
         └── pages/index.astro
 ```
 
@@ -116,8 +120,18 @@ swarmkit/
 
 ## 6. Chapters
 
-| # | Chapter | DOM content | World |
+Each chapter is a runway with one pinned scene. Scroll lengths live in `motion-config.ts` (`motion.runway`, in viewport heights). The DOM text per scene is deliberately small.
+
+| # | Chapter (runway) | Scene text (small, at the edges) | World |
 |---|---|---|---|
+| 0 | **Intro** (≈ 3–4 s, timed, skippable; 100vh) | A small corner wordmark and one tagline line. No hero block | A single cell appears at the origin and divides; the lattice grows outward ring by ring. Skippable on click, key, or scroll; skipped entirely under reduced motion |
+| 1 | **The Hive** (300vh) | One caption that steps with the packet (task in, classified, routed, gates in parallel), pre-rendered and crossfaded by opacity. Small T1/T2/T3 chips light up per step. Three small focusable buttons (the example tasks) replay their route | Camera pulls back to the full lattice. A glowing task packet, scrubbed by scroll, enters, is classified, travels to a specialist cell, then fans out to the three gate cells simultaneously |
+| 2 | **The Cells** (300vh) | One caption and a slim tier legend. No roster panels. Hover or focus a cell to get a label card (name, tier, one-line role) | Camera flies along the lattice; the hovered or focused cell lifts and glows. A hidden, focusable agent list (arrow keys) drives the same highlight, so the keyboard works |
+| 3 | **Proof** (150vh) | A slim HUD strip of readouts: ponytail diff, benchmarks (`pending` until real data exists), harness disclosure, and the real build-log counts | Lattice recedes and dims to a backdrop. Hex-dissolve transition in; the canvas never competes with the numbers |
+| 4 | **Swarm finale: install** (400vh, the climax) | The assembled `./install.sh --all` holds centre screen with a small copy button beside it. Installer flags, platforms and counts appear as small chips only after it has formed | The lattice breaks apart into a GPU particle swarm that flocks and then assembles into `./install.sh --all` |
+| R | **Reference** (normal flow, after the finale) | Compact: roster, installer flags, platforms, MCP servers, skills, slash commands, example routes, benchmark table, harness disclosure, build-log timeline. Reachable from the nav | None (opaque, covers the canvas) |
+
+---|---|---|---|
 | 0 | **Intro** (≈ 3–4 s, skippable) | "SwarmKit" with DOM text scramble, then the tagline | A single cell appears at the origin and divides; the lattice grows outward ring by ring. Skippable on click, key, or scroll; skipped entirely under reduced motion |
 | 1 | **The Hive**: how it works | Pitch, `./install.sh --all` copy button, then the routing story: T1/T2/T3, explore → execute → parallel quality gate | Camera pulls back to reveal the full lattice. A glowing task packet enters, is classified, travels to a specialist cell, then fans out to the three gate cells simultaneously |
 | 2 | **The Cells**: roster | All agents by tier; hover or focus shows role, permissions, tier. Example tasks ("fix typo", "add API route", "refactor auth") replay their routes | Camera flies along the lattice; the hovered/focused agent's cell lifts and glows. The DOM list is the accessible source of truth |
@@ -296,6 +310,7 @@ Each phase ends with a commit and, where marked, a human gate.
 # SwarmKit site — rules for Claude Code
 
 - Read PLAN.md before each phase. Work one phase at a time and stop at gates.
+- Animation first, text small: the world is the centre; scene text is one or two short lines, small chips, and hover/focus label cards. Detail lives in the Reference section. On a pinned scene at 1440x810 visible text covers at most about 12% of the viewport and never sits over the centre (label cards and the finale command excepted).
 - Static Astro site. No backend, no React. Three.js is vanilla, in one fixed-canvas island.
 - All text lives in the DOM. Never render copy in WebGL.
 - The scene is 100% procedural: no external models, textures, or volume data.

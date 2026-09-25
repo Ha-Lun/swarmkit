@@ -9,7 +9,7 @@ import type { ScrollState } from '../scroll';
 import { createCameraPath, SEGMENTS } from './camera-path';
 import { accentCandidates, look, readPalette } from './config';
 import { createHoneycomb, layoutLattice, type Honeycomb } from './honeycomb';
-import { motion } from './motion-config';
+import { motion, SWARM_CAM } from './motion-config';
 import { createPost, type Post } from './post';
 import { createFlow, type Flow } from './routes';
 import { createSwarm, type Swarm } from './swarm-particles';
@@ -120,8 +120,8 @@ export function createWorld(opts: WorldOptions): World {
   let swarm: Swarm | null = null;
   let swarmBuilding = false;
   const swarmScene = new Scene();
-  const swarmCam = new PerspectiveCamera(40, 1, 0.1, 100);
-  swarmCam.position.set(0, 0, 24);
+  const swarmCam = new PerspectiveCamera(SWARM_CAM.fov, 1, 0.1, 100);
+  swarmCam.position.set(0, 0, SWARM_CAM.z);
   const pcfg = { ...look.particles }; // per-frame copy: attract and opacity come from chapterProgress, look stays untouched
 
   function ensureTargets() {
@@ -135,13 +135,20 @@ export function createWorld(opts: WorldOptions): World {
     rtA?.dispose(); rtB?.dispose();
     rtA = rtB = null;
   }
+  // The command is look.particles.textWidth wide; on a narrow (portrait) screen it is narrowed to fit the view.
+  let swarmTextW = look.particles.textWidth;
+  const swarmTextWidth = () => {
+    const viewH = 2 * SWARM_CAM.z * Math.tan((SWARM_CAM.fov * Math.PI) / 360);
+    return Math.min(look.particles.textWidth, viewH * (window.innerWidth / window.innerHeight) * 0.88);
+  };
   async function ensureSwarm() {
     if (swarm || swarmBuilding) return;
     swarmBuilding = true;
     try {
       await document.fonts?.load('400 160px "JetBrains Mono"'); // the target text is rasterised with it
       if (disposed) return;
-      swarm = createSwarm(renderer, tier, look.particles, palette);
+      swarmTextW = swarmTextWidth();
+      swarm = createSwarm(renderer, tier, { ...look.particles, textWidth: swarmTextW }, palette);
       swarmScene.add(swarm.points);
       resize(true);
     } finally {
@@ -187,6 +194,10 @@ export function createWorld(opts: WorldOptions): World {
     const bh = renderer.getDrawingBufferSize(v2).y;
     flows.forEach((f) => f.packet.setViewportHeight(bh));
     swarm?.setViewportHeight(bh);
+    if (swarm) {
+      const tw = swarmTextWidth();
+      if (Math.abs(tw - swarmTextW) > 0.5) { swarmTextW = tw; swarm.retarget(tw); }
+    }
   }
   resize(true);
   const onResize = () => resize();

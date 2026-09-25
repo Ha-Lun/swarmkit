@@ -7,7 +7,8 @@ import LatticeBackdrop from './LatticeBackdrop.astro';
 
 const gateNames: string[] = gates.map((g) => g.agent);
 const specialist = examples.find((e) => e.tier === 'T2')?.route.find((r) => r.agent && r.agent !== 'explore' && !gateNames.includes(r.agent))?.agent;
-const data = { agents: facts.agents, routing: { gates: gateNames, specialist } };
+const mainTier = examples.find((e) => e.tier === 'T2')?.tier;
+const data = { agents: facts.agents, routing: { gates: gateNames, specialist, mainTier } };
 ---
 <LatticeBackdrop />
 <div id="world-root" aria-hidden="true"></div>

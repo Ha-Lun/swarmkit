@@ -9,13 +9,13 @@ One site, two jobs.
 1. **Explain SwarmKit.** A developer understands what it is, how routing works, and how to install it in under 90 seconds.
 2. **Prove SwarmKit.** The site is a continuous scroll-driven 3D world, and it shows with evidence that the swarm built it.
 
-Core principle: the 3D is not decoration. The world is the swarm, a procedurally grown honeycomb in which every agent is a cell. The part that impresses and the part that explains are the same thing.
+Core principle (animation first): the animation is the centre and the text only helps describe it. The world is the swarm, a procedurally grown honeycomb in which every agent is a cell. The part that impresses and the part that explains are the same thing.
 
 ## 2. Audience and tone
 
 - **Audience:** developers evaluating agent setups (Claude Code, OpenCode, Antigravity). They read docs, distrust hype, and will check numbers.
 - **Tone:** precise, confident, no hype. Short declarative sentences. Say what it does and what it costs. No superlatives, no "revolutionary", no crypto/luxury register.
-- **Copy rule:** all copy lives in the DOM. Nothing is rendered as text in WebGL.
+- **Copy rule:** all copy lives in the DOM. Nothing is rendered as text in WebGL. The animation is the centre; text is small, short and at the edges (one or two lines per scene, small chips, hover/focus label cards), with the detail in one compact Reference section. Honesty rules below are unchanged.
 
 ## 3. Non-goals
 
@@ -51,13 +51,16 @@ Reference: igloo.inc (Abeto; Three.js, Svelte, GSAP, Houdini, Blender).
 
 ## 6. Chapters
 
-| # | Chapter | DOM content | World |
+Each chapter is a scroll runway with one pinned, viewport-tall scene. DOM text is small and at the edges.
+
+| # | Chapter | DOM content (small) | World |
 |---|---|---|---|
-| 0 | Intro (about 3-4 s, skippable) | "SwarmKit" with DOM text scramble, then the tagline | One cell appears at the origin and divides; the lattice grows outward ring by ring. Skippable on click, key or scroll; skipped entirely under reduced motion |
-| 1 | The Hive: how it works | Pitch, `./install.sh --all` copy button, routing story: T1/T2/T3, explore, execute, parallel quality gate | Camera pulls back to the full lattice. A glowing task packet enters, is classified, travels to a specialist cell, then fans out to the three gate cells at once |
-| 2 | The Cells: roster | All agents by tier; hover or focus shows role, permissions, tier. Example tasks ("fix typo", "add API route", "refactor auth") replay their routes | Camera flies along the lattice; the hovered or focused agent's cell lifts and glows. The DOM list is the accessible source of truth |
-| 3 | Proof | Ponytail diff shrinking to `net: -N lines`; benchmark table and chart with harness disclosure; "built by SwarmKit" timeline. **Renders "benchmarks pending" until real data exists** | Lattice recedes and dims to a backdrop. Hex-dissolve transition in; the canvas never competes with the numbers |
-| 4 | Swarm finale: install | Platforms (OpenCode / Antigravity / Claude Code), installer flags, MCP servers, skills, slash commands, horology demo link, footer | Lattice breaks into a GPU particle swarm that flocks, then assembles into `./install.sh --all` |
+| 0 | Intro (about 3-4 s, skippable) | Corner wordmark and one tagline line | One cell appears at the origin and divides; the lattice grows outward ring by ring. Skippable on click, key or scroll; skipped entirely under reduced motion |
+| 1 | The Hive: how it works (300vh) | One caption stepping with the packet (task in, classified, routed, gates in parallel), T1/T2/T3 chips, three focusable example-route replay buttons | Camera pulls back to the full lattice. A glowing task packet enters, is classified, travels to a specialist cell, then fans out to the three gate cells at once |
+| 2 | The Cells: roster (300vh) | One caption, a slim tier legend, and a label card (name, tier, one-line role) on hover or focus of a cell. No roster panels | Camera flies along the lattice; the hovered or focused agent's cell lifts and glows. A hidden focusable agent list drives the same highlight for keyboard users |
+| 3 | Proof (150vh) | A slim HUD strip: ponytail diff, benchmarks (**"pending" until real data exists**), harness disclosure, build-log counts | Lattice recedes and dims to a backdrop. Hex-dissolve transition in; the canvas never competes with the numbers |
+| 4 | Swarm finale: install (400vh) | The assembled `./install.sh --all` holds centre screen with a small copy button; flags, platforms and counts as small chips only after it forms | Lattice breaks into a GPU particle swarm that flocks, then assembles into `./install.sh --all` |
+| R | Reference (after the finale) | Compact roster, flags, platforms, MCP servers, skills, slash commands, example routes, benchmark table, harness disclosure, build-log timeline | None |
 
 The site must be complete and useful with no 3D at all (Phase 4 requirement); that version is also the fallback.
 
@@ -94,7 +97,7 @@ This is what the art-direction rounds (PLAN section 9) are judged against. Verdi
 
 **Particle finale.** Small, dim-to-bright particles in Colour B (not the accent) with curl-noise flocking, then converging on the rasterised `./install.sh --all` target. Should read as the lattice dissolving into a swarm, not fireworks.
 
-**Typography and DOM.** One display face plus one mono face, two families maximum. Text sits over the dark scene with strong contrast; the canvas never competes with copy.
+**Typography and DOM.** One display face plus one mono face, two families maximum. Text is small (the smallest steps of the type scale), sits at the edges over the dark scene with strong contrast, and never covers the centre; the copy never competes with the canvas.
 
 ## 9. Quality tiers and constraints (summary)
 

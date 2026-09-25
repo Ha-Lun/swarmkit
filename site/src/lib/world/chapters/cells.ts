@@ -1,102 +1,45 @@
-// Chapter 2. The camera flies along the lattice (camera-path.ts). Roster hover/focus lifts and glows that agent's
-// cell; example route cards replay their route with the packet. Both read the data attributes already on the DOM
-// (data-agent, data-example, data-route-agent). Listeners are DOM events, not scroll: the scroll state is untouched.
+// Chapter 2. The camera flies along the lattice (camera-path.ts). Hovering a cell, or focusing its entry in the
+// hidden agent list, lifts and glows it and shows its label card (pick.ts). No roster panels: the roster lives in
+// the Reference section. The tier legend chip of the active agent's band lights (opacity only).
 import { Vector3 } from 'three';
 import { motion } from '../motion-config';
-import { entryPoint, headAt, makeTimeline, stopProgress, withArcs, type Timeline } from '../routes';
+import { createPick } from '../pick';
+import { pinWindow, presence, sceneOf, setOpacity } from '../scene-dom';
 import type { Chapter, WorldCtx } from '../types';
-
-const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
-const smooth = (t: number) => t * t * (3 - 2 * t);
-const agentOf = (el: EventTarget | null) => (el instanceof Element ? el.closest<HTMLElement>('[data-agent]')?.dataset.agent ?? null : null);
-const cardOf = (el: EventTarget | null) => (el instanceof Element ? el.closest<HTMLElement>('[data-example]') : null);
 
 export function createCells(ctx: WorldCtx): Chapter {
   const { view } = ctx;
+  const scene = sceneOf('cells');
+  const win = pinWindow(motion.runway.cells);
+  const pick = createPick(ctx, scene.root);
   const tmp = new Vector3();
-  const core = ctx.lattice.cells.find((c) => c.agent?.band === 'core')?.agent?.name;
-  let hovered: string | null = null;
-  let focused: string | null = null;
-  let lastCard: HTMLElement | null = null; // replay once per hover, not on every child the pointer crosses
-  let playing: { t0: number; tl: Timeline; stops: string[]; card: HTMLElement } | null = null;
-
-  function play(card: HTMLElement) {
-    if (playing?.card === card) return;
-    const names = [...card.querySelectorAll<HTMLElement>('[data-route-agent]')].map((e) => e.dataset.routeAgent!);
-    const stops = [core, ...names].filter((n): n is string => !!n && ctx.cellIndex(n) >= 0);
-    const pts = stops.map((n) => ctx.cellTop(n, new Vector3())!);
-    if (!pts.length) return;
-    const flow = ctx.flows[0];
-    const len = flow.setRoute(withArcs([entryPoint(ctx.lattice), ...pts]));
-    const s = stopProgress(flow.curve, pts);
-    // a route with no agent step (a direct edit) still visits the core and stops there
-    playing = { t0: ctx.time, tl: makeTimeline(len, s, motion.packet.unitsPerSec, s.map(() => motion.packet.dwellSec)), stops, card };
-  }
-
-  const onOver = (e: PointerEvent) => {
-    hovered = agentOf(e.target);
-    const card = cardOf(e.target);
-    if (card && card !== lastCard) { lastCard = card; play(card); }
-  };
-  const onOut = (e: PointerEvent) => {
-    if (agentOf(e.target) && agentOf(e.relatedTarget) !== agentOf(e.target)) hovered = agentOf(e.relatedTarget);
-    if (cardOf(e.target) && cardOf(e.relatedTarget) !== cardOf(e.target)) lastCard = null;
-  };
-  const onFocusIn = (e: FocusEvent) => { focused = agentOf(e.target); };
-  const onFocusOut = (e: FocusEvent) => { if (agentOf(e.target) && agentOf(e.relatedTarget) !== agentOf(e.target)) focused = agentOf(e.relatedTarget); };
-  const onClick = (e: MouseEvent) => {
-    const card = cardOf(e.target);
-    if (card) { playing = null; play(card); } // click restarts the replay
-  };
+  const bandOf = new Map(ctx.agents.map((a) => [a.name, a.band as string]));
+  const legend = new Map(scene.q('[data-legend]').map((e) => [e.dataset.legend!, e.querySelector<HTMLElement>('.chip-ring')!]));
 
   return {
     enter() {
-      document.addEventListener('pointerover', onOver);
-      document.addEventListener('pointerout', onOut);
-      document.addEventListener('focusin', onFocusIn);
-      document.addEventListener('focusout', onFocusOut);
-      document.addEventListener('click', onClick);
-      focused = agentOf(document.activeElement); // focus may have arrived before this chapter became active
+      pick.enable();
     },
-    update() {
-      const name = hovered ?? focused;
+    update(p) {
+      scene.fade(presence(p, win));
+      const { name, byKeyboard } = pick.update();
       if (name && ctx.cellTop(name, tmp)) {
         ctx.glow(name, 1);
-        view.focus.copy(tmp);
-        view.focusWeight = motion.camera.hoverBias;
-      }
-      if (playing) {
-        const t = ctx.time - playing.t0;
-        const flow = ctx.flows[0];
-        const r = playing.tl.rAt(t);
-        const fadeIn = clamp01(t / motion.packet.fadeSec);
-        const fadeOut = 1 - smooth(clamp01((t - playing.tl.total) / motion.packet.fadeSec));
-        flow.set(r, ctx.camera, Math.min(fadeIn, fadeOut));
-        playing.tl.arrivals.forEach((at, i) => {
-          const env = clamp01((t - at) / 0.2) * (1 - clamp01((t - at - 0.2) / motion.packet.dwellSec));
-          if (playing!.stops[i]) ctx.glow(playing!.stops[i], env);
-        });
-        if (!name) {
-          view.focus.copy(headAt(flow, r, tmp));
-          view.focusWeight = motion.camera.routeBias;
-          view.focusDrop = motion.camera.routeDrop;
+        if (byKeyboard) { // a keyboard-focused cell may be off screen: ease the camera toward it. A hovered one never moves the camera.
+          view.focus.copy(tmp);
+          view.focusWeight = motion.camera.hoverBias;
         }
-        view.overview = motion.camera.routeOverview;
-        if (fadeOut <= 0) { flow.hide(); playing = null; }
       }
+      const band = name ? bandOf.get(name) : null;
+      legend.forEach((ring, b) => setOpacity(ring, b === band ? 1 : 0));
     },
     exit() {
-      document.removeEventListener('pointerover', onOver);
-      document.removeEventListener('pointerout', onOut);
-      document.removeEventListener('focusin', onFocusIn);
-      document.removeEventListener('focusout', onFocusOut);
-      document.removeEventListener('click', onClick);
-      hovered = focused = lastCard = null;
-      playing = null;
-      ctx.flows[0].hide();
+      pick.disable();
+      legend.forEach((ring) => setOpacity(ring, 0));
+      scene.fade(0);
     },
     dispose() {
-      this.exit();
+      pick.dispose();
     },
   };
 }

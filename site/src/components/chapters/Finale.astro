@@ -1,73 +1,62 @@
 ---
-import { facts, repoUrl } from '../../lib/facts';
-const { platforms, flags, mcpServers, skills, commands } = facts;
+// The finale scene. In the world the command is the particle swarm, assembled at centre screen; this DOM copy of it is
+// visually hidden then (still there for assistive tech and selection) and shown as text in the static fallback.
+// The copy button sits beside the assembled text, and the chips come in only after it has formed.
+import { facts } from '../../lib/facts';
+import { look } from '../../lib/world/config';
+import { motion, SWARM_CAM } from '../../lib/world/motion-config';
+
+const { platforms, flags, mcpServers, skills, commands, agents } = facts;
+const installCmd = './install.sh --all';
+const platformFlags = new Set(platforms.map((p) => p.flag));
+const otherFlags = flags.filter((f) => !platformFlags.has(f.flag));
+const counts = [
+  [agents.length, 'agents'],
+  [skills.length, 'skills'],
+  [mcpServers.length, 'MCP servers'],
+  [commands.length, 'slash commands'],
+] as const;
+// Half the assembled text width as a fraction of the viewport height: the text is textWidth world units wide and the
+// swarm camera sees viewH world units across the viewport height.
+const viewH = 2 * SWARM_CAM.z * Math.tan((SWARM_CAM.fov * Math.PI) / 360);
+const halfVh = ((look.particles.textWidth / 2) / viewH) * 100;
 ---
-<section id="install" class="chapter border-t border-ink-2 py-24" aria-labelledby="install-title">
-  <div class="mx-auto max-w-page px-6 md:px-8">
-    <p class="eyebrow m-0">Chapter 4 / Install</p>
-    <h2 id="install-title" class="mb-0 mt-4 max-w-[20ch] font-display text-2xl font-bold leading-tight">One command, three CLIs.</h2>
-    <p class="mb-0 mt-6 max-w-[60ch] text-lg text-text">
-      <code class="font-mono text-base text-wax">./install.sh --all</code> is also the default when no flag is given. Re-run it after every pull; it relinks moved files.
-    </p>
+<section id="install" class="chapter" style={`--runway:${motion.runway.finale}; --cmd-half:${halfVh.toFixed(2)}vh`} aria-labelledby="install-title">
+  <div class="scene" data-scene>
+    <h2 id="install-title" class="sr-only">Install</h2>
 
-    <h3 class="mb-0 mt-16 font-display text-xl font-bold">Platforms</h3>
-    <ul class="m-0 mt-6 grid grid-cols-1 list-none gap-4 p-0 md:grid-cols-3">
-      {platforms.map((p) => (
-        <li class="panel p-6">
-          <p class="m-0 font-display text-base font-bold">{p.name}</p>
-          <p class="mb-0 mt-1 font-mono text-xs text-wax">{p.flag}</p>
-          <p class="mb-0 mt-3 text-sm text-text">{p.summary}</p>
-        </li>
-      ))}
-    </ul>
-
-    <h3 class="mb-0 mt-16 font-display text-xl font-bold">Installer flags</h3>
-    <dl class="m-0 mt-6 grid grid-cols-1 border-t border-wax-dim">
-      {flags.map((f) => (
-        <div class="grid gap-1 border-b border-wax-dim py-3 sm:grid-cols-[160px_1fr] sm:gap-6">
-          <dt class="font-mono text-sm text-text">{f.flag}</dt>
-          <dd class="m-0 text-sm text-text">{f.description}</dd>
-        </div>
-      ))}
-    </dl>
-
-    <div class="mt-16 grid grid-cols-1 gap-12 lg:grid-cols-2">
-      <div>
-        <h3 class="m-0 font-display text-xl font-bold">MCP servers <span class="font-mono text-sm font-normal text-wax">{mcpServers.length}</span></h3>
-        <p class="mb-0 mt-2 text-sm text-wax">Registered for Claude Code and Antigravity from <code class="font-mono">core/mcp.json</code>.</p>
-        <ul class="m-0 mt-4 flex list-none flex-wrap gap-2 p-0">
-          {mcpServers.map((m) => <li class="border border-wax-dim px-3 py-1 font-mono text-xs text-text">{m}</li>)}
-        </ul>
-      </div>
-      <div>
-        <h3 class="m-0 font-display text-xl font-bold">Slash commands <span class="font-mono text-sm font-normal text-wax">{commands.length}</span></h3>
-        <p class="mb-0 mt-2 text-sm text-wax">OpenCode.</p>
-        <dl class="m-0 mt-4 grid grid-cols-1 gap-3">
-          {commands.map((c) => (
-            <div>
-              <dt class="font-mono text-sm text-text">{c.name}</dt>
-              <dd class="m-0 text-sm text-wax">{c.description}</dd>
-            </div>
-          ))}
-        </dl>
+    <div class="finale-cmd">
+      <code class="install-cmd" data-install-cmd>{installCmd}</code>
+      <div class="finale-copy" data-copy-wrap data-fx>
+        <button type="button" class="btn" data-copy hidden>Copy</button>
+        <span class="copy-status" role="status" data-copy-status></span>
       </div>
     </div>
 
-    <h3 class="mb-0 mt-16 font-display text-xl font-bold">Skills <span class="font-mono text-sm font-normal text-wax">{skills.length}</span></h3>
-    <p class="mb-0 mt-2 text-sm text-wax">Shared by all three CLIs, from <code class="font-mono">core/skills/</code>.</p>
-    <ul class="m-0 mt-4 flex list-none flex-wrap gap-2 p-0">
-      {skills.map((s) => <li class="border border-wax-dim px-3 py-1 font-mono text-xs text-text">{s}</li>)}
-    </ul>
-
-    <div class="mt-16 grid grid-cols-1 gap-4 md:grid-cols-2">
-      <div class="panel p-6" data-slot="horology">
-        <h3 class="m-0 font-display text-xl font-bold">Horology demo</h3>
-        <p class="mb-0 mt-3 text-sm text-text">Link coming.</p>
-      </div>
-      <div class="panel p-6">
-        <h3 class="m-0 font-display text-xl font-bold">Source</h3>
-        <p class="mb-0 mt-3 text-sm text-text"><a href={repoUrl} class="text-text underline underline-offset-4">github.com/ha-lun/swarmkit</a></p>
-      </div>
+    <div class="scene-foot finale-foot">
+      <ul class="chips chips-center" aria-label="Installer platforms, flags and what it installs">
+        {platforms.map((p) => <li class="chip" data-chip-in data-fx title={p.summary}>{p.name} {p.flag}</li>)}
+        {counts.map(([n, label]) => <li class="chip" data-chip-in data-fx>{n} {label}</li>)}
+        {otherFlags.map((f) => <li class="chip" data-chip-in data-fx title={f.description}>{f.flag}</li>)}
+      </ul>
     </div>
   </div>
 </section>
+
+<script>
+  const btn = document.querySelector<HTMLButtonElement>('[data-copy]');
+  const cmd = document.querySelector<HTMLElement>('[data-install-cmd]');
+  const status = document.querySelector<HTMLElement>('[data-copy-status]');
+  if (btn && cmd && status) {
+    btn.hidden = false;
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(cmd.textContent ?? '');
+        status.textContent = 'Copied';
+      } catch {
+        status.textContent = 'Copy failed. Select the command in Reference.';
+      }
+      setTimeout(() => (status.textContent = ''), 2500);
+    });
+  }
+</script>

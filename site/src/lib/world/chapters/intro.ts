@@ -3,6 +3,7 @@
 // (no layout shift), the real text stays available to assistive tech, and nothing here runs under reduced motion.
 import { SEGMENTS } from '../camera-path';
 import { motion } from '../motion-config';
+import { range, sceneOf } from '../scene-dom';
 import { prefersReducedMotion } from '../tiers';
 import type { Chapter, WorldCtx } from '../types';
 
@@ -75,6 +76,7 @@ function scrambler(el: HTMLElement, startMs: number, spanMs: number): Scrambler 
 
 export function createIntro(ctx: WorldCtx): IntroChapter {
   const { view } = ctx;
+  const scene = sceneOf('top');
   let started = false, running = false, done = false, t0 = -1;
   let resolve: (() => void) | null = null;
   let scramblers: Scrambler[] = [];
@@ -108,7 +110,7 @@ export function createIntro(ctx: WorldCtx): IntroChapter {
       running = true;
       document.documentElement.dataset.world = 'intro';
       ctx.scroll.lock();
-      const title = document.getElementById('intro-title');
+      const title = document.getElementById('nav-mark-text'); // the corner wordmark
       const tagline = document.querySelector<HTMLElement>('#top .motion-rise-late');
       if (title) scramblers.push(scrambler(title, motion.intro.titleStartMs, motion.intro.titleMs));
       if (tagline) scramblers.push(scrambler(tagline, motion.intro.taglineStartMs, motion.intro.taglineMs));
@@ -117,7 +119,8 @@ export function createIntro(ctx: WorldCtx): IntroChapter {
     },
     skip,
     enter() {},
-    update() {
+    update(p) {
+      scene.fade(1 - range(p, 0.15, 0.7)); // the tagline leaves as the world starts to move
       if (!running) {
         view.growth = done ? 1 : 0;
         return;
@@ -130,7 +133,9 @@ export function createIntro(ctx: WorldCtx): IntroChapter {
       scramblers.forEach((s) => s.frame(ms));
       if (t >= 1) finish();
     },
-    exit() {},
+    exit() {
+      scene.fade(0);
+    },
     dispose() {
       skipEvents.forEach((e) => window.removeEventListener(e, skip));
       scramblers.forEach((s) => s.restore());

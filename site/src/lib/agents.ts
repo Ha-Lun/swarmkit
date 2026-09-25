@@ -54,3 +54,10 @@ export function loadAgents(): Agent[] {
       };
     });
 }
+
+/** One line of role text for a label card or a compact list: the first sentence, cut at a word boundary. */
+export function roleLine(a: Agent, max = 84): string {
+  const first = a.description.split(/(?<=[.!?])\s/)[0].replace(/\.$/, '');
+  if (first.length <= max) return first;
+  return `${first.slice(0, max - 3).replace(/[\s,;:]+\S*$/, '')}...`;
+}

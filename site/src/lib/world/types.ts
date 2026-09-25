@@ -9,6 +9,8 @@ export interface RoutingNames {
   gates: string[];
   /** the specialist the hive story routes to (first non-gate, non-explore agent of the T2 example) */
   specialist?: string;
+  /** the routing tier the scrubbed hive route belongs to (the T2 example) */
+  mainTier?: string;
 }
 
 export type ActiveTier = 'high' | 'medium';
