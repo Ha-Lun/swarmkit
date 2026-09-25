@@ -2,8 +2,8 @@ import {
   AdditiveBlending, BufferAttribute, BufferGeometry, CatmullRomCurve3, Color, Group, Mesh, Points, ShaderMaterial,
   Vector3, type Camera,
 } from 'three';
-import type { Look } from './config';
-import type { Lattice } from './honeycomb';
+import { look, type Look } from './config';
+import { cellTopOf, type Lattice } from './honeycomb';
 
 const TRAIL_POINTS = 48;
 
@@ -17,15 +17,22 @@ export interface Packet {
   dispose(): void;
 }
 
-/** Test curve: a closed spline through agent cell tops, derived from the lattice (never hardcoded). */
+/** Test curve: a closed spline through agent cell tops on the globe, derived from the lattice (never hardcoded). */
 export function createTestCurve(lattice: Lattice, count = 8): CatmullRomCurve3 {
   const agents = lattice.cells.filter((c) => c.agent && c.agent.band !== 'satellite');
   const core = agents.find((c) => c.agent!.band === 'core');
-  const ring = agents.filter((c) => c !== core).sort((a, b) => Math.atan2(a.z, a.x) - Math.atan2(b.z, b.x));
+  const ring = agents.filter((c) => c !== core).sort((a, b) => Math.atan2(a.pos.y, a.pos.x) - Math.atan2(b.pos.y, b.pos.x));
   const pick = Array.from({ length: Math.min(count, ring.length) }, (_, i) => ring[Math.floor((i * ring.length) / count)]);
   if (core) pick.splice(Math.ceil(pick.length / 2), 0, core);
-  const pts = pick.map((c) => new Vector3(c.x, c.height, c.z));
-  return new CatmullRomCurve3(pts, true, 'centripetal');
+  // the packet height is baked into the curve (routes lift their own points); the test curve reads it once
+  const pts = pick.map((c) => { const t = cellTopOf(c); return t.addScaledVector(t.clone().normalize(), look.packet.height); });
+  // a great-circle midpoint per hop keeps the closed spline above the surface
+  const loop = pts.flatMap((a, i) => {
+    const b = pts[(i + 1) % pts.length];
+    const mid = a.clone().add(b).normalize().multiplyScalar(Math.max(a.length(), b.length()) + 0.3);
+    return [a, mid];
+  });
+  return new CatmullRomCurve3(loop, true, 'centripetal');
 }
 
 const headVert = /* glsl */ `
@@ -108,7 +115,6 @@ export function createPacket(curve: CatmullRomCurve3, color: string, cfg: Look['
     update(phase, camera, c) {
       headMat.uniforms.uBright.value = trailMat.uniforms.uBright.value = c.headBrightness;
       headMat.uniforms.uSize.value = c.headSize * viewportScale;
-      group.position.y = c.height;
       for (let i = 0; i < N; i++) {
         const u = (((phase - (i / (N - 1)) * c.trailLength) % 1) + 1) % 1;
         curve.getPointAt(u, pts[i]);
@@ -118,7 +124,7 @@ export function createPacket(curve: CatmullRomCurve3, color: string, cfg: Look['
       for (let i = 0; i < N; i++) {
         const prev = pts[Math.max(0, i - 1)], next = pts[Math.min(N - 1, i + 1)];
         tan.subVectors(prev, next).normalize();
-        world.copy(pts[i]).add(group.position);
+        world.copy(pts[i]);
         view.subVectors(camera.position, world);
         side.crossVectors(tan, view).normalize().multiplyScalar(c.trailWidth * 0.5 * (1 - i / (N - 1)));
         const p = pts[i];

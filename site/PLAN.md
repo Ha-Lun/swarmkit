@@ -104,7 +104,8 @@ swarmkit/
         ├── lib/world/
         │   ├── world.ts           # renderer, scene, camera, loop, tiers
         │   ├── camera-path.ts
-        │   ├── honeycomb.ts       # lattice growth + agent cells
+        │   ├── sphere.ts          # procedural Goldberg sphere layout (pure, build + browser)
+        │   ├── honeycomb.ts       # globe + moon layout, growth, instanced cells
         │   ├── transitions.ts     # hex-dissolve pass
         │   ├── swarm-particles.ts # GPGPU finale
         │   ├── pick.ts            # pointer raycast + keyboard list -> cell highlight + label card
@@ -142,14 +143,16 @@ Each chapter is a runway with one pinned scene. Scroll lengths live in `motion-c
 
 ## 7. World spec
 
-### 7.1 Honeycomb lattice (`honeycomb.ts`)
+### 7.1 Hex globe (`sphere.ts`, `honeycomb.ts`)
 
-- Hex grid in axial coordinates; cells grow outward in rings from the origin with staggered scale and extrude.
-- **Agent cells** are assigned by tier to concentric bands: `lead-dev` at the core, then T1 (explore, git-specialist, junior-dev), then domain specialists, then quality gate (security-auditor, code-proofreader, release-tester, test-writer). Assignment is computed from agent data (§8). Never hardcode positions.
-- **Filler cells** (inert, dimmer) complete the lattice so it reads as a structure, not a diagram.
-- Showroom sub-swarm: a small satellite cluster tethered to the frontend band (it also sets up the "built by SwarmKit" story).
-- Render all cells with one `InstancedMesh` (a hex prism); use per-instance attributes for colour, emissive strength, and lift.
-- Material: a custom `ShaderMaterial` or `onBeforeCompile` patch giving a translucent wax/resin look via fresnel rim, fake subsurface through a thickness term, and an emissive core for agent cells. No textures.
+- The lattice is a **Goldberg sphere**, not a flat grid: GP(4,0), built procedurally from an icosahedron subdivided 4 times per edge and dualised. That gives 162 cells: 150 hexagons plus exactly 12 pentagons (the icosahedron corners). No assets. `sphere.ts` is a pure function (no three.js), so the same layout runs at build time (Node: the fallback backdrop, `scripts/layout-check.mjs`) and in the browser.
+- The subdivided mesh is relaxed (edge springs) so cell sizes stay within about 17 percent of each other. The sphere is oriented by the layout: the core cell (a hex on an icosahedron edge midpoint, flanked by two pentagons) sits on +Z, facing the hive camera.
+- Cells are **prisms extruded along the surface normal** with a hex or pentagon footprint, scaled per cell from its own neighbour spacing. Two `InstancedMesh`es (hex, pentagon) share **one** material (the locked cell material) with the per-instance attributes colour, `aEmissive` and `aLift` (lift runs along the cell normal). A dark core sphere in the background colour sits just under the cells so the far side never shows through the seams.
+- **Agent cells** are assigned by tier to bands spread outward by **geodesic ring** (graph distance from the core cell): `lead-dev` at the core, then T1 (explore, git-specialist, junior-dev), then domain specialists, then quality gates (security-auditor, code-proofreader, release-tester, test-writer). Agents in a band are spread evenly around their ring by azimuth. Assignment is computed from agent data (§8). Never hardcode positions.
+- **Filler cells** (inert, dimmer) complete the sphere so it reads as a structure, not a diagram. Growth (intro) is ring by ring outward by geodesic distance with staggered scale and extrude; the back hemisphere grows with the limb.
+- Showroom sub-swarm: a small **moon cluster** of flat hexes (showroom at its centre, its workers around it) floating beside the globe, offset in orbit and derived from the layout. It grows last (it also sets up the "built by SwarmKit" story).
+- Camera: the scroll **orbits the camera around a still globe** (`camera-path.ts`, one curve): intro pull-back from the core cell, the whole globe and its moon for the hive, a low surface fly-over across the front hemisphere for the cells, a wide dim recede for the proof, a slow drift for the finale.
+- Material: a `MeshStandardMaterial` patched with `onBeforeCompile` giving a translucent wax/resin look via fresnel rim, fake subsurface through a thickness term, and an emissive core for agent cells. No textures. The footprint mask is a 5- or 6-sided polygon distance, so the pentagon cells get pentagon cores.
 
 ### 7.2 Task packet
 

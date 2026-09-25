@@ -8,7 +8,7 @@ import type { Agent } from '../agents';
 import type { ScrollState } from '../scroll';
 import { createCameraPath, SEGMENTS } from './camera-path';
 import { accentCandidates, look, readPalette } from './config';
-import { createHoneycomb, layoutLattice, type Honeycomb } from './honeycomb';
+import { cellTopOf, createHoneycomb, layoutLattice, type Honeycomb } from './honeycomb';
 import { motion, SWARM_CAM } from './motion-config';
 import { createPost, type Post } from './post';
 import { createFlow, type Flow } from './routes';
@@ -73,8 +73,8 @@ export function createWorld(opts: WorldOptions): World {
   lattice.cells.forEach((c, i) => c.agent && cellByName.set(c.agent.name, i));
 
   let comb: Honeycomb = createHoneycomb(agents, tier);
-  scene.add(comb.mesh);
-  const path = createCameraPath(lattice.radius);
+  scene.add(comb.object);
+  const path = createCameraPath(lattice);
 
   const accent = readAccent();
   const flows: Flow[] = Array.from({ length: 4 }, () => createFlow(accent));
@@ -97,8 +97,7 @@ export function createWorld(opts: WorldOptions): World {
     cellTop(name, out) {
       const i = cellByName.get(name);
       if (i === undefined) return null;
-      const c = lattice.cells[i];
-      return out.set(c.x, c.height, c.z);
+      return cellTopOf(lattice.cells[i], out);
     },
     glow(name, amount) {
       const i = cellByName.get(name);
@@ -157,10 +156,10 @@ export function createWorld(opts: WorldOptions): World {
   }
 
   function buildTier() {
-    scene.remove(comb.mesh);
+    scene.remove(comb.object);
     comb.dispose();
     comb = createHoneycomb(agents, tier);
-    scene.add(comb.mesh);
+    scene.add(comb.object);
     glowCur.clear();
     post?.dispose();
     post = tier === 'high' ? createPost(renderer, scene, camera, look.post) : null;
@@ -212,7 +211,7 @@ export function createWorld(opts: WorldOptions): World {
   function pose(g: number) {
     path.sample(g, pos, target);
     if (overviewSm > 0.001) {
-      path.sample(SEGMENTS[1].t1, posB, targetB); // end of the hive chapter: the whole lattice in frame
+      path.sample(SEGMENTS[1].t1, posB, targetB); // end of the hive chapter: the whole globe and its moon in frame
       pos.lerp(posB, overviewSm);
       target.lerp(targetB, overviewSm);
     }
@@ -223,6 +222,8 @@ export function createWorld(opts: WorldOptions): World {
     }
     camera.position.copy(pos);
     camera.lookAt(target);
+    // the key light rides with the camera (upper left of the view), so the globe reads the same from every side
+    key.position.set(-0.55, 0.85, 0.5).applyQuaternion(camera.quaternion).multiplyScalar(30);
     // fog follows camera distance so the recede reads as dimming, not clipping
     const d = pos.length();
     (scene.fog as Fog).near = d * 0.6;
@@ -318,7 +319,7 @@ export function createWorld(opts: WorldOptions): World {
   function render(dt: number) {
     const g = Math.max(state.globalProgress, view.camFloor);
     comb.update(view.growth, view.dim);
-    comb.mesh.visible = view.latticeVisible;
+    comb.object.visible = view.latticeVisible;
     pose(g);
 
     if (view.dissolve > 0.001 && view.dissolve < 0.999 && rtA && rtB) {
@@ -332,7 +333,9 @@ export function createWorld(opts: WorldOptions): World {
       comb.update(view.growth, view.dim);
       renderer.setRenderTarget(rtB);
       renderer.render(scene, camera);
-      const hexPx = hexPixelSize(camera.fov, rtA.height, 1, camera.position.distanceTo(target));
+      // distance to the visible cells: when the look-at is the globe centre, the surface is one radius nearer
+      const dCell = Math.max(2, camera.position.distanceTo(target) - (target.length() < lattice.radius * 0.5 ? lattice.radius : 0));
+      const hexPx = hexPixelSize(camera.fov, rtA.height, lattice.cellRadius, dCell);
       dissolve.render(renderer, rtA.texture, rtB.texture, view.dissolve, hexPx, look.dissolve);
     } else if (post) {
       post.sync(look.post);

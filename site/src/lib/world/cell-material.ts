@@ -20,12 +20,12 @@ export interface CellMaterial {
   sync(cfg: Look['cell']): void;
 }
 
-const HEX_INRADIUS = (Math.sqrt(3) / 2) * CELL_RADIUS;
-
 /**
  * Translucent wax look on top of MeshStandardMaterial, patched via onBeforeCompile.
- * Per-instance attributes (set by honeycomb.ts): aEmissive (core strength), aLift (world-unit rise).
- * The local prism position drives the thickness/core masks, so no textures are needed.
+ * Per-instance attributes (set by honeycomb.ts): aEmissive (core strength), aLift (world-unit rise along the
+ * instance's own up axis, i.e. the sphere normal). Per-geometry: aSides (5 or 6, the footprint).
+ * The local prism position drives the thickness/core masks, so no textures are needed. Instances are rotated onto
+ * the sphere; three's instancing chunks already rotate the normal, so the fresnel term needs no change.
  * Medium tier: same body, rim and core, but no thickness/density term.
  */
 export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell']): CellMaterial {
@@ -59,21 +59,24 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         `#include <common>
         attribute float aEmissive;
         attribute float aLift;
+        attribute float aSides;
         varying vec3 vCellLocal;
-        varying float vEmissive;`,
+        varying float vEmissive;
+        varying float vSides;`,
       )
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
         vCellLocal = position;
-        vEmissive = aEmissive;`,
+        vEmissive = aEmissive;
+        vSides = aSides;`,
       )
-      // project_vertex with a world-space lift applied after the instance matrix
+      // project_vertex with the lift applied after the instance matrix, along the instance's up (surface normal)
       .replace(
         '#include <project_vertex>',
         `vec4 mvPosition = vec4( transformed, 1.0 );
         mvPosition = instanceMatrix * mvPosition;
-        mvPosition.y += aLift;
+        mvPosition.xyz += normalize( instanceMatrix[ 1 ].xyz ) * aLift;
         mvPosition = modelViewMatrix * mvPosition;
         gl_Position = projectionMatrix * mvPosition;`,
       );
@@ -85,15 +88,18 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         uniform float uRim, uRimPower, uThickness, uDensity, uCore, uCoreRadius;
         uniform vec3 uRimColor, uSssColor, uCoreColor;
         varying vec3 vCellLocal;
-        varying float vEmissive;`,
+        varying float vEmissive;
+        varying float vSides;`,
       )
       .replace(
         '#include <opaque_fragment>',
         `{
           float ndv = saturate( dot( normalize( normal ), normalize( vViewPosition ) ) );
           float lum = dot( diffuseColor.rgb, vec3( 0.3333 ) );
-          // hex distance in the prism's local xz (1.0 at the wall), y runs 0..1
-          float hd = max( abs( vCellLocal.x ), 0.5 * abs( vCellLocal.x ) + 0.8660254 * abs( vCellLocal.z ) ) / ${HEX_INRADIUS.toFixed(4)};
+          // polygon distance (5 or 6 sides) in the prism's local xz (1.0 at the wall), y runs 0..1. A vertex sits on +z.
+          float sec = 6.2831853 / floor( vSides + 0.5 );
+          float ang = mod( atan( vCellLocal.x + 1e-6, vCellLocal.z ) + 6.2831853, sec ) - 0.5 * sec;
+          float hd = length( vCellLocal.xz ) * cos( ang ) / ( ${CELL_RADIUS.toFixed(4)} * cos( 0.5 * sec ) );
           #ifdef CELL_SSS
             float thin = max( smoothstep( 0.6, 1.0, hd ), smoothstep( 0.82, 1.0, vCellLocal.y ) );
             outgoingLight *= 1.0 - uDensity * ( 1.0 - thin );

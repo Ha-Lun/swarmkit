@@ -1,26 +1,28 @@
 ---
-// Fallback backdrop: a top-down SVG of the lattice, generated at build time from layoutLattice (same layout the
-// WebGL world uses). Shown only when html[data-tier="fallback"] (or without JS). Static: no animation, no accent.
+// Fallback backdrop: an orthographic SVG of the globe, generated at build time from layoutLattice (same layout the
+// WebGL world uses; the polygons are the real Goldberg cells, 12 of them pentagons). Shown only when
+// html[data-tier="fallback"] (or without JS). Static: no animation, no accent.
 import { facts } from '../lib/facts';
-import { CELL_RADIUS } from '../lib/world/config';
 import { layoutLattice } from '../lib/world/honeycomb';
 
 const lat = layoutLattice(facts.agents);
-const R = CELL_RADIUS;
-const hex = (x: number, z: number) => {
-  const pts = Array.from({ length: 6 }, (_, k) => {
-    const a = (k * Math.PI) / 3; // pointy along z, like the extruded prisms
-    return `${(x + R * Math.sin(a)).toFixed(2)} ${(z + R * Math.cos(a)).toFixed(2)}`;
-  });
-  return `M${pts.join('L')}Z`;
+const R = lat.radius;
+const TILT = (22 * Math.PI) / 180; // view from a little above, like the hive camera
+const project = (p: { x: number; y: number; z: number }): [number, number, number] => {
+  const y = p.y * Math.cos(TILT) - p.z * Math.sin(TILT);
+  const z = p.y * Math.sin(TILT) + p.z * Math.cos(TILT);
+  return [p.x * R, -y * R, z]; // svg y grows downwards
 };
-const agentPath = lat.cells.filter((c) => c.agent).map((c) => hex(c.x, c.z)).join('');
-const fillerPath = lat.cells.filter((c) => !c.agent).map((c) => hex(c.x, c.z)).join('');
-const xs = lat.cells.map((c) => c.x), zs = lat.cells.map((c) => c.z);
-const pad = 2;
-const [x0, x1, z0, z1] = [Math.min(...xs) - pad, Math.max(...xs) + pad, Math.min(...zs) - pad, Math.max(...zs) + pad];
+const facing = lat.cells.filter((c) => !c.moon && project(c.normal)[2] > 0.02);
+const outline = (c: (typeof facing)[number]) =>
+  `M${c.corners!.map((k) => project(k)).map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join('L')}Z`;
+const agentPath = facing.filter((c) => c.agent).map(outline).join('');
+const fillerPath = facing.filter((c) => !c.agent).map(outline).join('');
+const pad = R * 0.15;
+const box = R + pad;
 ---
-<svg id="lattice-backdrop" viewBox={`${x0} ${z0} ${x1 - x0} ${z1 - z0}`} preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
+<svg id="lattice-backdrop" viewBox={`${-box} ${-box} ${2 * box} ${2 * box}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">
+  <circle r={R} class="limb" />
   <path d={fillerPath} class="filler" />
   <path d={agentPath} class="agent" />
 </svg>
@@ -28,6 +30,7 @@ const [x0, x1, z0, z1] = [Math.min(...xs) - pad, Math.max(...xs) + pad, Math.min
 <style>
   #lattice-backdrop { display: none; position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; opacity: 0.5; }
   :global(html[data-tier='fallback']) #lattice-backdrop { display: block; }
+  .limb { fill: none; stroke: var(--wax-dim); stroke-width: 0.05; }
   .filler { fill: none; stroke: var(--ink-2); stroke-width: 0.06; }
   .agent { fill: var(--ink-2); stroke: var(--wax-dim); stroke-width: 0.06; }
 </style>

@@ -6,7 +6,7 @@
 // removed mid-scroll. The three example buttons replay their route on the same packet, in real time.
 import { Vector3 } from 'three';
 import { motion } from '../motion-config';
-import { entryPoint, headAt, makeTimeline, stopProgress, withArcs, type Timeline } from '../routes';
+import { entryPoint, headAt, makeTimeline, raise, stopProgress, withArcs, type Timeline } from '../routes';
 import { pinWindow, presence, range, sceneOf, setOpacity } from '../scene-dom';
 import type { Chapter, WorldCtx } from '../types';
 
@@ -36,6 +36,7 @@ export function createHive(ctx: WorldCtx): Chapter {
   function build() {
     const a = new Vector3(), b = new Vector3();
     if (!core || !specialist || !ctx.cellTop(core, a) || !ctx.cellTop(specialist, b)) return; // roster changed: draw nothing rather than guess
+    raise(a, a); raise(b, b); // the packet floats a little above each cell top
     mainPts = withArcs([entryPoint(ctx.lattice), a, b]);
     const len = ctx.flows[0].setRoute(mainPts);
     const [sCore, sSpec] = stopProgress(ctx.flows[0].curve, [a, b]);
@@ -46,6 +47,7 @@ export function createHive(ctx: WorldCtx): Chapter {
     const legs = gateNames.map((n, i) => {
       const g = new Vector3();
       if (!ctx.cellTop(n, g)) return 0;
+      raise(g, g);
       return ctx.flows[i + 1].setRoute(withArcs([b, g]));
     });
     fanTotal = Math.max(...legs) / motion.packet.unitsPerSec;
@@ -58,7 +60,7 @@ export function createHive(ctx: WorldCtx): Chapter {
   function startReplay(btn: HTMLElement) {
     const names = (btn.dataset.route ?? '').split(',').filter(Boolean);
     const stops = [core, ...names].filter((n): n is string => !!n && ctx.cellIndex(n) >= 0);
-    const pts = stops.map((n) => ctx.cellTop(n, new Vector3())!);
+    const pts = stops.map((n) => raise(ctx.cellTop(n, new Vector3())!));
     if (!pts.length) return;
     const flow = ctx.flows[0];
     const len = flow.setRoute(withArcs([entryPoint(ctx.lattice), ...pts]));

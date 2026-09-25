@@ -137,7 +137,7 @@ const favicon =
 
       let comb: Honeycomb = createHoneycomb(agents, tier);
       comb.update(1, 0);
-      scene.add(comb.mesh);
+      scene.add(comb.object);
       const curve = createTestCurve(comb.lattice);
       const lat = comb.lattice;
       const packets: Packet[] = accentCandidates.map((c) => createPacket(curve, c.hex, look.packet));
@@ -145,10 +145,11 @@ const favicon =
       const leadIdx = comb.lattice.cells.findIndex((c) => c.agent?.band === 'core');
       const t1Idx = comb.lattice.cells.findIndex((c) => c.agent?.band === 't1');
 
+      const R = lat.radius;
       const POSE: Record<string, [number[], number[]]> = {
-        cell: [[0, 8, 12.5], [0, 0.3, 0]],
-        wide: [[0, lat.radius * 1.15, lat.radius * 1.3], [0, 0, 0]],
-        top: [[0, lat.radius * 2.3, 0.01], [0, 0, 0]],
+        cell: [[0, 3.2, R + 8], [0, 0, R + 0.4]], // close on the core cell
+        wide: [[0.7 * R, 0.8 * R, 3.6 * R], [0.2 * R, 0, 0]], // the whole globe and its moon
+        top: [[0, 0.3 * R, 3.4 * R], [0, 0, 0]], // straight at the core face
       };
       function pose(name: string) {
         const [p, t] = POSE[name];
@@ -199,11 +200,11 @@ const favicon =
         resize();
       }
       async function applyTier() {
-        scene.remove(comb.mesh);
+        scene.remove(comb.object);
         comb.dispose();
         comb = createHoneycomb(agents, tier);
         comb.update(1, 0); // fully grown, undimmed
-        scene.add(comb.mesh);
+        scene.add(comb.object);
         applyCellState();
         post?.dispose();
         post = tier === 'high' ? createPost(renderer, scene, cam, look.post) : null;
@@ -324,7 +325,7 @@ const favicon =
           if (dissolveAuto) dissolveProgress = (Math.sin(time * 0.9) + 1) / 2;
           pose('wide');
           renderer.setRenderTarget(rtA); renderer.render(scene, cam);
-          hexPx = hexPixelSize(cam.fov, rtA.height, 1, cam.position.length());
+          hexPx = hexPixelSize(cam.fov, rtA.height, lat.cellRadius, Math.max(2, cam.position.length() - R));
           pose('top');
           renderer.setRenderTarget(rtB); renderer.render(scene, cam);
           dissolve.render(renderer, rtA.texture, rtB.texture, dissolveProgress, hexPx, look.dissolve);

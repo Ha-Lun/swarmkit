@@ -1,4 +1,4 @@
-// Cell picking for the roster scene. A pointer raycast against the honeycomb InstancedMesh (instanceId -> agent via
+// Cell picking for the roster scene. A pointer raycast against the honeycomb's two InstancedMeshes (hex, pentagon; instanceId -> cell -> agent via
 // the lattice) and a visually hidden but focusable agent list both resolve to one agent name; the caller lifts and
 // glows that cell, and this module places a pre-rendered label card at the cell's projected centre.
 //
@@ -28,7 +28,7 @@ export function createPick(ctx: WorldCtx, root: HTMLElement | null): Pick {
   let dirty = false, onCanvas = false;
   let hovered: string | null = null, focused: string | null = null;
   let shown: HTMLElement | null = null;
-  let checkedMesh: unknown = null;
+  let checkedComb: unknown = null;
 
   const cards = new Map<string, HTMLElement>();
   const buttons: HTMLElement[] = [];
@@ -61,11 +61,11 @@ export function createPick(ctx: WorldCtx, root: HTMLElement | null): Pick {
   };
 
   function raycast(): string | null {
-    const mesh = ctx.comb.mesh;
-    if (checkedMesh !== mesh) { mesh.computeBoundingSphere(); checkedMesh = mesh; } // matrices are settled by the time the roster is on screen
+    const comb = ctx.comb;
+    if (checkedComb !== comb) { comb.meshes.forEach((m) => m.computeBoundingSphere()); checkedComb = comb; } // matrices are settled by the time the roster is on screen
     ray.setFromCamera(ndc, ctx.camera);
-    const hit = ray.intersectObject(mesh, false)[0];
-    return hit?.instanceId !== undefined ? ctx.lattice.cells[hit.instanceId]?.agent?.name ?? null : null;
+    const hit = ray.intersectObjects(comb.meshes, false)[0]; // nearest across both meshes: the far side of the globe never wins
+    return hit?.instanceId !== undefined ? ctx.lattice.cells[comb.cellAt(hit.object, hit.instanceId)]?.agent?.name ?? null : null;
   }
 
   function place(card: HTMLElement, name: string) {

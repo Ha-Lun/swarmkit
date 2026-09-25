@@ -45,7 +45,7 @@ export interface WorldCtx {
   /** agent names from content/routing.ts, resolved at build time */
   readonly routing: RoutingNames;
   readonly scroll: { lock(): void; unlock(): void };
-  /** current honeycomb (replaced on a tier change: never cache it) */
+  /** current honeycomb (globe + moon) (replaced on a tier change: never cache it) */
   readonly comb: Honeycomb;
   time: number;
   dt: number;

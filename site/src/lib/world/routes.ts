@@ -64,26 +64,39 @@ export function createFlow(accent: string): Flow {
   };
 }
 
-/** Head position (world) at progress r. */
+/** Head position (world) at progress r. The route already carries the packet height (see raise). */
 export function headAt(flow: Flow, r: number, out: Vector3): Vector3 {
-  flow.curve.getPointAt(flow.curve.phase(r), out);
-  out.y += look.packet.height;
-  return out;
+  return flow.curve.getPointAt(flow.curve.phase(r), out);
 }
 
-/** Off-lattice point where a task packet comes in from, derived from the lattice radius. */
+/** Off-globe point where a task packet comes in from, derived from the globe radius. */
 export function entryPoint(lattice: Lattice, out = new Vector3()): Vector3 {
-  return out.set(-0.95 * lattice.radius, motion.packet.entryHeight, 0.5 * lattice.radius);
+  return out.set(-0.8, 0.45, 0.55).normalize().multiplyScalar(lattice.radius * 1.55);
 }
 
-/** Insert a raised midpoint between consecutive stops so the packet hops over intermediate cells. */
+/** Lift a cell top radially off the surface by the packet height, so the route (and its trail) floats above the cells. */
+export function raise(p: Vector3, out = new Vector3()): Vector3 {
+  return out.copy(p).addScaledVector(p.clone().normalize(), look.packet.height);
+}
+
+/** Insert lifted points along the great circle between consecutive stops so the packet arcs across the surface. */
 export function withArcs(stops: Vector3[]): Vector3[] {
   const out: Vector3[] = [stops[0].clone()];
   for (let i = 1; i < stops.length; i++) {
     const a = stops[i - 1], b = stops[i];
-    const mid = a.clone().add(b).multiplyScalar(0.5);
-    mid.y += motion.packet.arcLift + motion.packet.arcLiftPerUnit * a.distanceTo(b);
-    out.push(mid, b.clone());
+    const ra = a.length(), rb = b.length();
+    const da = a.clone().divideScalar(ra), db = b.clone().divideScalar(rb);
+    const ang = Math.acos(Math.min(1, Math.max(-1, da.dot(db))));
+    const chord = a.distanceTo(b);
+    const n = Math.max(2, Math.ceil(ang / 0.32));
+    for (let k = 1; k < n; k++) {
+      const t = k / n;
+      const sa = Math.sin((1 - t) * ang) / Math.sin(ang), sb = Math.sin(t * ang) / Math.sin(ang);
+      const dir = ang < 1e-4 ? da.clone().lerp(db, t).normalize() : da.clone().multiplyScalar(sa).addScaledVector(db, sb);
+      const lift = Math.sin(Math.PI * t) * (motion.packet.arcLift + motion.packet.arcLiftPerUnit * chord);
+      out.push(dir.multiplyScalar(ra + (rb - ra) * t + lift));
+    }
+    out.push(b.clone());
   }
   return out;
 }

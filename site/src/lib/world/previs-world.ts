@@ -1,9 +1,10 @@
 // Grey-box previs world (Phase 2). Kept only for /previs; the site uses world.ts.
 import {
-  AmbientLight, DirectionalLight, Fog, HemisphereLight, PerspectiveCamera, Scene, Vector3, WebGLRenderer,
+  AmbientLight, Color, DirectionalLight, Fog, HemisphereLight, PerspectiveCamera, Scene, Vector3, WebGLRenderer,
 } from 'three';
 import type { Agent } from '../agents';
 import { chapterAt, createCameraPath } from './camera-path';
+import { readPalette } from './config';
 import { createHoneycomb } from './honeycomb';
 
 /** The only thing the world reads. Written elsewhere (slider now, ScrollTrigger later). */
@@ -19,7 +20,7 @@ export interface WorldOptions {
   onFrame?: (dtMs: number) => void;
 }
 
-const BG = 0x0d0e10;
+const BG = new Color(readPalette().ink); // the globe's occluding core is drawn in ink, so the backdrop must match
 
 export function createWorld(
   canvas: HTMLCanvasElement,
@@ -34,14 +35,14 @@ export function createWorld(
   const camera = new PerspectiveCamera(40, 1, 0.1, 400);
 
   const honeycomb = createHoneycomb(agents);
-  scene.add(honeycomb.mesh);
+  scene.add(honeycomb.object);
   scene.add(new AmbientLight(0xffffff, 0.35));
   scene.add(new HemisphereLight(0xffffff, 0x222226, 0.9));
   const key = new DirectionalLight(0xffffff, 2.2);
   key.position.set(-8, 20, 10);
   scene.add(key);
 
-  const path = createCameraPath(honeycomb.lattice.radius);
+  const path = createCameraPath(honeycomb.lattice);
   const pos = new Vector3();
   const target = new Vector3();
 
