@@ -1,8 +1,7 @@
 // The one WebGL world: renderer, scene, locked lights, honeycomb, packets, hex-dissolve targets, post, swarm.
 // It reads the shared scroll state and the locked look; it never re-tunes either, and never listens to scroll.
 import {
-  AmbientLight, Color, DirectionalLight, Fog, HalfFloatType, HemisphereLight, PerspectiveCamera, Scene,
-  Vector2, Vector3, WebGLRenderer, WebGLRenderTarget,
+  Color, Fog, HalfFloatType, PerspectiveCamera, Scene, Vector2, Vector3, WebGLRenderer, WebGLRenderTarget,
 } from 'three';
 import type { Agent } from '../agents';
 import type { ScrollState } from '../scroll';
@@ -11,6 +10,7 @@ import { accentCandidates, look, readPalette } from './config';
 import { cellTopOf, createHoneycomb, layoutLattice, type Honeycomb } from './honeycomb';
 import { motion, SWARM_CAM } from './motion-config';
 import { createPost, type Post } from './post';
+import { createStudio, type Studio } from './studio';
 import { createFlow, type Flow } from './routes';
 import { createSwarm, type Swarm } from './swarm-particles';
 import { createHexDissolve, hexPixelSize, type HexDissolve } from './transitions';
@@ -61,19 +61,16 @@ export function createWorld(opts: WorldOptions): World {
   const scene = new Scene();
   scene.background = new Color(palette.ink); // (render targets need the linear value, not just the clear colour)
   scene.fog = new Fog(palette.ink, 20, 120);
-  const amb = new AmbientLight(0xffffff, look.light.ambient);
-  const hemi = new HemisphereLight(0xffffff, 0x222226, look.light.hemi);
-  const key = new DirectionalLight(0xffffff, look.light.key);
-  key.position.set(-8, 20, 10);
-  scene.add(amb, hemi, key);
   const camera = new PerspectiveCamera(40, 1, 0.1, 400);
 
   const lattice = layoutLattice(agents); // identical for every tier: cell indices stay valid across a rebuild
   const cellByName = new Map<string, number>();
   lattice.cells.forEach((c, i) => c.agent && cellByName.set(c.agent.name, i));
 
-  let comb: Honeycomb = createHoneycomb(agents, tier);
+  let comb: Honeycomb = createHoneycomb(agents, tier, renderer);
   scene.add(comb.object);
+  // moving studio lights, atmosphere halo and drifting dust around the globe
+  let studio: Studio = createStudio(scene, tier, palette, lattice.radius);
   const path = createCameraPath(lattice);
 
   const accent = readAccent();
@@ -158,8 +155,10 @@ export function createWorld(opts: WorldOptions): World {
   function buildTier() {
     scene.remove(comb.object);
     comb.dispose();
-    comb = createHoneycomb(agents, tier);
+    comb = createHoneycomb(agents, tier, renderer);
     scene.add(comb.object);
+    studio.dispose();
+    studio = createStudio(scene, tier, palette, lattice.radius);
     glowCur.clear();
     post?.dispose();
     post = tier === 'high' ? createPost(renderer, scene, camera, look.post) : null;
@@ -193,6 +192,7 @@ export function createWorld(opts: WorldOptions): World {
     const bh = renderer.getDrawingBufferSize(v2).y;
     flows.forEach((f) => f.packet.setViewportHeight(bh));
     swarm?.setViewportHeight(bh);
+    studio.setViewportHeight(bh);
     if (swarm) {
       const tw = swarmTextWidth();
       if (Math.abs(tw - swarmTextW) > 0.5) { swarmTextW = tw; swarm.retarget(tw); }
@@ -222,8 +222,8 @@ export function createWorld(opts: WorldOptions): World {
     }
     camera.position.copy(pos);
     camera.lookAt(target);
-    // the key light rides with the camera (upper left of the view), so the globe reads the same from every side
-    key.position.set(-0.55, 0.85, 0.5).applyQuaternion(camera.quaternion).multiplyScalar(30);
+    // the key sweeps round the globe as the camera orbits (studio.ts), with a soft kicker from behind
+    studio.update(camera, { timeSec: time, dim: view.dim, visible: view.latticeVisible, growth: view.growth });
     // fog follows camera distance so the recede reads as dimming, not clipping
     const d = pos.length();
     (scene.fog as Fog).near = d * 0.6;
@@ -309,6 +309,7 @@ export function createWorld(opts: WorldOptions): World {
       post?.dispose();
       swarm?.dispose();
       comb.dispose();
+      studio.dispose();
       scene.clear();
       swarmScene.clear();
       renderer.dispose();

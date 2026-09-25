@@ -80,12 +80,19 @@ This is what the art-direction rounds (PLAN section 9) are judged against. Verdi
 - Accent: ONE colour, used for the task packet and nothing else (no UI accents, no hover glows on cells, no links). If the accent appears anywhere but the packet and its trail, that is a defect.
 - Exact values are proposed in Phase 3 and locked in `tokens.css`; this brief fixes the roles, not the hex codes.
 
-**Cell material (translucent wax/resin).**
-- **Body:** a hex prism that reads as thick translucent wax, softly lit, no hard specular sparkle. No textures.
-- **Fresnel rim:** a soft, thin brighter edge where the surface turns away from the camera. It defines silhouettes against the dark. Verdict axes: too strong (looks like neon outline / glass toy), too weak (cells vanish into background).
-- **Fake subsurface:** a thickness term that lets light bleed warmer through thinner regions (top edges, cell corners) and stay denser at the centre. Should suggest depth, not glow. Axes: too waxy/flat, too jelly-like.
-- **Emissive core (agent cells only):** a contained inner glow in Colour B, brighter for the cell that is active or hovered. Filler cells have no core and are dimmer, so agent cells read as the structure's nodes. Axes: too hot, too uniform, bleeding past the cell edge.
+**Cell material (pearlescent ceramic, round 4).** Replaces the translucent wax/resin of rounds 1 to 3, which the human found untextured and not premium. Every colour is a mix of the five palette tokens; no new colour token and never the accent.
+- **Body:** a hex or pentagon prism of satin glaze: low roughness, a soft wide highlight, no hard specular sparkle, a little tonal variance per cell. The top face is a soft pillow (its shading leans outward toward the cell edge) with a rounded edge, so silhouettes catch light. No textures, no image assets.
+- **Sheen and rim:** a wide grazing-angle lift driven by the key and kicker lights, plus a softened fresnel rim. Axes: too strong (neon outline, glass toy), too weak (cells vanish), sparkle (a hot pixel on a flat facet).
+- **Pearl:** a faint, muted colour shift toward each cell's edge and toward the horizon, built by moving chroma toward a mix of wax, text and ink-2 while keeping luminance. Axes: too strong (iridescent oil slick), invisible.
+- **Engraved seams:** the gaps between cells are narrow recessed channels with a soft warm glow that climbs the channel walls from a glowing floor under the cells. They must not read as dark gaps with the background showing through, nor as a neon grid.
+- **Emissive core (agent cells only):** a contained, soft-edged inner glow in Colour B, brighter for the cell that is active or hovered. Filler cells have no core, so agent cells read as the structure's nodes. Axes: too hot, too uniform, bleeding past the cell edge.
 - **Lift and state:** hovered or focused cells rise slightly and their core brightens. No colour change to the accent.
+- **Studio (high tier reflection):** a procedural soft-box environment (ink room, overhead box, warm key panel, cool strip) baked once into a reflection map, so the ceramic has something soft to reflect. Medium tier has no reflection and a slightly stronger hemisphere light instead.
+
+**Surroundings (round 4).** The globe sits in a quiet studio, not a void.
+- **Atmosphere halo:** a back-face fresnel shell just outside the globe, tinted wax at low opacity, brightest at the limb and gone a few cell-widths out. It grows in with the globe and dims with the proof chapter. Axes: too strong (a beige aura), invisible.
+- **Dust:** a few hundred dim wax-coloured points (fewer on medium, none in the fallback, which has no canvas) with a slow drift and gentle parallax against the camera position. It must read as depth, never as snow or stars.
+- **Moving light:** the key light sweeps round the globe as the camera orbits (it follows the camera azimuth at a fraction of its rate), with a soft cool kicker from behind, so highlights travel across the ceramic instead of sitting still. The moon uses the same material and lights.
 
 **Lattice composition.** Rings grow outward from a single origin cell with staggered scale and extrude, so growth reads as organic but orderly. `lead-dev` at the core, tier bands outward, filler cells completing the structure. Depth of field is implied by dimming and rim falloff with distance, not blur.
 
@@ -97,7 +104,7 @@ This is what the art-direction rounds (PLAN section 9) are judged against. Verdi
 
 **Particle finale.** Small, dim-to-bright particles in Colour B (not the accent) with curl-noise flocking, then converging on the rasterised `./install.sh --all` target. Should read as the lattice dissolving into a swarm, not fireworks.
 
-**Typography and DOM.** One display face plus one mono face, two families maximum. Text is small (the smallest steps of the type scale), sits at the edges over the dark scene with strong contrast, and never covers the centre; the copy never competes with the canvas.
+**Typography and DOM.** One display face plus one mono face, two families maximum. Round 4 made the text larger after the human could not notice it: captions, chips, HUD readouts, the tier legend and the label cards are 16px in the --text colour (not --wax), with a little more padding. The intro is a large display wordmark (about 72px) and a 24px tagline placed off-centre so the globe stays the hero; the wordmark scrambles in, then shrinks into the corner mark on scroll. Text still sits at the edges, never covers the centre of the globe, and the copy must not compete with the canvas; the text-area budget is measured per scene (scripts/qa-scenes.mjs).
 
 ## 9. Quality tiers and constraints (summary)
 

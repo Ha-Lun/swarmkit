@@ -10,17 +10,18 @@ const dir = mkdtempSync(join(tmpdir(), 'layout-check-'));
 const out = join(dir, 'bundle.mjs');
 await build({
   stdin: {
-    contents: "export { loadAgents } from './src/lib/agents.ts'; export { layoutLattice } from './src/lib/world/honeycomb.ts'; export { buildSphere } from './src/lib/world/sphere.ts';",
+    contents: "export { loadAgents } from './src/lib/agents.ts'; export { CELL_RADIUS } from './src/lib/world/config.ts'; export { layoutLattice, GLOBE_FREQ } from './src/lib/world/honeycomb.ts'; export { buildSphere } from './src/lib/world/sphere.ts';",
     resolveDir: resolve('.'), loader: 'ts',
   },
   bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error',
 });
-const { loadAgents, layoutLattice, buildSphere } = await import(pathToFileURL(out).href);
+const { loadAgents, layoutLattice, buildSphere, GLOBE_FREQ, CELL_RADIUS } = await import(pathToFileURL(out).href);
 rmSync(dir, { recursive: true, force: true });
 
 const agents = loadAgents();
 const lat = layoutLattice(agents);
-const sphere = buildSphere(4);
+const sphere = buildSphere(GLOBE_FREQ);
+const F = GLOBE_FREQ;
 const fails = [];
 const check = (ok, msg) => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${msg}`); if (!ok) fails.push(msg); };
 
@@ -29,7 +30,9 @@ const moon = lat.cells.filter((c) => c.moon);
 const pent = globe.filter((c) => c.sides === 5).length;
 console.log(`cells: ${lat.cells.length} total = ${globe.length} globe (${globe.length - pent} hex + ${pent} pentagon) + ${moon.length} moon; agents ${agents.length}; maxRing ${lat.maxRing}; radius ${lat.radius.toFixed(3)}; mean hex circumradius ${lat.cellRadius.toFixed(3)}`);
 
-check(globe.length === 10 * 16 + 2, `globe cell count is 10*f^2+2 = ${10 * 16 + 2} (got ${globe.length})`);
+check(F === 5, `globe is GP(5,0) (freq ${F})`);
+check(globe.length === 252 && globe.length === 10 * F * F + 2, `globe cell count is 10*f^2+2 = 252 (got ${globe.length})`);
+check(globe.length - pent === 240, `240 hexagons (got ${globe.length - pent})`);
 check(pent === 12, `exactly 12 pentagons (got ${pent})`);
 
 const val = sphere.cells.map((c) => c.neighbours.length);
@@ -51,17 +54,19 @@ for (const b of ['core', 't1', 'domain', 'gate', 'satellite']) {
   band(b).forEach((c) => (rings[c.ring] = (rings[c.ring] ?? 0) + 1));
   console.log(`  ${b.padEnd(9)} ${band(b).length} in rings ${JSON.stringify(rings)}`);
 }
+const used = ['core', 't1', 'domain', 'gate'].flatMap((b) => [...new Set(band(b).map((c) => c.ring))].sort((a, z) => a - z));
+check(used.every((r, i) => r === i), `bands occupy consecutive geodesic rings with no gap (rings ${used})`);
 const order = ['core', 't1', 'domain', 'gate'].map((b) => Math.max(...band(b).map((c) => c.ring)));
 check(order.every((r, i) => i === 0 || r > order[i - 1]), `bands are ordered outward by ring (outermost ring per band ${order})`);
 
-// no overlap: prism footprints (circumradius = 0.94 * scale) must not intersect neighbours; centres must all differ
+// no overlap: prism footprints (circumradius = CELL_RADIUS * scale) must not intersect neighbours; centres must all differ
 let minGap = Infinity, minCentre = Infinity, worst = '';
 for (let i = 0; i < lat.cells.length; i++) for (let j = i + 1; j < lat.cells.length; j++) {
   const a = lat.cells[i], b = lat.cells[j];
   const d = a.pos.distanceTo(b.pos);
   minCentre = Math.min(minCentre, d);
   // inradius of each footprint (apothem = circumradius * cos(pi/n)); touching when d = apothemA + apothemB
-  const ap = (c) => 0.94 * c.scale * Math.cos(Math.PI / c.sides);
+  const ap = (c) => CELL_RADIUS * c.scale * Math.cos(Math.PI / c.sides);
   const gap = d - ap(a) - ap(b);
   if (gap < minGap) { minGap = gap; worst = `${i}-${j}`; }
 }

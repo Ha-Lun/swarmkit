@@ -71,9 +71,10 @@ export function createCameraPath(lattice: Lattice): CameraPath {
     orbit(4, 17, 2.0), orbit(8, 19, 2.6), orbit(12, 20, 3.3), orbit(14, 21, 4.0),
     // 3 hive: the whole globe and its moon in frame, a slow drift round to the core-facing side
     orbit(14, 21, 4.1), orbit(10, 21, 4.15), orbit(5, 22, 4.2), orbit(0, 22, 4.2), orbit(-5, 22, 4.15),
-    // 8 cells: descend to a low fly-over across the front hemisphere, end beside the moon
-    orbit(-45, 30, 2.8), orbit(-62, 22, 2.25), orbit(-32, 14, 2.15), orbit(6, 12, 2.15),
-    orbit(24, 16, 2.25), orbit(34, 22, 2.6),
+    // 8 cells: descend to a fly-over across the front hemisphere (round 4: further back and higher, so the horizon curve
+    // stays in frame), end beside the moon
+    orbit(-45, 34, 3.4), orbit(-62, 29, 3.0), orbit(-32, 24, 2.9), orbit(6, 22, 2.9),
+    orbit(24, 25, 3.0), orbit(34, 27, 3.2),
     // 14 proof: rise and recede to a wide, dim view from the side away from the moon
     orbit(20, 30, 2.7), orbit(-20, 32, 3.6), orbit(-60, 30, 4.3), orbit(-88, 26, 4.7),
     // 18 finale (stub): slow drift
@@ -98,7 +99,7 @@ export function createCameraPath(lattice: Lattice): CameraPath {
       if (ahead) {
         // the surface a little way along the path, weighted in mid-chapter so the ends keep their framed targets
         const w = smooth(Math.min(1, chapterProgress / 0.15)) * (1 - smooth(Math.min(1, Math.max(0, (chapterProgress - 0.8) / 0.2))));
-        curve.getPoint(Math.min(1, g + ahead), tmpA).setLength(L * 0.6);
+        curve.getPoint(Math.min(1, g + ahead), tmpA).setLength(L * 0.3);
         target.lerp(tmpA, w);
       }
     },

@@ -64,48 +64,53 @@
    Colour: the six tokens only. Hairlines are ink-2. No shadows, no gradients. --accent is not used here.
    ------------------------------------------------------------------------------------------------ */
 .site-nav { position: fixed; top: var(--space-4); left: var(--space-6); right: var(--space-6); z-index: 40; display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); pointer-events: none; }
-.nav-pill { pointer-events: auto; background: var(--ink); border: 1px solid var(--ink-2); padding: var(--space-1) var(--space-3); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--wax); text-decoration: none; }
-.nav-mark { font-family: var(--font-display); font-weight: 700; font-size: var(--text-sm); color: var(--text); }
+.nav-pill { pointer-events: auto; background: var(--ink); border: 1px solid var(--ink-2); padding: var(--space-2) var(--space-4); font-family: var(--font-mono); font-size: var(--text-base); color: var(--text); text-decoration: none; }
+.nav-mark { font-family: var(--font-display); font-weight: 700; font-size: var(--text-lg); letter-spacing: -0.02em; line-height: 1.2; color: var(--text); }
 .nav-dot { display: grid; place-items: center; width: var(--space-6); height: var(--space-6); }
 .nav-dot i { display: block; width: 10px; height: 10px; background: var(--wax-dim); clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
 .nav-dot:hover i { background: var(--wax); }
 .nav-dot[aria-current] i { background: var(--text); }
 .nav-sep { width: 1px; height: var(--space-4); margin: 0 var(--space-2); background: var(--ink-2); }
-.nav-ref { color: var(--wax); text-decoration: none; padding: var(--space-1); }
-.nav-ref:hover, .nav-ref[aria-current] { color: var(--text); }
+.nav-ref { color: var(--text); text-decoration: none; padding: var(--space-1); }
+.nav-ref:hover, .nav-ref[aria-current] { text-decoration: underline; text-underline-offset: 4px; }
 
 .scene { position: relative; max-width: 75rem; margin: 0 auto; padding: var(--space-16) var(--space-6) var(--space-8); }
 .chapter + .chapter { border-top: 1px solid var(--ink-2); }
 .scene-foot { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-4); }
 .scene-foot-stack { flex-direction: column; align-items: stretch; justify-content: flex-end; gap: var(--space-3); }
 .captions { display: flex; flex-direction: column; gap: var(--space-2); }
-.caption { margin: 0; max-width: 52ch; font-family: var(--font-display); font-weight: 500; font-size: var(--text-sm); line-height: 1.4; color: var(--text); }
-.cue { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--wax); text-decoration: none; }
-.cue:hover { color: var(--text); }
+.caption { margin: 0; max-width: 60ch; font-family: var(--font-display); font-weight: 500; font-size: var(--text-base); line-height: 1.45; color: var(--text); }
+.cue { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-base); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text); text-decoration: none; }
+.cue:hover { text-decoration: underline; text-underline-offset: 4px; }
 .tools { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); }
 .chips { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
 .chips-center { justify-content: center; }
-.chip { position: relative; display: inline-flex; align-items: center; padding: var(--space-1) var(--space-2); background: var(--ink); border: 1px solid var(--ink-2); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.3; color: var(--wax); white-space: nowrap; }
+.chip { position: relative; display: inline-flex; align-items: center; padding: var(--space-2) var(--space-3); background: var(--ink); border: 1px solid var(--ink-2); font-family: var(--font-mono); font-size: var(--text-base); line-height: 1.3; color: var(--text); white-space: nowrap; }
 .chip-ring { position: absolute; inset: -1px; border: 1px solid var(--wax); opacity: 0; pointer-events: none; }
 .replays { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
-.btn { display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-3); background: var(--ink); border: 1px solid var(--wax-dim); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.3; color: var(--wax); cursor: pointer; }
-.btn:hover { color: var(--text); border-color: var(--wax); }
-.btn-tier { color: var(--wax); opacity: 0.7; }
+.btn { display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); background: var(--ink); border: 1px solid var(--wax-dim); font-family: var(--font-mono); font-size: var(--text-base); line-height: 1.3; color: var(--text); cursor: pointer; }
+.btn:hover { border-color: var(--wax); }
+.btn-tier { color: var(--text); opacity: 0.7; }
 .hud { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); margin: 0; padding-top: var(--space-3); border-top: 1px solid var(--ink-2); }
-.hud-cell dt { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--wax); }
-.hud-cell dd { margin: var(--space-1) 0 0; font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.4; color: var(--text); }
+.hud-cell dt { font-family: var(--font-mono); font-size: var(--text-base); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text); opacity: 0.72; }
+.hud-cell dd { margin: var(--space-1) 0 0; font-family: var(--font-mono); font-size: var(--text-base); line-height: 1.4; color: var(--text); }
 .hud-cell a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 .install-cmd { display: block; margin-top: var(--space-8); font-family: var(--font-mono); font-size: var(--text-lg); color: var(--text); }
 .finale-copy { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-4); }
-.copy-status { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--wax); }
+.copy-status { font-family: var(--font-mono); font-size: var(--text-base); color: var(--text); }
 .agent-list, .agent-list * { pointer-events: none; }
 .agent-list { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.cell-card { position: fixed; top: 0; left: 0; z-index: 30; width: max-content; max-width: 30ch; padding: var(--space-2) var(--space-3); background: var(--ink); border: 1px solid var(--wax-dim); opacity: 0; pointer-events: none; will-change: transform; }
+.cell-card { position: fixed; top: 0; left: 0; z-index: 30; width: max-content; max-width: 34ch; padding: var(--space-3) var(--space-4); background: var(--ink); border: 1px solid var(--wax-dim); opacity: 0; pointer-events: none; will-change: transform; }
 .cell-card.is-on { opacity: 1; }
 .cell-card.is-key { outline: 2px solid var(--text); outline-offset: 2px; }
-.cell-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); margin: 0; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text); }
-.cell-card-tier { color: var(--wax); }
-.cell-card-role { margin: var(--space-1) 0 0; font-size: var(--text-xs); line-height: 1.4; color: var(--wax); }
+.cell-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); margin: 0; font-family: var(--font-mono); font-size: var(--text-base); color: var(--text); }
+.cell-card-tier { color: var(--text); opacity: 0.72; }
+.cell-card-role { margin: var(--space-1) 0 0; font-size: var(--text-base); line-height: 1.4; color: var(--text); }
+/* Intro: a large wordmark and a ~24px tagline, off-centre (left) so the globe stays the hero. The wordmark is the
+   scramble target and, with the world running, travels into the corner mark on scroll (intro.ts). Static: just large. */
+.intro-lede { padding: var(--space-8) 0 var(--space-6); }
+.intro-mark { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: clamp(3rem, 5vw, 4.5rem); line-height: 1.05; letter-spacing: -0.02em; color: var(--text); transform-origin: 0 0; }
+.intro-tag { margin: var(--space-4) 0 0; max-width: 19ch; font-family: var(--font-display); font-weight: 500; font-size: clamp(1.25rem, 1.7vw, 1.5rem); line-height: 1.35; color: var(--text); }
 /* Things that only make sense with the world running (hidden agent list, label cards, replay buttons). */
 @media (prefers-reduced-motion: reduce), (scripting: none) { .world-only { display: none; } }
 :root[data-tier='fallback'] .world-only { display: none; }
@@ -123,8 +128,9 @@
     .captions { display: grid; }
     .captions > * { grid-area: 1 / 1; }
     .captions > :not(:first-child) { opacity: 0; } /* before the world mounts, only the first caption shows; the chapter drives the rest */
-    .caption { font-size: var(--text-sm); }
     .scene-foot { flex-wrap: nowrap; }
+    .intro-lede { position: absolute; left: max(var(--space-6), 4.5vw); top: 24vh; padding: 0; }
+    .nav-mark { opacity: 0; } /* the wordmark travels here from the intro (intro.ts drives the opacity) */
     .install-cmd { margin: 0; }
     .finale-cmd { position: absolute; inset: 0; pointer-events: none; }
     .finale-copy { position: absolute; top: 50%; left: calc(50% + var(--cmd-half, 46vh) + var(--space-4)); margin: 0; transform: translateY(-50%); pointer-events: auto; }

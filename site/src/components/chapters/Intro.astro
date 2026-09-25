@@ -3,9 +3,13 @@ import { motion } from '../../lib/world/motion-config';
 ---
 <section id="top" class="chapter" style={`--runway:${motion.runway.intro}`} aria-labelledby="intro-title">
   <div class="scene" data-scene>
-    <h1 id="intro-title" class="sr-only">SwarmKit</h1>
-    <div class="scene-foot">
-      <p class="caption motion-rise-late">A specialist agent swarm for Claude Code, OpenCode and Antigravity, built from one source.</p>
+    <div class="intro-lede">
+      <h1 id="intro-title" class="intro-mark" data-fx>SwarmKit</h1>
+      <div class="intro-tagwrap" data-fx>
+        <p class="intro-tag motion-rise-late">A specialist agent swarm for Claude Code, OpenCode and Antigravity, built from one source.</p>
+      </div>
+    </div>
+    <div class="scene-foot" data-fx>
       <a href="#hive" class="cue">
         <span>Scroll</span>
         <svg class="motion-cue" width="12" height="18" viewBox="0 0 16 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">

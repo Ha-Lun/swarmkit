@@ -17,29 +17,29 @@ const groups = bandOrder
   .map((band) => ({ band, ...bandLabels[band], members: agents.filter((a) => a.band === band) }))
   .filter((g) => g.members.length > 0);
 const installCmd = './install.sh --all';
-const h = 'm-0 font-mono text-xs font-normal uppercase tracking-widest text-wax';
+const h = 'm-0 font-mono text-sm font-normal uppercase tracking-widest text-wax';
 ---
 <section id="reference" class="bg-ink border-t border-ink-2 px-6 pb-16 pt-24 md:px-8" aria-labelledby="reference-title">
-  <div class="mx-auto max-w-page text-sm text-text">
+  <div class="mx-auto max-w-page text-base text-text">
     <h2 id="reference-title" class="m-0 font-display text-xl font-bold">Reference</h2>
-    <p class="mb-0 mt-2 max-w-[64ch] text-wax">
-      The detail behind the scroll. You write every agent, skill and rule once in <code class="font-mono text-xs">core/</code>; a small
+    <p class="mb-0 mt-2 max-w-[64ch] text-text">
+      The detail behind the scroll. You write every agent, skill and rule once in <code class="font-mono text-sm">core/</code>; a small
       compiler turns them into each CLI's native format and the installer links the results into place.
     </p>
 
     <div class="mt-12 grid grid-cols-1 gap-x-12 gap-y-12 lg:grid-cols-3">
       <div>
         <h3 class={h}>Install</h3>
-        <pre class="mb-0 mt-3 overflow-x-auto font-mono text-xs leading-relaxed"><code>git clone {repoUrl}.git
+        <pre class="mb-0 mt-3 overflow-x-auto font-mono text-sm leading-relaxed"><code>git clone {repoUrl}.git
 cd swarmkit
 {installCmd}</code></pre>
-        <p class="mb-0 mt-3 text-wax">Anything it replaces is backed up first. Running it again changes nothing. <code class="font-mono text-xs">--all</code> is also the default when no flag is given.</p>
+        <p class="mb-0 mt-3 text-text">Anything it replaces is backed up first. Running it again changes nothing. <code class="font-mono text-sm">--all</code> is also the default when no flag is given.</p>
         <h3 class={`${h} mt-8`}>Platforms</h3>
         <dl class="mb-0 mt-3 grid gap-3">
           {platforms.map((p) => (
             <div>
-              <dt><span class="font-display font-bold">{p.name}</span> <code class="font-mono text-xs text-wax">{p.flag}</code></dt>
-              <dd class="m-0 text-wax">{p.summary}</dd>
+              <dt><span class="font-display font-bold">{p.name}</span> <code class="font-mono text-sm text-text">{p.flag}</code></dt>
+              <dd class="m-0 text-text">{p.summary}</dd>
             </div>
           ))}
         </dl>
@@ -50,8 +50,8 @@ cd swarmkit
         <dl class="mb-0 mt-3 grid gap-2">
           {flags.map((f) => (
             <div class="grid grid-cols-[104px_1fr] gap-3">
-              <dt class="font-mono text-xs">{f.flag}</dt>
-              <dd class="m-0 text-wax">{f.description}</dd>
+              <dt class="font-mono text-sm">{f.flag}</dt>
+              <dd class="m-0 text-text">{f.description}</dd>
             </div>
           ))}
         </dl>
@@ -59,31 +59,31 @@ cd swarmkit
         <dl class="mb-0 mt-3 grid gap-2">
           {tiers.map((t) => (
             <div class="grid grid-cols-[32px_1fr] gap-3">
-              <dt class="font-mono text-xs text-wax">{t.id}</dt>
-              <dd class="m-0"><span class="font-display font-bold">{t.title}.</span> <span class="text-wax">{t.body}</span></dd>
+              <dt class="font-mono text-sm text-text">{t.id}</dt>
+              <dd class="m-0"><span class="font-display font-bold">{t.title}.</span> <span class="text-text">{t.body}</span></dd>
             </div>
           ))}
         </dl>
-        <p class="mb-0 mt-3 font-mono text-xs text-wax">T0 to T3 are routing tiers (how much ceremony a task gets). fast, standard and deep are model tiers (which model class runs an agent).</p>
+        <p class="mb-0 mt-3 font-mono text-sm text-text">T0 to T3 are routing tiers (how much ceremony a task gets). fast, standard and deep are model tiers (which model class runs an agent).</p>
       </div>
 
       <div>
         <h3 class={h}>Example routes</h3>
-        <p class="mb-0 mt-2 text-wax">Illustrative: the actual route depends on what the change touches.</p>
+        <p class="mb-0 mt-2 text-text">Illustrative: the actual route depends on what the change touches.</p>
         <ul class="m-0 mt-3 grid list-none gap-4 p-0">
           {examples.map((e) => (
             <li>
-              <p class="m-0"><span class="font-display font-bold">{e.task}</span> <span class="font-mono text-xs text-wax">{e.tier}</span></p>
-              <ol class="mb-0 mt-1 list-decimal pl-5 text-wax">
-                {e.route.map((r) => <li>{r.label}{r.agent && <> <code class="font-mono text-xs text-text">{r.agent}</code></>}</li>)}
+              <p class="m-0"><span class="font-display font-bold">{e.task}</span> <span class="font-mono text-sm text-text">{e.tier}</span></p>
+              <ol class="mb-0 mt-1 list-decimal pl-5 text-text">
+                {e.route.map((r) => <li>{r.label}{r.agent && <> <code class="font-mono text-sm text-text">{r.agent}</code></>}</li>)}
               </ol>
             </li>
           ))}
         </ul>
         <h3 class={`${h} mt-8`}>Quality gates</h3>
-        <p class="mb-0 mt-2 text-wax">Run after the work, in parallel where the CLI allows, and only when relevant. Worktrees are never merged or removed without an explicit instruction.</p>
+        <p class="mb-0 mt-2 text-text">Run after the work, in parallel where the CLI allows, and only when relevant. Worktrees are never merged or removed without an explicit instruction.</p>
         <ul class="m-0 mt-2 grid list-none gap-1 p-0">
-          {gates.map((g) => <li><code class="font-mono text-xs">{g.agent}</code> <span class="text-wax">when {g.when}</span></li>)}
+          {gates.map((g) => <li><code class="font-mono text-sm">{g.agent}</code> <span class="text-text">when {g.when}</span></li>)}
         </ul>
       </div>
     </div>
@@ -91,20 +91,20 @@ cd swarmkit
     <figure class="m-0 mt-12 max-w-[760px]">
       <div class="hidden md:block"><RoutingDiagram /></div>
       <div class="mx-auto max-w-[360px] md:hidden"><RoutingDiagram vertical /></div>
-      <figcaption class="mb-0 mt-2 font-mono text-xs text-wax">Explore is for non-trivial work or uncertain context. It can be skipped when the task is self-contained.</figcaption>
+      <figcaption class="mb-0 mt-2 font-mono text-sm text-text">Explore is for non-trivial work or uncertain context. It can be skipped when the task is self-contained.</figcaption>
     </figure>
 
-    <h3 class={`${h} mt-16`}>Roster <span class="text-wax">{agents.length}</span></h3>
+    <h3 class={`${h} mt-16`}>Roster <span class="text-text">{agents.length}</span></h3>
     <div class="mt-4 grid grid-cols-1 gap-x-12 gap-y-8 md:grid-cols-2 lg:grid-cols-3">
       {groups.map((g) => (
         <div>
-          <p class="m-0 font-display font-bold">{g.title} <span class="font-mono text-xs font-normal text-wax">{g.members.length}</span></p>
-          <p class="mb-0 mt-1 text-wax">{g.note}</p>
+          <p class="m-0 font-display font-bold">{g.title} <span class="font-mono text-sm font-normal text-text">{g.members.length}</span></p>
+          <p class="mb-0 mt-1 text-text">{g.note}</p>
           <ul class="m-0 mt-3 grid list-none gap-2 p-0" aria-label={g.title}>
             {g.members.map((a) => (
               <li data-agent-ref={a.name}>
-                <code class="font-mono text-xs">{a.name}</code> <span class="font-mono text-xs text-wax">{a.tier}</span>
-                <span class="block text-wax">{roleLine(a, 72)}</span>
+                <code class="font-mono text-sm">{a.name}</code> <span class="font-mono text-sm text-text">{a.tier}</span>
+                <span class="block text-text">{roleLine(a, 72)}</span>
               </li>
             ))}
           </ul>
@@ -114,25 +114,25 @@ cd swarmkit
 
     <div class="mt-16 grid grid-cols-1 gap-x-12 gap-y-12 lg:grid-cols-3">
       <div>
-        <h3 class={h}>MCP servers <span class="text-wax">{mcpServers.length}</span></h3>
-        <p class="mb-0 mt-2 text-wax">Registered for Claude Code and Antigravity from <code class="font-mono text-xs">core/mcp.json</code>.</p>
+        <h3 class={h}>MCP servers <span class="text-text">{mcpServers.length}</span></h3>
+        <p class="mb-0 mt-2 text-text">Registered for Claude Code and Antigravity from <code class="font-mono text-sm">core/mcp.json</code>.</p>
         <ul class="m-0 mt-3 flex list-none flex-wrap gap-2 p-0">
-          {mcpServers.map((m) => <li class="border border-wax-dim px-2 py-1 font-mono text-xs">{m}</li>)}
+          {mcpServers.map((m) => <li class="border border-wax-dim px-2 py-1 font-mono text-sm">{m}</li>)}
         </ul>
       </div>
       <div>
-        <h3 class={h}>Skills <span class="text-wax">{skills.length}</span></h3>
-        <p class="mb-0 mt-2 text-wax">Shared by all three CLIs, from <code class="font-mono text-xs">core/skills/</code>.</p>
+        <h3 class={h}>Skills <span class="text-text">{skills.length}</span></h3>
+        <p class="mb-0 mt-2 text-text">Shared by all three CLIs, from <code class="font-mono text-sm">core/skills/</code>.</p>
         <ul class="m-0 mt-3 flex list-none flex-wrap gap-2 p-0">
-          {skills.map((s) => <li class="border border-wax-dim px-2 py-1 font-mono text-xs">{s}</li>)}
+          {skills.map((s) => <li class="border border-wax-dim px-2 py-1 font-mono text-sm">{s}</li>)}
         </ul>
       </div>
       <div>
-        <h3 class={h}>Slash commands <span class="text-wax">{commands.length}</span></h3>
-        <p class="mb-0 mt-2 text-wax">OpenCode.</p>
+        <h3 class={h}>Slash commands <span class="text-text">{commands.length}</span></h3>
+        <p class="mb-0 mt-2 text-text">OpenCode.</p>
         <dl class="mb-0 mt-3 grid gap-2">
           {commands.map((c) => (
-            <div><dt class="font-mono text-xs">{c.name}</dt><dd class="m-0 text-wax">{c.description}</dd></div>
+            <div><dt class="font-mono text-sm">{c.name}</dt><dd class="m-0 text-text">{c.description}</dd></div>
           ))}
         </dl>
       </div>
@@ -142,16 +142,16 @@ cd swarmkit
     <div class="mt-4 grid grid-cols-1 gap-x-12 gap-y-8 lg:grid-cols-3">
       <div data-proof="ponytail">
         <p class="m-0 font-display font-bold">Ponytail diff</p>
-        <p class="mb-0 mt-1 font-mono text-xs">net: pending</p>
-        <p class="mb-0 mt-1 text-wax">Ponytail is the always-on discipline against over-engineering. No before-and-after diff has been recorded yet, so no figure is shown.</p>
+        <p class="mb-0 mt-1 font-mono text-sm">net: pending</p>
+        <p class="mb-0 mt-1 text-text">Ponytail is the always-on discipline against over-engineering. No before-and-after diff has been recorded yet, so no figure is shown.</p>
       </div>
       <div data-proof="benchmarks" class="lg:col-span-2">
         <p class="m-0 font-display font-bold">Benchmarks</p>
         {bench ? (
           <>
             <div class="mt-2 overflow-x-auto">
-              <table class="w-full border-collapse text-left font-mono text-xs">
-                <thead><tr>{bench.columns.map((c) => <th scope="col" class="border-b border-wax-dim py-2 pr-4 font-normal text-wax">{c}</th>)}</tr></thead>
+              <table class="w-full border-collapse text-left font-mono text-sm">
+                <thead><tr>{bench.columns.map((c) => <th scope="col" class="border-b border-wax-dim py-2 pr-4 font-normal text-text">{c}</th>)}</tr></thead>
                 <tbody>{bench.rows.map((r) => <tr>{bench.columns.map((c) => <td class="border-b border-ink-2 py-2 pr-4">{r[c] ?? ''}</td>)}</tr>)}</tbody>
               </table>
             </div>
@@ -159,39 +159,39 @@ cd swarmkit
           </>
         ) : (
           <>
-            <p class="mb-0 mt-1 font-mono text-xs">benchmarks pending</p>
-            <p class="mb-0 mt-1 text-wax">No benchmark data has been recorded yet. When it exists it will show medians over at least three runs per fixture per agent type, with the raw file linked. Losses will be shown too.</p>
+            <p class="mb-0 mt-1 font-mono text-sm">benchmarks pending</p>
+            <p class="mb-0 mt-1 text-text">No benchmark data has been recorded yet. When it exists it will show medians over at least three runs per fixture per agent type, with the raw file linked. Losses will be shown too.</p>
           </>
         )}
       </div>
       <div data-proof="harness" class="lg:col-span-3">
         <p class="m-0 font-display font-bold">Harness disclosure</p>
-        <p class="mb-0 mt-1 text-wax">
-          Benchmark runs: Antigravity (<code class="font-mono text-xs">agy</code>) with <code class="font-mono text-xs">gemini-3.8-flash-high</code>.{bench?.harness || bench?.model ? ` Recorded in the data file: ${[bench.harness, bench.model].filter(Boolean).join(', ')}.` : ''}{' '}
+        <p class="mb-0 mt-1 text-text">
+          Benchmark runs: Antigravity (<code class="font-mono text-sm">agy</code>) with <code class="font-mono text-sm">gemini-3.8-flash-high</code>.{bench?.harness || bench?.model ? ` Recorded in the data file: ${[bench.harness, bench.model].filter(Boolean).join(', ')}.` : ''}{' '}
           This site: built with Claude Code, using the agents described above. The scene is procedural: no external models, textures or volume data, and no AI-generated media.
         </p>
       </div>
     </div>
 
     <h3 class={`${h} mt-12`}>Built by SwarmKit</h3>
-    <p class="mb-0 mt-2 max-w-[64ch] text-wax">Read from the repo's build log at build time. It separates what the human did from what agents did.</p>
+    <p class="mb-0 mt-2 max-w-[64ch] text-text">Read from the repo's build log at build time. It separates what the human did from what agents did.</p>
     <dl class="mb-0 mt-3 grid grid-cols-1 gap-x-12 gap-y-3 md:grid-cols-2">
       <div>
-        <dt class="font-mono text-xs text-wax">Human interventions</dt>
-        <dd class="m-0"><span class="font-display text-lg font-bold">{log.interventions}</span> <span class="text-wax">{log.gates} gate approvals, {log.decisions} decisions and answers, {log.artRounds} art-direction rounds with a human verdict. Measurements and agent-applied changes are not counted.</span></dd>
+        <dt class="font-mono text-sm text-text">Human interventions</dt>
+        <dd class="m-0"><span class="font-display text-lg font-bold">{log.interventions}</span> <span class="text-text">{log.gates} gate approvals, {log.decisions} decisions and answers, {log.artRounds} art-direction rounds with a human verdict. Measurements and agent-applied changes are not counted.</span></dd>
       </div>
       <div>
-        <dt class="font-mono text-xs text-wax">Agent dispatches</dt>
-        <dd class="m-0"><span class="font-display text-lg font-bold">{log.dispatches}</span> <span class="text-wax">{log.dispatchesByAgent.map(([a, n]) => `${a} ${n}`).join(', ') || 'none recorded'}</span></dd>
+        <dt class="font-mono text-sm text-text">Agent dispatches</dt>
+        <dd class="m-0"><span class="font-display text-lg font-bold">{log.dispatches}</span> <span class="text-text">{log.dispatchesByAgent.map(([a, n]) => `${a} ${n}`).join(', ') || 'none recorded'}</span></dd>
       </div>
     </dl>
     <details class="mt-4">
-      <summary class="cursor-pointer font-mono text-xs text-wax">Build timeline ({log.events.length} events)</summary>
+      <summary class="cursor-pointer font-mono text-sm text-text">Build timeline ({log.events.length} events)</summary>
       <ol class="m-0 mt-3 list-none border-l border-wax-dim p-0" aria-label="Build timeline">
         {log.events.map((e) => (
           <li class="relative py-2 pl-5" data-actor={e.actor}>
             <span class="absolute -left-[3px] top-[14px] size-[5px] bg-wax" aria-hidden="true"></span>
-            <p class="m-0 font-mono text-xs text-wax"><time datetime={e.ts}>{fmt(e.ts)}</time> / {e.actor} / {e.kind}</p>
+            <p class="m-0 font-mono text-sm text-text"><time datetime={e.ts}>{fmt(e.ts)}</time> / {e.actor} / {e.kind}</p>
             <p class="mb-0 mt-1">{e.text}</p>
           </li>
         ))}
@@ -199,7 +199,7 @@ cd swarmkit
     </details>
 
     <p class="mb-0 mt-12 flex flex-wrap gap-x-8 gap-y-2" data-slot="horology">
-      <span class="text-wax">Horology demo: link coming.</span>
+      <span class="text-text">Horology demo: link coming.</span>
       <a href={repoUrl} class="underline underline-offset-4">Source: github.com/ha-lun/swarmkit</a>
     </p>
   </div>
