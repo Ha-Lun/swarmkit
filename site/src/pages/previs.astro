@@ -24,7 +24,7 @@ const agents = loadAgents();
     </div>
     <script id="agents-data" type="application/json" set:html={JSON.stringify(agents)} />
     <script>
-      import { createWorld, type SharedState } from '../lib/world/world';
+      import { createWorld, type SharedState } from '../lib/world/previs-world';
       import { chapterAt, SEGMENTS } from '../lib/world/camera-path';
       import type { Agent } from '../lib/agents';
 

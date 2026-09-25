@@ -31,6 +31,7 @@ cd swarmkit</code></pre>
 
     <h3 class="mb-0 mt-24 font-display text-xl font-bold">Tiered routing</h3>
     <p class="mb-0 mt-3 max-w-[60ch] text-text">Tasks are routed by tier. The tier sets how much ceremony a task gets.</p>
+    <p class="mb-0 mt-3 max-w-[60ch] font-mono text-xs text-wax">T0 to T3 are routing tiers (how much ceremony a task gets). fast, standard and deep are model tiers (which model class runs an agent).</p>
     <ol class="m-0 mt-8 grid grid-cols-1 list-none gap-4 p-0 sm:grid-cols-2 lg:grid-cols-4">
       {tiers.map((t) => (
         <li class="panel p-6">
@@ -42,7 +43,7 @@ cd swarmkit</code></pre>
     </ol>
 
     <h3 class="mb-0 mt-24 font-display text-xl font-bold">Explore, execute, then check</h3>
-    <p class="mb-0 mt-3 max-w-[60ch] text-text">Quality gates run after the work, in parallel, and only when relevant. Worktrees are never merged or removed without an explicit instruction.</p>
+    <p class="mb-0 mt-3 max-w-[60ch] text-text">Quality gates run after the work, in parallel where the CLI allows, and only when relevant. Worktrees are never merged or removed without an explicit instruction.</p>
     <figure class="m-0 mt-8 panel p-6 md:p-8">
       <div class="hidden md:block"><RoutingDiagram /></div>
       <div class="mx-auto max-w-[360px] md:hidden"><RoutingDiagram vertical /></div>

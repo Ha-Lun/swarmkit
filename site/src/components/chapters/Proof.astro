@@ -6,7 +6,7 @@ const bench = loadBenchmarks();
 const log = loadBuildlog();
 const fmt = (ts: string) => ts.slice(0, 16).replace('T', ' ') + ' UTC';
 const stats = [
-  { label: 'Human interventions', value: log.interventions, note: `${log.gates} gate approvals, ${log.decisions} decisions, ${log.artRounds} art-direction rounds` },
+  { label: 'Human interventions', value: log.interventions, note: `${log.gates} gate approvals, ${log.decisions} decisions and answers, ${log.artRounds} art-direction rounds with a human verdict. Measurements and agent-applied changes are not counted.` },
   { label: 'Agent dispatches', value: log.dispatches, note: log.dispatchesByAgent.map(([a, n]) => `${a} ${n}`).join(', ') || 'none recorded' },
 ];
 ---

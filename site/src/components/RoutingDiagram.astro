@@ -1,5 +1,5 @@
 ---
-// Inline SVG: route -> explore -> execute -> quality gates in parallel.
+// Inline SVG: route -> explore -> execute -> quality gates (in parallel where the CLI allows).
 // Two layouts share one data source so text stays legible at 390px.
 import { gates } from '../content/routing';
 
@@ -23,8 +23,8 @@ const gateX = vertical ? 60 : W - GATE_W;
 const gateY = (i: number) => (vertical ? 330 + i * 64 : 30 + i * 92);
 const capY = vertical ? 288 : 0;
 
-const title = 'Routing: a request is classified, explored, executed, then checked by quality gates in parallel';
-const desc = `Steps: ${stages.map((s) => `${s.name} (${s.sub})`).join(', then ')}. Then in parallel, when relevant: ${gates.map((g) => `${g.agent} when ${g.when}`).join('; ')}.`;
+const title = 'Routing: a request is classified, explored, executed, then checked by quality gates in parallel where the CLI allows';
+const desc = `Steps: ${stages.map((s) => `${s.name} (${s.sub})`).join(', then ')}. Then, in parallel where the CLI allows and when relevant: ${gates.map((g) => `${g.agent} when ${g.when}`).join('; ')}.`;
 const id = vertical ? 'route-v' : 'route-h';
 ---
 <svg
@@ -63,7 +63,7 @@ const id = vertical ? 'route-v' : 'route-h';
     </g>
   )}
 
-  <text x={gateX} y={capY + (vertical ? 0 : 14)} font-size="11" class="fill-wax font-mono">in parallel, only when relevant</text>
+  <text x={gateX} y={capY + (vertical ? 0 : 14)} font-size="11" class="fill-wax font-mono">in parallel where the CLI allows</text>
 
   {gates.map((g, i) => (
     <g>
