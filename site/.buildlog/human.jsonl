@@ -9,3 +9,4 @@
 {"ts":"2026-09-25T16:44:38Z","type":"gate","gate":"G2","verdict":"approved","note":"human: it all looks good; all elements and tokens locked (violet accent, cool ink, Space Grotesk + JetBrains Mono). Desktop fps sweep not reported; phone/medium tier deferred"}
 {"ts":"2026-09-25T16:50:53Z","type":"decision","note":"Phase 4 plan approved: ponytail diff + benchmarks pending; repo github.com/ha-lun/swarmkit; horology placeholder; responsive at 1440/1024/768/390 layout only"}
 {"ts":"2026-09-25T17:05:12Z","type":"gate","gate":"G4","verdict":"approved","note":"human: the page looks good; continue. Review items 1-5 (interventions count definition, parallel-gates qualifier, terse roster blurbs, tier legend, benchmark schema) not yet answered"}
+{"ts":"2026-09-25T17:12:21Z","type":"decision","note":"Phase 5 plan approved; interventions counter counts only the human own actions"}
