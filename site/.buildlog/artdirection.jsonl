@@ -13,3 +13,4 @@
 {"ts": "2026-09-25T16:44:38Z", "round": 3, "element": "post", "change": "none", "verdict": "yes", "note": "human: it all looks good; locked at G2"}
 {"ts": "2026-09-25T16:44:38Z", "round": 3, "element": "palette+type", "change": "none", "verdict": "yes", "note": "human: it all looks good; locked at G2"}
 {"ts":"2026-09-25T19:52:35Z","round":4,"element":"globe","change":"material to pearlescent ceramic; GP(5,0); lower columns; softer rim; pulled-back fly-over; halo, dust, moving light; bigger text","verdict":"pending human check","note":"round 4 opened by human request"}
+{"ts":"2026-09-25T20:30:52Z","round":4,"element":"globe+glow+comet+transitions","change":"round-4 ceramic build reviewed","verdict":"human: dislikes glow; comet animation not up to par; transitions not smooth; globe lacks texture and panels misaligned","note":"superseded by round 5"}
