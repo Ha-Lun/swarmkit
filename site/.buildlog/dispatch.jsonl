@@ -1,0 +1,2 @@
+{"ts": "2026-09-25T15:15:57+00:00", "session_id": "db7631d2-7721-41a5-bec7-96a3178fab3e", "agent_id": "a8e5b88ca4b15f8b4", "agent_type": "showroom", "summary": "S0 and S1 are done and the pipeline is stopped at G1. I did both myself, without delegating to `showroom-intake`. I have not run any tests or checks on either file.\n\n- **`state.json`:** `/home/ha-lun/"}
+{"ts":"2026-09-25T15:21:09Z","type":"dispatch","agent_type":"showroom","summary":"S0-S1: wrote BRIEF.md and .showroom/state.json; hook did not fire, logged manually"}

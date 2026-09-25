@@ -1,0 +1,34 @@
+{
+  "project": "swarmkit-showcase-site",
+  "updated": "2026-09-25",
+  "current_stage": "S1_INTAKE",
+  "awaiting_gate": "G1",
+  "stages": {
+    "S0_PREFLIGHT": "done",
+    "S1_INTAKE": "awaiting_gate_G1",
+    "S2_DESIGN_SYSTEM": "pending",
+    "S3_ASSET_REQUEST": "skipped",
+    "S4_INGEST": "skipped",
+    "S5_SCAFFOLD": "pending",
+    "S6_SECTIONS": "pending",
+    "S7_MOTION": "pending",
+    "S8_3D": "pending",
+    "S9_QA": "pending",
+    "S10_DEPLOY": "pending"
+  },
+  "gates": {
+    "G1": "pending",
+    "G2": "pending",
+    "G3": "skipped",
+    "G4": "pending",
+    "G5": "pending"
+  },
+  "decisions": {
+    "assets": "100% procedural. No Google Flow, no AI-generated media, no external assets. S3 asset request and S4 ingest skipped.",
+    "benchmarks": "pending; public/data/benchmark_metrics.json absent. Proof chapter renders 'benchmarks pending' state.",
+    "agents_source": "../core/agents (counts derived at build time, never hardcoded)",
+    "brief": "BRIEF.md",
+    "plan": "PLAN.md (chapter structure follows PLAN section 6, not the default 10-section pattern)"
+  },
+  "assets": []
+}

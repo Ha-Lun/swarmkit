@@ -1,2 +1,3 @@
 {"ts":"2026-09-25T15:14:42Z","type":"decision","note":"Phase 0 benchmark deferred: user will supply benchmark file later"}
 {"ts":"2026-09-25T15:14:42Z","type":"decision","note":"Dev server binds to 0.0.0.0 (global rule overrides PLAN.md 127.0.0.1)"}
+{"ts":"2026-09-25T15:21:09Z","type":"gate","gate":"G1","verdict":"approved","note":"BRIEF.md approved; five-chapter structure per PLAN section 6 confirmed"}
