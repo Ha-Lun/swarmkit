@@ -8,8 +8,8 @@ import type { Band } from '../../content/tiers';
 const SQRT3 = Math.sqrt(3);
 const DIRS: [number, number][] = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
 const SKIRT_RINGS = 3; // filler rings beyond the outermost agent band
-const SATELLITE_DIR = Math.PI / 6; // must match SAT in camera-path.ts
-const SATELLITE_GAP = 4.5; // world units between lattice edge and cluster centre
+export const SATELLITE_DIR = Math.PI / 6;
+export const SATELLITE_GAP = 4.5; // world units between lattice edge and cluster centre
 const CELL_GAP = 0.94; // prism radius; <1 leaves a visible seam
 
 // height and grey per band (agents vs filler differ only by these two values)
