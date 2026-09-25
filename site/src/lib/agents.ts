@@ -8,11 +8,32 @@ export interface Agent {
   role: string;
   tier: string;
   band: Band;
+  description: string;
+  capabilities: string[];
 }
 
-function scalar(fm: string, key: string): string {
+function unquote(v: string): string {
+  const s = v.trim();
+  if (s.startsWith("'") && s.endsWith("'")) return s.slice(1, -1).replace(/''/g, "'");
+  if (s.startsWith('"') && s.endsWith('"')) return s.slice(1, -1);
+  return s;
+}
+
+export function scalar(fm: string, key: string): string {
   const m = fm.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'));
-  return m ? m[1].trim().replace(/^['"]|['"]$/g, '') : '';
+  return m ? unquote(m[1]) : '';
+}
+
+// Handles `key: [a, b]`, `key: []` and block lists (`key:` then `- item` lines).
+function list(fm: string, key: string): string[] {
+  const inline = fm.match(new RegExp(`^${key}:\\s*\\[(.*)\\]\\s*$`, 'm'));
+  if (inline) return inline[1].split(',').map(unquote).filter(Boolean);
+  const block = fm.match(new RegExp(`^${key}:\\s*\\r?\\n((?:[ \\t]*- .*(?:\\r?\\n|$))+)`, 'm'));
+  return block ? block[1].split(/\r?\n/).filter(Boolean).map((l) => unquote(l.replace(/^[ \t]*- /, ''))) : [];
+}
+
+export function frontmatter(src: string): string {
+  return src.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? '';
 }
 
 export function loadAgents(): Agent[] {
@@ -21,9 +42,15 @@ export function loadAgents(): Agent[] {
     .filter((f) => f.endsWith('.md'))
     .sort()
     .map((f) => {
-      const src = readFileSync(resolve(dir, f), 'utf8');
-      const fm = src.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? '';
+      const fm = frontmatter(readFileSync(resolve(dir, f), 'utf8'));
       const name = scalar(fm, 'name') || f.replace(/\.md$/, '');
-      return { name, role: scalar(fm, 'role'), tier: scalar(fm, 'tier'), band: bandOf(name) };
+      return {
+        name,
+        role: scalar(fm, 'role'),
+        tier: scalar(fm, 'tier'),
+        band: bandOf(name),
+        description: scalar(fm, 'description'),
+        capabilities: list(fm, 'capabilities'),
+      };
     });
 }

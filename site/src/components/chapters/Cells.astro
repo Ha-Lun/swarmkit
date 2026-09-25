@@ -1,0 +1,78 @@
+---
+import { facts } from '../../lib/facts';
+import { bandLabels, bandOrder } from '../../content/tiers';
+import { examples } from '../../content/routing';
+
+const agents = facts.agents;
+const groups = bandOrder
+  .map((band) => ({ band, ...bandLabels[band], members: agents.filter((a) => a.band === band) }))
+  .filter((g) => g.members.length > 0);
+
+// First sentence of the frontmatter description, capped for card height.
+function summary(text: string): string {
+  const first = text.split(/(?<=[.!?])\s/)[0];
+  return first.length > 140 ? `${first.slice(0, 137).trimEnd()}...` : first;
+}
+---
+<section id="cells" class="chapter border-t border-ink-2 py-24" aria-labelledby="cells-title">
+  <div class="mx-auto max-w-page px-6 md:px-8">
+    <p class="eyebrow m-0">Chapter 2 / The roster</p>
+    <h2 id="cells-title" class="mb-0 mt-4 max-w-[20ch] font-display text-2xl font-bold leading-tight">Every agent is one cell.</h2>
+    <p class="mb-0 mt-6 max-w-[60ch] text-lg text-text">
+      {agents.length} agents in {groups.length} groups. Tier is the model class: fast, standard or deep. The model behind each class is set once per CLI.
+    </p>
+
+    <div class="mt-12 grid grid-cols-1 gap-12">
+      {groups.map((g) => (
+        <div>
+          <h3 class="m-0 font-display text-xl font-bold">{g.title} <span class="font-mono text-sm font-normal text-wax">{g.members.length}</span></h3>
+          <p class="mb-0 mt-2 text-sm text-wax">{g.note}</p>
+          <ul class="m-0 mt-6 grid grid-cols-1 list-none gap-4 p-0 sm:grid-cols-2 lg:grid-cols-3" aria-label={g.title}>
+            {g.members.map((a) => (
+              <li
+                tabindex="0"
+                data-agent={a.name}
+                data-band={a.band}
+                data-tier={a.tier}
+                class="panel flex flex-col gap-3 p-4 hover:border-wax focus-visible:border-wax"
+              >
+                <div class="flex items-baseline justify-between gap-3">
+                  <p class="m-0 break-all font-mono text-sm text-text">{a.name}</p>
+                  <p class="m-0 shrink-0 border border-wax-dim px-2 font-mono text-xs text-wax">{a.tier}</p>
+                </div>
+                <p class="m-0 text-sm text-text">{summary(a.description)}</p>
+                <p class="m-0 mt-auto font-mono text-xs text-wax">
+                  <span class="sr-only">Capabilities: </span>{a.capabilities.length ? a.capabilities.join(' / ') : 'no tools declared'}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+
+    <h3 class="mb-0 mt-24 font-display text-xl font-bold">Example routes</h3>
+    <p class="mb-0 mt-3 max-w-[60ch] text-text">Example tasks, routed by the rules above. Illustrative: the actual route depends on what the change touches.</p>
+    <ul class="m-0 mt-8 grid grid-cols-1 list-none gap-4 p-0 lg:grid-cols-3">
+      {examples.map((e) => (
+        <li class="panel p-6" data-example={e.task.toLowerCase().replace(/\s+/g, '-')}>
+          <div class="flex items-baseline justify-between gap-3">
+            <p class="m-0 font-display text-base font-bold">{e.task}</p>
+            <p class="m-0 font-mono text-sm text-wax">{e.tier}</p>
+          </div>
+          <ol class="mb-0 mt-4 grid grid-cols-1 list-none gap-3 p-0">
+            {e.route.map((r, i) => (
+              <li class="flex gap-3 text-sm text-text">
+                <span class="w-4 shrink-0 font-mono text-xs text-wax" aria-hidden="true">{i + 1}</span>
+                <span>
+                  {r.label}
+                  {r.agent && <> <code class="font-mono text-xs text-wax" data-route-agent={r.agent}>{r.agent}</code></>}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </li>
+      ))}
+    </ul>
+  </div>
+</section>

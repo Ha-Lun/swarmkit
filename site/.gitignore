@@ -4,3 +4,4 @@ dist/
 .previs-shots/
 .playwright-mcp/
 .lookdev-shots/
+.content-shots/

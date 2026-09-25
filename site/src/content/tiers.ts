@@ -13,3 +13,13 @@ export function bandOf(name: string): Band {
   if (name === 'showroom' || name.startsWith('showroom-')) return 'satellite';
   return 'domain';
 }
+
+// Roster grouping for the Cells chapter, in display order.
+export const bandOrder: Band[] = ['core', 't1', 'domain', 'gate', 'satellite'];
+export const bandLabels: Record<Band, { title: string; note: string }> = {
+  core: { title: 'Core', note: 'Plans and dispatches. Does not touch files.' },
+  t1: { title: 'Context and fast work', note: 'Read-only context, git, mechanical edits.' },
+  domain: { title: 'Domain specialists', note: 'Where T2 and T3 work lands.' },
+  gate: { title: 'Quality gates', note: 'Review, verify and test.' },
+  satellite: { title: 'Showroom', note: 'A coordinator and its workers for scroll-driven product pages.' },
+};

@@ -1,0 +1,71 @@
+---
+import RoutingDiagram from '../RoutingDiagram.astro';
+import { tiers } from '../../content/routing';
+import { repoUrl } from '../../lib/facts';
+const installCmd = './install.sh --all';
+---
+<section id="hive" class="chapter border-t border-ink-2 py-24" aria-labelledby="hive-title">
+  <div class="mx-auto max-w-page px-6 md:px-8">
+    <p class="eyebrow m-0">Chapter 1 / How it works</p>
+    <h2 id="hive-title" class="mb-0 mt-4 max-w-[20ch] font-display text-2xl font-bold leading-tight">Write it once. Each CLI gets its own build.</h2>
+
+    <div class="mt-12 grid grid-cols-1 gap-12 lg:grid-cols-2">
+      <div class="max-w-[60ch] text-lg text-text">
+        <p class="m-0">You write every agent, skill and rule once in <code class="font-mono text-base text-wax">core/</code>. A small compiler turns them into each CLI's native format. The installer links the results into place.</p>
+        <p class="mb-0 mt-4">The main agent does the work and delegates when a task clearly belongs to a specialist. Small edits happen directly. Domain work goes to the matching specialist.</p>
+      </div>
+
+      <div class="panel p-6">
+        <h3 class="m-0 font-mono text-xs font-normal uppercase tracking-widest text-wax">Install</h3>
+        <pre class="mb-0 mt-4 overflow-x-auto font-mono text-sm leading-relaxed text-text"><code>git clone {repoUrl}.git
+cd swarmkit</code></pre>
+        <div class="mt-4 flex flex-wrap items-center gap-3">
+          <code class="flex-1 border border-wax-dim bg-ink px-4 py-3 font-mono text-base text-text" data-install-cmd>{installCmd}</code>
+          <button type="button" data-copy hidden class="border border-wax px-4 py-3 font-mono text-sm text-wax hover:bg-wax hover:text-ink">Copy</button>
+        </div>
+        <p class="mb-0 mt-4 text-sm text-wax" role="status" data-copy-status>
+          Anything it replaces is backed up first. Running it again changes nothing.
+        </p>
+      </div>
+    </div>
+
+    <h3 class="mb-0 mt-24 font-display text-xl font-bold">Tiered routing</h3>
+    <p class="mb-0 mt-3 max-w-[60ch] text-text">Tasks are routed by tier. The tier sets how much ceremony a task gets.</p>
+    <ol class="m-0 mt-8 grid grid-cols-1 list-none gap-4 p-0 sm:grid-cols-2 lg:grid-cols-4">
+      {tiers.map((t) => (
+        <li class="panel p-6">
+          <p class="m-0 font-mono text-lg text-wax">{t.id}</p>
+          <p class="mb-0 mt-3 font-display text-base font-bold">{t.title}</p>
+          <p class="mb-0 mt-2 text-sm text-text">{t.body}</p>
+        </li>
+      ))}
+    </ol>
+
+    <h3 class="mb-0 mt-24 font-display text-xl font-bold">Explore, execute, then check</h3>
+    <p class="mb-0 mt-3 max-w-[60ch] text-text">Quality gates run after the work, in parallel, and only when relevant. Worktrees are never merged or removed without an explicit instruction.</p>
+    <figure class="m-0 mt-8 panel p-6 md:p-8">
+      <div class="hidden md:block"><RoutingDiagram /></div>
+      <div class="mx-auto max-w-[360px] md:hidden"><RoutingDiagram vertical /></div>
+      <figcaption class="mb-0 mt-4 font-mono text-xs text-wax">Explore is for non-trivial work or uncertain context. It can be skipped when the task is self-contained.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<script>
+  const btn = document.querySelector<HTMLButtonElement>('[data-copy]');
+  const cmd = document.querySelector<HTMLElement>('[data-install-cmd]');
+  const status = document.querySelector<HTMLElement>('[data-copy-status]');
+  if (btn && cmd && status) {
+    const idle = status.textContent;
+    btn.hidden = false;
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(cmd.textContent ?? '');
+        status.textContent = 'Copied to clipboard.';
+      } catch {
+        status.textContent = 'Copy failed. Select the command and copy it manually.';
+      }
+      setTimeout(() => (status.textContent = idle), 2500);
+    });
+  }
+</script>

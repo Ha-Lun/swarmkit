@@ -1,0 +1,88 @@
+---
+// Inline SVG: route -> explore -> execute -> quality gates in parallel.
+// Two layouts share one data source so text stays legible at 390px.
+import { gates } from '../content/routing';
+
+interface Props { vertical?: boolean }
+const { vertical = false } = Astro.props;
+
+const stages = [
+  { name: 'route', sub: 'classify T0 to T3' },
+  { name: 'explore', sub: 'read-only context brief' },
+  { name: 'execute', sub: 'specialist does the work' },
+];
+const BOX_H = 56;
+const GATE_W = vertical ? 300 : 290;
+const W = vertical ? 360 : 960;
+const H = vertical ? 520 : 300;
+const stageW = 190;
+const stageX = (i: number) => (vertical ? 0 : i * 220);
+const stageY = (i: number) => (vertical ? i * 92 : 122);
+const stageBoxW = vertical ? 360 : stageW;
+const gateX = vertical ? 60 : W - GATE_W;
+const gateY = (i: number) => (vertical ? 330 + i * 64 : 30 + i * 92);
+const capY = vertical ? 288 : 0;
+
+const title = 'Routing: a request is classified, explored, executed, then checked by quality gates in parallel';
+const desc = `Steps: ${stages.map((s) => `${s.name} (${s.sub})`).join(', then ')}. Then in parallel, when relevant: ${gates.map((g) => `${g.agent} when ${g.when}`).join('; ')}.`;
+const id = vertical ? 'route-v' : 'route-h';
+---
+<svg
+  viewBox={`0 0 ${W} ${H}`}
+  role="img"
+  aria-labelledby={`${id}-t ${id}-d`}
+  class="h-auto w-full"
+  fill="none"
+  stroke-width="1"
+>
+  <title id={`${id}-t`}>{title}</title>
+  <desc id={`${id}-d`}>{desc}</desc>
+  <defs>
+    <marker id={`${id}-arrow`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M1 1l8 4-8 4" class="stroke-wax" fill="none" />
+    </marker>
+  </defs>
+
+  {stages.map((s, i) => (
+    <g>
+      <rect x={stageX(i)} y={stageY(i)} width={stageBoxW} height={BOX_H} class="fill-ink-2 stroke-wax-dim" />
+      <text x={stageX(i) + 16} y={stageY(i) + 25} font-size="14" class="fill-text font-mono">{s.name}</text>
+      <text x={stageX(i) + 16} y={stageY(i) + 44} font-size="11" class="fill-wax font-mono">{s.sub}</text>
+    </g>
+  ))}
+
+  {vertical ? (
+    <g class="stroke-wax">
+      <path d="M180 56v36" marker-end={`url(#${id}-arrow)`} />
+      <path d="M180 148v36" marker-end={`url(#${id}-arrow)`} />
+    </g>
+  ) : (
+    <g class="stroke-wax">
+      <path d="M190 150h30" marker-end={`url(#${id}-arrow)`} />
+      <path d="M410 150h30" marker-end={`url(#${id}-arrow)`} />
+    </g>
+  )}
+
+  <text x={gateX} y={capY + (vertical ? 0 : 14)} font-size="11" class="fill-wax font-mono">in parallel, only when relevant</text>
+
+  {gates.map((g, i) => (
+    <g>
+      <rect x={gateX} y={gateY(i)} width={GATE_W} height={BOX_H} class="fill-ink-2 stroke-wax" />
+      <text x={gateX + 16} y={gateY(i) + 25} font-size="14" class="fill-text font-mono">{g.agent}</text>
+      <text x={gateX + 16} y={gateY(i) + 44} font-size="11" class="fill-wax font-mono">{g.when}</text>
+    </g>
+  ))}
+
+  {vertical ? (
+    <g class="stroke-wax">
+      <path d={`M180 240v36H20V${gateY(gates.length - 1) + 28}`} />
+      {gates.map((_, i) => <path d={`M20 ${gateY(i) + 28}h40`} marker-end={`url(#${id}-arrow)`} />)}
+    </g>
+  ) : (
+    <g class="stroke-wax">
+      {gates.map((_, i) => (
+        <path d={`M630 150C650 150 650 ${gateY(i) + 28} ${gateX} ${gateY(i) + 28}`} marker-end={`url(#${id}-arrow)`} />
+      ))}
+    </g>
+  )}
+</svg>
