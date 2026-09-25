@@ -1,5 +1,5 @@
-/* Design tokens, round 1 (proposed, NOT locked). Locking happens after the human's verdicts (PLAN §9).
-   Exactly six semantic colour tokens. The accent belongs to the task packet and its trail only. */
+/* Design tokens, locked at G2 (PLAN §9).
+   Exactly six semantic colour tokens (LOCKED at G2; change only via a new art-direction round). The accent belongs to the task packet and its trail only. */
 
 @font-face {
   font-family: 'Space Grotesk';

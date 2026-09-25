@@ -1,5 +1,5 @@
-// Look uniforms as data. ROUND 1: every value is a proposal. NOTHING IS LOCKED.
-// After the human's verdicts, approved values get frozen here (PLAN §9) and stop being sliders.
+// Look uniforms as data. LOCKED at G2 (human approved every element in round 3, see .buildlog/artdirection.jsonl).
+// Do not change a value here without a new art-direction round. The /lookdev sliders mutate these objects in memory only (nothing is persisted), so a reload restores the locked values.
 
 export type Tier = 'high' | 'medium';
 
