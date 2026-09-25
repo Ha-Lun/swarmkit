@@ -5,3 +5,4 @@
 {"ts":"2026-09-25T16:08:36Z","type":"measurement","phase":2,"source":"human-reported","desktop":"laptop, ~60 fps throughout, low ~58","phone":"~50 fps steady","note":"renderer strings and device models not recorded"}
 {"ts":"2026-09-25T16:13:24Z","type":"gate","gate":"phase2-go-no-go","verdict":"go","note":"grey-box previs approved; fps within budget on laptop and phone"}
 {"ts":"2026-09-25T16:17:18Z","type":"decision","note":"Phase 3 plan approved: ink cool blue-black; Space Grotesk + JetBrains Mono; accent = 3 candidates in round 1"}
+{"ts":"2026-09-25T16:41:53Z","type":"decision","note":"Human: focus on desktop, skip phone fps checks for now. Phone budget and medium tier are deferred, not dropped from PLAN.md"}
