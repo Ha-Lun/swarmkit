@@ -69,14 +69,19 @@ export function createHive(ctx: WorldCtx): Chapter {
       const c = cell(core);
       const grow = clamp01((t - scanAt) / (scanLeave - scanAt));
       const fadeOut = 1 - clamp01((t - scanLeave) / P.scan.fade);
-      if (t > scanAt && fadeOut > 0) R.set(0, c.normal, c.half * P.scan.radius, P.scan.width * fadeOut, Math.max(0.02, smooth(grow)));
+      if (t > scanAt && fadeOut > 0) {
+        R.setShell(ctx.lattice.radius + c.height + 0.045); // rings are drawn on the tower cap they mark
+        R.set(0, c.normal, c.half * P.scan.radius, P.scan.width * fadeOut, Math.max(0.02, smooth(grow)));
+      }
     }
     ripples.forEach((rp, i) => {
       const u = (t - rp.at) / P.ripple.sec;
       if (u <= 0 || u >= 1 || i + 1 >= 8) return;
       const c = cell(rp.name);
-      // the ripple keeps its width and is wiped away by its arc shrinking (a hard-edged fade, no dotted thin line)
-      R.set(i + 1, c.normal, c.half * 0.55 + (t - rp.at) * P.ripple.speed, P.ripple.width, 1 - smooth(clamp01((u - 0.5) / 0.5)));
+      // the ripple keeps its width and is wiped away by its arc shrinking (a hard-edged fade, no dotted thin line). It stays on the tower's
+      // cap (a tower stands clear of its neighbours, so a ring running on across them would hang in the air)
+      R.setShell(ctx.lattice.radius + c.height + 0.045);
+      R.set(i + 1, c.normal, c.half * (0.3 + 0.62 * u), P.ripple.width, 1 - smooth(clamp01((u - 0.5) / 0.5)));
     });
   }
 

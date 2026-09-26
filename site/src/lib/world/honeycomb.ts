@@ -23,8 +23,9 @@ const MOON_DIR = new Vector3(0.86, 0.3, 0.4).normalize();
 const HIVE_EYE = new Vector3(0, 0.37, 0.93).multiplyScalar(4.2); // the hive camera, in globe radii: the moon turns its core cell towards it
 const SEAM_DEFAULT = 0.085;
 
-// Agent panels are cut facets: flat, polished stone among the raw rock. Bands read apart by a small tone step (a fraction of the
-// stone tone, brightest at the core): no colour, no inlay.
+// Agent panels are towers with a polished pale cap, standing fixed above every rod. Bands read apart by height (a tier step each: core tallest,
+// then t1, domain, gate) and by a small tone step (a fraction of the stone tone, brightest at the core): no colour, no inlay, no ring.
+const TOWER_RANK: Record<Band, number> = { core: 3, t1: 2, domain: 1, gate: 0, satellite: 0 };
 const BAND_STEP: Record<Band, number> = { core: 0.1, t1: 0.075, domain: 0.05, gate: 0.025, satellite: 0 };
 
 export interface Cell {
@@ -40,7 +41,7 @@ export interface Cell {
   height: number;
   /** resting height: relief plus the quantised terrain elevation, set by applyTerrain (the piston's low hold) */
   base: number;
-  /** the most `height` can ever reach (base plus the full stroke, or the agent shelf plus its breath): what a comet route must clear */
+  /** the most `height` can ever reach (base plus the full stroke, or a tower's base plus its breath): what a comet route must clear */
   reach: number;
   /** 0..1 terrain value of this cell (its share of the elevation), for tinting */
   terrain: number;
@@ -255,20 +256,20 @@ export function layoutLattice(agents: Agent[]): Lattice {
 }
 
 const MAX_TOP = 0.9; // the tallest resting column stands at most this far above its sphere (a cell is about 1.7 across); a piston adds look.cell.stroke on top
-const AGENT_SHELF = 0.55; // agent panels rest at this fraction of the elevation range (a steady mid-range shelf), plus a little terrain variation
 const AGENT_BREATH = 0.02; // amplitude of the slow breath of an agent panel, world units
 const MOON_AMP = 0.5; // the moon's relief is this fraction of the globe's
 const terrainKeyOf = new WeakMap<Lattice, string>();
 
 /**
  * Column resting heights (quantised into look.cell.steps levels) from a deterministic terrain (terrain.ts) sampled on each cell's normal. Writes cell.base and cell.reach, and resets cell.height (which cellTopOf and so
- * the comet, the label cards and picking all read) and cell.terrain. Agent panels stand on a steady mid-range shelf: fillers pump
- * above and below them. Returns false when nothing changed since the last call.
+ * the comet, the label cards and picking all read) and cell.terrain. Agents are towers: their base stands above the highest a rod can reach (relief + elevation + stroke, plus look.cell.towerLift
+ * and one look.cell.towerStep per tier below core), so fillers pump below them and never meet a cap. Returns false when nothing changed since the last call.
  */
 export function applyTerrain(lattice: Lattice): boolean {
   const { relief, elevation, terrainScale, stroke } = look.cell;
   const steps = Math.max(2, Math.round(look.cell.steps));
-  const key = `${relief}|${elevation}|${terrainScale}|${steps}|${stroke}`;
+  const { towerLift, towerStep } = look.cell;
+  const key = `${relief}|${elevation}|${terrainScale}|${steps}|${stroke}|${towerLift}|${towerStep}`;
   if (terrainKeyOf.get(lattice) === key) return false;
   terrainKeyOf.set(lattice, key);
   const el = Math.min(elevation, Math.max(0, MAX_TOP - relief));
@@ -281,9 +282,13 @@ export function applyTerrain(lattice: Lattice): boolean {
       // basalt: heights snap to `steps` levels (lowest and tallest both present), so neighbours read as stepped columns
       const q = Math.min(steps - 1, Math.floor(t[i] * steps)) / (steps - 1);
       c.terrain = q;
-      c.base = relief + amp * (c.agent ? AGENT_SHELF + 0.1 * t[i] : q);
+      // towers clear the tallest filler (resting top plus a full stroke); the moon stands still, so its towers only clear its resting relief, at its scale
+      const tower = moon
+        ? relief + amp + MOON_AMP * towerLift
+        : relief + el + stroke + towerLift + towerStep * (c.agent ? TOWER_RANK[c.agent.band] : 0);
+      c.base = c.agent ? tower : relief + amp * q;
       c.height = c.base;
-      // the moon stands still; on the globe only fillers stroke, agents breathe
+      // the moon stands still; on the globe only fillers stroke, towers breathe
       c.reach = c.base + (moon ? 0 : c.agent ? AGENT_BREATH : stroke);
     });
   }

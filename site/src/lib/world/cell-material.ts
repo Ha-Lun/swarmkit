@@ -12,6 +12,9 @@ export interface CellUniforms {
   uMottle: IUniform<number>;
   uTone: IUniform<number>;
   uAgentTone: IUniform<number>;
+  uCapGloss: IUniform<number>;
+  uCapBevel: IUniform<number>;
+  uCapEnv: IUniform<number>;
   uHover: IUniform<number>;
   uStoneBase: IUniform<Color>;
   uStoneMid: IUniform<Color>;
@@ -36,11 +39,17 @@ export interface CellMaterial {
  *  - tops: flat, smooth and matte in the light stone token, a faint tone per column and a slow mottle; a fine grain on the high
  *    tier only, faded by the pixel footprint. No bump normal, no cracks, no facets: the contrast comes from colour
  *  - sides: dark stone (uSideDark), a faint vertical striation, darker toward the foot
- *  - agents: cut flat and polished: lighter stone with a small tone step per band (aRock.y), lower roughness, a slightly wider
- *    bevel so the cut edge catches the light. No inlay, no accent, no glow (aInlay.x = agent flag, aInlay.w = half-width)
+ *  - agents: towers (honeycomb.ts stands them above every rod) with a polished pale cap: lighter stone with a small tone step per band
+ *    (aRock.y), roughness scaled by (1 - capGloss), a harder studio reflection on caps only, a wider chamfer so the edge catches the light.
+ *    The shaft keeps the dark filler wall shading. No inlay, no ring, no accent, no glow (aInlay.x = agent flag, aInlay.w = half-width)
  *  - hover/focus: aState.x brightens the tone, aState.y lifts the panel along its normal
  * Medium tier: same body, seams, sheen and striation; no grain, no studio reflection.
  */
+// medium has no studio reflection to make the cap read as polished, so its chamfer is wider and its sheen stronger instead
+const capBevelOf = (c: Look['cell'], tier: Tier) => c.capBevel * (tier === 'high' ? 1 : 1.4);
+// the cap reflects the studio harder than the raw stone (envMapIntensity applies to the whole material; this multiplies it on caps only)
+const capEnvOf = (c: Look['cell']) => 1 + 4 * c.capGloss;
+
 export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell']): CellMaterial {
   const wax = new Color(palette.wax);
   const waxDim = new Color(palette.waxDim);
@@ -54,6 +63,9 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
     uMottle: { value: cfg.mottle },
     uTone: { value: cfg.tone },
     uAgentTone: { value: cfg.agentTone },
+    uCapGloss: { value: cfg.capGloss },
+    uCapBevel: { value: capBevelOf(cfg, tier) },
+    uCapEnv: { value: capEnvOf(cfg) },
     uHover: { value: cfg.hover },
     uStoneBase: { value: waxDim.clone() }, // the column sides start from this, then darken toward ink-2
     uStoneMid: { value: wax.clone() },
@@ -86,7 +98,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         attribute vec4 aCornA;
         attribute vec4 aCornB;
         attribute vec4 aCornC;
-        uniform float uBevel;
+        uniform float uBevel, uCapBevel;
         varying vec2 vCell;
         varying vec3 vStone;
         varying vec4 vInlay;
@@ -125,7 +137,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
           float sy = length( instanceMatrix[ 1 ].xyz );
           // hairline fillet in world units: the rim drops and the top face insets, whatever the panel's own footprint
           vWallH = position.y * sy - ${SINK.toFixed(4)}; // height above the sphere, for the wall shading and the strata
-          float b = min( uBevel * ( 1.0 + 0.9 * step( 0.5, aInlay.x ) ), // the cut facet has a slightly wider bevel that catches the light
+          float b = min( uBevel * mix( 1.0, uCapBevel, step( 0.5, aInlay.x ) ), // the tower cap has a wider chamfer that catches the light
              min( 0.35 * aInlay.w, 0.8 * max( sy - ${SINK.toFixed(4)}, 0.02 ) ) );
           transformed.y -= aBev.x * b / max( sy, 1e-4 );
           transformed.xz *= 1.0 - aBev.y * b / max( length( cxz ) * sx, 1e-4 );
@@ -148,7 +160,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
       .replace(
         '#include <common>',
         `${defs}#include <common>
-        uniform float uSheen, uSideDark, uGrain, uMottle, uTone, uAgentTone, uHover;
+        uniform float uSheen, uSideDark, uGrain, uMottle, uTone, uAgentTone, uHover, uCapGloss, uCapEnv;
         uniform vec3 uStoneBase, uStoneMid, uStoneLight, uStoneDark, uSheenColor;
         varying vec2 vCell;
         varying vec3 vStone;
@@ -187,7 +199,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
           vec3 col = mix( top, side, wall );
           col *= 1.0 + uTone * ( pt - 0.5 ) * 2.0;
           // agents are cut flat and polished: lighter stone, a small tone step per band
-          vec3 ag = uStoneMid * ( 1.0 + 0.9 * uAgentTone + bandStep ) + uStoneLight * 0.05 * uAgentTone;
+          vec3 ag = mix( uStoneMid, uStoneLight, min( 1.0, uAgentTone * 2.2 ) ) * ( 1.0 + bandStep );
           return mix( col, ag, agent * ( 1.0 - wall ) ) ;
         }`,
       )
@@ -206,7 +218,14 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
       .replace(
         '#include <roughnessmap_fragment>',
         `#include <roughnessmap_fragment>
-        roughnessFactor = mix( roughnessFactor, roughnessFactor * 0.62, gAgent ); // the facet is polished`,
+        roughnessFactor = mix( roughnessFactor, roughnessFactor * ( 1.0 - uCapGloss ), gAgent * ( 1.0 - gWall ) ); // the cap is polished`,
+      )
+      .replace(
+        '#include <lights_fragment_maps>',
+        `#include <lights_fragment_maps>
+        #if defined( USE_ENVMAP ) && defined( RE_IndirectSpecular )
+          radiance *= mix( mix( 1.0, uCapEnv, gAgent ), 0.2, gWall ); // shafts and walls do not mirror the studio
+        #endif`,
       )
       .replace(
         '#include <opaque_fragment>',
@@ -221,14 +240,18 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
             lit = 0.3 + 0.7 * saturate( dot( N, directionalLights[ 0 ].direction ) )
                 + 1.2 * saturate( dot( N, directionalLights[ 1 ].direction ) + 0.1 );
           #endif
-          outgoingLight += uSheenColor * lum * uSheen * pow( grazing, 2.0 ) * lit;
+          float sheen = uSheen;
+          #ifndef CELL_HIGH
+            sheen *= 1.0 + 1.6 * gAgent * ( 1.0 - gWall ); // no studio reflection on medium: the cap gets a stronger satin lift instead
+          #endif
+          outgoingLight += uSheenColor * lum * sheen * pow( grazing, 2.0 ) * lit;
           // the column walls sit in soft shadow, deeper toward the foot: rock faces, not black gaps
           outgoingLight *= 1.0 - gWall * ( 0.25 + 0.3 * ( 1.0 - smoothstep( 0.0, 0.16, vWallH ) ) );
         }
         #include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => `cell-${tier}-r7`;
+  material.customProgramCacheKey = () => `cell-${tier}-r9`;
 
   return {
     material,
@@ -241,6 +264,9 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
       uniforms.uMottle.value = c.mottle;
       uniforms.uTone.value = c.tone;
       uniforms.uAgentTone.value = c.agentTone;
+      uniforms.uCapGloss.value = c.capGloss;
+      uniforms.uCapBevel.value = capBevelOf(c, tier);
+      uniforms.uCapEnv.value = capEnvOf(c);
       uniforms.uHover.value = c.hover;
       material.roughness = c.roughness;
       material.envMapIntensity = c.envIntensity;

@@ -1,4 +1,4 @@
-// Look uniforms as data. Round 8 (iron-blue palette locked; basalt columns: stepped heights, flat matte tops, dark striated sides, polished agent facets, hard-edged comet, no glow): the human unlocked cell, light and packet for this round only;
+// Look uniforms as data. Round 9 adds agent towers (towerLift, towerStep, capGloss, capBevel). Round 8 (iron-blue palette locked; basalt columns: stepped heights, flat matte tops, dark striated sides, polished agent facets, hard-edged comet, no glow): the human unlocked cell, light and packet for this round only;
 // they re-lock after the verdict. The /lookdev sliders mutate these objects in memory only (nothing is persisted), so a reload restores the values here.
 
 export type Tier = 'high' | 'medium';
@@ -56,8 +56,12 @@ export const look = {
     grain: 0.2, // fine grain on the tops, high tier only (faded by pixel footprint)
     mottle: 0.2, // slow blotchy tone variation of the tops
     tone: 0.04, // per-column brightness variation
-    // agent panels: cut flat and polished (no inlay)
-    agentTone: 0.22, // how much lighter agent stone is than filler
+    // agent towers: stand fixed above every rod, capped with a polished pale cut (no inlay, no ring, no accent)
+    towerLift: 0.25, // world units of clear air between the highest a rod can reach and the shortest tower (the gate tier)
+    towerStep: 0.1, // extra height per tier: core is 3 steps above the gate tier, t1 2, domain 1
+    capGloss: 0.75, // how polished the cap is: the cap's roughness is scaled by (1 - capGloss); the cap also reflects the studio harder
+    capBevel: 3, // the cap's chamfer width as a multiple of the filler bevel
+    agentTone: 0.35, // how much lighter the cap stone is than filler
     hover: 0.45, // tone brightening of a hovered/focused panel
   },
   light: {
@@ -117,6 +121,7 @@ export const ranges: { [G in keyof Look]?: { [K in keyof Look[G]]?: [number, num
     relief: [0.01, 0.15, 0.005], elevation: [0, 0.85, 0.005], steps: [2, 10, 1], terrainScale: [0.5, 4, 0.05], stroke: [0, 0.8, 0.01], pistonSpeed: [3, 30, 0.5], activity: [0.05, 0.6, 0.01], wave: [0, 1, 0.01], seam: [0.02, 0.25, 0.005], bevel: [0, 0.06, 0.0025], lift: [0, 0.3, 0.005],
     roughness: [0.15, 1, 0.01], sheen: [0, 1.5, 0.01], envIntensity: [0, 1.5, 0.01],
     sideDark: [0, 1, 0.01], grain: [0, 1, 0.01], mottle: [0, 1, 0.01], tone: [0, 0.2, 0.005],
+    towerLift: [0, 1, 0.01], towerStep: [0, 0.3, 0.005], capGloss: [0, 0.95, 0.01], capBevel: [1, 6, 0.1],
     agentTone: [0, 0.6, 0.01], hover: [0, 1.2, 0.01],
   },
   light: { key: [0, 4, 0.05], hemi: [0, 2, 0.02], ambient: [0, 1, 0.01], kicker: [0, 3, 0.05], sweep: [0, 1, 0.01], keyElevation: [5, 80, 1] },

@@ -82,7 +82,7 @@ export function createWorld(opts: WorldOptions): World {
   const accent = readAccent();
   const flows: Flow[] = Array.from({ length: 4 }, () => createFlow(accent));
   flows.forEach((f) => globe.add(f.packet.group));
-  // the comet's crisp scan ring and arrival ripples sit just above the agent panel tops (the terrain around them is taller)
+  // the comet's crisp scan ring and arrival ripples sit just above the tower cap they mark (hive.ts moves the shell to it)
   const agentTop = Math.max(...lattice.cells.filter((c) => c.agent && !c.moon).map((c) => c.reach));
   const rings = createRingFx(lattice.radius + agentTop + 0.045, accent);
   globe.add(rings.mesh);

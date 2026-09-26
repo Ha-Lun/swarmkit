@@ -127,18 +127,24 @@ console.log(`panel footprint circumradius: min ${Math.min(...scales).toFixed(3)}
 const pm = globe.filter((c) => c.sides === 5).map((c) => c.scale);
 console.log(`pentagon circumradius mean ${(pm.reduce((a, b) => a + b, 0) / pm.length).toFixed(3)} vs hex mean ${(scales.reduce((a, b) => a + b, 0) / scales.length).toFixed(3)}`);
 // terrain: every resting column stands between relief and relief + elevation, never above 0.9 world units, quantised into look.cell.steps levels;
-// a filler rod can drive out up to look.cell.stroke more (reach), so the tallest a column ever stands is 0.9 + stroke; agents sit on a steady mid-range shelf
-const hs = lat.cells.map((c) => c.base);
+// a filler rod can drive out up to look.cell.stroke more (reach), so the tallest a column ever stands is 0.9 + stroke; agents are towers above every filler reach
+const hs = lat.cells.filter((c) => !c.agent).map((c) => c.base); // fillers; agent towers are checked below
 const top = look.cell.relief + look.cell.elevation;
 check(Math.min(...hs) >= look.cell.relief - 1e-9 && Math.max(...hs) <= Math.min(top, 0.9) + 1e-9, `resting heights within [${look.cell.relief}, ${Math.min(top, 0.9)}] (got ${Math.min(...hs).toFixed(3)}..${Math.max(...hs).toFixed(3)})`);
-const reach = Math.max(...lat.cells.map((c) => c.reach));
-check(reach <= 0.9 + look.cell.stroke + 1e-9 && reach > Math.max(...hs), `tallest reach ${reach.toFixed(3)} = resting + full stroke, within 0.9 + ${look.cell.stroke}`);
+const reach = Math.max(...lat.cells.filter((c) => !c.agent).map((c) => c.reach));
+check(reach <= 0.9 + look.cell.stroke + 1e-9 && reach > Math.max(...hs), `tallest filler reach ${reach.toFixed(3)} = resting + full stroke, within 0.9 + ${look.cell.stroke}`);
 check(lat.cells.every((c) => c.height === c.base), 'layout leaves every column at rest (the pistons are driven by update(time))');
 check(globe.some((c) => c.base > look.cell.relief + 0.15), 'the globe has real relief (a column stands 0.15+ above the base)');
 const levels = new Set(globe.filter((c) => !c.agent).map((c) => c.base.toFixed(4)));
 check(levels.size <= look.cell.steps && levels.size >= 3, `basalt heights snap to at most ${look.cell.steps} levels (got ${levels.size})`);
-const ag = globe.filter((c) => c.agent).map((c) => c.base);
-check(Math.min(...ag) >= look.cell.relief + look.cell.elevation * 0.5 - 1e-9 && Math.max(...ag) <= look.cell.relief + look.cell.elevation * 0.7 + 1e-9, `agent panels sit on a steady mid-range shelf (${Math.min(...ag).toFixed(3)}..${Math.max(...ag).toFixed(3)})`);
+const tier = { core: 3, t1: 2, domain: 1, gate: 0 };
+const ag = globe.filter((c) => c.agent);
+const minGap = Math.min(...ag.map((c) => c.base)) - reach;
+check(minGap >= look.cell.towerLift - 1e-9, `every globe agent tower stands at least towerLift (${look.cell.towerLift}) above the tallest filler reach (clearance ${minGap.toFixed(3)})`);
+check(ag.every((c) => Math.abs(c.base - (reach + look.cell.towerLift + look.cell.towerStep * tier[c.agent.band])) < 1e-9), 'tower height = filler reach + towerLift + towerStep x tier rank (core tallest, then t1, domain, gate)');
+const byBand = (b) => ag.filter((c) => c.agent.band === b).map((c) => c.base);
+check(Math.min(...byBand('core')) > Math.max(...byBand('t1')) && Math.min(...byBand('t1')) > Math.max(...byBand('domain')) && Math.min(...byBand('domain')) > Math.max(...byBand('gate')), 'bands are told apart by tower height: core > t1 > domain > gate');
+check(moon.filter((c) => c.agent).every((c) => c.base > Math.max(...moon.filter((m) => !m.agent).map((m) => m.reach)) - 1e-9), 'moon agents stand above the moon fillers');
 check(globe.every((c) => Math.abs(c.pos.length() - lat.radius) < 1e-9), 'every globe panel sits at the same radius');
 check(moon.every((c) => Math.abs(c.pos.distanceTo(lat.moon.centre) - c.bodyRadius) < 1e-9), 'every moon panel sits at the same radius from the moon centre');
 check(moon.some((c) => c.agent?.name === 'showroom') && moon.every((c) => c.normal.dot(lat.moon.normal) > -1.01), 'showroom is on the moon');
