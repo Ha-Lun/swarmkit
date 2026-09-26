@@ -1,4 +1,4 @@
-// Look uniforms as data. Round 6 (rock terrain globe with elevation, polished agent facets, hard-edged comet, no glow): the human unlocked cell, light and packet for this round only;
+// Look uniforms as data. Round 7 (basalt columns: stepped heights, flat matte tops, dark striated sides, polished agent facets, hard-edged comet, no glow): the human unlocked cell, light and packet for this round only;
 // they re-lock after the verdict. The /lookdev sliders mutate these objects in memory only (nothing is persisted), so a reload restores the values here.
 
 export type Tier = 'high' | 'medium';
@@ -43,16 +43,15 @@ export const look = {
     bevel: 0.025, // hairline rounded edge on the panel top, so the seam stays crisp
     lift: 0.07, // world units a hovered/focused (or comet-struck) panel rises
     // material
-    roughness: 0.52, // matte stone; the lights give it a gentle satin highlight
+    roughness: 0.6, // matte stone; the lights give it a gentle satin highlight
     sheen: 0.3, // satin lift at grazing angles
     envIntensity: 0.25, // procedural studio reflection (high tier only)
-    // jagged rock (procedural: ridged strata, cracks and a bump normal, all from the five palette tokens)
-    crag: 1.0, // bump strength of the crags, strata ledges and cracks (0 = smooth stone)
-    strata: 0.5, // contrast of the layered bands in the rock and on the column walls
-    crack: 0.4, // how dark and how present the fine cracks are
-    mottle: 0.35, // slow blotchy tone variation of the stone body
-    tone: 0.04, // per-panel brightness variation
-    // agent panels: cut flat and polished (no crags, cracks or inlay)
+    // basalt (procedural, from the five palette tokens): flat matte tops, dark striated sides
+    sideDark: 0.75, // how dark the column walls are (0 = wax-dim stone, 1 = ink-2)
+    grain: 0.2, // fine grain on the tops, high tier only (faded by pixel footprint)
+    mottle: 0.2, // slow blotchy tone variation of the tops
+    tone: 0.04, // per-column brightness variation
+    // agent panels: cut flat and polished (no inlay)
     agentTone: 0.22, // how much lighter agent stone is than filler
     hover: 0.45, // tone brightening of a hovered/focused panel
   },
@@ -112,7 +111,7 @@ export const ranges: { [G in keyof Look]?: { [K in keyof Look[G]]?: [number, num
   cell: {
     relief: [0.01, 0.15, 0.005], elevation: [0, 0.55, 0.005], steps: [2, 10, 1], terrainScale: [0.5, 4, 0.05], seam: [0.02, 0.25, 0.005], bevel: [0, 0.06, 0.0025], lift: [0, 0.3, 0.005],
     roughness: [0.15, 1, 0.01], sheen: [0, 1.5, 0.01], envIntensity: [0, 1.5, 0.01],
-    crag: [0, 2, 0.01], strata: [0, 1, 0.01], crack: [0, 1, 0.01], mottle: [0, 1, 0.01], tone: [0, 0.2, 0.005],
+    sideDark: [0, 1, 0.01], grain: [0, 1, 0.01], mottle: [0, 1, 0.01], tone: [0, 0.2, 0.005],
     agentTone: [0, 0.6, 0.01], hover: [0, 1.2, 0.01],
   },
   light: { key: [0, 4, 0.05], hemi: [0, 2, 0.02], ambient: [0, 1, 0.01], kicker: [0, 3, 0.05], sweep: [0, 1, 0.01], keyElevation: [5, 80, 1] },
