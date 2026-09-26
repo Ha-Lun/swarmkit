@@ -79,8 +79,9 @@ export function createWorld(opts: WorldOptions): World {
   const accent = readAccent();
   const flows: Flow[] = Array.from({ length: 4 }, () => createFlow(accent));
   flows.forEach((f) => scene.add(f.packet.group));
-  // the comet's crisp scan ring and arrival ripples sit just above the panel tops
-  const rings = createRingFx(lattice.radius + look.cell.relief + 0.045, accent);
+  // the comet's crisp scan ring and arrival ripples sit just above the agent panel tops (the terrain around them is taller)
+  const agentTop = Math.max(...lattice.cells.filter((c) => c.agent && !c.moon).map((c) => c.height));
+  const rings = createRingFx(lattice.radius + agentTop + 0.045, accent);
   scene.add(rings.mesh);
 
   // ---- view + panel highlight ----

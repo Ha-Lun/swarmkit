@@ -11,7 +11,7 @@
 // example buttons replay their route on the same comet, in real time, with the same choreography.
 import { Vector3 } from 'three';
 import { motion } from '../motion-config';
-import { entryPoint, raise, Route, Timeline } from '../routes';
+import { clearRadius, entryPoint, raise, Route, Timeline } from '../routes';
 import { pinWindow, range, sceneOf, setOpacity } from '../scene-dom';
 import type { Chapter, WorldCtx } from '../types';
 
@@ -44,9 +44,9 @@ export function createHive(ctx: WorldCtx): Chapter {
   function build() {
     const a = core ? top(core) : null, b = specialist ? top(specialist) : null;
     if (!core || !specialist || !a || !b) return; // roster changed: draw nothing rather than guess
-    mainRoute = new Route([entryPoint(ctx.lattice), a, b]);
+    mainRoute = new Route([entryPoint(ctx.lattice), a, b], clearRadius(ctx.lattice));
     main = new Timeline(mainRoute, P.meanSpeed, [P.coreHoldSec, P.specHoldSec], P.minLegSec);
-    const legs = gateNames.map((n) => { const g = top(n); return g ? new Route([b, g]) : null; });
+    const legs = gateNames.map((n) => { const g = top(n); return g ? new Route([b, g], clearRadius(ctx.lattice)) : null; });
     if (legs.some((l) => !l)) return;
     // the fan-out legs all last as long as the longest one, so the three comets leave together and land together
     const fanSec = Math.max(P.minLegSec, ...legs.map((l) => l!.length / P.meanSpeed));
@@ -86,7 +86,7 @@ export function createHive(ctx: WorldCtx): Chapter {
     const pts = stops.map((n) => top(n)!);
     if (!pts.length) return;
     // a route with no agent step (a direct edit) still visits the core and stops there
-    const route = new Route([entryPoint(ctx.lattice), ...pts]);
+    const route = new Route([entryPoint(ctx.lattice), ...pts], clearRadius(ctx.lattice));
     const tl = new Timeline(route, P.meanSpeed, stops.map((_, i) => (i === 0 ? P.coreHoldSec : P.holdSec)), P.minLegSec);
     ctx.flows[0].setRoute(route);
     replay = { t0: ctx.time, route, tl, stops, slug: btn.dataset.replay!, tier: btn.dataset.tier ?? '' };

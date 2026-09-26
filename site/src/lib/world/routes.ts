@@ -24,8 +24,9 @@ export class Route implements PathSource {
   /** distance along the route at which each stop sits (stops[0] = 0) */
   readonly stopAt: number[] = [0];
 
-  /** stops are world points; each leg keeps the radius of its two ends (a leg from far out to the surface decays onto it) */
-  constructor(stops: Vector3[]) {
+  /** Stops are world points; each leg keeps the radius of its two ends (a leg from far out to the surface decays onto it).
+   *  `clear` (a radius, see clearRadius) is the least radius a leg may fly at between its two ends, so it arcs over tall columns. */
+  constructor(stops: Vector3[], private readonly clear = 0) {
     let d = 0;
     for (let i = 1; i < stops.length; i++) {
       const A = stops[i - 1], B = stops[i];
@@ -55,7 +56,11 @@ export class Route implements PathSource {
     if (s < 1e-5) out.copy(l.a);
     else out.copy(l.a).multiplyScalar(Math.sin((1 - t) * l.ang) / s).addScaledVector(l.b, Math.sin(t * l.ang) / s);
     // constant lift between equal radii; a descent (ra > rb) decays onto the surface, a climb rises off it
-    const r = l.ra >= l.rb ? l.rb + (l.ra - l.rb) * (1 - t) * (1 - t) : l.ra + (l.rb - l.ra) * t * t;
+    let r = l.ra >= l.rb ? l.rb + (l.ra - l.rb) * (1 - t) * (1 - t) : l.ra + (l.rb - l.ra) * t * t;
+    if (this.clear > 0) { // rise over the terrain within the first and last stretch of the leg, so the comet never clips a neighbour
+      const k = Math.min(1, t / 0.15) * Math.min(1, (1 - t) / 0.15);
+      r += Math.max(0, this.clear - Math.max(l.ra, l.rb)) * k * k * (3 - 2 * k);
+    }
     return out.normalize().multiplyScalar(r);
   }
 
@@ -165,4 +170,10 @@ export function entryPoint(lattice: Lattice, out = new Vector3()): Vector3 {
 /** Lift a cell top radially by the comet height, so the route hugs the panels at one constant radius. */
 export function raise(p: Vector3, out = new Vector3()): Vector3 {
   return out.copy(p).setLength(p.length() + look.packet.height);
+}
+
+/** Radius a comet leg must clear: the tallest column of the globe plus a little air. Terrain is bounded (honeycomb.ts), so one radius is enough. */
+export function clearRadius(lattice: Lattice): number {
+  const tallest = lattice.cells.reduce((m, c) => (c.moon ? m : Math.max(m, c.height)), 0);
+  return lattice.radius + tallest + 0.1;
 }

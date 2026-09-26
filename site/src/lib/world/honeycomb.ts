@@ -5,6 +5,7 @@ import {
 import { CELL_RADIUS, look, readPalette, SINK, type Tier } from './config';
 import { createCellMaterial, createStudioEnv, type CellUniforms } from './cell-material';
 import { buildSphere, type Sphere } from './sphere';
+import { terrainField } from './terrain';
 import type { Agent } from '../agents';
 import type { Band } from '../../content/tiers';
 
@@ -40,8 +41,10 @@ export interface Cell {
   /** geodesic ring index from the core cell (graph distance); moon cells use maxRing so they appear last */
   ring: number;
   agent?: Agent;
-  /** panel height above the sphere */
+  /** panel height above the sphere (world units): relief plus the terrain elevation, set by applyTerrain */
   height: number;
+  /** 0..1 terrain value of this cell (its share of the elevation), for tinting */
+  terrain: number;
   /** 0..1 stagger inside a ring so growth sweeps around */
   sweep: number;
   sides: 5 | 6;
@@ -201,7 +204,7 @@ export function layoutLattice(agents: Agent[]): Lattice {
     const slots = ringSlots(ringOf[i]);
     const { poly, half, sag, quat } = polygonOf(corners, normal, R);
     cells.push({
-      pos: normal.clone().multiplyScalar(R), normal, ring: ringOf[i], agent, height: RELIEF,
+      pos: normal.clone().multiplyScalar(R), normal, ring: ringOf[i], agent, height: RELIEF, terrain: 0,
       sweep: slots.indexOf(i) / slots.length, sides: sc.sides, poly, half, sag,
       scale: 1, bodyRadius: R, seam: SEAM_DEFAULT, quat, moon: false, corners,
     });
@@ -227,7 +230,7 @@ export function layoutLattice(agents: Agent[]): Lattice {
       const corners = sc.corners.map((c) => new Vector3(...c).applyQuaternion(rot));
       const { poly, half, sag, quat } = polygonOf(corners, normal, Rm);
       cells.push({
-        pos: centre.clone().addScaledVector(normal, Rm), normal, ring: maxRing, agent: owner.get(i), height: RELIEF,
+        pos: centre.clone().addScaledVector(normal, Rm), normal, ring: maxRing, agent: owner.get(i), height: RELIEF, terrain: 0,
         sweep: i / ms.cells.length, sides: sc.sides, poly, half, sag, scale: 1, bodyRadius: Rm, seam: SEAM_DEFAULT * MOON_CELL,
         quat, moon: true, corners,
       });
@@ -247,8 +250,37 @@ export function layoutLattice(agents: Agent[]): Lattice {
     moon: { centre, normal: facing, radius: moonRadius, cells: moonCells },
     pentagons: cells.filter((c) => !c.moon && c.sides === 5).length,
   };
+  applyTerrain(lattice);
   layoutCache.set(agents, lattice);
   return lattice;
+}
+
+const MAX_TOP = 0.35; // the tallest column stands at most this far above its sphere (a cell is about 1.7 across)
+const MOON_AMP = 0.5; // the moon's relief is this fraction of the globe's
+const terrainKeyOf = new WeakMap<Lattice, string>();
+
+/**
+ * Column heights from a deterministic terrain (terrain.ts) sampled on each cell's normal. Writes cell.height (which cellTopOf and so
+ * the comet, the label cards and picking all read) and cell.terrain. Agent panels are cut down to a low, gently varying shelf, so
+ * they sit on the rock rather than on its peaks. Returns false when nothing changed since the last call.
+ */
+export function applyTerrain(lattice: Lattice): boolean {
+  const { relief, elevation, terrainScale } = look.cell;
+  const key = `${relief}|${elevation}|${terrainScale}`;
+  if (terrainKeyOf.get(lattice) === key) return false;
+  terrainKeyOf.set(lattice, key);
+  const el = Math.min(elevation, Math.max(0, MAX_TOP - relief));
+  for (const moon of [false, true]) {
+    const cs = lattice.cells.filter((c) => c.moon === moon);
+    if (!cs.length) continue;
+    const t = terrainField(cs.map((c) => c.normal), terrainScale * (moon ? 1.6 : 1), moon ? 71 : 13);
+    const amp = el * (moon ? MOON_AMP : 1);
+    cs.forEach((c, i) => {
+      c.terrain = t[i];
+      c.height = relief + amp * (c.agent ? 0.2 + 0.2 * t[i] : t[i]);
+    });
+  }
+  return true;
 }
 
 const ease = (t: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
@@ -349,16 +381,18 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
     const cnt = cellIdx.length;
     const state = attr(cnt, 2, true); // bright, lift
     const stone = attr(cnt, 4); // rotation, offset u, offset v, 1 / body radius
+    const rock = attr(cnt, 2); // terrain value 0..1, tone step
     const inlay = attr(cnt, 4); // ring count (0 = plain stone), ring width, centre dot, panel half width
     const corners = [attr(cnt, 4, true), attr(cnt, 4, true), attr(cnt, 4, true)];
     geometry.setAttribute('aState', state);
     geometry.setAttribute('aStone', stone);
     geometry.setAttribute('aInlay', inlay);
+    geometry.setAttribute('aRock', rock);
     ['aCornA', 'aCornB', 'aCornC'].forEach((n, k) => geometry.setAttribute(n, corners[k]));
     const mesh = new InstancedMesh(geometry, material, cnt);
     mesh.instanceMatrix.setUsage(DynamicDrawUsage);
     mesh.frustumCulled = false;
-    return { cellIdx, geometry, state, stone, inlay, corners, mesh };
+    return { cellIdx, geometry, state, stone, inlay, rock, corners, mesh };
   });
   const slotOf = new Map<number, { k: number; slot: number }>();
   kinds.forEach((kd, k) => kd.cellIdx.forEach((ci, slot) => slotOf.set(ci, { k, slot })));
@@ -370,6 +404,7 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
     kd.stone.setXYZW(slot, r() * Math.PI * 2, r() * 97, r() * 97, 1 / c.bodyRadius);
     const spec = c.agent ? INLAY[c.agent.band] : { n: 0, w: 0, dot: 0 };
     kd.inlay.setXYZW(slot, spec.n, spec.w, spec.dot, c.half);
+    kd.rock.setXY(slot, c.terrain, 0);
   }));
 
   let lastSeam = NaN;
@@ -417,7 +452,8 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
   const m = new Matrix4();
   const p = new Vector3();
   const sc = new Vector3();
-  let lastGrowth = NaN, lastDim = NaN, lastRelief = NaN;
+  let lastGrowth = NaN, lastDim = NaN;
+  let dirty = true;
   const whiteBase = material.color.clone();
 
   return {
@@ -437,9 +473,16 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
     },
     update(growth, dim) {
       if (look.cell.seam !== lastSeam) { lastSeam = look.cell.seam; setFootprints(look.cell.seam); }
-      if (growth !== lastGrowth || look.cell.relief !== lastRelief) {
+      if (applyTerrain(lattice)) {
+        dirty = true;
+        kinds.forEach((kd) => {
+          kd.cellIdx.forEach((ci, slot) => kd.rock.setXY(slot, lattice.cells[ci].terrain, 0));
+          kd.rock.needsUpdate = true;
+        });
+      }
+      if (growth !== lastGrowth || dirty) {
         lastGrowth = growth;
-        lastRelief = look.cell.relief;
+        dirty = false;
         kinds.forEach((kd) => {
           kd.cellIdx.forEach((ci, slot) => {
             const c = lattice.cells[ci];
@@ -448,7 +491,7 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
             const rise = (1 - s) * 0.5;
             p.copy(c.normal).multiplyScalar(-(SINK + rise)).add(c.pos);
             const w = s <= 0.001 ? 1e-4 : 0.6 + 0.4 * s;
-            sc.set(w, look.cell.relief + SINK, w);
+            sc.set(w, c.height + SINK, w); // each column has its own height
             kd.mesh.setMatrixAt(slot, m.compose(p, c.quat, sc));
           });
           kd.mesh.instanceMatrix.needsUpdate = true;

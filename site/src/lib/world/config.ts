@@ -1,4 +1,4 @@
-// Look uniforms as data. Round 5 (flush speckled-stone globe, hard-edged comet, no glow): the human unlocked cell, light and packet for this round only;
+// Look uniforms as data. Round 6 (rock terrain globe with elevation, polished agent facets, hard-edged comet, no glow): the human unlocked cell, light and packet for this round only;
 // they re-lock after the verdict. The /lookdev sliders mutate these objects in memory only (nothing is persisted), so a reload restores the values here.
 
 export type Tier = 'high' | 'medium';
@@ -35,7 +35,9 @@ export const accentCandidates = [
 export const look = {
   cell: {
     // geometry: every panel sits at the same radius; relief and seam are world units (a cell is about 1.7 across)
-    relief: 0.05, // how far every panel stands above the sphere (about 3% of a cell)
+    relief: 0.05, // how far the lowest panel stands above the sphere (about 3% of a cell)
+    elevation: 0.30, // terrain: how much taller the highest column is than the lowest, world units (clamped so relief + elevation <= 0.35)
+    terrainScale: 1.7, // terrain feature size: noise frequency over the unit sphere (higher = more, smaller ranges)
     seam: 0.085, // width of the engraved seam between panels, constant over the whole globe
     bevel: 0.025, // hairline rounded edge on the panel top, so the seam stays crisp
     lift: 0.07, // world units a hovered/focused (or comet-struck) panel rises
@@ -43,10 +45,10 @@ export const look = {
     roughness: 0.52, // matte stone; the lights give it a gentle satin highlight
     sheen: 0.3, // satin lift at grazing angles
     envIntensity: 0.25, // procedural studio reflection (high tier only)
-    // speckled stone (procedural, anchored per panel with its own random rotation and offset)
-    speckle: 0.8, // fleck contrast
-    speckleScale: 1.0, // fleck size multiplier (1 = about 2-3 px at the hive distance; larger = coarser)
-    speckleDensity: 0.55, // share of grid cells that carry a fleck
+    // jagged rock (procedural: ridged strata, cracks and a bump normal, all from the five palette tokens)
+    crag: 1.0, // bump strength of the crags, strata ledges and cracks (0 = smooth stone)
+    strata: 0.5, // contrast of the layered bands in the rock and on the column walls
+    crack: 0.4, // how dark and how present the fine cracks are
     mottle: 0.35, // slow blotchy tone variation of the stone body
     tone: 0.04, // per-panel brightness variation
     // agent panels: lighter stone and an engraved ring inlay
@@ -109,9 +111,9 @@ export type Look = typeof look;
 /** [min, max, step] for the lookdev sliders. Keys mirror `look`. */
 export const ranges: { [G in keyof Look]?: { [K in keyof Look[G]]?: [number, number, number] } } = {
   cell: {
-    relief: [0.01, 0.15, 0.005], seam: [0.02, 0.25, 0.005], bevel: [0, 0.06, 0.0025], lift: [0, 0.3, 0.005],
+    relief: [0.01, 0.15, 0.005], elevation: [0, 0.3, 0.005], terrainScale: [0.5, 4, 0.05], seam: [0.02, 0.25, 0.005], bevel: [0, 0.06, 0.0025], lift: [0, 0.3, 0.005],
     roughness: [0.15, 1, 0.01], sheen: [0, 1.5, 0.01], envIntensity: [0, 1.5, 0.01],
-    speckle: [0, 1.6, 0.01], speckleScale: [0.4, 3, 0.02], speckleDensity: [0.1, 1, 0.01], mottle: [0, 1, 0.01], tone: [0, 0.2, 0.005],
+    crag: [0, 2, 0.01], strata: [0, 1, 0.01], crack: [0, 1, 0.01], mottle: [0, 1, 0.01], tone: [0, 0.2, 0.005],
     agentTone: [0, 0.6, 0.01], ringWidth: [0.4, 2.5, 0.02], ringDepth: [0, 1, 0.01], hover: [0, 1.2, 0.01],
   },
   light: { key: [0, 4, 0.05], hemi: [0, 2, 0.02], ambient: [0, 1, 0.01], kicker: [0, 3, 0.05], sweep: [0, 1, 0.01], keyElevation: [5, 80, 1] },

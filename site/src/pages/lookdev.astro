@@ -105,7 +105,7 @@ const favicon =
 
       type PanelId = 'cell' | 'packet' | 'dissolve' | 'particles' | 'post' | 'palette';
       const PANELS: Record<PanelId, { title: string; note: string; groups: (keyof typeof look)[] }> = {
-        cell: { title: 'Stone panels + lights', groups: ['cell', 'light'], note: 'Round 5, flush speckled stone, no glow. Judge: does the speckle read as stone at the wide view (not only close up; scale, density, contrast), seam width and evenness, hairline bevel, agent ring inlay per band (ring width), tone of agent vs filler stone, the moving key (swing the orbit slider), and the moon (view moon). Active tone and lift are the hover/focus state.' },
+        cell: { title: 'Stone panels + lights', groups: ['cell', 'light'], note: 'Round 6, jagged rock terrain, no glow. Judge: does the globe read as rock with elevation at the wide view and in the fly-over (elevation, terrain scale, crag, strata, cracks), the column walls, seam width and evenness, hairline bevel, tone of agent vs filler stone, the moving key (swing the orbit slider), and the moon (view moon). Active tone and lift are the hover/focus state.' },
         packet: { title: 'Comet', groups: ['packet'], note: 'Judge: is the head small and hard, does the tail lengthen with speed (move the speed slider) and taper crisply, are the sparks few. No glow. Three accent candidates run the same loop.' },
         dissolve: { title: 'Hex dissolve', groups: ['dissolve'], note: 'Judge: speed (use auto), hex size against the lattice, wavefront uniformity. Hex size is tied to the on-screen lattice cell.' },
         particles: { title: 'Particle swarm', groups: ['particles'], note: 'Judge: curl flow reads as swarm not fireworks, dim-to-bright, convergence on the target. attract stands in for chapterProgress.' },
@@ -313,7 +313,7 @@ const favicon =
 
         cometDist += cometSpeed * dt;
         comb.syncLook();
-        comb.update(1, 0); // no-op unless look.cell.relief changed
+        comb.update(1, 0); // no-op unless look.cell.relief, elevation or terrainScale changed
         const showPackets = panel === 'packet' || panel === 'post' || panel === 'dissolve';
         packets.forEach((p, i) => {
           p.group.visible = showPackets && (accentSel === 'all' || accentSel === accentCandidates[i].name);

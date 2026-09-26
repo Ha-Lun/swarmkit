@@ -7,9 +7,9 @@ import { SINK, type Look, type Palette, type Tier } from './config';
 export interface CellUniforms {
   uBevel: IUniform<number>;
   uSheen: IUniform<number>;
-  uSpeckle: IUniform<number>;
-  uSpeckleScale: IUniform<number>;
-  uSpeckleDensity: IUniform<number>;
+  uCrag: IUniform<number>;
+  uStrata: IUniform<number>;
+  uCrack: IUniform<number>;
   uMottle: IUniform<number>;
   uTone: IUniform<number>;
   uAgentTone: IUniform<number>;
@@ -31,16 +31,19 @@ export interface CellMaterial {
 }
 
 /**
- * Speckled stone on top of MeshStandardMaterial, patched via onBeforeCompile. Every colour is a mix of the five palette
+ * Jagged rock on top of MeshStandardMaterial, patched via onBeforeCompile. Every colour is a mix of the five palette
  * tokens (wax, wax-dim, text, ink-2, ink); nothing here is a new colour and the accent is never read. Nothing is self-lit.
  *  - flush panels: the vertex stage replaces the unit prism's corners with the instance's own Voronoi corners (aCorn*), curves
- *    the top onto its sphere (aStone.w = 1 / body radius) and adds a hairline fillet in world units, so seams stay crisp and even
- *  - stone: procedural flecks (hashed grid dots in three or four sizes, in wax / text / ink-2 tones, plus a slow mottle), matte
- *    with a gentle satin sheen. The field is anchored per panel with a random rotation and offset (aStone), so each panel reads
- *    as its own piece. Fleck size is checked against the pixel footprint so the texture never shimmers at distance
- *  - agents: lighter stone and an engraved ring inlay (aInlay: ring count, width, centre dot, panel half-width), no glow
+ *    the top onto its sphere (aStone.w = 1 / body radius) and adds a hairline fillet in world units, so seams stay crisp and even.
+ *    Each column has its own height (honeycomb.ts applies the terrain), so the side walls are visible and get the rock too
+ *  - rock: ridged fBm crags, wobbly strata bands (horizontal on the column walls, so bedding runs across neighbours), fine cracks
+ *    (a level set of a noise), a slow mottle and a tint by elevation (higher = paler). The same field is a height that perturbs the
+ *    normal (screen-derivative bump mapping), so the key and kicker lights catch the crags. Octaves smaller than the pixel
+ *    footprint fade out, so it never shimmers at distance. The field is anchored per panel (aStone: rotation, offset)
+ *  - agents: lighter stone and an engraved ring inlay (aInlay), no glow
  *  - hover/focus: aState.x brightens the tone, aState.y lifts the panel along its normal
- * Medium tier: same body, seams, sheen, big and medium flecks and one mottle octave; no fine flecks, no second octave, no studio reflection.
+ * Medium tier: same body, seams, sheen, strata, cracks and two crag octaves; no finest octave, no bump normal, one mottle
+ * octave, no studio reflection.
  */
 export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell']): CellMaterial {
   const wax = new Color(palette.wax);
@@ -50,9 +53,9 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
   const uniforms: CellUniforms = {
     uBevel: { value: cfg.bevel },
     uSheen: { value: cfg.sheen },
-    uSpeckle: { value: cfg.speckle },
-    uSpeckleScale: { value: cfg.speckleScale },
-    uSpeckleDensity: { value: cfg.speckleDensity },
+    uCrag: { value: cfg.crag },
+    uStrata: { value: cfg.strata },
+    uCrack: { value: cfg.crack },
     uMottle: { value: cfg.mottle },
     uTone: { value: cfg.tone },
     uAgentTone: { value: cfg.agentTone },
@@ -86,6 +89,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         attribute vec2 aState;
         attribute vec4 aStone;
         attribute vec4 aInlay;
+        attribute vec2 aRock;
         attribute vec4 aCornA;
         attribute vec4 aCornB;
         attribute vec4 aCornC;
@@ -93,6 +97,8 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         varying vec2 vCell;
         varying vec3 vStone;
         varying vec4 vInlay;
+        varying vec2 vRock;
+        varying float vWallH;
         varying float vHover;
         varying float vNy;
         vec2 cornerOf() {
@@ -118,12 +124,14 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         vCell = cxz;
         vStone = aStone.xyz;
         vInlay = aInlay;
+        vRock = aRock;
         vHover = aState.x;
         vNy = normal.y;
         {
           float sx = length( instanceMatrix[ 0 ].xyz );
           float sy = length( instanceMatrix[ 1 ].xyz );
           // hairline fillet in world units: the rim drops and the top face insets, whatever the panel's own footprint
+          vWallH = position.y * sy - ${SINK.toFixed(4)}; // height above the sphere, for the wall shading and the strata
           float b = min( uBevel, min( 0.35 * aInlay.w, 0.8 * max( sy - ${SINK.toFixed(4)}, 0.02 ) ) );
           transformed.y -= aBev.x * b / max( sy, 1e-4 );
           transformed.xz *= 1.0 - aBev.y * b / max( length( cxz ) * sx, 1e-4 );
@@ -146,54 +154,91 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
       .replace(
         '#include <common>',
         `${defs}#include <common>
-        uniform float uSheen, uSpeckle, uSpeckleScale, uSpeckleDensity, uMottle, uTone, uAgentTone, uRingWidth, uRingDepth, uHover;
+        uniform float uSheen, uCrag, uStrata, uCrack, uMottle, uTone, uAgentTone, uRingWidth, uRingDepth, uHover;
         uniform vec3 uStoneBase, uStoneMid, uStoneLight, uStoneDark, uSheenColor;
         varying vec2 vCell;
         varying vec3 vStone;
         varying vec4 vInlay;
+        varying vec2 vRock;
+        varying float vWallH;
         varying float vHover;
         varying float vNy;
+        float gH = 0.0;    // rock height (world units) for the bump normal
+        float gAgent = 0.0;
+        float gWall = 0.0;
 
         float h21( vec2 p ) { vec3 q = fract( vec3( p.xyx ) * 0.1031 ); q += dot( q, q.yzx + 33.33 ); return fract( ( q.x + q.y ) * q.z ); }
-        vec2 h22( vec2 p ) { vec3 q = fract( vec3( p.xyx ) * vec3( 0.1031, 0.1030, 0.0973 ) ); q += dot( q, q.yzx + 33.33 ); return fract( ( q.xx + q.yz ) * q.zy ); }
         float vnoise( vec2 p ) {
           vec2 i = floor( p ), f = fract( p );
           f = f * f * ( 3.0 - 2.0 * f );
           return mix( mix( h21( i ), h21( i + vec2( 1.0, 0.0 ) ), f.x ), mix( h21( i + vec2( 0.0, 1.0 ) ), h21( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
         }
-        // One layer of flecks: a grid of cells, each holding at most one soft-edged, slightly stretched dot. The dot is
-        // faded out when it is smaller than about a pixel, so the stone never shimmers at distance. Returns coverage.
-        float fleck( vec2 uv, float scale, float dens, float rmin, float rmax, float seed ) {
-          vec2 q = uv * scale;
-          vec2 g = floor( q );
-          vec2 f = fract( q );
-          vec2 r = h22( g + seed );
-          float on = step( h21( g + seed * 3.7 + 11.0 ), dens );
-          vec2 e = f - ( 0.3 + 0.4 * h22( g + seed + 5.0 ) );
-          e.x *= 1.0 + r.y * 0.9;
-          float rad = mix( rmin, rmax, r.x );
-          float aa = max( max( fwidth( q.x ), fwidth( q.y ) ), 1e-4 );
-          float vis = smoothstep( 1.1, 2.3, 2.0 * rad / aa );
-          return on * vis * ( 1.0 - smoothstep( rad - aa * 0.75, rad + aa * 0.75, length( e ) ) );
+        vec2 h22( vec2 p ) { vec3 q = fract( vec3( p.xyx ) * vec3( 0.1031, 0.1030, 0.0973 ) ); q += dot( q, q.yzx + 33.33 ); return fract( ( q.xx + q.yz ) * q.zy ); }
+        // Fractured slab: a jittered Voronoi grid where every facet is its own tilted plane. x = distance to the nearest fracture line
+        // (F2 - F1), y = height of the facet plane at this point, z = a per-facet random. Angular, jagged, and flat inside each facet.
+        vec3 facets( vec2 p ) {
+          vec2 n = floor( p ), f = fract( p );
+          float d1 = 8.0, d2 = 8.0;
+          vec2 rb = vec2( 0.0 ), id = vec2( 0.0 );
+          for ( int j = -1; j <= 1; j++ ) for ( int i = -1; i <= 1; i++ ) {
+            vec2 g = vec2( float( i ), float( j ) );
+            vec2 r = g + h22( n + g ) - f;
+            float d = dot( r, r );
+            if ( d < d1 ) { d2 = d1; d1 = d; rb = r; id = n + g; } else if ( d < d2 ) d2 = d;
+          }
+          vec2 tilt = ( h22( id + 7.0 ) - 0.5 ) * 2.0;
+          return vec3( sqrt( d2 ) - sqrt( d1 ), 0.5 * dot( tilt, -rb ) + ( h21( id ) - 0.5 ) * 0.5, h21( id + 3.0 ) );
         }
-        vec3 stone( vec2 xz, vec3 sd, float agent ) {
+        // a sharp crest where the noise crosses one half: ridged noise
+        float ridged( vec2 p ) { return 1.0 - abs( 2.0 * vnoise( p ) - 1.0 ); }
+        // 1 while an octave of frequency freq is well resolved by the pixel grid, 0 once a pixel spans most of its period
+        float octFade( vec2 q, float freq ) { vec2 w = fwidth( q ) * freq; return 1.0 - smoothstep( 0.3, 0.8, max( w.x, w.y ) ); }
+        // Mikkelsen bump: the normal tilted by the screen-space gradient of the height H (world units), so strength does not depend on distance
+        vec3 bumpNormal( vec3 P, vec3 N, float H ) {
+          vec3 dPdx = dFdx( P ), dPdy = dFdy( P );
+          float lim = 0.7;
+          float dHx = clamp( dFdx( H ), -lim * length( dPdx ), lim * length( dPdx ) );
+          float dHy = clamp( dFdy( H ), -lim * length( dPdy ), lim * length( dPdy ) );
+          vec3 R1 = cross( dPdy, N ), R2 = cross( N, dPdx );
+          float det = dot( dPdx, R1 );
+          return normalize( abs( det ) * N - sign( det ) * ( dHx * R1 + dHy * R2 ) );
+        }
+        // The stone: xz is the panel-local position, sd its anchor (rotation, offset), hAbs the height above the sphere,
+        // wall 1 on a side wall and 0 on the top, terr the panel's terrain value. Also writes gH (the bump height).
+        vec3 stone( vec2 xz, vec3 sd, float hAbs, float wall, float terr, float agent ) {
           float ca = cos( sd.x ), sa = sin( sd.x );
           vec2 uv = mat2( ca, -sa, sa, ca ) * xz + sd.yz;
-          float k = 1.0 / uSpeckleScale;
-          float dn = uSpeckleDensity;
-          float mot = vnoise( uv * 0.85 * k ) ;
+          // tops use the panel's plane; walls run along the face and up it (up in world height, so bedding lines up across columns)
+          vec2 q = mix( uv, vec2( uv.x + 0.61 * uv.y, hAbs * 1.7 ), wall );
+          vec2 sq = mix( vec2( uv.x * 0.45, uv.y * 1.3 ), vec2( q.x * 0.45, hAbs * 9.0 ), wall );
+          float mot = vnoise( q * 0.85 );
+          float r1 = ridged( q * 0.9 + 3.1 );
+          float r2 = ridged( q * 2.3 + 11.7 );
+          float crag = 0.62 * r1 + 0.3 * r2;
           #ifdef CELL_HIGH
-            mot = 0.65 * mot + 0.35 * vnoise( uv * 2.6 * k + 7.0 );
+            mot = 0.65 * mot + 0.35 * vnoise( q * 2.6 + 7.0 );
+            crag += 0.16 * ridged( q * 5.7 + 5.3 ) * octFade( q, 5.7 ); // the finest octave, faded by the pixel footprint
           #endif
-          vec3 col = uStoneBase * ( 1.0 + uMottle * ( mot - 0.5 ) * 1.1 );
-          float sp = uSpeckle;
-          col = mix( col, uStoneMid, fleck( uv, 2.6 * k, dn * 0.55, 0.16, 0.30, 1.0 ) * 0.7 * sp );
-          col = mix( col, uStoneDark, fleck( uv, 5.2 * k, dn * 0.95, 0.15, 0.30, 2.0 ) * 0.9 * sp );
-          col = mix( col, uStoneLight, fleck( uv, 6.4 * k, dn * 0.85, 0.14, 0.28, 3.0 ) * 0.95 * sp );
+          float sf = 1.0 - smoothstep( 0.15, 0.45, max( fwidth( sq.x ), fwidth( sq.y ) ) ); // strata fade once a band is about a pixel
+          float band = 0.5 + 0.5 * sin( sq.y * 6.2832 + 4.0 * vnoise( sq * 1.3 + 9.0 ) );
+          float ledge = smoothstep( 0.3, 0.7, band ) * sf;
+          vec3 fc = facets( q * 1.9 + 4.0 );
+          float aa = max( fwidth( fc.x ), 1e-4 );
+          float crack = ( 1.0 - smoothstep( 0.02, 0.02 + aa * 1.3, fc.x ) ) * ( 1.0 - smoothstep( 0.1, 0.35, aa ) );
+          float grain = 0.5;
           #ifdef CELL_HIGH
-            float fd = fleck( uv, 13.0 * k, dn * 1.0, 0.16, 0.32, 4.0 );
-            col = mix( col, h21( floor( uv * 13.0 * k ) + 9.0 ) < 0.5 ? uStoneDark : uStoneLight, fd * 0.8 * sp );
+            grain = mix( 0.5, vnoise( q * 9.0 + 2.0 ), octFade( q, 9.0 ) );
           #endif
+          gH = uCrag * ( 0.1 * crag + 0.28 * fc.y + 0.02 * ledge * ( 0.4 + uStrata ) - 0.02 * uCrack * crack + 0.008 * ( grain - 0.5 ) ) * ( 1.0 - agent ) * ( 1.0 - 0.65 * wall ); // walls: gentler bump (grazing angles alias)
+
+          vec3 col = uStoneBase * ( 1.0 + uMottle * ( mot - 0.5 ) * 1.4 );
+          col = mix( col, uStoneDark, uStrata * 0.5 * ( 1.0 - band ) * sf * ( 0.15 + 0.85 * wall ) );
+          col *= 0.86 + 0.28 * fc.z; // each facet is its own tone
+          col *= 0.75 + 0.5 * crag; // crests catch more, hollows less
+          col = mix( col, uStoneLight, 0.08 * smoothstep( 0.8, 1.0, crag ) );
+          col *= 0.7 + 0.6 * terr; // higher columns are paler
+          col *= 1.0 + 0.3 * ( grain - 0.5 );
+          col = mix( col, uStoneDark * 0.4, crack * uCrack * ( 1.0 - agent ) );
           float pt = h21( sd.yz );
           col *= 1.0 + uTone * ( pt - 0.5 ) * 2.0;
           col = mix( col, col * ( 1.0 + 0.9 * uAgentTone ) + uStoneLight * 0.05 * uAgentTone, agent );
@@ -205,7 +250,9 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         `#include <color_fragment>
         {
           float agent = step( 0.5, vInlay.x );
-          vec3 col = stone( vCell, vStone, agent );
+          gAgent = agent;
+          gWall = 1.0 - smoothstep( 0.35, 0.75, vNy );
+          vec3 col = stone( vCell, vStone, vWallH, gWall, vRock.x, agent );
           // engraved inlay: rings (and a centre dot) cut into the stone, crisp edges
           float rr = length( vCell ) / max( vInlay.w, 1e-3 );
           float px = max( fwidth( rr ), 1e-4 );
@@ -223,6 +270,13 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         }`,
       )
       .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+        #ifdef CELL_HIGH
+          normal = bumpNormal( -vViewPosition, normal, gH );
+        #endif`,
+      )
+      .replace(
         '#include <opaque_fragment>',
         `{
           vec3 N = normalize( normal );
@@ -236,13 +290,13 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
                 + 1.2 * saturate( dot( N, directionalLights[ 1 ].direction ) + 0.1 );
           #endif
           outgoingLight += uSheenColor * lum * uSheen * pow( grazing, 2.0 ) * lit;
-          // the seam walls sit in shadow
-          outgoingLight *= 1.0 - 0.5 * ( 1.0 - smoothstep( 0.15, 0.6, vNy ) );
+          // the column walls sit in soft shadow, deeper toward the foot: rock faces, not black gaps
+          outgoingLight *= 1.0 - gWall * ( 0.25 + 0.3 * ( 1.0 - smoothstep( 0.0, 0.16, vWallH ) ) );
         }
         #include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => `cell-${tier}-r5`;
+  material.customProgramCacheKey = () => `cell-${tier}-r6`;
 
   return {
     material,
@@ -250,9 +304,9 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
     sync(c) {
       uniforms.uBevel.value = c.bevel;
       uniforms.uSheen.value = c.sheen;
-      uniforms.uSpeckle.value = c.speckle;
-      uniforms.uSpeckleScale.value = c.speckleScale;
-      uniforms.uSpeckleDensity.value = c.speckleDensity;
+      uniforms.uCrag.value = c.crag;
+      uniforms.uStrata.value = c.strata;
+      uniforms.uCrack.value = c.crack;
       uniforms.uMottle.value = c.mottle;
       uniforms.uTone.value = c.tone;
       uniforms.uAgentTone.value = c.agentTone;
