@@ -126,8 +126,13 @@ const scales = globe.map((c) => c.scale);
 console.log(`panel footprint circumradius: min ${Math.min(...scales).toFixed(3)} max ${Math.max(...scales).toFixed(3)}`);
 const pm = globe.filter((c) => c.sides === 5).map((c) => c.scale);
 console.log(`pentagon circumradius mean ${(pm.reduce((a, b) => a + b, 0) / pm.length).toFixed(3)} vs hex mean ${(scales.reduce((a, b) => a + b, 0) / scales.length).toFixed(3)}`);
-// every panel at the same radius: relief is one value
-check(new Set(lat.cells.map((c) => c.height)).size === 1, `all panels share one relief (${[...new Set(lat.cells.map((c) => c.height))]})`);
+// terrain: every column stands between relief and relief + elevation, never above 0.35 world units; agents sit on a low shelf
+const hs = lat.cells.map((c) => c.height);
+const top = look.cell.relief + look.cell.elevation;
+check(Math.min(...hs) >= look.cell.relief - 1e-9 && Math.max(...hs) <= Math.min(top, 0.35) + 1e-9, `column heights within [${look.cell.relief}, ${Math.min(top, 0.35)}] (got ${Math.min(...hs).toFixed(3)}..${Math.max(...hs).toFixed(3)})`);
+check(globe.some((c) => c.height > look.cell.relief + 0.15), 'the globe has real relief (a column stands 0.15+ above the base)');
+const ag = globe.filter((c) => c.agent).map((c) => c.height);
+check(Math.max(...ag) <= look.cell.relief + look.cell.elevation * 0.4 + 1e-9, `agent panels are cut to a low shelf (max ${Math.max(...ag).toFixed(3)})`);
 check(globe.every((c) => Math.abs(c.pos.length() - lat.radius) < 1e-9), 'every globe panel sits at the same radius');
 check(moon.every((c) => Math.abs(c.pos.distanceTo(lat.moon.centre) - c.bodyRadius) < 1e-9), 'every moon panel sits at the same radius from the moon centre');
 check(moon.some((c) => c.agent?.name === 'showroom') && moon.every((c) => c.normal.dot(lat.moon.normal) > -1.01), 'showroom is on the moon');
