@@ -126,11 +126,13 @@ const scales = globe.map((c) => c.scale);
 console.log(`panel footprint circumradius: min ${Math.min(...scales).toFixed(3)} max ${Math.max(...scales).toFixed(3)}`);
 const pm = globe.filter((c) => c.sides === 5).map((c) => c.scale);
 console.log(`pentagon circumradius mean ${(pm.reduce((a, b) => a + b, 0) / pm.length).toFixed(3)} vs hex mean ${(scales.reduce((a, b) => a + b, 0) / scales.length).toFixed(3)}`);
-// terrain: every column stands between relief and relief + elevation, never above 0.35 world units; agents sit on a low shelf
+// terrain: every column stands between relief and relief + elevation, never above 0.6 world units, quantised into look.cell.steps levels; agents sit on a low shelf
 const hs = lat.cells.map((c) => c.height);
 const top = look.cell.relief + look.cell.elevation;
-check(Math.min(...hs) >= look.cell.relief - 1e-9 && Math.max(...hs) <= Math.min(top, 0.35) + 1e-9, `column heights within [${look.cell.relief}, ${Math.min(top, 0.35)}] (got ${Math.min(...hs).toFixed(3)}..${Math.max(...hs).toFixed(3)})`);
+check(Math.min(...hs) >= look.cell.relief - 1e-9 && Math.max(...hs) <= Math.min(top, 0.6) + 1e-9, `column heights within [${look.cell.relief}, ${Math.min(top, 0.6)}] (got ${Math.min(...hs).toFixed(3)}..${Math.max(...hs).toFixed(3)})`);
 check(globe.some((c) => c.height > look.cell.relief + 0.15), 'the globe has real relief (a column stands 0.15+ above the base)');
+const levels = new Set(globe.filter((c) => !c.agent).map((c) => c.height.toFixed(4)));
+check(levels.size <= look.cell.steps && levels.size >= 3, `basalt heights snap to at most ${look.cell.steps} levels (got ${levels.size})`);
 const ag = globe.filter((c) => c.agent).map((c) => c.height);
 check(Math.max(...ag) <= look.cell.relief + look.cell.elevation * 0.4 + 1e-9, `agent panels are cut to a low shelf (max ${Math.max(...ag).toFixed(3)})`);
 check(globe.every((c) => Math.abs(c.pos.length() - lat.radius) < 1e-9), 'every globe panel sits at the same radius');

@@ -249,18 +249,19 @@ export function layoutLattice(agents: Agent[]): Lattice {
   return lattice;
 }
 
-const MAX_TOP = 0.35; // the tallest column stands at most this far above its sphere (a cell is about 1.7 across)
+const MAX_TOP = 0.6; // the tallest column stands at most this far above its sphere (a cell is about 1.7 across)
 const MOON_AMP = 0.5; // the moon's relief is this fraction of the globe's
 const terrainKeyOf = new WeakMap<Lattice, string>();
 
 /**
- * Column heights from a deterministic terrain (terrain.ts) sampled on each cell's normal. Writes cell.height (which cellTopOf and so
+ * Column heights (quantised into look.cell.steps levels) from a deterministic terrain (terrain.ts) sampled on each cell's normal. Writes cell.height (which cellTopOf and so
  * the comet, the label cards and picking all read) and cell.terrain. Agent panels are cut down to a low, gently varying shelf, so
  * they sit on the rock rather than on its peaks. Returns false when nothing changed since the last call.
  */
 export function applyTerrain(lattice: Lattice): boolean {
   const { relief, elevation, terrainScale } = look.cell;
-  const key = `${relief}|${elevation}|${terrainScale}`;
+  const steps = Math.max(2, Math.round(look.cell.steps));
+  const key = `${relief}|${elevation}|${terrainScale}|${steps}`;
   if (terrainKeyOf.get(lattice) === key) return false;
   terrainKeyOf.set(lattice, key);
   const el = Math.min(elevation, Math.max(0, MAX_TOP - relief));
@@ -270,8 +271,10 @@ export function applyTerrain(lattice: Lattice): boolean {
     const t = terrainField(cs.map((c) => c.normal), terrainScale * (moon ? 1.6 : 1), moon ? 71 : 13);
     const amp = el * (moon ? MOON_AMP : 1);
     cs.forEach((c, i) => {
-      c.terrain = t[i];
-      c.height = relief + amp * (c.agent ? 0.2 + 0.2 * t[i] : t[i]);
+      // basalt: heights snap to `steps` levels (lowest and tallest both present), so neighbours read as stepped columns
+      const q = Math.min(steps - 1, Math.floor(t[i] * steps)) / (steps - 1);
+      c.terrain = q;
+      c.height = relief + amp * (c.agent ? 0.2 + 0.2 * t[i] : q);
     });
   }
   return true;
