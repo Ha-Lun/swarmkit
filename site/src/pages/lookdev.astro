@@ -2,28 +2,17 @@
 // Look-dev bench (PLAN §9). Round 1: proposed values, nothing locked. Not linked, noindex.
 import '../styles/tokens.css';
 import { loadAgents } from '../lib/agents';
-import { paletteCandidates } from '../lib/world/config';
 const agents = loadAgents();
 const typeScale = ['3xl', '2xl', 'xl', 'lg', 'base', 'sm', 'xs'];
 const spacing = ['1', '2', '3', '4', '6', '8', '12', '16', '24'];
 const favicon =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2l12 7v14l-12 7-12-7V9z' fill='%23b9aa88'/%3E%3C/svg%3E";
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2l12 7v14l-12 7-12-7V9z' fill='%239aa6b4'/%3E%3C/svg%3E";
 ---
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex" />
-    <script is:inline define:vars={{ candidates: paletteCandidates }}>
-      // round-7 preview: ?palette=<name> overrides the five non-accent tokens before first paint
-      var pick = new URLSearchParams(location.search).get('palette');
-      var pal = candidates.find(function (c) { return c.name === pick; });
-      if (pal) {
-        var st = document.documentElement.style;
-        st.setProperty('--ink', pal.ink); st.setProperty('--ink-2', pal.ink2); st.setProperty('--wax', pal.wax);
-        st.setProperty('--wax-dim', pal.waxDim); st.setProperty('--text', pal.text);
-      }
-    </script>
     <link rel="icon" href={favicon} />
     <title>lookdev</title>
     <style is:global>
@@ -74,8 +63,6 @@ const favicon =
     <section id="specimen" hidden aria-label="palette and type specimen">
       <h3>Colour tokens (6)</h3>
       <div id="tokens"></div>
-      <h3>Palette candidates (reload with ?palette=name)</h3>
-      <div id="palettes"></div>
       <h3>Accent candidates (packet + trail only)</h3>
       <div id="accents"></div>
       <h3>Type</h3>
@@ -98,7 +85,7 @@ const favicon =
         Color, Fog, HalfFloatType, PerspectiveCamera, Scene, Vector2, WebGLRenderer, WebGLRenderTarget,
       } from 'three';
       import type { Agent } from '../lib/agents';
-      import { accentCandidates, paletteCandidates, look, ranges, readPalette, type Tier } from '../lib/world/config';
+      import { accentCandidates, look, ranges, readPalette, type Tier } from '../lib/world/config';
       import { createHoneycomb, type Honeycomb } from '../lib/world/honeycomb';
       import { createPacket, createTestCurve, loopPath, type Packet } from '../lib/world/packet';
       import { createHexDissolve, hexPixelSize } from '../lib/world/transitions';
@@ -255,13 +242,6 @@ const favicon =
         const sw = (name: string, hex: string) => `<div class="sw"><i style="background:${hex}"></i><span>${name}<br>${hex}</span></div>`;
         const cs = getComputedStyle(document.documentElement);
         $('tokens').innerHTML = ['ink', 'ink-2', 'wax', 'wax-dim', 'text', 'accent'].map((n) => sw(`--${n}`, cs.getPropertyValue(`--${n}`).trim())).join('');
-        const active = new URLSearchParams(location.search).get('palette') ?? 'current';
-        $('palettes').innerHTML = paletteCandidates.map((c) => {
-          const q = new URLSearchParams(location.search);
-          q.set('palette', c.name);
-          const chips = [c.ink, c.ink2, c.wax, c.waxDim, c.text].map((h) => `<i style="display:inline-block;width:14px;height:14px;background:${h}"></i>`).join('');
-          return `<a href="?${q}"${c.name === active ? ' aria-current="true"' : ''} style="display:inline-block;margin:0 var(--space-4) var(--space-2) 0;color:var(--text)">${chips} ${c.name}</a>`;
-        }).join('');
         $('accents').innerHTML = accentCandidates.map((c) => sw(c.name, c.hex)).join('');
       }
 

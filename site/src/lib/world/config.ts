@@ -1,4 +1,4 @@
-// Look uniforms as data. Round 7 (basalt columns: stepped heights, flat matte tops, dark striated sides, polished agent facets, hard-edged comet, no glow): the human unlocked cell, light and packet for this round only;
+// Look uniforms as data. Round 8 (iron-blue palette locked; basalt columns: stepped heights, flat matte tops, dark striated sides, polished agent facets, hard-edged comet, no glow): the human unlocked cell, light and packet for this round only;
 // they re-lock after the verdict. The /lookdev sliders mutate these objects in memory only (nothing is persisted), so a reload restores the values here.
 
 export type Tier = 'high' | 'medium';
@@ -9,7 +9,7 @@ export const CELL_RADIUS = 1;
 export const SINK = 0.12;
 
 // Fallback copy of the colour tokens in src/styles/tokens.css. readPalette() prefers the CSS values.
-const PALETTE_FALLBACK = { ink: '#0c1016', ink2: '#151b24', wax: '#b9aa88', waxDim: '#6e6653', text: '#d8d5cb' };
+const PALETTE_FALLBACK = { ink: '#080b10', ink2: '#121824', wax: '#9aa6b4', waxDim: '#46505e', text: '#d9dee5' };
 export type Palette = typeof PALETTE_FALLBACK;
 
 export function readPalette(): Palette {
@@ -30,18 +30,6 @@ export const accentCandidates = [
   { name: 'cyan', hex: '#4fd8e8' },
   { name: 'violet', hex: '#a98bff' },
   { name: 'coral', hex: '#ff6a55' },
-] as const;
-
-/**
- * Palette candidates for the round-7 verdict (the human unlocked the five non-accent tokens for this round). A layout script reads
- * ?palette=<name> and sets these CSS variables on :root before first paint; tokens.css is not edited until one is picked, then this
- * list and the script are removed. The accent stays violet.
- */
-export const paletteCandidates = [
-  { name: 'current', ink: '#0c1016', ink2: '#151b24', wax: '#b9aa88', waxDim: '#6e6653', text: '#d8d5cb' },
-  { name: 'graphite', ink: '#0b0d10', ink2: '#16191e', wax: '#8e949b', waxDim: '#4a4f56', text: '#dde0e3' },
-  { name: 'iron-blue', ink: '#080b10', ink2: '#121824', wax: '#9aa6b4', waxDim: '#46505e', text: '#d9dee5' },
-  { name: 'bone', ink: '#0e0d0c', ink2: '#1a1816', wax: '#c9c1b1', waxDim: '#5d5850', text: '#e6e1d8' },
 ] as const;
 
 export const look = {
