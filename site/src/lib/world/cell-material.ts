@@ -13,8 +13,6 @@ export interface CellUniforms {
   uMottle: IUniform<number>;
   uTone: IUniform<number>;
   uAgentTone: IUniform<number>;
-  uRingWidth: IUniform<number>;
-  uRingDepth: IUniform<number>;
   uHover: IUniform<number>;
   uStoneBase: IUniform<Color>;
   uStoneMid: IUniform<Color>;
@@ -40,7 +38,8 @@ export interface CellMaterial {
  *    (a level set of a noise), a slow mottle and a tint by elevation (higher = paler). The same field is a height that perturbs the
  *    normal (screen-derivative bump mapping), so the key and kicker lights catch the crags. Octaves smaller than the pixel
  *    footprint fade out, so it never shimmers at distance. The field is anchored per panel (aStone: rotation, offset)
- *  - agents: lighter stone and an engraved ring inlay (aInlay), no glow
+ *  - agents: cut flat and polished: no crags or cracks, lighter stone with a small tone step per band (aRock.y), lower roughness,
+ *    a slightly wider bevel so the cut edge catches the light. No inlay, no accent, no glow (aInlay.x = agent flag, aInlay.w = half-width)
  *  - hover/focus: aState.x brightens the tone, aState.y lifts the panel along its normal
  * Medium tier: same body, seams, sheen, strata, cracks and two crag octaves; no finest octave, no bump normal, one mottle
  * octave, no studio reflection.
@@ -59,8 +58,6 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
     uMottle: { value: cfg.mottle },
     uTone: { value: cfg.tone },
     uAgentTone: { value: cfg.agentTone },
-    uRingWidth: { value: cfg.ringWidth },
-    uRingDepth: { value: cfg.ringDepth },
     uHover: { value: cfg.hover },
     uStoneBase: { value: waxDim.clone().lerp(wax, 0.55) }, // the body of the stone
     uStoneMid: { value: wax.clone() },
@@ -132,7 +129,8 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
           float sy = length( instanceMatrix[ 1 ].xyz );
           // hairline fillet in world units: the rim drops and the top face insets, whatever the panel's own footprint
           vWallH = position.y * sy - ${SINK.toFixed(4)}; // height above the sphere, for the wall shading and the strata
-          float b = min( uBevel, min( 0.35 * aInlay.w, 0.8 * max( sy - ${SINK.toFixed(4)}, 0.02 ) ) );
+          float b = min( uBevel * ( 1.0 + 0.9 * step( 0.5, aInlay.x ) ), // the cut facet has a slightly wider bevel that catches the light
+             min( 0.35 * aInlay.w, 0.8 * max( sy - ${SINK.toFixed(4)}, 0.02 ) ) );
           transformed.y -= aBev.x * b / max( sy, 1e-4 );
           transformed.xz *= 1.0 - aBev.y * b / max( length( cxz ) * sx, 1e-4 );
           // the whole panel sits on its sphere: drop by (distance^2) / (2 body radius)
@@ -154,7 +152,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
       .replace(
         '#include <common>',
         `${defs}#include <common>
-        uniform float uSheen, uCrag, uStrata, uCrack, uMottle, uTone, uAgentTone, uRingWidth, uRingDepth, uHover;
+        uniform float uSheen, uCrag, uStrata, uCrack, uMottle, uTone, uAgentTone, uHover;
         uniform vec3 uStoneBase, uStoneMid, uStoneLight, uStoneDark, uSheenColor;
         varying vec2 vCell;
         varying vec3 vStone;
@@ -205,7 +203,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         }
         // The stone: xz is the panel-local position, sd its anchor (rotation, offset), hAbs the height above the sphere,
         // wall 1 on a side wall and 0 on the top, terr the panel's terrain value. Also writes gH (the bump height).
-        vec3 stone( vec2 xz, vec3 sd, float hAbs, float wall, float terr, float agent ) {
+        vec3 stone( vec2 xz, vec3 sd, float hAbs, float wall, float terr, float bandStep, float agent ) {
           float ca = cos( sd.x ), sa = sin( sd.x );
           vec2 uv = mat2( ca, -sa, sa, ca ) * xz + sd.yz;
           // tops use the panel's plane; walls run along the face and up it (up in world height, so bedding lines up across columns)
@@ -241,7 +239,8 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
           col = mix( col, uStoneDark * 0.4, crack * uCrack * ( 1.0 - agent ) );
           float pt = h21( sd.yz );
           col *= 1.0 + uTone * ( pt - 0.5 ) * 2.0;
-          col = mix( col, col * ( 1.0 + 0.9 * uAgentTone ) + uStoneLight * 0.05 * uAgentTone, agent );
+          // agents are cut flat and polished: no crags or cracks (agent zeroes them above), lighter stone, a small tone step per band
+          col = mix( col, uStoneBase * ( 1.0 + uMottle * ( mot - 0.5 ) * 0.3 ) * ( 1.0 + 0.9 * uAgentTone + bandStep ) + uStoneLight * 0.05 * uAgentTone, agent );
           return col;
         }`,
       )
@@ -252,22 +251,15 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
           float agent = step( 0.5, vInlay.x );
           gAgent = agent;
           gWall = 1.0 - smoothstep( 0.35, 0.75, vNy );
-          vec3 col = stone( vCell, vStone, vWallH, gWall, vRock.x, agent );
-          // engraved inlay: rings (and a centre dot) cut into the stone, crisp edges
-          float rr = length( vCell ) / max( vInlay.w, 1e-3 );
-          float px = max( fwidth( rr ), 1e-4 );
-          float w = vInlay.y * uRingWidth;
-          float g = 0.0;
-          float r0 = vInlay.x < 1.5 ? 0.66 : 0.74;
-          for ( int k = 0; k < 3; k++ ) {
-            if ( float( k ) + 0.5 > vInlay.x ) break;
-            g = max( g, 1.0 - smoothstep( 0.5 * w - px, 0.5 * w + px, abs( rr - ( r0 - float( k ) * 0.2 ) ) ) );
-          }
-          if ( vInlay.z > 0.5 ) g = max( g, 1.0 - smoothstep( 0.14 - px, 0.14 + px, rr ) );
-          col = mix( col, uStoneDark * 0.55, g * uRingDepth );
+          vec3 col = stone( vCell, vStone, vWallH, gWall, vRock.x, vRock.y, agent );
           col = mix( col * ( 1.0 + uHover * vHover ), uStoneLight, 0.3 * vHover );
           diffuseColor.rgb *= col;
         }`,
+      )
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+        roughnessFactor = mix( roughnessFactor, roughnessFactor * 0.62, gAgent ); // the facet is polished`,
       )
       .replace(
         '#include <normal_fragment_maps>',
@@ -310,8 +302,6 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
       uniforms.uMottle.value = c.mottle;
       uniforms.uTone.value = c.tone;
       uniforms.uAgentTone.value = c.agentTone;
-      uniforms.uRingWidth.value = c.ringWidth;
-      uniforms.uRingDepth.value = c.ringDepth;
       uniforms.uHover.value = c.hover;
       material.roughness = c.roughness;
       material.envMapIntensity = c.envIntensity;

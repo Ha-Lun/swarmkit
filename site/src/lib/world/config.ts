@@ -51,10 +51,8 @@ export const look = {
     crack: 0.4, // how dark and how present the fine cracks are
     mottle: 0.35, // slow blotchy tone variation of the stone body
     tone: 0.04, // per-panel brightness variation
-    // agent panels: lighter stone and an engraved ring inlay
+    // agent panels: cut flat and polished (no crags, cracks or inlay)
     agentTone: 0.22, // how much lighter agent stone is than filler
-    ringWidth: 1.0, // multiplier on the inlay ring width (band-dependent widths are in honeycomb.ts)
-    ringDepth: 0.7, // how dark the engraved ring is
     hover: 0.45, // tone brightening of a hovered/focused panel
   },
   light: {
@@ -114,7 +112,7 @@ export const ranges: { [G in keyof Look]?: { [K in keyof Look[G]]?: [number, num
     relief: [0.01, 0.15, 0.005], elevation: [0, 0.3, 0.005], terrainScale: [0.5, 4, 0.05], seam: [0.02, 0.25, 0.005], bevel: [0, 0.06, 0.0025], lift: [0, 0.3, 0.005],
     roughness: [0.15, 1, 0.01], sheen: [0, 1.5, 0.01], envIntensity: [0, 1.5, 0.01],
     crag: [0, 2, 0.01], strata: [0, 1, 0.01], crack: [0, 1, 0.01], mottle: [0, 1, 0.01], tone: [0, 0.2, 0.005],
-    agentTone: [0, 0.6, 0.01], ringWidth: [0.4, 2.5, 0.02], ringDepth: [0, 1, 0.01], hover: [0, 1.2, 0.01],
+    agentTone: [0, 0.6, 0.01], hover: [0, 1.2, 0.01],
   },
   light: { key: [0, 4, 0.05], hemi: [0, 2, 0.02], ambient: [0, 1, 0.01], kicker: [0, 3, 0.05], sweep: [0, 1, 0.01], keyElevation: [5, 80, 1] },
   packet: {

@@ -23,15 +23,9 @@ const MOON_DIR = new Vector3(0.86, 0.3, 0.4).normalize();
 const HIVE_EYE = new Vector3(0, 0.37, 0.93).multiplyScalar(4.2); // the hive camera, in globe radii: the moon turns its core cell towards it
 const SEAM_DEFAULT = 0.085;
 
-// Inlay per band (agents only, filler panels are plain stone): ring count, ring width (of the panel half-width), centre dot.
-// Bands read apart by ring count and width: core 3 rings + dot, T1 one wide ring, domain two rings, gate a ring + dot, moon a fine ring.
-const INLAY: Record<Band, { n: number; w: number; dot: number }> = {
-  core: { n: 3, w: 0.05, dot: 1 },
-  t1: { n: 1, w: 0.13, dot: 0 },
-  domain: { n: 2, w: 0.075, dot: 0 },
-  gate: { n: 1, w: 0.06, dot: 1 },
-  satellite: { n: 1, w: 0.085, dot: 0 },
-};
+// Agent panels are cut facets: flat, polished stone among the raw rock. Bands read apart by a small tone step (a fraction of the
+// stone tone, brightest at the core): no colour, no inlay.
+const BAND_STEP: Record<Band, number> = { core: 0.1, t1: 0.075, domain: 0.05, gate: 0.025, satellite: 0 };
 
 export interface Cell {
   /** base surface point of the panel (on its sphere) */
@@ -381,8 +375,8 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
     const cnt = cellIdx.length;
     const state = attr(cnt, 2, true); // bright, lift
     const stone = attr(cnt, 4); // rotation, offset u, offset v, 1 / body radius
-    const rock = attr(cnt, 2); // terrain value 0..1, tone step
-    const inlay = attr(cnt, 4); // ring count (0 = plain stone), ring width, centre dot, panel half width
+    const rock = attr(cnt, 2); // terrain value 0..1, band tone step (agents)
+    const inlay = attr(cnt, 4); // agent flag (1 = polished facet), -, -, panel half width
     const corners = [attr(cnt, 4, true), attr(cnt, 4, true), attr(cnt, 4, true)];
     geometry.setAttribute('aState', state);
     geometry.setAttribute('aStone', stone);
@@ -402,9 +396,8 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
     const r = rng(ci * 7919 + 13);
     // every panel is its own stone piece: a random rotation and offset into the (shared) speckle field
     kd.stone.setXYZW(slot, r() * Math.PI * 2, r() * 97, r() * 97, 1 / c.bodyRadius);
-    const spec = c.agent ? INLAY[c.agent.band] : { n: 0, w: 0, dot: 0 };
-    kd.inlay.setXYZW(slot, spec.n, spec.w, spec.dot, c.half);
-    kd.rock.setXY(slot, c.terrain, 0);
+    kd.inlay.setXYZW(slot, c.agent ? 1 : 0, 0, 0, c.half);
+    kd.rock.setXY(slot, c.terrain, c.agent ? BAND_STEP[c.agent.band] : 0);
   }));
 
   let lastSeam = NaN;
@@ -476,7 +469,7 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
       if (applyTerrain(lattice)) {
         dirty = true;
         kinds.forEach((kd) => {
-          kd.cellIdx.forEach((ci, slot) => kd.rock.setXY(slot, lattice.cells[ci].terrain, 0));
+          kd.cellIdx.forEach((ci, slot) => kd.rock.setXY(slot, lattice.cells[ci].terrain, lattice.cells[ci].agent ? BAND_STEP[lattice.cells[ci].agent!.band] : 0));
           kd.rock.needsUpdate = true;
         });
       }
