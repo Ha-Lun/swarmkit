@@ -32,6 +32,18 @@ export const accentCandidates = [
   { name: 'coral', hex: '#ff6a55' },
 ] as const;
 
+/**
+ * Palette candidates for the round-7 verdict (the human unlocked the five non-accent tokens for this round). A layout script reads
+ * ?palette=<name> and sets these CSS variables on :root before first paint; tokens.css is not edited until one is picked, then this
+ * list and the script are removed. The accent stays violet.
+ */
+export const paletteCandidates = [
+  { name: 'current', ink: '#0c1016', ink2: '#151b24', wax: '#b9aa88', waxDim: '#6e6653', text: '#d8d5cb' },
+  { name: 'graphite', ink: '#0b0d10', ink2: '#16191e', wax: '#8e949b', waxDim: '#4a4f56', text: '#dde0e3' },
+  { name: 'iron-blue', ink: '#080b10', ink2: '#121824', wax: '#9aa6b4', waxDim: '#46505e', text: '#d9dee5' },
+  { name: 'bone', ink: '#0e0d0c', ink2: '#1a1816', wax: '#c9c1b1', waxDim: '#5d5850', text: '#e6e1d8' },
+] as const;
+
 export const look = {
   cell: {
     // geometry: every panel sits at the same radius; relief and seam are world units (a cell is about 1.7 across)

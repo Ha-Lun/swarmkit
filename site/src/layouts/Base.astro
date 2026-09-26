@@ -2,6 +2,7 @@
 import '../styles/global.css';
 import Footer from '../components/Footer.astro';
 import Nav from '../components/Nav.astro';
+import { paletteCandidates } from '../lib/world/config';
 
 interface Props { title: string; description: string }
 const { title, description } = Astro.props;
@@ -18,6 +19,16 @@ const fonts = ['space-grotesk-latin-500-normal', 'space-grotesk-latin-700-normal
     <title>{title}</title>
     <meta name="description" content={description} />
     <meta name="color-scheme" content="dark" />
+    <script is:inline define:vars={{ candidates: paletteCandidates }}>
+      // round-7 preview: ?palette=<name> overrides the five non-accent tokens before first paint
+      var pick = new URLSearchParams(location.search).get('palette');
+      var pal = candidates.find(function (c) { return c.name === pick; });
+      if (pal) {
+        var st = document.documentElement.style;
+        st.setProperty('--ink', pal.ink); st.setProperty('--ink-2', pal.ink2); st.setProperty('--wax', pal.wax);
+        st.setProperty('--wax-dim', pal.waxDim); st.setProperty('--text', pal.text);
+      }
+    </script>
     <link rel="icon" href={favicon} />
     {fonts.map((f) => <link rel="preload" href={`/fonts/${f}.woff2`} as="font" type="font/woff2" crossorigin />)}
   </head>
