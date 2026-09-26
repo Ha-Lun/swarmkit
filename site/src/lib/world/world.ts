@@ -2,7 +2,7 @@
 // It reads the shared scroll state and the locked look; it never re-tunes either, and never listens to scroll.
 // The camera reads a critically damped copy of the scroll progress (about 0.15 s), so wheel and trackpad steps never reach it raw.
 import {
-  Color, Fog, Group, HalfFloatType, PerspectiveCamera, Scene, Vector2, Vector3, WebGLRenderer, WebGLRenderTarget,
+  Color, Fog, Group, HalfFloatType, PCFShadowMap, PerspectiveCamera, Scene, Vector2, Vector3, WebGLRenderer, WebGLRenderTarget,
 } from 'three';
 import type { Agent } from '../agents';
 import type { ScrollState } from '../scroll';
@@ -12,7 +12,7 @@ import { accentCandidates, look, readPalette } from './config';
 import { cellTopOf, createHoneycomb, layoutLattice, type Honeycomb } from './honeycomb';
 import { motion, spinWeight, SWARM_CAM } from './motion-config';
 import { createPost, type Post } from './post';
-import { createStudio, type Studio } from './studio';
+import { createStudio, shadowExtentOf, type Studio } from './studio';
 import { createFlow, type Flow } from './routes';
 import { createRingFx } from './rings';
 import { createSwarm, type Swarm } from './swarm-particles';
@@ -67,6 +67,8 @@ export function createWorld(opts: WorldOptions): World {
   const camera = new PerspectiveCamera(40, 1, 0.1, 400);
 
   const lattice = layoutLattice(agents); // identical for every tier: cell indices stay valid across a rebuild
+  // the key's shadow frustum covers the globe (tallest tower included) and the moon; both only turn about the origin, so one radius fits
+  const shadowExtent = shadowExtentOf(lattice);
   const cellByName = new Map<string, number>();
   lattice.cells.forEach((c, i) => c.agent && cellByName.set(c.agent.name, i));
 
@@ -76,7 +78,14 @@ export function createWorld(opts: WorldOptions): World {
   let comb: Honeycomb = createHoneycomb(agents, tier, renderer);
   globe.add(comb.object);
   // moving studio lights for the stone (lights only: nothing here draws a glow)
-  let studio: Studio = createStudio(scene, tier, palette);
+  let studio: Studio = createStudio(scene, tier, palette, shadowExtent);
+  // cast shadows: high tier only. The map is drawn once per frame on request (needsUpdate in render()), never once per dissolve half.
+  const applyShadows = () => {
+    renderer.shadowMap.enabled = tier === 'high';
+    renderer.shadowMap.type = PCFShadowMap;
+    renderer.shadowMap.autoUpdate = false;
+  };
+  applyShadows();
   const path = createCameraPath(lattice);
 
   const accent = readAccent();
@@ -171,7 +180,8 @@ export function createWorld(opts: WorldOptions): World {
     comb = createHoneycomb(agents, tier, renderer);
     globe.add(comb.object);
     studio.dispose();
-    studio = createStudio(scene, tier, palette);
+    studio = createStudio(scene, tier, palette, shadowExtent);
+    applyShadows();
     hiCur.clear();
     post?.dispose();
     post = tier === 'high' ? createPost(renderer, scene, camera, look.post) : null;
@@ -370,6 +380,8 @@ export function createWorld(opts: WorldOptions): World {
     comb.update(view.growth, view.dim, time);
     comb.object.visible = view.latticeVisible;
     pose(g);
+    // the key moved in pose(): refresh its shadow map once, on the first render of this frame (the dissolve draws two halves)
+    if (renderer.shadowMap.enabled && view.latticeVisible) renderer.shadowMap.needsUpdate = true;
 
     if (view.dissolve > 0.001 && view.dissolve < 0.999 && rtA && rtB) {
       // Both halves are drawn at the LIVE camera pose (pose(g) above), so they move together and the only difference is the dim:

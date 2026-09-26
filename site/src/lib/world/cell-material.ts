@@ -2,7 +2,8 @@ import {
   BackSide, BoxGeometry, BufferAttribute, Color, Mesh, MeshBasicMaterial, MeshStandardMaterial, PMREMGenerator, Scene,
   SphereGeometry, type IUniform, type Texture, type WebGLRenderer,
 } from 'three';
-import { SINK, type Look, type Palette, type Tier } from './config';
+import type { Look, Palette, Tier } from './config';
+import { CELL_VERT_DECL, CELL_VERT_PROJECT, CELL_VERT_SHAPE, CELL_VERT_WORLDPOS_LIFT } from './cell-vertex';
 
 export interface CellUniforms {
   uBevel: IUniform<number>;
@@ -16,6 +17,7 @@ export interface CellUniforms {
   uHueDrift: IUniform<number>;
   uGrainBump: IUniform<number>;
   uEdge: IUniform<number>;
+  uAO: IUniform<number>;
   uCapGloss: IUniform<number>;
   uCapBevel: IUniform<number>;
   uCapEnv: IUniform<number>;
@@ -48,12 +50,16 @@ export interface CellMaterial {
  *    (aRock.y), roughness scaled by (1 - capGloss), a harder studio reflection on caps only, a wider chamfer so the edge catches the light.
  *    The shaft keeps the dark filler wall shading. No inlay, no ring, no accent, no glow (aInlay.x = agent flag, aInlay.w = half-width)
  *  - hover/focus: aState.x brightens the tone, aState.y lifts the panel along its normal
- * Medium tier: same body, seams, sheen and striation; no grain, no studio reflection.
+ * Medium tier: same body, seams, sheen and striation; no grain, no studio reflection, no shadow map (a per-cell ambient-occlusion
+ * stand-in, aState.z, darkens tops beside taller neighbours instead).
  */
 // medium has no studio reflection to make the cap read as polished, so its chamfer is wider and its sheen stronger instead
 const capBevelOf = (c: Look['cell'], tier: Tier) => c.capBevel * (tier === 'high' ? 1 : 1.4);
 // the cap reflects the studio harder than the raw stone (envMapIntensity applies to the whole material; this multiplies it on caps only)
-const capEnvOf = (c: Look["cell"]) => 1 + 8 * c.capGloss;
+const capEnvOf = (c: Look["cell"]) => 1 + 24 * c.capGloss;
+
+// medium has no shadow map: tops are darkened by how much taller their neighbours are (honeycomb.ts writes aState.z), this strong at most
+const MEDIUM_AO = 0.5;
 
 export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell']): CellMaterial {
   const wax = new Color(palette.wax);
@@ -72,6 +78,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
     uHueDrift: { value: cfg.hueDrift },
     uGrainBump: { value: tier === 'high' ? cfg.grainBump : 0 },
     uEdge: { value: cfg.edge },
+    uAO: { value: tier === 'medium' ? MEDIUM_AO : 0 },
     uCapGloss: { value: cfg.capGloss },
     uCapBevel: { value: capBevelOf(cfg, tier) },
     uCapEnv: { value: capEnvOf(cfg) },
@@ -99,16 +106,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
       .replace(
         '#include <common>',
         `#include <common>
-        attribute float aK;
-        attribute vec2 aBev;
-        attribute vec2 aState;
-        attribute vec4 aStone;
-        attribute vec4 aInlay;
-        attribute vec2 aRock;
-        attribute vec4 aCornA;
-        attribute vec4 aCornB;
-        attribute vec4 aCornC;
-        uniform float uBevel, uCapBevel;
+        ${CELL_VERT_DECL}
         varying vec2 vCell;
         varying vec3 vStone;
         varying vec4 vInlay;
@@ -116,10 +114,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         varying float vWallH;
         varying float vHover;
         varying float vNy;
-        vec2 cornerOf() {
-          float k = floor( aK + 0.5 );
-          return k < 0.0 ? vec2( 0.0 ) : k < 0.5 ? aCornA.xy : k < 1.5 ? aCornA.zw : k < 2.5 ? aCornB.xy : k < 3.5 ? aCornB.zw : k < 4.5 ? aCornC.xy : aCornC.zw;
-        }`,
+        varying float vAO;`,
       )
       // the top face follows its sphere: its normals lean outward by (distance from the panel centre) / (body radius)
       .replace(
@@ -134,43 +129,24 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
-        vec2 cxz = cornerOf();
-        transformed.xz = cxz;
+        ${CELL_VERT_SHAPE}
         vCell = cxz;
         vStone = aStone.xyz;
         vInlay = aInlay;
         vRock = aRock;
         vHover = aState.x;
+        vAO = aState.z;
         vNy = normal.y;
-        {
-          float sx = length( instanceMatrix[ 0 ].xyz );
-          float sy = length( instanceMatrix[ 1 ].xyz );
-          // hairline fillet in world units: the rim drops and the top face insets, whatever the panel's own footprint
-          vWallH = position.y * sy - ${SINK.toFixed(4)}; // height above the sphere, for the wall shading and the strata
-          float b = min( uBevel * mix( 1.0, uCapBevel, step( 0.5, aInlay.x ) ), // the tower cap has a wider chamfer that catches the light
-             min( 0.35 * aInlay.w, 0.8 * max( sy - ${SINK.toFixed(4)}, 0.02 ) ) );
-          transformed.y -= aBev.x * b / max( sy, 1e-4 );
-          transformed.xz *= 1.0 - aBev.y * b / max( length( cxz ) * sx, 1e-4 );
-          // the whole panel sits on its sphere: drop by (distance^2) / (2 body radius)
-          vec2 wxz = transformed.xz * sx;
-          transformed.y -= dot( wxz, wxz ) * aStone.w * 0.5 / max( sy, 1e-4 );
-        }`,
+        vWallH = cellWallH;`,
       )
-      // project_vertex with the lift applied after the instance matrix, along the instance's up (surface normal)
-      .replace(
-        '#include <project_vertex>',
-        `vec4 mvPosition = vec4( transformed, 1.0 );
-        mvPosition = instanceMatrix * mvPosition;
-        mvPosition.xyz += normalize( instanceMatrix[ 1 ].xyz ) * aState.y;
-        mvPosition = modelViewMatrix * mvPosition;
-        gl_Position = projectionMatrix * mvPosition;`,
-      );
+      .replace('#include <project_vertex>', CELL_VERT_PROJECT)
+      .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>\n${CELL_VERT_WORLDPOS_LIFT}`);
 
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
         `${defs}#include <common>
-        uniform float uSheen, uSideDark, uGrain, uMottle, uTone, uAgentTone, uHover, uCapGloss, uCapEnv, uPillow, uHueDrift, uGrainBump, uEdge;
+        uniform float uSheen, uSideDark, uGrain, uMottle, uTone, uAgentTone, uHover, uCapGloss, uCapEnv, uPillow, uHueDrift, uGrainBump, uEdge, uAO;
         uniform vec3 uStoneBase, uStoneMid, uStoneLight, uStoneDark, uSheenColor;
         varying vec2 vCell;
         varying vec3 vStone;
@@ -179,6 +155,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         varying float vWallH;
         varying float vHover;
         varying float vNy;
+        varying float vAO;
         float gAgent = 0.0;
         float gWall = 0.0;
 
@@ -237,6 +214,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
           // thin catch-light along the chamfer (the rounded edge between wall and top): a small albedo lift, twice as strong on the caps
           float chamfer = smoothstep( 0.2, 0.5, vNy ) * ( 1.0 - smoothstep( 0.94, 0.995, vNy ) );
           col = mix( col, uStoneLight, saturate( uEdge * chamfer * ( 0.5 + 0.5 * agent ) ) );
+          col *= 1.0 - uAO * vAO * ( 1.0 - gWall ); // medium: the cheap stand-in for shadow, tops in a well of taller neighbours
           col = mix( col * ( 1.0 + uHover * vHover ), uStoneLight, 0.3 * vHover );
           diffuseColor.rgb *= col;
         }`,
@@ -293,7 +271,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         #include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => `cell-${tier}-r9b`;
+  material.customProgramCacheKey = () => `cell-${tier}-r9c`;
 
   return {
     material,

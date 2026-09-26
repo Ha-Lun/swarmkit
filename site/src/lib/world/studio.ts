@@ -5,6 +5,7 @@ import {
   AmbientLight, Color, DirectionalLight, HemisphereLight, Vector3, type PerspectiveCamera, type Scene,
 } from 'three';
 import { look, type Palette, type Tier } from './config';
+import type { Lattice } from './honeycomb';
 
 export interface StudioFrame {
   timeSec: number;
@@ -18,7 +19,18 @@ export interface Studio {
 const KEY_OFFSET = -0.75; // rad: with sweep 0 the key sits upper left of the view
 const KICKER_BEHIND = 0.8 * Math.PI;
 
-export function createStudio(scene: Scene, tier: Tier, palette: Palette): Studio {
+/** Shadow-map settings of the key (high tier only). The map is a 2048 orthographic frustum, +-`extent` world units: `extent` bounds the globe
+ *  and the moon about the origin, and both only turn about the origin, so the frustum never has to move except with the key itself
+ *  (three aims it along the key each frame), which keeps the texel density stable. */
+const SHADOW = { map: 2048, bias: -0.0004, normalBias: 0.05, radius: 2.5, keyDistance: 30 };
+
+/** Half-width of the key's shadow frustum: bounds the globe (tallest tower included) and the moon about the origin. Both only turn about the origin, so one radius fits. */
+export const shadowExtentOf = (l: Lattice): number => Math.max(
+  l.radius + Math.max(...l.cells.filter((c) => !c.moon).map((c) => c.reach)),
+  l.moon.centre.length() + l.moon.radius,
+) + 0.5;
+
+export function createStudio(scene: Scene, tier: Tier, palette: Palette, shadowExtent?: number): Studio {
   const ink2 = new Color(palette.ink2), text = new Color(palette.text), wax = new Color(palette.wax);
 
   const amb = new AmbientLight(text, look.light.ambient);
@@ -27,6 +39,16 @@ export function createStudio(scene: Scene, tier: Tier, palette: Palette): Studio
   const kicker = new DirectionalLight(text.clone().lerp(ink2, 0.3), look.light.kicker);
   key.position.set(-8, 20, 10);
   scene.add(amb, hemi, key, kicker);
+  if (tier === 'high' && shadowExtent) {
+    key.castShadow = true;
+    const sh = key.shadow, e = shadowExtent;
+    sh.mapSize.set(SHADOW.map, SHADOW.map);
+    Object.assign(sh.camera, { left: -e, right: e, top: e, bottom: -e, near: SHADOW.keyDistance - e - 1, far: SHADOW.keyDistance + e + 1 });
+    sh.camera.updateProjectionMatrix();
+    sh.bias = SHADOW.bias;
+    sh.normalBias = SHADOW.normalBias;
+    sh.radius = SHADOW.radius;
+  }
 
   const dir = new Vector3();
   const polar = (az: number, el: number, out: Vector3) =>
@@ -42,11 +64,12 @@ export function createStudio(scene: Scene, tier: Tier, palette: Palette): Studio
       const camAz = Math.atan2(camera.position.x, camera.position.z);
       const idle = Math.sin(f.timeSec * 0.11) * 0.14;
       polar(camAz * (1 - L.sweep) + KEY_OFFSET + idle, (L.keyElevation * Math.PI) / 180, dir);
-      key.position.copy(dir).multiplyScalar(30);
+      key.position.copy(dir).multiplyScalar(SHADOW.keyDistance);
       polar(camAz + KICKER_BEHIND - idle, 0.3, dir);
       kicker.position.copy(dir).multiplyScalar(30);
     },
     dispose() {
+      key.shadow.dispose();
       scene.remove(amb, hemi, key, kicker);
     },
   };

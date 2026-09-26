@@ -50,7 +50,7 @@ export const look = {
     // material
     roughness: 0.6, // matte stone; the lights give it a gentle satin highlight
     sheen: 0.3, // satin lift at grazing angles
-    envIntensity: 0.25, // procedural studio reflection and diffuse room light (high tier only); caps reflect it much harder (capGloss)
+    envIntensity: 0.07, // procedural studio reflection and diffuse room light (high tier only), kept low so the key and its shadows carry the form; caps reflect it much harder (capGloss)
     // basalt (procedural, from the five palette tokens): flat matte tops, dark striated sides
     sideDark: 0.75, // how dark the column walls are (0 = wax-dim stone, 1 = ink-2)
     grain: 0.2, // fine grain on the tops, high tier only (faded by pixel footprint)
@@ -63,13 +63,13 @@ export const look = {
     // agent towers: stand fixed above every rod, capped with a polished pale cut (no inlay, no ring, no accent)
     towerLift: 0.25, // world units of clear air between the highest a rod can reach and the shortest tower (the gate tier)
     towerStep: 0.1, // extra height per tier: core is 3 steps above the gate tier, t1 2, domain 1
-    capGloss: 0.75, // how polished the cap is: the cap's roughness is scaled by (1 - capGloss); the cap also reflects the studio harder
+    capGloss: 0.68, // how polished the cap is: the cap's roughness is scaled by (1 - capGloss); the cap also reflects the studio harder
     capBevel: 3, // the cap's chamfer width as a multiple of the filler bevel
     agentTone: 0.35, // how much lighter the cap stone is than filler
     hover: 0.45, // tone brightening of a hovered/focused panel
   },
   light: {
-    key: 1.6, // directional key intensity (lower than round 8: the key now rakes at 30 degrees, so tops catch more of it)
+    key: 3.0, // directional key intensity (lower than round 8: the key now rakes at 30 degrees, so tops catch more of it)
     hemi: 0.05,
     ambient: 0.03, // low, so walls and tops read as different planes
     kicker: 0.85, // rim light from behind the globe: a little rim on the limb

@@ -4,6 +4,7 @@ import {
 } from 'three';
 import { CELL_RADIUS, look, readPalette, SINK, type Tier } from './config';
 import { createCellMaterial, createStudioEnv, type CellUniforms } from './cell-material';
+import { createCellDepthMaterial } from './cell-depth';
 import { buildSphere, type Sphere } from './sphere';
 import { terrainField } from './terrain';
 import type { Agent } from '../agents';
@@ -43,6 +44,8 @@ export interface Cell {
   base: number;
   /** the most `height` can ever reach (base plus the full stroke, or a tower's base plus its breath): what a comet route must clear */
   reach: number;
+  /** indices (into Lattice.cells) of the cells that share an edge with this one */
+  neighbours: number[];
   /** 0..1 terrain value of this cell (its share of the elevation), for tinting */
   terrain: number;
   /** 0..1 stagger inside a ring so growth sweeps around */
@@ -204,7 +207,7 @@ export function layoutLattice(agents: Agent[]): Lattice {
     const slots = ringSlots(ringOf[i]);
     const { poly, half, sag, quat } = polygonOf(corners, normal, R);
     cells.push({
-      pos: normal.clone().multiplyScalar(R), normal, ring: ringOf[i], agent, height: RELIEF, base: RELIEF, reach: RELIEF, terrain: 0,
+      pos: normal.clone().multiplyScalar(R), normal, ring: ringOf[i], agent, height: RELIEF, base: RELIEF, reach: RELIEF, terrain: 0, neighbours: sc.neighbours,
       sweep: slots.indexOf(i) / slots.length, sides: sc.sides, poly, half, sag,
       scale: 1, bodyRadius: R, seam: SEAM_DEFAULT, quat, moon: false, corners,
     });
@@ -230,7 +233,7 @@ export function layoutLattice(agents: Agent[]): Lattice {
       const corners = sc.corners.map((c) => new Vector3(...c).applyQuaternion(rot));
       const { poly, half, sag, quat } = polygonOf(corners, normal, Rm);
       cells.push({
-        pos: centre.clone().addScaledVector(normal, Rm), normal, ring: maxRing, agent: owner.get(i), height: RELIEF, base: RELIEF, reach: RELIEF, terrain: 0,
+        pos: centre.clone().addScaledVector(normal, Rm), normal, ring: maxRing, agent: owner.get(i), height: RELIEF, base: RELIEF, reach: RELIEF, terrain: 0, neighbours: sc.neighbours.map((j) => n + j),
         sweep: i / ms.cells.length, sides: sc.sides, poly, half, sag, scale: 1, bodyRadius: Rm, seam: SEAM_DEFAULT * MOON_CELL,
         quat, moon: true, corners,
       });
@@ -295,6 +298,7 @@ export function applyTerrain(lattice: Lattice): boolean {
   return true;
 }
 
+const AO_RANGE = 1.0; // a neighbour this much taller (world units) shadows a top fully
 const ease = (t: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
 
 export interface Honeycomb {
@@ -419,6 +423,10 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
   const { material } = cellMat;
   // procedural studio reflection: high tier only, and only when the caller can give us the renderer to bake it with
   const env = tier === 'high' && renderer ? createStudioEnv(renderer, palette) : null;
+  // cast shadows are high tier only (world.ts turns the shadow map on for it); medium darkens tops beside taller neighbours instead
+  const shadows = tier === 'high';
+  const depthMat = shadows ? createCellDepthMaterial(cellMat.uniforms) : null;
+  const useAO = tier === 'medium';
   if (env) material.envMap = env.texture;
 
   const attr = (n: number, count: number, dynamic = false) => {
@@ -430,7 +438,7 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
     const cellIdx = lattice.cells.flatMap((c, i) => (c.sides === sides ? [i] : []));
     const geometry = prism(sides);
     const cnt = cellIdx.length;
-    const state = attr(cnt, 2, true); // bright, lift
+    const state = attr(cnt, 3, true); // bright, lift, ambient occlusion (medium tier)
     const stone = attr(cnt, 4); // rotation, offset u, offset v, 1 / body radius
     const rock = attr(cnt, 2); // terrain value 0..1, band tone step (agents)
     const inlay = attr(cnt, 4); // agent flag (1 = polished facet), -, -, panel half width
@@ -443,6 +451,7 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
     const mesh = new InstancedMesh(geometry, material, cnt);
     mesh.instanceMatrix.setUsage(DynamicDrawUsage);
     mesh.frustumCulled = false;
+    if (shadows) { mesh.castShadow = true; mesh.receiveShadow = true; mesh.customDepthMaterial = depthMat!; } // the depth pass must run the cells' own vertex shader
     return { cellIdx, geometry, state, stone, inlay, rock, corners, mesh };
   });
   const slotOf = new Map<number, { k: number; slot: number }>();
@@ -525,7 +534,7 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
       const s = slotOf.get(i);
       if (!s) return;
       const kd = kinds[s.k];
-      kd.state.setXY(s.slot, bright, lf * look.cell.lift);
+      kd.state.setXY(s.slot, bright, lf * look.cell.lift); // (z, the occlusion, is left alone)
       kd.state.needsUpdate = true;
     },
     update(growth, dim, time) {
@@ -560,6 +569,18 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
           });
           kd.mesh.instanceMatrix.needsUpdate = true;
         });
+        if (useAO) {
+          // how much taller the neighbours are, relative to a column's own height: 0 on a summit, up to 1 at the bottom of a well
+          kinds.forEach((kd) => {
+            kd.cellIdx.forEach((ci, slot) => {
+              const c = lattice.cells[ci];
+              let sum = 0;
+              for (const j of c.neighbours) sum += Math.min(1, Math.max(0, (lattice.cells[j].height - c.height) / AO_RANGE));
+              kd.state.setZ(slot, c.neighbours.length ? sum / c.neighbours.length : 0);
+            });
+            kd.state.needsUpdate = true;
+          });
+        }
       }
       if (dim !== lastDim) {
         lastDim = dim;
@@ -571,6 +592,7 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
       floorGeos.forEach((g) => g.dispose());
       floorMat.dispose();
       material.dispose();
+      depthMat?.dispose();
       env?.dispose();
     },
   };
