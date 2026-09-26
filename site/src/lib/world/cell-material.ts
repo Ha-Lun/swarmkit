@@ -12,6 +12,10 @@ export interface CellUniforms {
   uMottle: IUniform<number>;
   uTone: IUniform<number>;
   uAgentTone: IUniform<number>;
+  uPillow: IUniform<number>;
+  uHueDrift: IUniform<number>;
+  uGrainBump: IUniform<number>;
+  uEdge: IUniform<number>;
   uCapGloss: IUniform<number>;
   uCapBevel: IUniform<number>;
   uCapEnv: IUniform<number>;
@@ -36,9 +40,10 @@ export interface CellMaterial {
  *  - flush panels: the vertex stage replaces the unit prism's corners with the instance's own Voronoi corners (aCorn*), curves
  *    the top onto its sphere (aStone.w = 1 / body radius) and adds a hairline fillet in world units, so seams stay crisp and even.
  *    Each column has its own (quantised) height (honeycomb.ts applies the terrain), so the side walls are visible
- *  - tops: flat, smooth and matte in the light stone token, a faint tone per column and a slow mottle; a fine grain on the high
- *    tier only, faded by the pixel footprint. No bump normal, no cracks, no facets: the contrast comes from colour
- *  - sides: dark stone (uSideDark), a faint vertical striation, darker toward the foot
+ *  - tops: matte light stone token with a soft pillow gradient, a per-column tone and hue drift, a slow mottle; a fine grain on the high
+ *    tier only, faded by the pixel footprint, plus a very fine bump normal (uGrainBump) there. No cracks, no facets: the contrast comes
+ *    from colour, the pillow and the light. A thin catch-light (uEdge) runs along every column's chamfer
+ *  - sides: dark stone (uSideDark), vertical striation and faint horizontal cooling bands, darker toward the foot
  *  - agents: towers (honeycomb.ts stands them above every rod) with a polished pale cap: lighter stone with a small tone step per band
  *    (aRock.y), roughness scaled by (1 - capGloss), a harder studio reflection on caps only, a wider chamfer so the edge catches the light.
  *    The shaft keeps the dark filler wall shading. No inlay, no ring, no accent, no glow (aInlay.x = agent flag, aInlay.w = half-width)
@@ -48,7 +53,7 @@ export interface CellMaterial {
 // medium has no studio reflection to make the cap read as polished, so its chamfer is wider and its sheen stronger instead
 const capBevelOf = (c: Look['cell'], tier: Tier) => c.capBevel * (tier === 'high' ? 1 : 1.4);
 // the cap reflects the studio harder than the raw stone (envMapIntensity applies to the whole material; this multiplies it on caps only)
-const capEnvOf = (c: Look['cell']) => 1 + 4 * c.capGloss;
+const capEnvOf = (c: Look["cell"]) => 1 + 8 * c.capGloss;
 
 export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell']): CellMaterial {
   const wax = new Color(palette.wax);
@@ -63,6 +68,10 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
     uMottle: { value: cfg.mottle },
     uTone: { value: cfg.tone },
     uAgentTone: { value: cfg.agentTone },
+    uPillow: { value: cfg.pillow },
+    uHueDrift: { value: cfg.hueDrift },
+    uGrainBump: { value: tier === 'high' ? cfg.grainBump : 0 },
+    uEdge: { value: cfg.edge },
     uCapGloss: { value: cfg.capGloss },
     uCapBevel: { value: capBevelOf(cfg, tier) },
     uCapEnv: { value: capEnvOf(cfg) },
@@ -77,6 +86,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
   const material = new MeshStandardMaterial({
     color: new Color(1, 1, 1), // the stone colour is computed in the shader; this only carries the proof-chapter dimming
     roughness: cfg.roughness,
+    envMapIntensity: cfg.envIntensity, // (the site never calls sync(), so the constructor must carry it; before round 9 it silently stayed at 1)
     metalness: 0,
     dithering: true,
   });
@@ -160,7 +170,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
       .replace(
         '#include <common>',
         `${defs}#include <common>
-        uniform float uSheen, uSideDark, uGrain, uMottle, uTone, uAgentTone, uHover, uCapGloss, uCapEnv;
+        uniform float uSheen, uSideDark, uGrain, uMottle, uTone, uAgentTone, uHover, uCapGloss, uCapEnv, uPillow, uHueDrift, uGrainBump, uEdge;
         uniform vec3 uStoneBase, uStoneMid, uStoneLight, uStoneDark, uSheenColor;
         varying vec2 vCell;
         varying vec3 vStone;
@@ -180,14 +190,22 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         }
         // 1 while a detail of frequency freq is well resolved by the pixel grid, 0 once a pixel spans most of its period
         float octFade( vec2 q, float freq ) { vec2 w = fwidth( q ) * freq; return 1.0 - smoothstep( 0.3, 0.8, max( w.x, w.y ) ); }
+        vec2 cellUV( vec2 xz, vec3 sd ) { float ca = cos( sd.x ), sa = sin( sd.x ); return mat2( ca, -sa, sa, ca ) * xz + sd.yz; }
         // The basalt: xz is the panel-local position, sd its anchor (rotation, offset), wall 1 on a side wall and 0 on the top.
-        // Tops: flat light stone, a faint tone per column, a slow mottle, fine grain (high tier). Sides: dark stone, faint vertical striation.
+        // Tops: light stone with a per-column tone and hue drift (wax, wax-dim, ink-2), a soft pillow gradient, a slow mottle, fine grain
+        // (high tier). Sides: dark stone, vertical columnar striation and faint horizontal cooling bands.
         vec3 stone( vec2 xz, vec3 sd, float wall, float terr, float bandStep, float agent ) {
-          float ca = cos( sd.x ), sa = sin( sd.x );
-          vec2 uv = mat2( ca, -sa, sa, ca ) * xz + sd.yz;
+          vec2 uv = cellUV( xz, sd );
           float pt = h21( sd.yz );
+          float ph = h21( sd.zy + 7.0 );
           float mot = vnoise( uv * 0.55 );
           vec3 top = uStoneMid * ( 1.0 + uMottle * ( mot - 0.5 ) * 0.5 ) * ( 0.94 + 0.12 * terr );
+          // each column drifts toward wax-dim (about a third of them, up to 60%) or ink-2 (a few, up to 30%)
+          top = mix( top, uStoneBase * 1.25, uHueDrift * 0.6 * smoothstep( 0.25, 0.65, ph ) );
+          top = mix( top, uStoneDark * 2.2, uHueDrift * 0.3 * smoothstep( 0.8, 1.0, ph ) );
+          // pillow: the middle catches a little more, the edge a little less
+          float rr = length( xz ) / max( vInlay.w * 1.15, 1e-3 );
+          top *= 1.0 + uPillow * ( 0.35 - 0.9 * smoothstep( 0.25, 1.0, rr ) );
           #ifdef CELL_HIGH
             top *= 1.0 + uGrain * ( vnoise( uv * 14.0 + 2.0 ) - 0.5 ) * octFade( uv, 14.0 );
           #endif
@@ -195,11 +213,16 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
           float along = uv.x + 0.61 * uv.y;
           float sf = 1.0 - smoothstep( 0.2, 0.5, fwidth( along * 7.0 ) );
           float striae = ( vnoise( vec2( along * 7.0, 3.0 ) ) - 0.5 ) * sf;
-          vec3 side = mix( uStoneBase * 0.7, uStoneDark, uSideDark ) * ( 1.0 + 0.35 * striae );
+          // faint horizontal cooling bands: rock cools in layers, each column with its own phase
+          float hw = vWallH * 9.0;
+          float bf = 1.0 - smoothstep( 0.25, 0.6, fwidth( hw ) );
+          float bands = ( vnoise( vec2( hw, 11.0 + pt * 40.0 ) ) - 0.5 ) * bf;
+          vec3 side = mix( uStoneBase * 0.7, uStoneDark, uSideDark ) * ( 1.0 + 0.35 * striae + 0.22 * bands );
           vec3 col = mix( top, side, wall );
           col *= 1.0 + uTone * ( pt - 0.5 ) * 2.0;
-          // agents are cut flat and polished: lighter stone, a small tone step per band
+          // agents are cut flat and polished: a paler cap, a small tone step per band
           vec3 ag = mix( uStoneMid, uStoneLight, min( 1.0, uAgentTone * 2.2 ) ) * ( 1.0 + bandStep );
+          ag *= 1.0 + 0.5 * uPillow * ( 0.35 - 0.9 * smoothstep( 0.25, 1.0, rr ) );
           return mix( col, ag, agent * ( 1.0 - wall ) ) ;
         }`,
       )
@@ -211,9 +234,28 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
           gAgent = agent;
           gWall = 1.0 - smoothstep( 0.35, 0.75, vNy );
           vec3 col = stone( vCell, vStone, gWall, vRock.x, vRock.y, agent );
+          // thin catch-light along the chamfer (the rounded edge between wall and top): a small albedo lift, twice as strong on the caps
+          float chamfer = smoothstep( 0.2, 0.5, vNy ) * ( 1.0 - smoothstep( 0.94, 0.995, vNy ) );
+          col = mix( col, uStoneLight, saturate( uEdge * chamfer * ( 0.5 + 0.5 * agent ) ) );
           col = mix( col * ( 1.0 + uHover * vHover ), uStoneLight, 0.3 * vHover );
           diffuseColor.rgb *= col;
         }`,
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+        #ifdef CELL_HIGH
+        if ( uGrainBump > 0.0 && gWall < 0.5 && gAgent < 0.5 ) { // the polished caps stay smooth
+          // very fine grain as a bump normal (tilt = amplitude x noise gradient, in world units), faded by the pixel footprint
+          vec2 guv = cellUV( vCell, vStone ) * 22.0;
+          float gh = ( vnoise( guv ) - 0.5 ) * uGrainBump * 0.02 * octFade( guv, 1.0 ) * ( 1.0 - gWall );
+          vec3 sX = dFdx( - vViewPosition ), sY = dFdy( - vViewPosition );
+          vec3 R1 = cross( sY, normal ), R2 = cross( normal, sX );
+          float fDet = dot( sX, R1 ) * faceDirection;
+          vec3 grad = sign( fDet ) * ( dFdx( gh ) * R1 + dFdy( gh ) * R2 );
+          normal = normalize( abs( fDet ) * normal - grad );
+        }
+        #endif`,
       )
       .replace(
         '#include <roughnessmap_fragment>',
@@ -251,7 +293,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         #include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => `cell-${tier}-r9`;
+  material.customProgramCacheKey = () => `cell-${tier}-r9b`;
 
   return {
     material,
@@ -264,6 +306,10 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
       uniforms.uMottle.value = c.mottle;
       uniforms.uTone.value = c.tone;
       uniforms.uAgentTone.value = c.agentTone;
+      uniforms.uPillow.value = c.pillow;
+      uniforms.uHueDrift.value = c.hueDrift;
+      uniforms.uGrainBump.value = tier === 'high' ? c.grainBump : 0;
+      uniforms.uEdge.value = c.edge;
       uniforms.uCapGloss.value = c.capGloss;
       uniforms.uCapBevel.value = capBevelOf(c, tier);
       uniforms.uCapEnv.value = capEnvOf(c);

@@ -50,11 +50,15 @@ export const look = {
     // material
     roughness: 0.6, // matte stone; the lights give it a gentle satin highlight
     sheen: 0.3, // satin lift at grazing angles
-    envIntensity: 0.25, // procedural studio reflection (high tier only)
+    envIntensity: 0.25, // procedural studio reflection and diffuse room light (high tier only); caps reflect it much harder (capGloss)
     // basalt (procedural, from the five palette tokens): flat matte tops, dark striated sides
     sideDark: 0.75, // how dark the column walls are (0 = wax-dim stone, 1 = ink-2)
     grain: 0.2, // fine grain on the tops, high tier only (faded by pixel footprint)
     mottle: 0.2, // slow blotchy tone variation of the tops
+    pillow: 0.3, // tops fall off gently toward the edge (a soft pillow gradient, centre lighter): 0 = flat
+    hueDrift: 0.5, // per-column drift of the top tone among wax, wax-dim and ink-2, so neighbours are never identical
+    grainBump: 0.35, // very fine grain as a bump normal on the tops, high tier only (no cracks, no crags)
+    edge: 0.5, // thin catch-light along the chamfer of every column (twice as strong on the caps)
     tone: 0.04, // per-column brightness variation
     // agent towers: stand fixed above every rod, capped with a polished pale cut (no inlay, no ring, no accent)
     towerLift: 0.25, // world units of clear air between the highest a rod can reach and the shortest tower (the gate tier)
@@ -65,12 +69,12 @@ export const look = {
     hover: 0.45, // tone brightening of a hovered/focused panel
   },
   light: {
-    key: 1.7, // directional key intensity
-    hemi: 0.08,
-    ambient: 0.05,
-    kicker: 0.5, // rim light from behind the globe
+    key: 1.6, // directional key intensity (lower than round 8: the key now rakes at 30 degrees, so tops catch more of it)
+    hemi: 0.05,
+    ambient: 0.03, // low, so walls and tops read as different planes
+    kicker: 0.85, // rim light from behind the globe: a little rim on the limb
     sweep: 0.6, // 0 = key rides with the camera, 1 = fixed in the world; between, highlights travel as the camera orbits
-    keyElevation: 42, // degrees
+    keyElevation: 30, // degrees: a low, raking key
   },
   packet: {
     // the comet: small hard head, tapering tail that grows with speed, a few shed sparks. Nothing additive.
@@ -120,7 +124,7 @@ export const ranges: { [G in keyof Look]?: { [K in keyof Look[G]]?: [number, num
   cell: {
     relief: [0.01, 0.15, 0.005], elevation: [0, 0.85, 0.005], steps: [2, 10, 1], terrainScale: [0.5, 4, 0.05], stroke: [0, 0.8, 0.01], pistonSpeed: [3, 30, 0.5], activity: [0.05, 0.6, 0.01], wave: [0, 1, 0.01], seam: [0.02, 0.25, 0.005], bevel: [0, 0.06, 0.0025], lift: [0, 0.3, 0.005],
     roughness: [0.15, 1, 0.01], sheen: [0, 1.5, 0.01], envIntensity: [0, 1.5, 0.01],
-    sideDark: [0, 1, 0.01], grain: [0, 1, 0.01], mottle: [0, 1, 0.01], tone: [0, 0.2, 0.005],
+    sideDark: [0, 1, 0.01], grain: [0, 1, 0.01], mottle: [0, 1, 0.01], pillow: [0, 0.8, 0.01], hueDrift: [0, 1, 0.01], grainBump: [0, 1, 0.01], edge: [0, 1.5, 0.01], tone: [0, 0.2, 0.005],
     towerLift: [0, 1, 0.01], towerStep: [0, 0.3, 0.005], capGloss: [0, 0.95, 0.01], capBevel: [1, 6, 0.1],
     agentTone: [0, 0.6, 0.01], hover: [0, 1.2, 0.01],
   },
