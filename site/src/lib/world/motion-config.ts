@@ -37,7 +37,9 @@ export const motion = {
     routeOverview: 0.9, // a replaying route pulls the camera out to the full-lattice view
     routeDrop: 0.2,
   },
-  proof: { dissolveEnd: 0.28, dimEnd: 0.6, canvasOpacity: 0.5 },
+  /** The Cells -> Proof dissolve, dim and canvas recede are ONE smoothstep over a window that straddles the chapter boundary:
+   *  from `fromVh` scroll before it (the tail of Cells) to `toVh` after it (the head of Proof). camera-path.ts centres its slow-down on it. */
+  proof: { fromVh: -25, toVh: 65, canvasOpacity: 0.5 },
   finale: {
     // chapterProgress on a 400vh runway. The lattice breaks up while the scene is still sliding in, the swarm
     // assembles by 0.5, then the assembled command holds (no fade back: nothing sits behind it any more).
@@ -56,3 +58,11 @@ export const motion = {
   },
   probe: { ms: 1000, warmupFrames: 10, minFrames: 6, stepDownBelow: 45, fallbackBelow: 30 },
 } as const;
+
+const smooth3 = (t: number) => t * t * (3 - 2 * t);
+/** The shared dissolve ease, 0..1, for chapter 2 (Cells, its tail) or 3 (Proof, its head) at chapterProgress p; 0 or 1 elsewhere. */
+export function dissolveMix(chapter: number, p: number): number {
+  const { fromVh, toVh } = motion.proof;
+  const vh = chapter === 2 ? (p - 1) * motion.runway.cells : chapter === 3 ? p * motion.runway.proof : chapter < 2 ? -Infinity : Infinity;
+  return smooth3(Math.min(1, Math.max(0, (vh - fromVh) / (toVh - fromVh))));
+}

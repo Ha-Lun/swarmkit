@@ -154,10 +154,11 @@ const SCROLL_TOTAL = SCROLL_AT[SCROLL_AT.length - 1];
 const BLEND = [0, 1, 2, 3].map((b) => 0.5 * Math.min(RUNWAY[b], RUNWAY[b + 1])); // half-window at boundary b+1, in vh
 const ARC_AT_BOUNDARY = [...SEGMENTS.map((s) => arcOf(s.t0)), arcOf(1)];
 const smoothstep = (t: number) => { const x = Math.min(1, Math.max(0, t)); return x * x * (3 - 2 * x); };
-// The camera settles into the hex dissolve: it slows to a fraction of its speed through the end of the cells fly-over and the
-// dissolve window at the start of the proof, then picks up again. Smooth (C1), so it adds no spike at the boundary.
+// The camera settles into the hex dissolve: it slows to a fraction of its speed across the dissolve window (motion.proof.fromVh..toVh
+// around the cells|proof boundary), easing in over 40vh centred on its start and out over 60vh ending 40vh after its end. Smooth (C1).
 const SETTLE_AT = SCROLL_AT[3]; // the cells|proof boundary
-const settle = (S: number) => 1 - 0.65 * smoothstep((S - (SETTLE_AT - 40)) / 40) * (1 - smoothstep((S - (SETTLE_AT + 40)) / 60));
+const SETTLE_IN = SETTLE_AT + motion.proof.fromVh - 20, SETTLE_OUT = SETTLE_AT + motion.proof.toVh - 20;
+const settle = (S: number) => 1 - 0.65 * smoothstep((S - SETTLE_IN) / 40) * (1 - smoothstep((S - SETTLE_OUT) / 60));
 /** weight of each chapter's mean speed at scroll position S (they sum to 1) */
 function speedWeights(S: number, out: number[]): number[] {
   out.fill(0);

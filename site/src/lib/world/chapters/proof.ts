@@ -1,12 +1,9 @@
-// Chapter 3. Hex dissolve in from the end of the cells view; the lattice recedes and dims so the canvas never
+// Chapter 3. Hex dissolve begins in the tail of the cells view and finishes in the head of this one; the lattice recedes and dims so the canvas never
 // competes with the numbers. The DOM is a slim HUD strip of instrument readouts that come up one after another
 // (opacity only) once the scene is pinned.
-import { motion } from '../motion-config';
+import { dissolveMix, motion } from '../motion-config';
 import { pinWindow, range, sceneOf, setOpacity } from '../scene-dom';
 import type { Chapter, WorldCtx } from '../types';
-
-const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
-const smooth = (t: number) => t * t * (3 - 2 * t);
 
 export function createProof(ctx: WorldCtx): Chapter {
   const { view } = ctx;
@@ -17,10 +14,10 @@ export function createProof(ctx: WorldCtx): Chapter {
     enter() {},
     fade: (v) => scene.fade(v),
     update(p) {
-      const m = motion.proof;
-      view.dissolve = clamp01(p / m.dissolveEnd);
-      view.dim = smooth(clamp01(p / m.dimEnd));
-      view.canvasOpacity = 1 - (1 - m.canvasOpacity) * smooth(clamp01(p / m.dimEnd));
+      const e = dissolveMix(3, p); // one ease drives all three, and the Cells tail drives the same one (cells.ts)
+      view.dissolve = e;
+      view.dim = e;
+      view.canvasOpacity = 1 - (1 - motion.proof.canvasOpacity) * e;
       readouts.forEach((el, i) => setOpacity(el, range(p, win[0] * 0.7 + i * motion.hud.stagger, win[0] + 0.03 + i * motion.hud.stagger)));
     },
     exit() {

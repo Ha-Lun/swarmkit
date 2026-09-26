@@ -1,9 +1,10 @@
 import {
-  HalfFloatType, type Camera, type Scene, type WebGLRenderer, Vector2, WebGLRenderTarget,
+  HalfFloatType, type Camera, type Scene, type Texture, type WebGLRenderer, Vector2, WebGLRenderTarget,
 } from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { TexturePass } from 'three/addons/postprocessing/TexturePass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import type { Look } from './config';
 
@@ -39,6 +40,8 @@ const PostShader = {
 
 export interface Post {
   render(dt: number, timeSec: number): void;
+  /** the same chain (output transform, aberration, grain) fed from a finished frame, so a transition has no seam against `render` */
+  renderTexture(map: Texture, dt: number, timeSec: number): void;
   setSize(w: number, h: number, pixelRatio: number): void;
   sync(cfg: Look['post']): void;
   dispose(): void;
@@ -51,12 +54,21 @@ export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Camera
   composer.addPass(new RenderPass(scene, camera));
   composer.addPass(new OutputPass());
   composer.addPass(pass);
-  const u = pass.uniforms;
+  // second chain for finished frames (the dissolve): same output pass and same shader, its own uniforms
+  const texPass = new TexturePass();
+  const composerT = new EffectComposer(renderer, new WebGLRenderTarget(1, 1, { type: HalfFloatType }));
+  const passT = new ShaderPass(PostShader);
+  composerT.addPass(texPass);
+  composerT.addPass(new OutputPass());
+  composerT.addPass(passT);
+  const u = pass.uniforms, uT = passT.uniforms;
   const size = new Vector2();
   const sync = (c: Look['post']) => {
-    u.uCA.value = c.chromaticAberration;
-    u.uGrain.value = c.grain;
-    u.uGrainSize.value = c.grainSize;
+    for (const x of [u, uT]) {
+      x.uCA.value = c.chromaticAberration;
+      x.uGrain.value = c.grain;
+      x.uGrainSize.value = c.grainSize;
+    }
   };
   sync(cfg);
   return {
@@ -64,15 +76,25 @@ export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Camera
     setSize(w, h, pr) {
       composer.setPixelRatio(pr);
       composer.setSize(w, h);
+      composerT.setPixelRatio(pr);
+      composerT.setSize(w, h);
       renderer.getDrawingBufferSize(size);
       u.uRes.value.copy(size);
+      uT.uRes.value.copy(size);
     },
     render(dt, t) {
       u.uTime.value = t;
       composer.render(dt);
     },
+    renderTexture(map, dt, t) {
+      texPass.map = map;
+      uT.uTime.value = t;
+      composerT.render(dt);
+    },
     dispose() {
       composer.dispose();
+      composerT.dispose();
+      texPass.dispose();
     },
   };
 }

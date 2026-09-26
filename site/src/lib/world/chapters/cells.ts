@@ -2,7 +2,7 @@
 // hidden agent list, lifts and brightens it and shows its label card (pick.ts). No roster panels: the roster lives in
 // the Reference section. The tier legend chip of the active agent's band lights (opacity only).
 import { Vector3 } from 'three';
-import { motion } from '../motion-config';
+import { dissolveMix, motion } from '../motion-config';
 import { createPick } from '../pick';
 import { sceneOf, setOpacity } from '../scene-dom';
 import type { Chapter, WorldCtx } from '../types';
@@ -20,7 +20,12 @@ export function createCells(ctx: WorldCtx): Chapter {
       pick.enable();
     },
     fade: (v) => scene.fade(v),
-    update() {
+    update(p) {
+      // the tail of the fly-over already carries the first part of the Cells -> Proof dissolve (proof.ts carries the rest)
+      const e = dissolveMix(2, p);
+      view.dissolve = e;
+      view.dim = e;
+      view.canvasOpacity = 1 - (1 - motion.proof.canvasOpacity) * e;
       const { name, byKeyboard } = pick.update();
       if (name && ctx.cellTop(name, tmp)) {
         ctx.hilite(name, 1);

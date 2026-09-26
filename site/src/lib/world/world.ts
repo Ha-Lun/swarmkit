@@ -120,6 +120,7 @@ export function createWorld(opts: WorldOptions): World {
   const dissolve: HexDissolve = createHexDissolve();
   let rtA: WebGLRenderTarget | null = null;
   let rtB: WebGLRenderTarget | null = null;
+  let rtC: WebGLRenderTarget | null = null; // the dissolve composite (high tier only: it feeds the post chain)
   let swarm: Swarm | null = null;
   let swarmBuilding = false;
   const swarmScene = new Scene();
@@ -132,11 +133,12 @@ export function createWorld(opts: WorldOptions): World {
     const samples = tier === 'high' ? 4 : 2;
     rtA = new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples });
     rtB = new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples });
+    if (tier === 'high') rtC = new WebGLRenderTarget(1, 1, { type: HalfFloatType });
     resize(true);
   }
   function freeTargets() {
-    rtA?.dispose(); rtB?.dispose();
-    rtA = rtB = null;
+    rtA?.dispose(); rtB?.dispose(); rtC?.dispose();
+    rtA = rtB = rtC = null;
   }
   // The command is look.particles.textWidth wide; on a narrow (portrait) screen it is narrowed to fit the view.
   let swarmTextW = look.particles.textWidth;
@@ -195,6 +197,7 @@ export function createWorld(opts: WorldOptions): World {
     swarmCam.updateProjectionMatrix();
     rtA?.setSize(w * pr, h * pr);
     rtB?.setSize(w * pr, h * pr);
+    rtC?.setSize(w * pr, h * pr);
     post?.setSize(w, h, pr);
     const bh = renderer.getDrawingBufferSize(v2).y;
     flows.forEach((f) => f.packet.setViewportHeight(bh));
@@ -306,7 +309,7 @@ export function createWorld(opts: WorldOptions): World {
 
       // lazy pieces, built ahead of the chapter that needs them
       if (!swarm && !swarmBuilding && ch >= 2) void ensureSwarm();
-      if (ch === 3 || (ch === 2 && state.chapterProgress > 0.6)) ensureTargets();
+      if (ch === 3 || (ch === 2 && state.chapterProgress > 0.8)) ensureTargets();
       else if (ch === 4 || ch <= 1) freeTargets();
 
       const kf = 1 - Math.exp(-motion.camera.focusRatePerSec * dt);
@@ -349,20 +352,25 @@ export function createWorld(opts: WorldOptions): World {
     pose(g);
 
     if (view.dissolve > 0.001 && view.dissolve < 0.999 && rtA && rtB) {
-      // outgoing state: the end of the cells view, undimmed. incoming: the live view.
-      const cellsEnd = SEGMENTS[2].t1;
-      pose(cellsEnd);
+      // Both halves are drawn at the LIVE camera pose (pose(g) above), so they move together and the only difference is the dim:
+      // outgoing = the lattice undimmed, incoming = the lattice as dimmed by the same ease that drives the dissolve. On the high tier
+      // the composite goes through the same post chain as every other frame, so aberration and grain never switch off.
       comb.update(view.growth, 0);
       renderer.setRenderTarget(rtA);
       renderer.render(scene, camera);
-      pose(g);
       comb.update(view.growth, view.dim);
       renderer.setRenderTarget(rtB);
       renderer.render(scene, camera);
       // distance to the visible cells: when the look-at is the globe centre, the surface is one radius nearer
       const dCell = Math.max(2, camera.position.distanceTo(target) - (target.length() < lattice.radius * 0.5 ? lattice.radius : 0));
       const hexPx = hexPixelSize(camera.fov, rtA.height, lattice.cellRadius, dCell);
-      dissolve.render(renderer, rtA.texture, rtB.texture, view.dissolve, hexPx, look.dissolve);
+      if (post && rtC) {
+        dissolve.render(renderer, rtA.texture, rtB.texture, view.dissolve, hexPx, look.dissolve, rtC);
+        post.sync(look.post);
+        post.renderTexture(rtC.texture, dt, time);
+      } else {
+        dissolve.render(renderer, rtA.texture, rtB.texture, view.dissolve, hexPx, look.dissolve);
+      }
     } else if (post) {
       post.sync(look.post);
       post.render(dt, time);
