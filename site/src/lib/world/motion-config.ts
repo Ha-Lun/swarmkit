@@ -56,10 +56,23 @@ export const motion = {
     chipsEnd: 0.82,
     textLift: 0, // the assembled command holds centre screen
   },
+  /** The globe's slow spin about its own axis. It turns in the intro, Proof and finale and parks (facing home, so the framing, comet routes and fly-over
+   *  are exactly the un-spun ones) in the hive and the fly-over. The weight 0..1 eases over the existing chapter-boundary windows (see spinWeight). */
+  spin: {
+    turnSec: 210, // seconds per full turn at full weight (about 3.5 minutes)
+    introFrom: 0.25, // intro chapterProgress at which the globe starts easing home; it is home by the hive boundary (progress 1)
+  },
   probe: { ms: 1000, warmupFrames: 10, minFrames: 6, stepDownBelow: 45, fallbackBelow: 30 },
 } as const;
 
 const smooth3 = (t: number) => t * t * (3 - 2 * t);
+/** Spin weight 0..1 for chapter `chapter` at chapterProgress p: 1 = turning freely, 0 = parked at home.
+ *  Intro: eases from 1 to 0 over the tail of its runway. Hive and Cells: 0. Cells tail -> Proof: rises with the dissolve window. Proof, finale: 1. */
+export function spinWeight(chapter: number, p: number): number {
+  if (chapter === 0) { const f = motion.spin.introFrom; return 1 - smooth3(Math.min(1, Math.max(0, (p - f) / (1 - f)))); }
+  if (chapter === 1) return 0;
+  return dissolveMix(chapter, p);
+}
 /** The shared dissolve ease, 0..1, for chapter 2 (Cells, its tail) or 3 (Proof, its head) at chapterProgress p; 0 or 1 elsewhere. */
 export function dissolveMix(chapter: number, p: number): number {
   const { fromVh, toVh } = motion.proof;

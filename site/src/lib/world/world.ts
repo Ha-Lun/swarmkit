@@ -2,7 +2,7 @@
 // It reads the shared scroll state and the locked look; it never re-tunes either, and never listens to scroll.
 // The camera reads a critically damped copy of the scroll progress (about 0.15 s), so wheel and trackpad steps never reach it raw.
 import {
-  Color, Fog, HalfFloatType, PerspectiveCamera, Scene, Vector2, Vector3, WebGLRenderer, WebGLRenderTarget,
+  Color, Fog, Group, HalfFloatType, PerspectiveCamera, Scene, Vector2, Vector3, WebGLRenderer, WebGLRenderTarget,
 } from 'three';
 import type { Agent } from '../agents';
 import type { ScrollState } from '../scroll';
@@ -10,7 +10,7 @@ import { createCameraPath, SEGMENTS } from './camera-path';
 import { sceneAlpha } from './scene-dom';
 import { accentCandidates, look, readPalette } from './config';
 import { cellTopOf, createHoneycomb, layoutLattice, type Honeycomb } from './honeycomb';
-import { motion, SWARM_CAM } from './motion-config';
+import { motion, spinWeight, SWARM_CAM } from './motion-config';
 import { createPost, type Post } from './post';
 import { createStudio, type Studio } from './studio';
 import { createFlow, type Flow } from './routes';
@@ -70,19 +70,22 @@ export function createWorld(opts: WorldOptions): World {
   const cellByName = new Map<string, number>();
   lattice.cells.forEach((c, i) => c.agent && cellByName.set(c.agent.name, i));
 
+  // Everything that turns with the globe: the lattice (moon included), the ring shell and the comet groups. Lights and the camera stay put.
+  const globe = new Group();
+  scene.add(globe);
   let comb: Honeycomb = createHoneycomb(agents, tier, renderer);
-  scene.add(comb.object);
+  globe.add(comb.object);
   // moving studio lights for the stone (lights only: nothing here draws a glow)
   let studio: Studio = createStudio(scene, tier, palette);
   const path = createCameraPath(lattice);
 
   const accent = readAccent();
   const flows: Flow[] = Array.from({ length: 4 }, () => createFlow(accent));
-  flows.forEach((f) => scene.add(f.packet.group));
+  flows.forEach((f) => globe.add(f.packet.group));
   // the comet's crisp scan ring and arrival ripples sit just above the agent panel tops (the terrain around them is taller)
   const agentTop = Math.max(...lattice.cells.filter((c) => c.agent && !c.moon).map((c) => c.reach));
   const rings = createRingFx(lattice.radius + agentTop + 0.045, accent);
-  scene.add(rings.mesh);
+  globe.add(rings.mesh);
 
   // ---- view + panel highlight ----
   const view: View = {
@@ -101,7 +104,7 @@ export function createWorld(opts: WorldOptions): World {
     cellTop(name, out) {
       const i = cellByName.get(name);
       if (i === undefined) return null;
-      return cellTopOf(lattice.cells[i], out);
+      return cellTopOf(lattice.cells[i], out).applyMatrix4(globe.matrixWorld); // world space, whatever the spin
     },
     hilite(name, amount) {
       const i = cellByName.get(name);
@@ -163,10 +166,10 @@ export function createWorld(opts: WorldOptions): World {
   }
 
   function buildTier() {
-    scene.remove(comb.object);
+    globe.remove(comb.object);
     comb.dispose();
     comb = createHoneycomb(agents, tier, renderer);
-    scene.add(comb.object);
+    globe.add(comb.object);
     studio.dispose();
     studio = createStudio(scene, tier, palette);
     hiCur.clear();
@@ -229,6 +232,21 @@ export function createWorld(opts: WorldOptions): World {
   }
   let canvasOpacity = 1;
 
+  // Slow spin that parks. `free` advances at rate * w. Displayed angle = lerp(home, free, w), where home is the nearest multiple of 2 pi to
+  // `free`, latched the moment w starts to drop below 1: the globe eases to face home (at most half a turn), never jumps, and at w = 0 the angle is
+  // exactly home, so the framing, routes and fly-over match the un-spun ones. Parked, `free` is re-anchored to home so the next spin starts from rest.
+  const TAU = Math.PI * 2;
+  let spinFree = 0, spinHome = 0, spinWPrev = 1;
+  function stepSpin(dt: number) {
+    const w = spinWeight(state.chapter, state.chapterProgress);
+    if (w < 1 && spinWPrev >= 1) spinHome = Math.round(spinFree / TAU) * TAU;
+    spinWPrev = w;
+    spinFree += (TAU / motion.spin.turnSec) * w * dt;
+    if (w <= 0) spinFree = spinHome = 0;
+    globe.rotation.y = w <= 0 ? 0 : spinHome + (spinFree - spinHome) * w;
+    globe.updateMatrixWorld(true);
+  }
+
   function pose(g: number) {
     path.sample(g, pos, target);
     if (overviewSm > 0.001) {
@@ -289,6 +307,7 @@ export function createWorld(opts: WorldOptions): World {
       time += dt;
       ctx.time = time;
       ctx.dt = dt;
+      stepSpin(dt); // before the chapters, so ctx.cellTop is in this frame's pose
 
       const ch = state.chapter;
       if (ch !== active) {
