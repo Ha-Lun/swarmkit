@@ -62,6 +62,10 @@ export const motion = {
     turnSec: 210, // seconds per full turn at full weight (about 3.5 minutes)
     introFrom: 0.25, // intro chapterProgress at which the globe starts easing home; it is home by the hive boundary (progress 1)
   },
+  /** The moon's own motion (the spin rate and drift size are look.cell.moonTurnSec / moonDrift). It parks with the same weight as the globe's spin (spinWeight). */
+  moon: {
+    driftSec: 50, // seconds per lap of the drift ellipse
+  },
   probe: { ms: 1000, warmupFrames: 10, minFrames: 6, stepDownBelow: 45, fallbackBelow: 30 },
 } as const;
 

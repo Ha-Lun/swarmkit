@@ -67,7 +67,7 @@ export function createWorld(opts: WorldOptions): World {
   const camera = new PerspectiveCamera(40, 1, 0.1, 400);
 
   const lattice = layoutLattice(agents); // identical for every tier: cell indices stay valid across a rebuild
-  // the key's shadow frustum covers the globe (tallest tower included) and the moon; both only turn about the origin, so one radius fits
+  // the key's shadow frustum covers the globe (tallest tower included) and the moon; the moon's drift is added, so one radius fits
   const shadowExtent = shadowExtentOf(lattice);
   const cellByName = new Map<string, number>();
   lattice.cells.forEach((c, i) => c.agent && cellByName.set(c.agent.name, i));
@@ -246,9 +246,9 @@ export function createWorld(opts: WorldOptions): World {
   // `free`, latched the moment w starts to drop below 1: the globe eases to face home (at most half a turn), never jumps, and at w = 0 the angle is
   // exactly home, so the framing, routes and fly-over match the un-spun ones. Parked, `free` is re-anchored to home so the next spin starts from rest.
   const TAU = Math.PI * 2;
-  let spinFree = 0, spinHome = 0, spinWPrev = 1;
+  let spinFree = 0, spinHome = 0, spinWPrev = 1, spinW = 1; // spinW also parks the moon's own motion (honeycomb.ts)
   function stepSpin(dt: number) {
-    const w = spinWeight(state.chapter, state.chapterProgress);
+    const w = spinW = spinWeight(state.chapter, state.chapterProgress);
     if (w < 1 && spinWPrev >= 1) spinHome = Math.round(spinFree / TAU) * TAU;
     spinWPrev = w;
     spinFree += (TAU / motion.spin.turnSec) * w * dt;
@@ -377,7 +377,7 @@ export function createWorld(opts: WorldOptions): World {
 
   function render(dt: number) {
     const g = Math.max(gSm, view.camFloor);
-    comb.update(view.growth, view.dim, time);
+    comb.update(view.growth, view.dim, time, spinW);
     comb.object.visible = view.latticeVisible;
     pose(g);
     // the key moved in pose(): refresh its shadow map once, on the first render of this frame (the dissolve draws two halves)
@@ -387,10 +387,10 @@ export function createWorld(opts: WorldOptions): World {
       // Both halves are drawn at the LIVE camera pose (pose(g) above), so they move together and the only difference is the dim:
       // outgoing = the lattice undimmed, incoming = the lattice as dimmed by the same ease that drives the dissolve. On the high tier
       // the composite goes through the same post chain as every other frame, so aberration and grain never switch off.
-      comb.update(view.growth, 0, time);
+      comb.update(view.growth, 0, time, spinW);
       renderer.setRenderTarget(rtA);
       renderer.render(scene, camera);
-      comb.update(view.growth, view.dim, time);
+      comb.update(view.growth, view.dim, time, spinW);
       renderer.setRenderTarget(rtB);
       renderer.render(scene, camera);
       // distance to the visible cells: when the look-at is the globe centre, the surface is one radius nearer

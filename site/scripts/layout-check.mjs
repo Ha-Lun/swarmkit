@@ -10,12 +10,12 @@ const dir = mkdtempSync(join(tmpdir(), 'layout-check-'));
 const out = join(dir, 'bundle.mjs');
 await build({
   stdin: {
-    contents: "export { loadAgents } from './src/lib/agents.ts'; export { look } from './src/lib/world/config.ts'; export { layoutLattice, GLOBE_FREQ, MOON_FREQ, footprint, cellFrame } from './src/lib/world/honeycomb.ts'; export { buildSphere } from './src/lib/world/sphere.ts';",
+    contents: "export { loadAgents } from './src/lib/agents.ts'; export { look } from './src/lib/world/config.ts'; export { layoutLattice, GLOBE_FREQ, MOON_FREQ, footprint, cellFrame, setMoonPose, moonDriftAt } from './src/lib/world/honeycomb.ts'; export { buildSphere } from './src/lib/world/sphere.ts';",
     resolveDir: resolve('.'), loader: 'ts',
   },
   bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error',
 });
-const { loadAgents, layoutLattice, buildSphere, GLOBE_FREQ, MOON_FREQ, footprint, cellFrame, look } = await import(pathToFileURL(out).href);
+const { loadAgents, layoutLattice, buildSphere, GLOBE_FREQ, MOON_FREQ, footprint, cellFrame, setMoonPose, moonDriftAt, look } = await import(pathToFileURL(out).href);
 rmSync(dir, { recursive: true, force: true });
 
 const agents = loadAgents();
@@ -107,6 +107,34 @@ for (const name of ['globe', 'moon']) {
 }
 const moonToGlobe = Math.min(...moon.map((m) => Math.min(...globe.map((g) => m.pos.distanceTo(g.pos) - g.reach - m.reach))));
 check(moonToGlobe > 2, `moon cluster clear of the globe (closest ${moonToGlobe.toFixed(2)} units)`);
+
+// the moon's own motion (round 10): parked it IS the layout; spun it stays a rigid sphere about its own centre; drifted at full amplitude it never reaches the globe
+const V = lat.moon.centre.constructor;
+const zero = new V(0, 0, 0);
+setMoonPose(lat, 0, zero);
+check(moon.every((c) => c.pos.distanceTo(c.home.pos) < 1e-9 && c.normal.distanceTo(c.home.normal) < 1e-9 && 1 - Math.abs(c.quat.dot(c.home.quat)) < 1e-12) && lat.moon.pos.distanceTo(lat.moon.centre) < 1e-9,
+  'moon parked (angle 0, no drift): every cell sits at its layout pose and the moon at its layout position');
+setMoonPose(lat, Math.PI * 2, zero); // a whole turn is the same pose (the parked angle is a multiple of 2 pi)
+check(moon.every((c) => c.pos.distanceTo(c.home.pos) < 1e-9), 'moon after a whole turn is back at its layout pose');
+const dm = lat.moon.driftMax;
+console.log(`moon drift: up to ${dm.toFixed(3)} world units = ${(dm / lat.radius).toFixed(3)} globe radii (slider ${look.cell.moonDrift}); one turn per ${look.cell.moonTurnSec} s`);
+check(dm > 0 && dm <= look.cell.moonDrift * lat.radius + 1e-9, `moon drift amplitude is set and within the slider (${dm.toFixed(3)})`);
+check(moonDriftAt(lat, 1.234, 0).length() === 0, 'drift at weight 0 is exactly zero (parked)');
+let rigid = true, tallestAgent = 0, closest = Infinity, farthest = 0;
+const drift = new V();
+for (let a = 0; a < 24; a++) for (let ph = 0; ph < 48; ph++) {
+  moonDriftAt(lat, (ph / 48) * Math.PI * 2, 1, drift);
+  farthest = Math.max(farthest, drift.length());
+  setMoonPose(lat, (a / 24) * Math.PI * 2 + 0.37, drift);
+  for (const c of moon) {
+    if (Math.abs(c.pos.distanceTo(lat.moon.pos) - c.bodyRadius) > 1e-9 || Math.abs(c.normal.length() - 1) > 1e-9 || Math.abs(new V(0, 1, 0).applyQuaternion(c.quat).distanceTo(c.normal)) > 1e-9) rigid = false;
+  }
+  if (a % 6 === 0) for (const m of moon) for (const g of globe) closest = Math.min(closest, m.pos.distanceTo(g.pos) - g.reach - m.reach);
+}
+check(rigid, 'spun and drifted, every moon cell stays on its sphere with a unit normal and its orientation on that normal');
+check(farthest <= dm + 1e-9, `the drift ellipse stays within its amplitude (farthest ${farthest.toFixed(3)} <= ${dm.toFixed(3)})`);
+check(closest > 0.5, `moon never reaches the globe at full drift and any spin (closest panel gap ${closest.toFixed(2)} units, reaches included)`);
+setMoonPose(lat, 0, zero);
 
 // no missing cells: the polygons must tile the sphere (sum of spherical areas = 4 pi)
 const tri = (a, b, c) => {

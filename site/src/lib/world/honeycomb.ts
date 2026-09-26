@@ -3,6 +3,7 @@ import {
   Mesh, MeshBasicMaterial, MeshStandardMaterial, Quaternion, SphereGeometry, Vector3, type WebGLRenderer,
 } from 'three';
 import { CELL_RADIUS, look, readPalette, SINK, type Tier } from './config';
+import { motion } from './motion-config';
 import { createCellMaterial, createStudioEnv, type CellUniforms } from './cell-material';
 import { createCellDepthMaterial } from './cell-depth';
 import { buildSphere, type Sphere } from './sphere';
@@ -68,6 +69,8 @@ export interface Cell {
   moon: boolean;
   /** unit-sphere polygon corners for outlines (in the body's own frame, never the moon's centre offset) */
   corners?: Vector3[];
+  /** moon cells only: the parked layout pose. `pos`, `normal` and `quat` of a moon cell are LIVE (spin and drift, see setMoonPose); this is where it rests at home. */
+  home?: { pos: Vector3; normal: Vector3; quat: Quaternion };
 }
 
 export interface Lattice {
@@ -79,12 +82,14 @@ export interface Lattice {
   radius: number;
   /** mean hexagon circumradius (world units), for screen-space sizing */
   cellRadius: number;
-  moon: { centre: Vector3; normal: Vector3; radius: number; cells: number };
+  /** `centre` is the moon's HOME (layout) centre; `pos` its live centre (home plus drift) and `angle` its live spin about MOON_AXIS, both written by setMoonPose;
+   *  `driftMax` is the farthest the centre may drift from home, world units (applyTerrain keeps it current) */
+  moon: { centre: Vector3; normal: Vector3; radius: number; cells: number; pos: Vector3; angle: number; driftMax: number };
   /** pentagons on the globe (the moon has its own 12) */
   pentagons: number;
 }
 
-/** World-space top of a cell (panel top centre). */
+/** World-space top of a cell (panel top centre), in the pose of this frame (a moon cell is live: it spins and drifts). */
 export const cellTopOf = (c: Cell, out = new Vector3()): Vector3 => out.copy(c.normal).multiplyScalar(c.height).add(c.pos);
 
 const basisQuat = (y: Vector3, z: Vector3) => {
@@ -236,6 +241,7 @@ export function layoutLattice(agents: Agent[]): Lattice {
         pos: centre.clone().addScaledVector(normal, Rm), normal, ring: maxRing, agent: owner.get(i), height: RELIEF, base: RELIEF, reach: RELIEF, terrain: 0, neighbours: sc.neighbours.map((j) => n + j),
         sweep: i / ms.cells.length, sides: sc.sides, poly, half, sag, scale: 1, bodyRadius: Rm, seam: SEAM_DEFAULT * MOON_CELL,
         quat, moon: true, corners,
+        home: { pos: centre.clone().addScaledVector(normal, Rm), normal: normal.clone(), quat: quat.clone() },
       });
     });
     moonRadius = Rm + RELIEF;
@@ -250,7 +256,7 @@ export function layoutLattice(agents: Agent[]): Lattice {
   const lattice: Lattice = {
     cells, agentCount: cells.filter((c) => c.agent).length, maxRing, radius: R,
     cellRadius: hexRadii.reduce((a, b) => a + b, 0) / hexRadii.length,
-    moon: { centre, normal: facing, radius: moonRadius, cells: moonCells },
+    moon: { centre, normal: facing, radius: moonRadius, cells: moonCells, pos: centre.clone(), angle: 0, driftMax: 0 },
     pentagons: cells.filter((c) => !c.moon && c.sides === 5).length,
   };
   applyTerrain(lattice);
@@ -272,14 +278,14 @@ export function applyTerrain(lattice: Lattice): boolean {
   const { relief, elevation, terrainScale, stroke } = look.cell;
   const steps = Math.max(2, Math.round(look.cell.steps));
   const { towerLift, towerStep } = look.cell;
-  const key = `${relief}|${elevation}|${terrainScale}|${steps}|${stroke}|${towerLift}|${towerStep}`;
+    const key = `${relief}|${elevation}|${terrainScale}|${steps}|${stroke}|${towerLift}|${towerStep}|${look.cell.moonDrift}`;
   if (terrainKeyOf.get(lattice) === key) return false;
   terrainKeyOf.set(lattice, key);
   const el = Math.min(elevation, Math.max(0, MAX_TOP - relief));
   for (const moon of [false, true]) {
     const cs = lattice.cells.filter((c) => c.moon === moon);
     if (!cs.length) continue;
-    const t = terrainField(cs.map((c) => c.normal), terrainScale * (moon ? 1.6 : 1), moon ? 71 : 13);
+    const t = terrainField(cs.map((c) => (c.home ?? c).normal), terrainScale * (moon ? 1.6 : 1), moon ? 71 : 13);
     const amp = el * (moon ? MOON_AMP : 1);
     cs.forEach((c, i) => {
       // basalt: heights snap to `steps` levels (lowest and tallest both present), so neighbours read as stepped columns
@@ -291,11 +297,63 @@ export function applyTerrain(lattice: Lattice): boolean {
         : relief + el + stroke + towerLift + towerStep * (c.agent ? TOWER_RANK[c.agent.band] : 0);
       c.base = c.agent ? tower : relief + amp * q;
       c.height = c.base;
-      // the moon stands still; on the globe only fillers stroke, towers breathe
+      // the moon's rods stand still; on the globe only fillers stroke, towers breathe
       c.reach = c.base + (moon ? 0 : c.agent ? AGENT_BREATH : stroke);
     });
   }
+  lattice.moon.driftMax = moonDriftAmp(lattice);
   return true;
+}
+
+// ---- the moon's own motion --------------------------------------------------------------------------------------------------
+// The moon spins about its own axis and drifts along a small tilted ellipse round its home. It writes the LIVE pose of every moon cell
+// (pos, normal, quat) from the parked one in cell.home, so cellTopOf, picking, rings and the label cards follow without knowing about it.
+const MOON_AXIS = new Vector3(0.22, 1, 0.1).normalize(); // the moon's spin axis (in the globe's frame), tilted off vertical
+const MOON_DRIFT_TILT = 0.35; // rad the ellipse's minor axis leans out of the tangent plane (a little radial travel)
+const MOON_DRIFT_MINOR = 0.55; // minor / major axis
+const MOON_DRIFT_SPIN = 0.3; // rad the major axis is turned about the moon's outward direction, so the path is not a horizontal loop
+const MOON_CLEAR = 0.3; // world units of air kept between the moon (fully drifted) and the globe's tallest reach
+const dirHome = MOON_DIR.clone();
+const driftU = new Vector3(), driftV = new Vector3();
+{
+  const t1 = new Vector3().crossVectors(dirHome, new Vector3(0, 1, 0)).normalize();
+  const t2 = new Vector3().crossVectors(dirHome, t1).normalize();
+  driftU.copy(t1).multiplyScalar(Math.cos(MOON_DRIFT_SPIN)).addScaledVector(t2, Math.sin(MOON_DRIFT_SPIN)).normalize();
+  const w = new Vector3().crossVectors(dirHome, driftU).normalize();
+  driftV.copy(w).multiplyScalar(Math.cos(MOON_DRIFT_TILT)).addScaledVector(dirHome, Math.sin(MOON_DRIFT_TILT)).multiplyScalar(MOON_DRIFT_MINOR);
+}
+
+/** Largest drift distance (world units) of the moon centre from home: look.cell.moonDrift globe radii, capped so the moon can never reach the globe.
+ *  Every drift step is tangential except the small radial share of the minor axis, so the closest approach is at least |centre| - A * radialShare. */
+function moonDriftAmp(l: Lattice): number {
+  const globeReach = l.radius + Math.max(0, ...l.cells.filter((c) => !c.moon).map((c) => c.reach));
+  const moonReach = l.moon.radius + Math.max(0, ...l.cells.filter((c) => c.moon).map((c) => c.reach));
+  const gap = l.moon.centre.length() - globeReach - moonReach - MOON_CLEAR;
+  const radial = MOON_DRIFT_MINOR * Math.sin(MOON_DRIFT_TILT);
+  return Math.max(0, Math.min(look.cell.moonDrift * l.radius, gap / radial));
+}
+
+/** Drift offset at ellipse phase `phase` (radians), scaled by `weight` (0 = exactly home). */
+export function moonDriftAt(l: Lattice, phase: number, weight: number, out = new Vector3()): Vector3 {
+  if (weight <= 0) return out.set(0, 0, 0);
+  const a = l.moon.driftMax * weight;
+  return out.copy(driftU).multiplyScalar(Math.cos(phase) * a).addScaledVector(driftV, Math.sin(phase) * a);
+}
+
+const spinQ = new Quaternion();
+/** Write the live pose of the moon: spin `angle` about its own centre, centre moved by `drift`. angle 0 with drift 0 restores the layout pose exactly. */
+export function setMoonPose(l: Lattice, angle: number, drift: Vector3): void {
+  const m = l.moon;
+  m.angle = angle;
+  m.pos.copy(m.centre).add(drift);
+  const home = angle === 0;
+  spinQ.setFromAxisAngle(MOON_AXIS, angle);
+  for (const c of l.cells) {
+    if (!c.moon || !c.home) continue;
+    if (home) c.normal.copy(c.home.normal); else c.normal.copy(c.home.normal).applyQuaternion(spinQ);
+    c.pos.copy(m.pos).addScaledVector(c.normal, c.bodyRadius);
+    if (home) c.quat.copy(c.home.quat); else c.quat.copy(c.home.quat).premultiply(spinQ);
+  }
 }
 
 const AO_RANGE = 1.0; // a neighbour this much taller (world units) shadows a top fully
@@ -309,9 +367,10 @@ export interface Honeycomb {
   /** cell index for an instance of one of `meshes` */
   cellAt(mesh: unknown, instanceId: number): number;
   lattice: Lattice;
-  /** growth 0..1 drives the ring-by-ring rise; dim 0..1 darkens the lattice; `time` (seconds) runs the pistons and the agent breath
-   *  (omitted: every column rests at its base height, which is what reduced-motion style callers want) */
-  update(growth: number, dim: number, time?: number): void;
+  /** growth 0..1 drives the ring-by-ring rise; dim 0..1 darkens the lattice; `time` (seconds) runs the pistons, the agent breath and the
+   *  moon's spin and drift (omitted: every column rests at its base height and the moon sits at home, which is what reduced-motion style callers want).
+   *  `moonWeight` 0..1 (default 1) is how freely the moon moves: 0 parks it exactly at home, in between it eases there (see world.ts, spinWeight). */
+  update(growth: number, dim: number, time?: number, moonWeight?: number): void;
   material: MeshStandardMaterial;
   uniforms: CellUniforms;
   /** re-read look.cell into the material uniforms (and rebuild the seam footprints when the seam slider moved) */
@@ -418,6 +477,7 @@ function stroke(ci: number, pi: Piston, t: number): number {
 
 export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?: WebGLRenderer): Honeycomb {
   const lattice = layoutLattice(agents);
+  setMoonPose(lattice, 0, new Vector3()); // the lattice is shared and cached: start from the parked pose whatever the last honeycomb left
   const palette = readPalette();
   const cellMat = createCellMaterial(tier, palette, look.cell);
   const { material } = cellMat;
@@ -485,7 +545,7 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
   // per-cell piston constants: a fixed random layout, plus each cell's place on a slow spiral wave round the globe axis
   const pistons: Piston[] = lattice.cells.map((c, ci) => {
     const r = rng(ci * 104729 + 7);
-    const n = c.normal;
+    const n = (c.home ?? c).normal;
     return { r0: r(), spiral: Math.atan2(n.x, n.z) / (Math.PI * 2) + 0.6 * n.y, rho: 0.3 + 0.4 * r(), agentPhase: r() * Math.PI * 2 };
   });
 
@@ -501,16 +561,18 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
   const floorMat = new MeshBasicMaterial({ color: new Color(palette.ink), fog: false });
   const floorGeos: SphereGeometry[] = [];
   const floors: Mesh[] = [];
+  let moonFloor: Mesh | null = null;
   const addFloor = (radius: number, at?: Vector3) => {
     const g = new SphereGeometry(radius - SINK * 0.5, 96, 48);
     floorGeos.push(g);
     const m = new Mesh(g, floorMat);
     if (at) m.position.copy(at);
     floors.push(m);
+    return m;
   };
   addFloor(lattice.radius);
   const moonCell = lattice.cells.find((c) => c.moon);
-  if (moonCell) addFloor(moonCell.bodyRadius, lattice.moon.centre);
+  if (moonCell) moonFloor = addFloor(moonCell.bodyRadius, lattice.moon.pos);
 
   const object = new Group();
   object.add(...floors, ...kinds.map((kd) => kd.mesh));
@@ -520,6 +582,23 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
   const sc = new Vector3();
   let lastGrowth = NaN, lastDim = NaN, lastTime = NaN, wasTimed = false;
   let dirty = true;
+  const drift = new Vector3();
+  // The moon's free-running spin, parked exactly like the globe's (world.ts stepSpin): `free` advances at rate * weight; the shown angle is
+  // lerp(home, free, weight), home being the nearest multiple of 2 pi latched when the weight starts to drop, so it eases home (at most half a turn)
+  // and never jumps; at weight 0 it is exactly home, drift included (the drift is scaled by the weight), so the parked layout is the layout.
+  let moonFree = 0, moonHome = 0, moonWPrev = 1, moonT = NaN;
+  const stepMoon = (time: number, w: number) => {
+    const dt = Number.isNaN(moonT) ? 0 : Math.max(0, Math.min(0.1, time - moonT));
+    moonT = time;
+    if (w < 1 && moonWPrev >= 1) moonHome = Math.round(moonFree / (Math.PI * 2)) * Math.PI * 2;
+    moonWPrev = w;
+    moonFree += ((Math.PI * 2) / Math.max(1, look.cell.moonTurnSec)) * w * dt;
+    if (w <= 0) moonFree = moonHome = 0;
+    const angle = w <= 0 ? 0 : moonHome + (moonFree - moonHome) * w;
+    moonDriftAt(lattice, (time * Math.PI * 2) / motion.moon.driftSec, w, drift);
+    setMoonPose(lattice, angle, drift);
+    moonFloor?.position.copy(lattice.moon.pos);
+  };
   const whiteBase = material.color.clone();
 
   return {
@@ -537,7 +616,7 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
       kd.state.setXY(s.slot, bright, lf * look.cell.lift); // (z, the occlusion, is left alone)
       kd.state.needsUpdate = true;
     },
-    update(growth, dim, time) {
+    update(growth, dim, time, moonWeight = 1) {
       if (look.cell.seam !== lastSeam) { lastSeam = look.cell.seam; setFootprints(look.cell.seam); }
       if (applyTerrain(lattice)) {
         dirty = true;
@@ -548,8 +627,12 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
       }
       const timed = time !== undefined;
       const moving = timed && time !== lastTime;
-      if (timed !== wasTimed) { wasTimed = timed; dirty = true; } // back to rest when the time stops coming
+      if (timed !== wasTimed) {
+        wasTimed = timed; dirty = true; // back to rest when the time stops coming, the moon too
+        if (!timed) { moonFree = moonHome = 0; moonT = NaN; moonWPrev = 1; setMoonPose(lattice, 0, drift.set(0, 0, 0)); moonFloor?.position.copy(lattice.moon.pos); }
+      }
       if (timed) lastTime = time;
+      if (timed && moving) stepMoon(time, moonWeight); // (a second call in the same frame, e.g. the dissolve's other half, leaves the pose alone)
       if (growth !== lastGrowth || dirty || moving) {
         lastGrowth = growth;
         dirty = false;
