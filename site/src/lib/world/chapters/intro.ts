@@ -84,7 +84,7 @@ export function createIntro(ctx: WorldCtx): IntroChapter {
   const cornerText = document.getElementById('nav-mark-text');
   const tagWrap = scene.q('.intro-tagwrap')[0];
   const foot = scene.q('.scene-foot')[0];
-  // untransformed geometry of the large mark (document coordinates) and the corner target (viewport), measured on demand
+  // untransformed geometry of the large mark (viewport coordinates: the scene is fixed) and the corner target (viewport), measured on demand
   let geo: { left: number; top: number; w: number; h: number; scale: number; tx: number; ty: number } | null = null;
 
   function measure() {
@@ -95,7 +95,7 @@ export function createIntro(ctx: WorldCtx): IntroChapter {
     mark.style.transform = keep;
     const c = cornerText.getBoundingClientRect();
     const scale = parseFloat(getComputedStyle(cornerText).fontSize) / parseFloat(getComputedStyle(mark).fontSize);
-    geo = { left: r.left, top: r.top + window.scrollY, w: r.width, h: r.height, scale, tx: c.left, ty: c.top + c.height / 2 - (r.height * scale) / 2 };
+    geo = { left: r.left, top: r.top, w: r.width, h: r.height, scale, tx: c.left, ty: c.top + c.height / 2 - (r.height * scale) / 2 };
   }
   const onResize = () => measure();
   document.fonts?.ready.then(measure);
@@ -106,7 +106,7 @@ export function createIntro(ctx: WorldCtx): IntroChapter {
     if (!geo) measure();
     if (!geo) return;
     const dx = t * (geo.tx - geo.left);
-    const dy = t * (geo.ty - (geo.top - window.scrollY));
+    const dy = t * (geo.ty - geo.top);
     mark.style.transform = `translate3d(${dx.toFixed(1)}px, ${dy.toFixed(1)}px, 0) scale(${(1 + t * (geo.scale - 1)).toFixed(4)})`;
     setOpacity(mark, 1 - range(t, 0.78, 1));
   }

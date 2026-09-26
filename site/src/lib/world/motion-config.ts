@@ -4,7 +4,7 @@
 export const SWARM_CAM = { fov: 40, z: 24 } as const;
 
 export const motion = {
-  /** Scroll length of each chapter runway, in viewport heights. Every runway holds one sticky, viewport-tall scene. */
+  /** Scroll length of each chapter runway, in viewport heights. Every runway holds one fixed, viewport-tall scene that only fades. */
   runway: { intro: 100, hive: 300, cells: 300, proof: 150, finale: 400 },
   /** The hive packet is scrubbed by scroll across the pinned window; these are the seconds of route time it spans. */
   hive: { holdSec: 1.6, captionBlend: 0.05 },

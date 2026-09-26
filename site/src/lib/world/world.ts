@@ -7,7 +7,7 @@ import {
 import type { Agent } from '../agents';
 import type { ScrollState } from '../scroll';
 import { createCameraPath, SEGMENTS } from './camera-path';
-import { arrival } from './scene-dom';
+import { sceneAlpha } from './scene-dom';
 import { accentCandidates, look, readPalette } from './config';
 import { cellTopOf, createHoneycomb, layoutLattice, type Honeycomb } from './honeycomb';
 import { motion, SWARM_CAM } from './motion-config';
@@ -297,11 +297,11 @@ export function createWorld(opts: WorldOptions): World {
       view.growth = 1; view.dim = 0; view.dissolve = 0; view.canvasOpacity = 1; view.latticeVisible = true;
       view.swarmFade = 0; view.swarmAttract = 0; view.focusWeight = 0; view.focusDrop = 0; view.overview = 0;
       chapters[ch].update(state.chapterProgress);
-      // pinned scenes cross-fade with one ease: the arriving scene is `a`, the one leaving is `1 - a`, so they always sum to 1
-      const a = arrival(ch, state.chapterProgress);
-      chapters[ch].fade(a);
-      if (ch + 1 < chapters.length) chapters[ch + 1].fade(0); // the next scene stays hidden until its own handover begins
-      if (ch > 0) chapters[ch - 1].fade(1 - a); // the scene above hands over (in either scroll direction) and is fully gone once this one has arrived
+      // fixed scenes only change opacity: this one fades in over the first 25vh of its runway and out over the last 25vh, so the
+      // neighbours are always fully faded (and inert) while it is on screen
+      chapters[ch].fade(sceneAlpha(ch, state.chapterProgress));
+      if (ch + 1 < chapters.length) chapters[ch + 1].fade(0);
+      if (ch > 0) chapters[ch - 1].fade(0);
       dampProgress(dt);
 
       // lazy pieces, built ahead of the chapter that needs them

@@ -116,7 +116,7 @@ export function createHive(ctx: WorldCtx): Chapter {
       const g = clamp01((p - win[0]) / (win[1] - win[0]));
       const cam = ctx.camera;
       const dt = ctx.dt;
-      const leave = 1 - range(p, win[1], 1); // the comet shrinks away as the scene scrolls out
+      const leave = 1 - range(p, win[1], 1); // the comet shrinks away as the scene fades out
       const t = g * total;
 
       // ---- replay (real time) or scrub (scroll) ----

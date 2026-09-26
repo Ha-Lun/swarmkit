@@ -19,29 +19,33 @@ export function setOpacity(el: HTMLElement | null | undefined, v: number) {
   el.style.opacity = String(q);
 }
 
-/** [start, end] of chapterProgress during which the sticky scene is pinned, for a runway of `vh` viewport heights.
- *  scroll.ts runs a chapter from "top 60%" to "bottom 60%" (the last one to "bottom bottom"). */
+/** Scroll, in viewport-height percent, over which a fixed scene fades: the last FADE_VH of its runway out, the first FADE_VH of the next in. */
+export const FADE_VH = 25;
+const RUNWAYS = [motion.runway.intro, motion.runway.hive, motion.runway.cells, motion.runway.proof, motion.runway.finale];
+
+/** Scroll length (percent of a viewport height) that chapterProgress spans: scroll.ts runs a chapter from "top 60%" to "bottom 60%"
+ *  (the first from "top top", the last to "bottom bottom"). */
+function spanVh(chapter: number): number {
+  const r = RUNWAYS[chapter];
+  return chapter === 0 ? r - 60 : chapter === RUNWAYS.length - 1 ? r - 40 : r;
+}
+
+/** [start, end] of chapterProgress during which a chapter's scene is fully visible (between its fade in and its fade out). */
 export function pinWindow(vh: number, lastChapter = false): [number, number] {
-  const span = lastChapter ? vh - 0.4 : vh;
-  return [0.6 / span, lastChapter ? 1 : (vh - 0.4) / span];
+  const span = lastChapter ? vh - 40 : vh;
+  return [FADE_VH / span, 1 - FADE_VH / span];
 }
 
 /**
- * Where, in scroll past a chapter boundary (percent of a viewport height, the unit of motion.runway), one pinned scene hands over
- * to the next. Scene text sits at the bottom of its 100vh box, so the incoming scene's text only comes on screen as the box
- * finishes sliding in (0.6 of a viewport past the boundary) and the outgoing scene's text leaves through the top by the same
- * point. The window straddles that moment, so the outgoing text is already fading as it slides away and the incoming text is
- * already partway up as it appears: one ease, two complementary opacities, no gap and no stack of both at full strength.
+ * Opacity of chapter `chapter`'s fixed scene, 0..1, from its chapterProgress: in over the first FADE_VH of its runway, out over the
+ * last FADE_VH. Consecutive chapters share the boundary (one's p = 1 is the next one's p = 0), so the outgoing scene is gone before
+ * the incoming one begins: never two text layers at once, and nothing moves, only opacity changes. The intro has no fade of its own
+ * (its parts leave on their own clocks, intro.ts).
  */
-export const HANDOVER: [number, number] = [30, 90];
-const RUNWAYS = [motion.runway.intro, motion.runway.hive, motion.runway.cells, motion.runway.proof, motion.runway.finale];
-
-/**
- * How far chapter `chapter`'s scene has arrived, 0..1, from its chapterProgress. The world writes it to this scene and its
- * complement (1 - arrival) to the previous one, with the same ease, so the two always sum to 1.
- */
-export function arrival(chapter: number, p: number): number {
-  return chapter === 0 ? 1 : range(p * RUNWAYS[chapter], HANDOVER[0], HANDOVER[1]);
+export function sceneAlpha(chapter: number, p: number): number {
+  if (chapter === 0) return 1;
+  const s = p * spanVh(chapter), span = spanVh(chapter);
+  return range(s, 0, FADE_VH) * (1 - range(s, span - FADE_VH, span));
 }
 
 export interface Scene {
