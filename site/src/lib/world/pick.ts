@@ -63,7 +63,7 @@ export function createPick(ctx: WorldCtx, root: HTMLElement | null): Pick {
 
   function raycast(): string | null {
     const comb = ctx.comb;
-    if (checkedComb !== comb) { comb.meshes.forEach((m) => { m.computeBoundingSphere(); if (m.boundingSphere) m.boundingSphere.radius += look.cell.stroke + 0.1; }); checkedComb = comb; } // matrices are settled by the time the roster is on screen
+    if (checkedComb !== comb) { comb.meshes.forEach((m) => { m.computeBoundingSphere(); if (m.boundingSphere) m.boundingSphere.radius += look.cell.stroke + 0.1 + ctx.lattice.moon.driftMax; }); checkedComb = comb; } // matrices are settled by the time the roster is on screen
     ray.setFromCamera(ndc, ctx.camera);
     const hit = ray.intersectObjects(comb.meshes, false)[0]; // nearest across both meshes: the far side of the globe never wins
     return hit?.instanceId !== undefined ? ctx.lattice.cells[comb.cellAt(hit.object, hit.instanceId)]?.agent?.name ?? null : null;

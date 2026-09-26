@@ -278,7 +278,9 @@ export function applyTerrain(lattice: Lattice): boolean {
   const { relief, elevation, terrainScale, stroke } = look.cell;
   const steps = Math.max(2, Math.round(look.cell.steps));
   const { towerLift, towerStep } = look.cell;
-    const key = `${relief}|${elevation}|${terrainScale}|${steps}|${stroke}|${towerLift}|${towerStep}|${look.cell.moonDrift}`;
+  const { moonStroke } = look.cell;
+  const moonThrow = stroke * moonStroke; // the most a moon rod drives out
+  const key = `${relief}|${elevation}|${terrainScale}|${steps}|${stroke}|${towerLift}|${towerStep}|${moonStroke}|${look.cell.moonDrift}`;
   if (terrainKeyOf.get(lattice) === key) return false;
   terrainKeyOf.set(lattice, key);
   const el = Math.min(elevation, Math.max(0, MAX_TOP - relief));
@@ -291,14 +293,14 @@ export function applyTerrain(lattice: Lattice): boolean {
       // basalt: heights snap to `steps` levels (lowest and tallest both present), so neighbours read as stepped columns
       const q = Math.min(steps - 1, Math.floor(t[i] * steps)) / (steps - 1);
       c.terrain = q;
-      // towers clear the tallest filler (resting top plus a full stroke); the moon stands still, so its towers only clear its resting relief, at its scale
+      // towers clear the tallest filler (resting top plus a full stroke); on the moon that is its own, smaller stroke, at the moon's scale
       const tower = moon
-        ? relief + amp + MOON_AMP * towerLift
+        ? relief + amp + moonThrow + MOON_AMP * towerLift
         : relief + el + stroke + towerLift + towerStep * (c.agent ? TOWER_RANK[c.agent.band] : 0);
       c.base = c.agent ? tower : relief + amp * q;
       c.height = c.base;
-      // the moon's rods stand still; on the globe only fillers stroke, towers breathe
-      c.reach = c.base + (moon ? 0 : c.agent ? AGENT_BREATH : stroke);
+      // fillers stroke (the moon's at moonStroke of the globe's); towers breathe on the globe and stand steady on the moon
+      c.reach = c.base + (c.agent ? (moon ? 0 : AGENT_BREATH) : moon ? moonThrow : stroke);
     });
   }
   lattice.moon.driftMax = moonDriftAmp(lattice);
@@ -639,9 +641,10 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
         kinds.forEach((kd) => {
           kd.cellIdx.forEach((ci, slot) => {
             const c = lattice.cells[ci];
-            if (time === undefined || c.moon) c.height = c.base;
+            // agents: towers, breathing on the globe and steady on the moon; fillers: pistons, the moon's at moonStroke of the globe's throw
+            if (time === undefined || (c.moon && c.agent)) c.height = c.base;
             else if (c.agent) c.height = c.base + AGENT_BREATH * Math.sin(time * 0.55 + pistons[ci].agentPhase);
-            else c.height = c.base + look.cell.stroke * stroke(ci, pistons[ci], time);
+            else c.height = c.base + look.cell.stroke * (c.moon ? look.cell.moonStroke : 1) * stroke(ci, pistons[ci], time);
             const s = ease((growth - startOf(c)) / 0.28);
             // flush growth: the panel rises out of the seam floor, ring by ring, widening as it comes up; no scale on the height
             const rise = (1 - s) * 0.5;

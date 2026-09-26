@@ -173,6 +173,9 @@ check(ag.every((c) => Math.abs(c.base - (reach + look.cell.towerLift + look.cell
 const byBand = (b) => ag.filter((c) => c.agent.band === b).map((c) => c.base);
 check(Math.min(...byBand('core')) > Math.max(...byBand('t1')) && Math.min(...byBand('t1')) > Math.max(...byBand('domain')) && Math.min(...byBand('domain')) > Math.max(...byBand('gate')), 'bands are told apart by tower height: core > t1 > domain > gate');
 check(moon.filter((c) => c.agent).every((c) => c.base > Math.max(...moon.filter((m) => !m.agent).map((m) => m.reach)) - 1e-9), 'moon agents stand above the moon fillers');
+const moonThrow = look.cell.stroke * look.cell.moonStroke;
+check(moon.filter((c) => !c.agent).every((c) => Math.abs(c.reach - (c.base + moonThrow)) < 1e-9) && moon.filter((c) => c.agent).every((c) => c.reach === c.base), `moon rods throw moonStroke (${look.cell.moonStroke}) of the globe's stroke = ${moonThrow.toFixed(3)} (reach = base + throw); moon towers stay steady`);
+check(moon.filter((c) => c.agent).every((c) => c.base - Math.max(...moon.filter((m) => !m.agent).map((m) => m.reach)) > 0.05), 'moon towers clear the moon rods at full stroke');
 check(globe.every((c) => Math.abs(c.pos.length() - lat.radius) < 1e-9), 'every globe panel sits at the same radius');
 check(moon.every((c) => Math.abs(c.pos.distanceTo(lat.moon.centre) - c.bodyRadius) < 1e-9), 'every moon panel sits at the same radius from the moon centre');
 check(moon.some((c) => c.agent?.name === 'showroom') && moon.every((c) => c.normal.dot(lat.moon.normal) > -1.01), 'showroom is on the moon');

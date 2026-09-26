@@ -20,14 +20,15 @@ const KEY_OFFSET = -0.75; // rad: with sweep 0 the key sits upper left of the vi
 const KICKER_BEHIND = 0.8 * Math.PI;
 
 /** Shadow-map settings of the key (high tier only). The map is a 2048 orthographic frustum, +-`extent` world units: `extent` bounds the globe
- *  and the moon about the origin, and both only turn about the origin, so the frustum never has to move except with the key itself
+ *  and the moon (drift included) about the origin, and the globe only turns about the origin, so the frustum never has to move except with the key itself
  *  (three aims it along the key each frame), which keeps the texel density stable. */
 const SHADOW = { map: 2048, bias: -0.0004, normalBias: 0.05, radius: 2.5, keyDistance: 30 };
 
-/** Half-width of the key's shadow frustum: bounds the globe (tallest tower included) and the moon about the origin. Both only turn about the origin, so one radius fits. */
+/** Half-width of the key's shadow frustum: bounds the globe (tallest tower included) and the moon about the origin. The globe only turns about the origin
+ *  and the moon's own spin is about its own centre, but the moon also drifts (up to `driftMax` from home, see honeycomb.ts), so that is added to its reach. */
 export const shadowExtentOf = (l: Lattice): number => Math.max(
   l.radius + Math.max(...l.cells.filter((c) => !c.moon).map((c) => c.reach)),
-  l.moon.centre.length() + l.moon.radius,
+  l.moon.centre.length() + l.moon.radius + Math.max(0, ...l.cells.filter((c) => c.moon).map((c) => c.reach)) + l.moon.driftMax,
 ) + 0.5;
 
 export function createStudio(scene: Scene, tier: Tier, palette: Palette, shadowExtent?: number): Studio {

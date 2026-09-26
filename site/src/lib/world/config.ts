@@ -67,9 +67,10 @@ export const look = {
     capBevel: 3, // the cap's chamfer width as a multiple of the filler bevel
     agentTone: 0.35, // how much lighter the cap stone is than filler
     hover: 0.45, // tone brightening of a hovered/focused panel
-    // the moon's own motion (round 10): it spins about its own axis and drifts along a small tilted ellipse round its home; the story parks it
+    // the moon's own motion (round 10): it spins about its own axis, drifts along a small tilted ellipse round its home and pumps its rods lightly; the story parks it
     moonTurnSec: 40, // seconds per full turn of the moon's own spin
     moonDrift: 0.35, // farthest the moon drifts from home, in globe radii (capped so it never reaches the globe)
+    moonStroke: 0.3, // the moon's rod throw as a fraction of the globe's (stroke)
   },
   light: {
     key: 3.0, // directional key intensity (lower than round 8: the key now rakes at 30 degrees, so tops catch more of it)
@@ -130,7 +131,7 @@ export const ranges: { [G in keyof Look]?: { [K in keyof Look[G]]?: [number, num
     sideDark: [0, 1, 0.01], grain: [0, 1, 0.01], mottle: [0, 1, 0.01], pillow: [0, 0.8, 0.01], hueDrift: [0, 1, 0.01], grainBump: [0, 1, 0.01], edge: [0, 1.5, 0.01], tone: [0, 0.2, 0.005],
     towerLift: [0, 1, 0.01], towerStep: [0, 0.3, 0.005], capGloss: [0, 0.95, 0.01], capBevel: [1, 6, 0.1],
     agentTone: [0, 0.6, 0.01], hover: [0, 1.2, 0.01],
-    moonTurnSec: [8, 120, 1], moonDrift: [0, 0.6, 0.01],
+    moonTurnSec: [8, 120, 1], moonDrift: [0, 0.6, 0.01], moonStroke: [0, 1, 0.01],
   },
   light: { key: [0, 4, 0.05], hemi: [0, 2, 0.02], ambient: [0, 1, 0.01], kicker: [0, 3, 0.05], sweep: [0, 1, 0.01], keyElevation: [5, 80, 1] },
   packet: {
