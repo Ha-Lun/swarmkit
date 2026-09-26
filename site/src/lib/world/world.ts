@@ -80,7 +80,7 @@ export function createWorld(opts: WorldOptions): World {
   const flows: Flow[] = Array.from({ length: 4 }, () => createFlow(accent));
   flows.forEach((f) => scene.add(f.packet.group));
   // the comet's crisp scan ring and arrival ripples sit just above the agent panel tops (the terrain around them is taller)
-  const agentTop = Math.max(...lattice.cells.filter((c) => c.agent && !c.moon).map((c) => c.height));
+  const agentTop = Math.max(...lattice.cells.filter((c) => c.agent && !c.moon).map((c) => c.reach));
   const rings = createRingFx(lattice.radius + agentTop + 0.045, accent);
   scene.add(rings.mesh);
 
@@ -348,7 +348,7 @@ export function createWorld(opts: WorldOptions): World {
 
   function render(dt: number) {
     const g = Math.max(gSm, view.camFloor);
-    comb.update(view.growth, view.dim);
+    comb.update(view.growth, view.dim, time);
     comb.object.visible = view.latticeVisible;
     pose(g);
 
@@ -356,10 +356,10 @@ export function createWorld(opts: WorldOptions): World {
       // Both halves are drawn at the LIVE camera pose (pose(g) above), so they move together and the only difference is the dim:
       // outgoing = the lattice undimmed, incoming = the lattice as dimmed by the same ease that drives the dissolve. On the high tier
       // the composite goes through the same post chain as every other frame, so aberration and grain never switch off.
-      comb.update(view.growth, 0);
+      comb.update(view.growth, 0, time);
       renderer.setRenderTarget(rtA);
       renderer.render(scene, camera);
-      comb.update(view.growth, view.dim);
+      comb.update(view.growth, view.dim, time);
       renderer.setRenderTarget(rtB);
       renderer.render(scene, camera);
       // distance to the visible cells: when the look-at is the globe centre, the surface is one radius nearer

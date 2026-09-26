@@ -172,8 +172,9 @@ export function raise(p: Vector3, out = new Vector3()): Vector3 {
   return out.copy(p).setLength(p.length() + look.packet.height);
 }
 
-/** Radius a comet leg must clear: the tallest column of the globe plus a little air. Terrain is bounded (honeycomb.ts), so one radius is enough. */
+/** Radius a comet leg must clear: the tallest a column can ever stand (resting height plus its full piston stroke) plus a little air.
+ *  Terrain and stroke are bounded (honeycomb.ts), so one radius is enough and the comet never meets a rod mid-stroke. */
 export function clearRadius(lattice: Lattice): number {
-  const tallest = lattice.cells.reduce((m, c) => (c.moon ? m : Math.max(m, c.height)), 0);
+  const tallest = lattice.cells.reduce((m, c) => (c.moon ? m : Math.max(m, c.reach)), 0);
   return lattice.radius + tallest + 0.1;
 }

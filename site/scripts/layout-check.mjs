@@ -105,7 +105,7 @@ for (const name of ['globe', 'moon']) {
   check(mn > 0, `${name}: no overlapping footprints (min gap ${mn.toFixed(4)} world units)`);
   check(mn > 0.95 * want && mx < 1.1 * want, `${name}: seam is even, every gap within 5-10% of ${want.toFixed(3)}`);
 }
-const moonToGlobe = Math.min(...moon.map((m) => Math.min(...globe.map((g) => m.pos.distanceTo(g.pos) - g.height - m.height))));
+const moonToGlobe = Math.min(...moon.map((m) => Math.min(...globe.map((g) => m.pos.distanceTo(g.pos) - g.reach - m.reach))));
 check(moonToGlobe > 2, `moon cluster clear of the globe (closest ${moonToGlobe.toFixed(2)} units)`);
 
 // no missing cells: the polygons must tile the sphere (sum of spherical areas = 4 pi)
@@ -126,15 +126,19 @@ const scales = globe.map((c) => c.scale);
 console.log(`panel footprint circumradius: min ${Math.min(...scales).toFixed(3)} max ${Math.max(...scales).toFixed(3)}`);
 const pm = globe.filter((c) => c.sides === 5).map((c) => c.scale);
 console.log(`pentagon circumradius mean ${(pm.reduce((a, b) => a + b, 0) / pm.length).toFixed(3)} vs hex mean ${(scales.reduce((a, b) => a + b, 0) / scales.length).toFixed(3)}`);
-// terrain: every column stands between relief and relief + elevation, never above 0.6 world units, quantised into look.cell.steps levels; agents sit on a low shelf
-const hs = lat.cells.map((c) => c.height);
+// terrain: every resting column stands between relief and relief + elevation, never above 0.9 world units, quantised into look.cell.steps levels;
+// a filler rod can drive out up to look.cell.stroke more (reach), so the tallest a column ever stands is 0.9 + stroke; agents sit on a steady mid-range shelf
+const hs = lat.cells.map((c) => c.base);
 const top = look.cell.relief + look.cell.elevation;
-check(Math.min(...hs) >= look.cell.relief - 1e-9 && Math.max(...hs) <= Math.min(top, 0.6) + 1e-9, `column heights within [${look.cell.relief}, ${Math.min(top, 0.6)}] (got ${Math.min(...hs).toFixed(3)}..${Math.max(...hs).toFixed(3)})`);
-check(globe.some((c) => c.height > look.cell.relief + 0.15), 'the globe has real relief (a column stands 0.15+ above the base)');
-const levels = new Set(globe.filter((c) => !c.agent).map((c) => c.height.toFixed(4)));
+check(Math.min(...hs) >= look.cell.relief - 1e-9 && Math.max(...hs) <= Math.min(top, 0.9) + 1e-9, `resting heights within [${look.cell.relief}, ${Math.min(top, 0.9)}] (got ${Math.min(...hs).toFixed(3)}..${Math.max(...hs).toFixed(3)})`);
+const reach = Math.max(...lat.cells.map((c) => c.reach));
+check(reach <= 0.9 + look.cell.stroke + 1e-9 && reach > Math.max(...hs), `tallest reach ${reach.toFixed(3)} = resting + full stroke, within 0.9 + ${look.cell.stroke}`);
+check(lat.cells.every((c) => c.height === c.base), 'layout leaves every column at rest (the pistons are driven by update(time))');
+check(globe.some((c) => c.base > look.cell.relief + 0.15), 'the globe has real relief (a column stands 0.15+ above the base)');
+const levels = new Set(globe.filter((c) => !c.agent).map((c) => c.base.toFixed(4)));
 check(levels.size <= look.cell.steps && levels.size >= 3, `basalt heights snap to at most ${look.cell.steps} levels (got ${levels.size})`);
-const ag = globe.filter((c) => c.agent).map((c) => c.height);
-check(Math.max(...ag) <= look.cell.relief + look.cell.elevation * 0.4 + 1e-9, `agent panels are cut to a low shelf (max ${Math.max(...ag).toFixed(3)})`);
+const ag = globe.filter((c) => c.agent).map((c) => c.base);
+check(Math.min(...ag) >= look.cell.relief + look.cell.elevation * 0.5 - 1e-9 && Math.max(...ag) <= look.cell.relief + look.cell.elevation * 0.7 + 1e-9, `agent panels sit on a steady mid-range shelf (${Math.min(...ag).toFixed(3)}..${Math.max(...ag).toFixed(3)})`);
 check(globe.every((c) => Math.abs(c.pos.length() - lat.radius) < 1e-9), 'every globe panel sits at the same radius');
 check(moon.every((c) => Math.abs(c.pos.distanceTo(lat.moon.centre) - c.bodyRadius) < 1e-9), 'every moon panel sits at the same radius from the moon centre');
 check(moon.some((c) => c.agent?.name === 'showroom') && moon.every((c) => c.normal.dot(lat.moon.normal) > -1.01), 'showroom is on the moon');

@@ -36,9 +36,14 @@ export const look = {
   cell: {
     // geometry: every panel sits at the same radius; relief and seam are world units (a cell is about 1.7 across)
     relief: 0.05, // how far the lowest panel stands above the sphere (about 3% of a cell)
-    elevation: 0.55, // terrain: how much taller the highest column is than the lowest, world units (clamped so relief + elevation <= 0.6)
+    elevation: 0.85, // terrain: how much taller the highest resting column is than the lowest, world units (clamped so relief + elevation <= 0.9)
     steps: 5, // basalt: number of distinct column heights (heights snap to these levels)
     terrainScale: 1.7, // terrain feature size: noise frequency over the unit sphere (higher = more, smaller ranges)
+    // reactor pistons: filler columns drive out and retract; agent columns stay on a steady shelf
+    stroke: 0.5, // how far a rod drives out beyond its resting height, world units (a rod throws half or the full stroke)
+    pistonSpeed: 9, // seconds per rod cycle (hold low, drive out, hold high, retract): larger is slower
+    activity: 0.2, // share of a cycle a rod spends moving (the rest it holds): lower = fewer rods moving at once
+    wave: 0.6, // 0 = every rod on its own random timing, 1 = rods ordered by a slow wave round the globe (fire in sequences)
     seam: 0.05, // width of the engraved seam between panels, constant over the whole globe
     bevel: 0.025, // hairline rounded edge on the panel top, so the seam stays crisp
     lift: 0.07, // world units a hovered/focused (or comet-struck) panel rises
@@ -109,7 +114,7 @@ export type Look = typeof look;
 /** [min, max, step] for the lookdev sliders. Keys mirror `look`. */
 export const ranges: { [G in keyof Look]?: { [K in keyof Look[G]]?: [number, number, number] } } = {
   cell: {
-    relief: [0.01, 0.15, 0.005], elevation: [0, 0.55, 0.005], steps: [2, 10, 1], terrainScale: [0.5, 4, 0.05], seam: [0.02, 0.25, 0.005], bevel: [0, 0.06, 0.0025], lift: [0, 0.3, 0.005],
+    relief: [0.01, 0.15, 0.005], elevation: [0, 0.85, 0.005], steps: [2, 10, 1], terrainScale: [0.5, 4, 0.05], stroke: [0, 0.8, 0.01], pistonSpeed: [3, 30, 0.5], activity: [0.05, 0.6, 0.01], wave: [0, 1, 0.01], seam: [0.02, 0.25, 0.005], bevel: [0, 0.06, 0.0025], lift: [0, 0.3, 0.005],
     roughness: [0.15, 1, 0.01], sheen: [0, 1.5, 0.01], envIntensity: [0, 1.5, 0.01],
     sideDark: [0, 1, 0.01], grain: [0, 1, 0.01], mottle: [0, 1, 0.01], tone: [0, 0.2, 0.005],
     agentTone: [0, 0.6, 0.01], hover: [0, 1.2, 0.01],

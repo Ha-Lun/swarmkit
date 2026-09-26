@@ -35,8 +35,13 @@ export interface Cell {
   /** geodesic ring index from the core cell (graph distance); moon cells use maxRing so they appear last */
   ring: number;
   agent?: Agent;
-  /** panel height above the sphere (world units): relief plus the terrain elevation, set by applyTerrain */
+  /** panel height above the sphere (world units) right now: `base` plus the piston stroke. update() writes it every frame;
+   *  cellTopOf, the comet, the label cards and picking all read it. */
   height: number;
+  /** resting height: relief plus the quantised terrain elevation, set by applyTerrain (the piston's low hold) */
+  base: number;
+  /** the most `height` can ever reach (base plus the full stroke, or the agent shelf plus its breath): what a comet route must clear */
+  reach: number;
   /** 0..1 terrain value of this cell (its share of the elevation), for tinting */
   terrain: number;
   /** 0..1 stagger inside a ring so growth sweeps around */
@@ -198,7 +203,7 @@ export function layoutLattice(agents: Agent[]): Lattice {
     const slots = ringSlots(ringOf[i]);
     const { poly, half, sag, quat } = polygonOf(corners, normal, R);
     cells.push({
-      pos: normal.clone().multiplyScalar(R), normal, ring: ringOf[i], agent, height: RELIEF, terrain: 0,
+      pos: normal.clone().multiplyScalar(R), normal, ring: ringOf[i], agent, height: RELIEF, base: RELIEF, reach: RELIEF, terrain: 0,
       sweep: slots.indexOf(i) / slots.length, sides: sc.sides, poly, half, sag,
       scale: 1, bodyRadius: R, seam: SEAM_DEFAULT, quat, moon: false, corners,
     });
@@ -224,7 +229,7 @@ export function layoutLattice(agents: Agent[]): Lattice {
       const corners = sc.corners.map((c) => new Vector3(...c).applyQuaternion(rot));
       const { poly, half, sag, quat } = polygonOf(corners, normal, Rm);
       cells.push({
-        pos: centre.clone().addScaledVector(normal, Rm), normal, ring: maxRing, agent: owner.get(i), height: RELIEF, terrain: 0,
+        pos: centre.clone().addScaledVector(normal, Rm), normal, ring: maxRing, agent: owner.get(i), height: RELIEF, base: RELIEF, reach: RELIEF, terrain: 0,
         sweep: i / ms.cells.length, sides: sc.sides, poly, half, sag, scale: 1, bodyRadius: Rm, seam: SEAM_DEFAULT * MOON_CELL,
         quat, moon: true, corners,
       });
@@ -249,19 +254,21 @@ export function layoutLattice(agents: Agent[]): Lattice {
   return lattice;
 }
 
-const MAX_TOP = 0.6; // the tallest column stands at most this far above its sphere (a cell is about 1.7 across)
+const MAX_TOP = 0.9; // the tallest resting column stands at most this far above its sphere (a cell is about 1.7 across); a piston adds look.cell.stroke on top
+const AGENT_SHELF = 0.55; // agent panels rest at this fraction of the elevation range (a steady mid-range shelf), plus a little terrain variation
+const AGENT_BREATH = 0.02; // amplitude of the slow breath of an agent panel, world units
 const MOON_AMP = 0.5; // the moon's relief is this fraction of the globe's
 const terrainKeyOf = new WeakMap<Lattice, string>();
 
 /**
- * Column heights (quantised into look.cell.steps levels) from a deterministic terrain (terrain.ts) sampled on each cell's normal. Writes cell.height (which cellTopOf and so
- * the comet, the label cards and picking all read) and cell.terrain. Agent panels are cut down to a low, gently varying shelf, so
- * they sit on the rock rather than on its peaks. Returns false when nothing changed since the last call.
+ * Column resting heights (quantised into look.cell.steps levels) from a deterministic terrain (terrain.ts) sampled on each cell's normal. Writes cell.base and cell.reach, and resets cell.height (which cellTopOf and so
+ * the comet, the label cards and picking all read) and cell.terrain. Agent panels stand on a steady mid-range shelf: fillers pump
+ * above and below them. Returns false when nothing changed since the last call.
  */
 export function applyTerrain(lattice: Lattice): boolean {
-  const { relief, elevation, terrainScale } = look.cell;
+  const { relief, elevation, terrainScale, stroke } = look.cell;
   const steps = Math.max(2, Math.round(look.cell.steps));
-  const key = `${relief}|${elevation}|${terrainScale}|${steps}`;
+  const key = `${relief}|${elevation}|${terrainScale}|${steps}|${stroke}`;
   if (terrainKeyOf.get(lattice) === key) return false;
   terrainKeyOf.set(lattice, key);
   const el = Math.min(elevation, Math.max(0, MAX_TOP - relief));
@@ -274,7 +281,10 @@ export function applyTerrain(lattice: Lattice): boolean {
       // basalt: heights snap to `steps` levels (lowest and tallest both present), so neighbours read as stepped columns
       const q = Math.min(steps - 1, Math.floor(t[i] * steps)) / (steps - 1);
       c.terrain = q;
-      c.height = relief + amp * (c.agent ? 0.2 + 0.2 * t[i] : q);
+      c.base = relief + amp * (c.agent ? AGENT_SHELF + 0.1 * t[i] : q);
+      c.height = c.base;
+      // the moon stands still; on the globe only fillers stroke, agents breathe
+      c.reach = c.base + (moon ? 0 : c.agent ? AGENT_BREATH : stroke);
     });
   }
   return true;
@@ -290,8 +300,9 @@ export interface Honeycomb {
   /** cell index for an instance of one of `meshes` */
   cellAt(mesh: unknown, instanceId: number): number;
   lattice: Lattice;
-  /** growth 0..1 drives the ring-by-ring rise; dim 0..1 darkens the lattice */
-  update(growth: number, dim: number): void;
+  /** growth 0..1 drives the ring-by-ring rise; dim 0..1 darkens the lattice; `time` (seconds) runs the pistons and the agent breath
+   *  (omitted: every column rests at its base height, which is what reduced-motion style callers want) */
+  update(growth: number, dim: number, time?: number): void;
   material: MeshStandardMaterial;
   uniforms: CellUniforms;
   /** re-read look.cell into the material uniforms (and rebuild the seam footprints when the seam slider moved) */
@@ -358,6 +369,44 @@ function rng(seed: number) {
   };
 }
 
+const smoothIO = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
+// integer hash to 0..1, for a per-(cell, cycle) decision
+const hash01 = (a: number, b: number) => {
+  let h = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b + 0x7f4a7c15, 0xc2b2ae35);
+  h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
+  h = Math.imul(h ^ (h >>> 12), 0x297a2d39);
+  return ((h ^ (h >>> 15)) >>> 0) / 4294967296;
+};
+
+interface Piston { r0: number; spiral: number; rho: number; agentPhase: number }
+
+/**
+ * Reactor-rod stroke of a filler column, 0..1 of its throw: hold low, a fast eased drive out, hold high, a slower eased retract.
+ * One cycle is look.cell.pistonSpeed seconds; `activity` is the share of it spent moving, the rest is held. The phase mixes a per-cell
+ * random offset with a slow wave over the sphere (`wave`), so rods fire in sweeping sequences rather than all at once or as noise.
+ * Each cycle a rod skips with a fixed chance or throws a half or a full stroke (decided while it rests low, so nothing jumps);
+ * the holds sit exactly at the base and at base + half or full stroke, so the stepped read stays.
+ */
+function stroke(ci: number, pi: Piston, t: number): number {
+  const { pistonSpeed, activity, wave } = look.cell;
+  const phase = t / Math.max(1, pistonSpeed) + (1 - wave) * pi.r0 + wave * pi.spiral;
+  const k = Math.floor(phase);
+  const u = phase - k;
+  const roll = hash01(ci, k);
+  if (roll < 0.3) return 0; // this cycle the rod stays put
+  const throwFrac = roll < 0.65 ? 0.5 : 1;
+  const a = Math.min(0.9, Math.max(0.02, activity));
+  const drive = a * 0.3, retract = a * 0.7;
+  const low = (1 - a) * pi.rho, high = (1 - a) * (1 - pi.rho);
+  let h: number;
+  if (u < low) h = 0;
+  else if (u < low + drive) { const x = (u - low) / drive; h = 1 - Math.pow(1 - x, 3); } // fast drive out, settling
+  else if (u < low + drive + high) h = 1;
+  else h = 1 - smoothIO((u - low - drive - high) / retract);
+  return h * throwFrac;
+}
+
 export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?: WebGLRenderer): Honeycomb {
   const lattice = layoutLattice(agents);
   const palette = readPalette();
@@ -419,6 +468,13 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
     });
   };
 
+  // per-cell piston constants: a fixed random layout, plus each cell's place on a slow spiral wave round the globe axis
+  const pistons: Piston[] = lattice.cells.map((c, ci) => {
+    const r = rng(ci * 104729 + 7);
+    const n = c.normal;
+    return { r0: r(), spiral: Math.atan2(n.x, n.z) / (Math.PI * 2) + 0.6 * n.y, rho: 0.3 + 0.4 * r(), agentPhase: r() * Math.PI * 2 };
+  });
+
   const ringSpan = Math.max(1, lattice.maxRing);
   // ring k starts at (k-1)/maxRing of the growth range; ring 0 is always present; the back hemisphere grows with the limb
   const startOf = (c: Cell) => {
@@ -448,7 +504,7 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
   const m = new Matrix4();
   const p = new Vector3();
   const sc = new Vector3();
-  let lastGrowth = NaN, lastDim = NaN;
+  let lastGrowth = NaN, lastDim = NaN, lastTime = NaN, wasTimed = false;
   let dirty = true;
   const whiteBase = material.color.clone();
 
@@ -467,7 +523,7 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
       kd.state.setXY(s.slot, bright, lf * look.cell.lift);
       kd.state.needsUpdate = true;
     },
-    update(growth, dim) {
+    update(growth, dim, time) {
       if (look.cell.seam !== lastSeam) { lastSeam = look.cell.seam; setFootprints(look.cell.seam); }
       if (applyTerrain(lattice)) {
         dirty = true;
@@ -476,12 +532,19 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
           kd.rock.needsUpdate = true;
         });
       }
-      if (growth !== lastGrowth || dirty) {
+      const timed = time !== undefined;
+      const moving = timed && time !== lastTime;
+      if (timed !== wasTimed) { wasTimed = timed; dirty = true; } // back to rest when the time stops coming
+      if (timed) lastTime = time;
+      if (growth !== lastGrowth || dirty || moving) {
         lastGrowth = growth;
         dirty = false;
         kinds.forEach((kd) => {
           kd.cellIdx.forEach((ci, slot) => {
             const c = lattice.cells[ci];
+            if (time === undefined || c.moon) c.height = c.base;
+            else if (c.agent) c.height = c.base + AGENT_BREATH * Math.sin(time * 0.55 + pistons[ci].agentPhase);
+            else c.height = c.base + look.cell.stroke * stroke(ci, pistons[ci], time);
             const s = ease((growth - startOf(c)) / 0.28);
             // flush growth: the panel rises out of the seam floor, ring by ring, widening as it comes up; no scale on the height
             const rise = (1 - s) * 0.5;

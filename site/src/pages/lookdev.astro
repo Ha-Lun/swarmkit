@@ -313,7 +313,7 @@ const favicon =
 
         cometDist += cometSpeed * dt;
         comb.syncLook();
-        comb.update(1, 0); // no-op unless look.cell.relief, elevation or terrainScale changed
+        comb.update(1, 0, time); // runs the pistons; re-lays the terrain when relief, elevation, terrainScale or stroke changed
         const showPackets = panel === 'packet' || panel === 'post' || panel === 'dissolve';
         packets.forEach((p, i) => {
           p.group.visible = showPackets && (accentSel === 'all' || accentSel === accentCandidates[i].name);
