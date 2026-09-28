@@ -1,4 +1,34 @@
-# Handoff: SwarmKit showcase site (state at end of session 2, 2026-09-26)
+# Handoff: SwarmKit showcase site (session 3 addendum first, then session 2 state below; 2026-09-28)
+
+## Session 3 (2026-09-28): round 11 built, first Vercel deploy
+- **Round 11 (human's full brief, overrides round 4 "no glow" and rounds 7-8 "matte basalt")**: MeshPhysicalMaterial metal (metalness 0.7, roughness 0.35, clearcoat), per-tile roughness/tint jitter, sphere gradient, fill light + raised rim, ACES + sRGB, procedural env on both tiers, emissive core in the globe's seam floor, GTAO + bloom + vignette on the high tier (`post.ts`, `cell-normal.ts` G-buffer), radial-gradient background + `look.bg.fog`. All tunables in `config.ts` (`cell.metalness`..., `light.fill`, `core.*`, `bg.*`, `post.*`) and `/lookdev` sliders. Logged as round 11 "opened" in `.buildlog/artdirection.jsonl`; **no human verdict yet**.
+- Checks green: `astro check` 0 errors, `npm run build` (~223 KB gz JS), `layout-check`, `smoothness-check`.
+- **Not verified visually**: headless Chromium (SwiftShader) lost its WebGL context after repeated heavy renders, so only `/lookdev` wide + moon views were captured (before a real bug fix). After that, `capEnvOf` in `cell-material.ts` was rescaled (`1 + 24*capGloss` -> `1 + 3*capGloss`, it was tuned for envIntensity 0.07 and blew the polished caps out at envIntensity 1.0). The fix is **not re-checked visually**; `/lookdev?view=cell` (the close-up on the core cap) is the view to look at first. The main site `/` also never showed a canvas in headless because the fps probe (pre-existing) drops to the no-canvas fallback below 30 fps. `qa-scenes.mjs` not run. Look at it on a real GPU/browser.
+- Commit history caveat: the 5 round-11 feature commits are not individually buildable (early commits read `config.ts` fields that only land in the last one, `3a37440`). Only the branch tip is verified. Squash on merge or accept.
+- Dev server left running on `http://100.126.82.90:4321` from the worktree (pid may be stale; check `lsof -ti:4321`).
+
+### Vercel (set up 2026-09-28, read before merging to main)
+- Project **`swarmkit-site`**, id `prj_3m5XNrUe8f7xzgMHW8sguHairoga`, owner `ha-lun` (personal account, scope `ha-luns-projects`, id `team_AOvtkYp0gGtendziNWA1owwJ`). Linked to GitHub `Ha-Lun/swarmkit`, framework `astro`, **Root Directory = `site`**, **"Include source files outside the Root Directory" = on**. The second one is required: `site/src/lib/agents.ts` reads `../core/agents` (and `../core/skills`) at build time, so the build breaks without it.
+- Why it was made through the API: the dashboard's Root Directory picker browses the default branch (`main`), which has no `site/` yet, so it could not find it. The project was created with the Vercel MCP tools (`create_project` + `update_project` with `rootDirectory` and `sourceFilesOutsideRootDirectory`).
+- First deploy `dpl_5zDXUa8HgGMWHo68VxaLbTmF3t7J` was triggered by hand (`create_deployment`, `target: production`, `gitSource` ref `site/integration`, commit `62fc3a2`). Built READY in ~20 s. Live at `https://swarmkit-site.vercel.app` (also `swarmkit-site-ha-luns-projects.vercel.app`, branch alias `swarmkit-site-git-site-integration-ha-luns-projects.vercel.app`).
+- **Production Branch was NOT changed** (the MCP tools expose no field for it). It is most likely still `main`, so a push to `site/integration` should give a *preview* deploy, not a production one, and `swarmkit-site.vercel.app` stays on that one manual production deploy until `main` moves or it is redeployed by hand. **Verify in the dashboard (Settings -> Git -> Production Branch).**
+- **When merging `site/integration` into `main`** (only when the human says so; plan: PR after look lock + phase 6 QA):
+  1. Nothing needs re-pointing: Root Directory and the outside-root setting are already stored on the project, and once `main` has `site/` the dashboard picker works too. The merge push to `main` triggers the production deploy.
+  2. Every push to `main` builds this project, including pushes that only touch `core/`, `claude/`, `scripts/`. That is partly wanted (agent/skill counts on the site come from `../core`), but it is noisy. Options: leave it, set an Ignored Build Step, or enable "affected projects".
+  3. Keep `site/` self-contained: `package.json` + lockfile in `site/` (they are). Do not move `core/` or rename `../core/agents` without updating `agents.ts` and this note.
+  4. If a Production Branch was set to `site/integration` in the dashboard, switch it back to `main` at merge time, then delete the stale branch alias.
+  5. Deployment Protection reported `ssoProtection: all_except_custom_domains` on creation; a plain `curl` on the production URL returned 200, but check the page in a private window and decide whether the site should be public.
+  6. No custom domain, and `astro.config.mjs` has no `site`. The swarm rule (seo-worker gate) needs a real `production_url` before the public deploy: ask, never guess. Phase 6 (QA) and phase 7 (deploy) in PLAN.md have not run.
+
+### Tomorrow
+1. Look at round 11 on a real browser (`/lookdev`, all views incl. `cell`, both tiers) and give the verdict; then tune (env richness, bloom threshold, core intensity, `capGloss`, walls not too black) and log it in `.buildlog/artdirection.jsonl`.
+2. Real-desktop `/?sweep=1` fps numbers (GTAO + bloom + G-buffer are new costs).
+3. Check the Vercel Production Branch and the public/protected state of the live URL.
+4. Still open from session 2: rounds 9-10 verdicts, moon-behind-title fix, `RoutingDiagram.astro` text clipping at 1440 px, then lock the look, update BRIEF 8 / PLAN 7, PR to `main`, phase 6 QA, domain decision, phase 7.
+
+---
+
+# Session 2 state (2026-09-26)
 
 Read `PLAN.md` (plan), `BRIEF.md` (brief), `CLAUDE.md` (rules) first. This file says where things are. **BRIEF.md section 8 and PLAN.md section 7 still describe the old flat honeycomb and the round-5 look; they are stale until the look is locked (see Open items).**
 
