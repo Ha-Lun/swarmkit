@@ -1,5 +1,8 @@
-// Look uniforms as data. Round 9 adds agent towers (towerLift, towerStep, capGloss, capBevel). Round 8 (iron-blue palette locked; basalt columns: stepped heights, flat matte tops, dark striated sides, polished agent facets, hard-edged comet, no glow): the human unlocked cell, light and packet for this round only;
-// they re-lock after the verdict. The /lookdev sliders mutate these objects in memory only (nothing is persisted), so a reload restores the values here.
+// Look uniforms as data. Round 11 (human override of round 4's no-glow and round 7-8's matte basalt): premium metallic PBR
+// globe (metalness, clearcoat, per-tile roughness/tint jitter, a soft sphere gradient), key+fill+rim+env lighting, an
+// emissive core glowing through the seams, GTAO, bloom and a vignette, a gradient background and light fog. Round 9 adds
+// agent towers (towerLift, towerStep, capGloss, capBevel). The /lookdev sliders mutate these objects in memory only
+// (nothing is persisted), so a reload restores the values here.
 
 export type Tier = 'high' | 'medium';
 
@@ -44,15 +47,21 @@ export const look = {
     pistonSpeed: 9, // seconds per rod cycle (hold low, drive out, hold high, retract): larger is slower
     activity: 0.2, // share of a cycle a rod spends moving (the rest it holds): lower = fewer rods moving at once
     wave: 0.6, // 0 = every rod on its own random timing, 1 = rods ordered by a slow wave round the globe (fire in sequences)
-    seam: 0.05, // width of the engraved seam between panels, constant over the whole globe
-    bevel: 0.025, // hairline rounded edge on the panel top, so the seam stays crisp
+    seam: 0.06, // width of the engraved seam between panels, constant over the whole globe
+    bevel: 0.035, // rounded, beveled edge on the panel top, so the seam catches the key and rim light
     lift: 0.07, // world units a hovered/focused (or comet-struck) panel rises
-    // material
-    roughness: 0.6, // matte stone; the lights give it a gentle satin highlight
-    sheen: 0.3, // satin lift at grazing angles
-    envIntensity: 0.07, // procedural studio reflection and diffuse room light (high tier only), kept low so the key and its shadows carry the form; caps reflect it much harder (capGloss)
-    // basalt (procedural, from the five palette tokens): flat matte tops, dark striated sides
-    sideDark: 0.75, // how dark the column walls are (0 = wax-dim stone, 1 = ink-2)
+    // material: machined metal (MeshPhysicalMaterial), a light clearcoat, env IBL doing most of the modelling work
+    metalness: 0.7,
+    roughness: 0.35,
+    clearcoat: 0.3,
+    clearcoatRoughness: 0.25,
+    sheen: 0.12, // satin lift at grazing angles, small now the clearcoat and env give their own Fresnel
+    envIntensity: 1.0, // procedural studio reflection and diffuse room light (both tiers); caps reflect it much harder (capGloss)
+    roughJitter: 0.25, // per-tile + fine-noise roughness variation, so the metal never reads as one uniform sheet
+    tintJitter: 0.15, // small per-tile shift toward the pale tone, layered on top of hueDrift
+    gradient: 0.25, // soft light-top/cool-bottom gradient across the whole sphere (world-space normal.y)
+    // basalt (procedural, from the five palette tokens): flat tops, dark striated sides
+    sideDark: 0.55, // how dark the column walls are (0 = wax-dim stone, 1 = ink-2)
     grain: 0.2, // fine grain on the tops, high tier only (faded by pixel footprint)
     mottle: 0.2, // slow blotchy tone variation of the tops
     pillow: 0.3, // tops fall off gently toward the edge (a soft pillow gradient, centre lighter): 0 = flat
@@ -76,9 +85,18 @@ export const look = {
     key: 3.0, // directional key intensity (lower than round 8: the key now rakes at 30 degrees, so tops catch more of it)
     hemi: 0.05,
     ambient: 0.03, // low, so walls and tops read as different planes
-    kicker: 0.85, // rim light from behind the globe: a little rim on the limb
+    fill: 0.4, // dim directional opposite the key, no shadow: keeps the shadow side of the metal from going black
+    kicker: 1.4, // rim light from behind the globe, raised for round 11: a harder rim on the limb and the bevels
     sweep: 0.6, // 0 = key rides with the camera, 1 = fixed in the world; between, highlights travel as the camera orbits
     keyElevation: 30, // degrees: a low, raking key
+  },
+  core: {
+    color: 0.5, // 0..1 mix toward the pale tone (a cool iron-blue floor stays in at every value; never the comet accent)
+    intensity: 2.5, // HDR multiplier on the globe's seam floor: values above 1 bloom through the seams. The moon's floor stays dark ink.
+  },
+  bg: {
+    gradient: 0.6, // strength of the radial background gradient (ink-2 centre to ink edge)
+    fog: 1.0, // scales the fog distances set in world.ts/lookdev.astro: > 1 = lighter (farther) fog
   },
   packet: {
     // the comet: small hard head, tapering tail that grows with speed, a few shed sparks. Nothing additive.
@@ -115,6 +133,13 @@ export const look = {
     spawnRadius: 7,
   },
   post: {
+    exposure: 1.0, // renderer.toneMappingExposure (ACES)
+    bloomStrength: 0.35,
+    bloomRadius: 0.4,
+    bloomThreshold: 0.85, // luminance floor: only highlights and the core bloom
+    aoIntensity: 1.0, // GTAO blend strength, high tier only
+    aoRadius: 0.25, // GTAO world-space sample radius, high tier only
+    vignette: 0.35,
     chromaticAberration: 0.007, // RGB split, grows with distance from centre
     grain: 0.02,
     grainSize: 1.5, // px
@@ -127,13 +152,16 @@ export type Look = typeof look;
 export const ranges: { [G in keyof Look]?: { [K in keyof Look[G]]?: [number, number, number] } } = {
   cell: {
     relief: [0.01, 0.15, 0.005], elevation: [0, 0.85, 0.005], steps: [2, 10, 1], terrainScale: [0.5, 4, 0.05], stroke: [0, 0.8, 0.01], pistonSpeed: [3, 30, 0.5], activity: [0.05, 0.6, 0.01], wave: [0, 1, 0.01], seam: [0.02, 0.25, 0.005], bevel: [0, 0.06, 0.0025], lift: [0, 0.3, 0.005],
-    roughness: [0.15, 1, 0.01], sheen: [0, 1.5, 0.01], envIntensity: [0, 1.5, 0.01],
+    metalness: [0, 1, 0.01], roughness: [0.05, 1, 0.01], clearcoat: [0, 1, 0.01], clearcoatRoughness: [0, 1, 0.01],
+    sheen: [0, 1.5, 0.01], envIntensity: [0, 2, 0.01], roughJitter: [0, 1, 0.01], tintJitter: [0, 1, 0.01], gradient: [0, 1, 0.01],
     sideDark: [0, 1, 0.01], grain: [0, 1, 0.01], mottle: [0, 1, 0.01], pillow: [0, 0.8, 0.01], hueDrift: [0, 1, 0.01], grainBump: [0, 1, 0.01], edge: [0, 1.5, 0.01], tone: [0, 0.2, 0.005],
     towerLift: [0, 1, 0.01], towerStep: [0, 0.3, 0.005], capGloss: [0, 0.95, 0.01], capBevel: [1, 6, 0.1],
     agentTone: [0, 0.6, 0.01], hover: [0, 1.2, 0.01],
     moonTurnSec: [8, 120, 1], moonDrift: [0, 0.6, 0.01], moonStroke: [0, 1, 0.01],
   },
-  light: { key: [0, 4, 0.05], hemi: [0, 2, 0.02], ambient: [0, 1, 0.01], kicker: [0, 3, 0.05], sweep: [0, 1, 0.01], keyElevation: [5, 80, 1] },
+  light: { key: [0, 4, 0.05], hemi: [0, 2, 0.02], ambient: [0, 1, 0.01], fill: [0, 2, 0.02], kicker: [0, 3, 0.05], sweep: [0, 1, 0.01], keyElevation: [5, 80, 1] },
+  core: { color: [0, 1, 0.01], intensity: [0, 6, 0.05] },
+  bg: { gradient: [0, 1, 0.01], fog: [0.3, 2, 0.01] },
   packet: {
     headSize: [3, 24, 0.5], headBrightness: [0.2, 2, 0.01], tailMin: [0, 2, 0.02], tailGain: [0, 2, 0.01], tailMax: [0.5, 8, 0.05],
     tailWidth: [0.02, 0.4, 0.005], tailFade: [0.3, 4, 0.05], sparks: [0, 2, 0.05], height: [0.05, 0.8, 0.01],
@@ -144,5 +172,9 @@ export const ranges: { [G in keyof Look]?: { [K in keyof Look[G]]?: [number, num
     attract: [0, 1, 0.005], attractStrength: [0, 30, 0.1], damping: [0.2, 8, 0.1], maxSpeed: [1, 20, 0.1],
     size: [0.5, 8, 0.1], opacity: [0.05, 1, 0.01], textWidth: [6, 26, 0.5], spawnRadius: [2, 20, 0.5],
   },
-  post: { chromaticAberration: [0, 0.05, 0.001], grain: [0, 0.12, 0.001], grainSize: [1, 4, 0.1] },
+  post: {
+    exposure: [0.4, 2, 0.01], bloomStrength: [0, 1.5, 0.01], bloomRadius: [0, 1, 0.01], bloomThreshold: [0, 1.5, 0.01],
+    aoIntensity: [0, 2, 0.01], aoRadius: [0.05, 1, 0.01], vignette: [0, 1, 0.01],
+    chromaticAberration: [0, 0.05, 0.001], grain: [0, 0.12, 0.001], grainSize: [1, 4, 0.1],
+  },
 };
