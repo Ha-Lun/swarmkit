@@ -2,13 +2,14 @@
 // It reads the shared scroll state and the locked look; it never re-tunes either, and never listens to scroll.
 // The camera reads a critically damped copy of the scroll progress (about 0.15 s), so wheel and trackpad steps never reach it raw.
 import {
-  Color, Fog, Group, HalfFloatType, PCFShadowMap, PerspectiveCamera, Scene, Vector2, Vector3, WebGLRenderer, WebGLRenderTarget,
+  ACESFilmicToneMapping, CanvasTexture, Color, Fog, Group, HalfFloatType, PCFShadowMap, PerspectiveCamera, Scene,
+  SRGBColorSpace, Vector2, Vector3, WebGLRenderer, WebGLRenderTarget,
 } from 'three';
 import type { Agent } from '../agents';
 import type { ScrollState } from '../scroll';
 import { createCameraPath, SEGMENTS } from './camera-path';
 import { sceneAlpha } from './scene-dom';
-import { accentCandidates, look, readPalette } from './config';
+import { accentCandidates, look, readPalette, type Palette } from './config';
 import { cellTopOf, createHoneycomb, layoutLattice, type Honeycomb } from './honeycomb';
 import { motion, spinWeight, SWARM_CAM } from './motion-config';
 import { createPost, type Post } from './post';
@@ -48,6 +49,25 @@ export interface World {
 
 const MAX_DPR: Record<ActiveTier, number> = { high: 2, medium: 1.5 };
 
+/** Radial gradient background (round 11): ink-2 centre fading to ink at the edge, strength look.bg.gradient. Procedural,
+ *  sRGB (matches the palette tokens' own space), small (256px: it only ever shows through as a soft blend). Shared with
+ *  /lookdev, so the two renderers show the same backdrop. */
+export function createBgTexture(palette: Palette, strength: number): CanvasTexture {
+  const s = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = s;
+  const ctx = canvas.getContext('2d')!;
+  const inner = `#${new Color(palette.ink).lerp(new Color(palette.ink2), strength).getHexString()}`;
+  const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  g.addColorStop(0, inner);
+  g.addColorStop(1, palette.ink);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, s, s);
+  const tex = new CanvasTexture(canvas);
+  tex.colorSpace = SRGBColorSpace;
+  return tex;
+}
+
 function readAccent(): string {
   // The accent belongs to the comet (head, tail, sparks, its rings) only; this is the one place it is read.
   const css = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
@@ -61,8 +81,12 @@ export function createWorld(opts: WorldOptions): World {
 
   const renderer = new WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.setClearColor(palette.ink);
+  renderer.toneMapping = ACESFilmicToneMapping;
+  renderer.toneMappingExposure = look.post.exposure;
+  renderer.outputColorSpace = SRGBColorSpace;
   const scene = new Scene();
-  scene.background = new Color(palette.ink); // (render targets need the linear value, not just the clear colour)
+  const bgTex = createBgTexture(palette, look.bg.gradient);
+  scene.background = bgTex;
   scene.fog = new Fog(palette.ink, 20, 120);
   const camera = new PerspectiveCamera(40, 1, 0.1, 400);
 
@@ -143,7 +167,9 @@ export function createWorld(opts: WorldOptions): World {
 
   function ensureTargets() {
     if (rtA) return;
-    const samples = tier === 'high' ? 4 : 2;
+    // high tier: post.renderScene already resolves MSAA into its own scratch target before writing here; medium
+    // tier renders straight into these, so they carry their own antialiasing
+    const samples = tier === 'high' ? 0 : 2;
     rtA = new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples });
     rtB = new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples });
     if (tier === 'high') rtC = new WebGLRenderTarget(1, 1, { type: HalfFloatType });
@@ -184,7 +210,7 @@ export function createWorld(opts: WorldOptions): World {
     applyShadows();
     hiCur.clear();
     post?.dispose();
-    post = tier === 'high' ? createPost(renderer, scene, camera, look.post) : null;
+    post = tier === 'high' ? createPost(renderer, scene, camera, look.post, comb.aoGroup) : null;
     freeTargets();
     if (swarm) {
       swarmScene.remove(swarm.points);
@@ -255,6 +281,8 @@ export function createWorld(opts: WorldOptions): World {
     if (w <= 0) spinFree = spinHome = 0;
     globe.rotation.y = w <= 0 ? 0 : spinHome + (spinFree - spinHome) * w;
     globe.updateMatrixWorld(true);
+    // the G-buffer twin (post.ts) is unparented (its own private scene, so nothing else can corrupt it): keep its spin in sync by hand
+    if (comb.aoGroup) comb.aoGroup.rotation.y = globe.rotation.y;
   }
 
   function pose(g: number) {
@@ -273,10 +301,10 @@ export function createWorld(opts: WorldOptions): World {
     camera.lookAt(target);
     // the key sweeps round the globe as the camera orbits (studio.ts), with a soft kicker from behind
     studio.update(camera, { timeSec: time });
-    // fog follows camera distance so the recede reads as dimming, not clipping
+    // fog follows camera distance so the recede reads as dimming, not clipping; look.bg.fog > 1 pushes it farther out
     const d = pos.length();
-    (scene.fog as Fog).near = d * 0.6;
-    (scene.fog as Fog).far = d * 3 + 40;
+    (scene.fog as Fog).near = d * 0.6 * look.bg.fog;
+    (scene.fog as Fog).far = (d * 3 + 40) * look.bg.fog;
   }
 
   function stepHilite(dt: number) {
@@ -385,20 +413,19 @@ export function createWorld(opts: WorldOptions): World {
 
     if (view.dissolve > 0.001 && view.dissolve < 0.999 && rtA && rtB) {
       // Both halves are drawn at the LIVE camera pose (pose(g) above), so they move together and the only difference is the dim:
-      // outgoing = the lattice undimmed, incoming = the lattice as dimmed by the same ease that drives the dissolve. On the high tier
-      // the composite goes through the same post chain as every other frame, so aberration and grain never switch off.
+      // outgoing = the lattice undimmed, incoming = the lattice as dimmed by the same ease that drives the dissolve. On the high
+      // tier each half already carries GTAO and bloom (post.renderScene), so neither pops in or out of the transition; the
+      // composite then goes through the same output stage (ACES, aberration, grain, vignette) as every other frame.
+      if (post) post.sync(look.post);
       comb.update(view.growth, 0, time, spinW);
-      renderer.setRenderTarget(rtA);
-      renderer.render(scene, camera);
+      if (post) post.renderScene(rtA, dt); else { renderer.setRenderTarget(rtA); renderer.render(scene, camera); }
       comb.update(view.growth, view.dim, time, spinW);
-      renderer.setRenderTarget(rtB);
-      renderer.render(scene, camera);
+      if (post) post.renderScene(rtB, dt); else { renderer.setRenderTarget(rtB); renderer.render(scene, camera); }
       // distance to the visible cells: when the look-at is the globe centre, the surface is one radius nearer
       const dCell = Math.max(2, camera.position.distanceTo(target) - (target.length() < lattice.radius * 0.5 ? lattice.radius : 0));
       const hexPx = hexPixelSize(camera.fov, rtA.height, lattice.cellRadius, dCell);
       if (post && rtC) {
         dissolve.render(renderer, rtA.texture, rtB.texture, view.dissolve, hexPx, look.dissolve, rtC);
-        post.sync(look.post);
         post.renderTexture(rtC.texture, dt, time);
       } else {
         dissolve.render(renderer, rtA.texture, rtB.texture, view.dissolve, hexPx, look.dissolve);
@@ -423,7 +450,7 @@ export function createWorld(opts: WorldOptions): World {
     }
   }
 
-  post = tier === 'high' ? createPost(renderer, scene, camera, look.post) : null;
+  post = tier === 'high' ? createPost(renderer, scene, camera, look.post, comb.aoGroup) : null;
   resize(true);
   return world;
 }

@@ -82,7 +82,8 @@ const favicon =
     <script id="agents-data" type="application/json" set:html={JSON.stringify(agents)} />
     <script>
       import {
-        Color, Fog, HalfFloatType, PCFShadowMap, PerspectiveCamera, Scene, Vector2, WebGLRenderer, WebGLRenderTarget,
+        ACESFilmicToneMapping, Color, Fog, HalfFloatType, PCFShadowMap, PerspectiveCamera, Scene, SRGBColorSpace, Vector2,
+        WebGLRenderer, WebGLRenderTarget,
       } from 'three';
       import type { Agent } from '../lib/agents';
       import { accentCandidates, look, ranges, readPalette, type Tier } from '../lib/world/config';
@@ -92,6 +93,7 @@ const favicon =
       import { createPost, type Post } from '../lib/world/post';
       import { createStudio, shadowExtentOf, type Studio } from '../lib/world/studio';
       import { createSwarm, type Swarm } from '../lib/world/swarm-particles';
+      import { createBgTexture } from '../lib/world/world';
 
       const agents: Agent[] = JSON.parse(document.getElementById('agents-data')!.textContent!);
       const q = new URLSearchParams(location.search);
@@ -105,11 +107,11 @@ const favicon =
 
       type PanelId = 'cell' | 'packet' | 'dissolve' | 'particles' | 'post' | 'palette';
       const PANELS: Record<PanelId, { title: string; note: string; groups: (keyof typeof look)[] }> = {
-        cell: { title: 'Stone panels + lights', groups: ['cell', 'light'], note: 'Round 7, basalt columns, no glow. Judge: does the globe read as stepped basalt at the wide view and in the fly-over (elevation, steps, terrain scale, side darkness, grain), the column walls, seam width and evenness, hairline bevel, the polished agent facets (tone of agent vs filler stone, bevel, reflection), the moving key (swing the orbit slider), and the moon (view moon). Active tone and lift are the hover/focus state.' },
-        packet: { title: 'Comet', groups: ['packet'], note: 'Judge: is the head small and hard, does the tail lengthen with speed (move the speed slider) and taper crisply, are the sparks few. No glow. Three accent candidates run the same loop.' },
+        cell: { title: 'Metal panels + lights', groups: ['cell', 'light', 'core', 'bg'], note: 'Round 11 (overrides round 7-8 matte basalt and round 4 no-glow): machined metal panels (metalness, roughness, clearcoat), per-tile roughness/tint jitter, a soft top-lit/cool-bottom gradient across the sphere, key + fill + rim + env lighting, an emissive core glowing through the seams (core.color/intensity), and the gradient background + fog (bg.gradient/fog). Judge: no black faces, even seams, the polished agent facets, the moving key (swing the orbit slider), the moon (view moon), and whether the core glow reads as a light source rather than a smear.' },
+        packet: { title: 'Comet', groups: ['packet'], note: 'Judge: is the head small and hard, does the tail lengthen with speed (move the speed slider) and taper crisply, are the sparks few. Should stay hard-edged, not bloom (raise post.bloomThreshold or lower packet.headBrightness if it does). Three accent candidates run the same loop.' },
         dissolve: { title: 'Hex dissolve', groups: ['dissolve'], note: 'Judge: speed (use auto), hex size against the lattice, wavefront uniformity. Hex size is tied to the on-screen lattice cell.' },
         particles: { title: 'Particle swarm', groups: ['particles'], note: 'Judge: curl flow reads as swarm not fireworks, dim-to-bright, convergence on the target. attract stands in for chapterProgress.' },
-        post: { title: 'Chromatic aberration + grain', groups: ['post'], note: 'High tier only. Judge: if either is noticeable at a glance it is too much. Toggle to compare.' },
+        post: { title: 'AO + bloom + vignette + grain', groups: ['post'], note: 'High tier only. GTAO in the seams and column shadows, bloom on highlights and the emissive core, ACES exposure, a light vignette, chromatic aberration and grain. Judge: each effect noticeable only up close, never at a glance. Toggle to compare.' },
         palette: { title: 'Palette + type', groups: [], note: 'Round-1 tokens. Pick one accent (cyan / violet / coral).' },
       };
 
@@ -125,8 +127,11 @@ const favicon =
       // ---- renderer + shared scene ----
       const renderer = new WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
       renderer.setClearColor(palette.ink);
+      renderer.toneMapping = ACESFilmicToneMapping;
+      renderer.toneMappingExposure = look.post.exposure;
+      renderer.outputColorSpace = SRGBColorSpace;
       const scene = new Scene();
-      scene.background = new Color(palette.ink); // (not just clear colour: render targets need the linear value)
+      scene.background = createBgTexture(palette, look.bg.gradient);
       scene.fog = new Fog(palette.ink, 20, 120);
       const cam = new PerspectiveCamera(40, 1, 0.1, 400);
 
@@ -165,8 +170,14 @@ const favicon =
         cam.position.set(p[0] * ca + p[2] * sa, p[1], -p[0] * sa + p[2] * ca);
         cam.lookAt(t[0] * ca + t[2] * sa, t[1], -t[0] * sa + t[2] * ca);
         const d = cam.position.length();
-        (scene.fog as Fog).near = d * 0.6;
-        (scene.fog as Fog).far = d * 3 + 40;
+        (scene.fog as Fog).near = d * 0.6 * look.bg.fog;
+        (scene.fog as Fog).far = (d * 3 + 40) * look.bg.fog;
+      }
+      // the gradient is a baked CanvasTexture (world.ts's createBgTexture), so the bg.gradient slider must rebuild it by hand
+      function applyBg() {
+        const old = scene.background;
+        scene.background = createBgTexture(palette, look.bg.gradient);
+        if (old && 'dispose' in old) old.dispose();
       }
 
       const dissolve = createHexDissolve();
@@ -219,7 +230,7 @@ const favicon =
         applyShadows();
         applyCellState();
         post?.dispose();
-        post = tier === 'high' ? createPost(renderer, scene, cam, look.post) : null;
+        post = tier === 'high' ? createPost(renderer, scene, cam, look.post, comb.aoGroup) : null;
         if (swarm) buildSwarm();
         resize();
         document.querySelectorAll<HTMLButtonElement>('[data-tier]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tier === tier)));
@@ -292,7 +303,7 @@ const favicon =
         }
         for (const g of def.groups) {
           const r = (ranges as Record<string, Record<string, [number, number, number]>>)[g];
-          for (const k of Object.keys(r)) slider(sl, `${g}.${k}`, () => L[g][k], (v) => (L[g][k] = v), r[k], g === 'particles' && k === 'textWidth' ? () => swarm?.retarget(L.particles.textWidth) : undefined);
+          for (const k of Object.keys(r)) slider(sl, `${g}.${k}`, () => L[g][k], (v) => (L[g][k] = v), r[k], g === 'particles' && k === 'textWidth' ? () => swarm?.retarget(L.particles.textWidth) : g === 'bg' && k === 'gradient' ? applyBg : undefined);
         }
         if (panel === 'particles' && !swarm) buildSwarm();
         if (panel !== 'particles' && swarm) { swarm.dispose(); swarm = null; swarmScene.clear(); }
