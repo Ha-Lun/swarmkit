@@ -1,5 +1,5 @@
 import {
-  BackSide, BoxGeometry, BufferAttribute, Color, Mesh, MeshBasicMaterial, MeshStandardMaterial, PMREMGenerator, Scene,
+  BackSide, BoxGeometry, BufferAttribute, Color, Mesh, MeshBasicMaterial, MeshPhysicalMaterial, PMREMGenerator, Scene,
   SphereGeometry, type IUniform, type Texture, type WebGLRenderer,
 } from 'three';
 import type { Look, Palette, Tier } from './config';
@@ -18,6 +18,9 @@ export interface CellUniforms {
   uGrainBump: IUniform<number>;
   uEdge: IUniform<number>;
   uAO: IUniform<number>;
+  uRoughJitter: IUniform<number>;
+  uTintJitter: IUniform<number>;
+  uGradient: IUniform<number>;
   uCapGloss: IUniform<number>;
   uCapBevel: IUniform<number>;
   uCapEnv: IUniform<number>;
@@ -30,33 +33,38 @@ export interface CellUniforms {
 }
 
 export interface CellMaterial {
-  material: MeshStandardMaterial;
+  material: MeshPhysicalMaterial;
   uniforms: CellUniforms;
   /** copy slider/config values into the uniforms (cheap, call per frame or on change) */
   sync(cfg: Look['cell']): void;
 }
 
 /**
- * Basalt columns on top of MeshStandardMaterial, patched via onBeforeCompile. Every colour is a mix of the five palette
- * tokens (wax, wax-dim, text, ink-2, ink); nothing here is a new colour and the accent is never read. Nothing is self-lit.
+ * Machined metal panels (round 11) on top of MeshPhysicalMaterial (metalness, roughness, a light clearcoat), patched via
+ * onBeforeCompile. Every colour is a mix of the five palette tokens (wax, wax-dim, text, ink-2, ink); nothing here is a
+ * new colour and the accent is never read. Nothing is self-lit (the emissive core is honeycomb.ts's own seam floor).
  *  - flush panels: the vertex stage replaces the unit prism's corners with the instance's own Voronoi corners (aCorn*), curves
  *    the top onto its sphere (aStone.w = 1 / body radius) and adds a hairline fillet in world units, so seams stay crisp and even.
  *    Each column has its own (quantised) height (honeycomb.ts applies the terrain), so the side walls are visible
- *  - tops: matte light stone token with a soft pillow gradient, a per-column tone and hue drift, a slow mottle; a fine grain on the high
- *    tier only, faded by the pixel footprint, plus a very fine bump normal (uGrainBump) there. No cracks, no facets: the contrast comes
- *    from colour, the pillow and the light. A thin catch-light (uEdge) runs along every column's chamfer
- *  - sides: dark stone (uSideDark), vertical striation and faint horizontal cooling bands, darker toward the foot
+ *  - tops: a pale metal token with a soft pillow gradient, a per-column tone/hue/tint drift, a slow mottle, a soft top-lit/cool-shadowed
+ *    gradient across the whole sphere (uGradient, world-space normal.y); a fine grain on the high tier only, faded by the pixel
+ *    footprint, plus a very fine bump normal (uGrainBump) there. A thin catch-light (uEdge) runs along every column's chamfer.
+ *    Roughness carries its own per-tile + fine-noise jitter (uRoughJitter) so the metal never reads as one flat sheet
+ *  - sides: dark metal (uSideDark), vertical striation and faint horizontal cooling bands, darker toward the foot, lit by the env
  *  - agents: towers (honeycomb.ts stands them above every rod) with a polished pale cap: lighter stone with a small tone step per band
- *    (aRock.y), roughness scaled by (1 - capGloss), a harder studio reflection on caps only, a wider chamfer so the edge catches the light.
+ *    (aRock.y), roughness scaled by (1 - capGloss), a harder env reflection on caps only, a wider chamfer so the edge catches the light.
  *    The shaft keeps the dark filler wall shading. No inlay, no ring, no accent, no glow (aInlay.x = agent flag, aInlay.w = half-width)
  *  - hover/focus: aState.x brightens the tone, aState.y lifts the panel along its normal
- * Medium tier: same body, seams, sheen and striation; no grain, no studio reflection, no shadow map (a per-cell ambient-occlusion
- * stand-in, aState.z, darkens tops beside taller neighbours instead).
+ * Medium tier: same body, seams and striation, and (round 11) the same env map and gradient; no grain, no shadow map (a per-cell
+ * ambient-occlusion stand-in, aState.z, darkens tops beside taller neighbours instead).
  */
-// medium has no studio reflection to make the cap read as polished, so its chamfer is wider and its sheen stronger instead
+// medium has no shadow map to sculpt the cap, so its chamfer is a touch wider to read as polished at a glance
 const capBevelOf = (c: Look['cell'], tier: Tier) => c.capBevel * (tier === 'high' ? 1 : 1.4);
-// the cap reflects the studio harder than the raw stone (envMapIntensity applies to the whole material; this multiplies it on caps only)
-const capEnvOf = (c: Look["cell"]) => 1 + 24 * c.capGloss;
+// the cap reflects the env harder than the raw metal (envMapIntensity applies to the whole material; this multiplies it on caps only).
+// This constant was tuned for round 8-10's envIntensity ~0.07; round 11 raised envIntensity to ~1 for the metal, so the same
+// multiplier here would push the caps to ~17x and blow out to white in close framing (found via /lookdev's `cell` view) - scaled
+// down so the cap reads as polished against the metal body rather than as a flat white mirror.
+const capEnvOf = (c: Look["cell"]) => 1 + 3 * c.capGloss;
 
 // medium has no shadow map: tops are darkened by how much taller their neighbours are (honeycomb.ts writes aState.z), this strong at most
 const MEDIUM_AO = 0.5;
@@ -79,6 +87,9 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
     uGrainBump: { value: tier === 'high' ? cfg.grainBump : 0 },
     uEdge: { value: cfg.edge },
     uAO: { value: tier === 'medium' ? MEDIUM_AO : 0 },
+    uRoughJitter: { value: cfg.roughJitter },
+    uTintJitter: { value: cfg.tintJitter },
+    uGradient: { value: cfg.gradient },
     uCapGloss: { value: cfg.capGloss },
     uCapBevel: { value: capBevelOf(cfg, tier) },
     uCapEnv: { value: capEnvOf(cfg) },
@@ -90,11 +101,13 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
     uSheenColor: { value: wax.clone().lerp(text, 0.45) },
   };
 
-  const material = new MeshStandardMaterial({
+  const material = new MeshPhysicalMaterial({
     color: new Color(1, 1, 1), // the stone colour is computed in the shader; this only carries the proof-chapter dimming
     roughness: cfg.roughness,
     envMapIntensity: cfg.envIntensity, // (the site never calls sync(), so the constructor must carry it; before round 9 it silently stayed at 1)
-    metalness: 0,
+    metalness: cfg.metalness,
+    clearcoat: cfg.clearcoat,
+    clearcoatRoughness: cfg.clearcoatRoughness,
     dithering: true,
   });
 
@@ -114,7 +127,8 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         varying float vWallH;
         varying float vHover;
         varying float vNy;
-        varying float vAO;`,
+        varying float vAO;
+        varying vec3 vWorldN;`,
       )
       // the top face follows its sphere: its normals lean outward by (distance from the panel centre) / (body radius)
       .replace(
@@ -137,7 +151,10 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         vHover = aState.x;
         vAO = aState.z;
         vNy = normal.y;
-        vWallH = cellWallH;`,
+        vWallH = cellWallH;
+        // world-space panel normal (curvature lean included): drives the soft top-lit/cool-shadowed gradient across the sphere.
+        // The globe only ever rotates about Y, so its .y is stable under the spin.
+        vWorldN = normalize( ( modelMatrix * instanceMatrix * vec4( objectNormal, 0.0 ) ).xyz );`,
       )
       .replace('#include <project_vertex>', CELL_VERT_PROJECT)
       .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>\n${CELL_VERT_WORLDPOS_LIFT}`);
@@ -147,6 +164,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         '#include <common>',
         `${defs}#include <common>
         uniform float uSheen, uSideDark, uGrain, uMottle, uTone, uAgentTone, uHover, uCapGloss, uCapEnv, uPillow, uHueDrift, uGrainBump, uEdge, uAO;
+        uniform float uRoughJitter, uTintJitter, uGradient;
         uniform vec3 uStoneBase, uStoneMid, uStoneLight, uStoneDark, uSheenColor;
         varying vec2 vCell;
         varying vec3 vStone;
@@ -156,6 +174,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         varying float vHover;
         varying float vNy;
         varying float vAO;
+        varying vec3 vWorldN;
         float gAgent = 0.0;
         float gWall = 0.0;
 
@@ -180,6 +199,8 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
           // each column drifts toward wax-dim (about a third of them, up to 60%) or ink-2 (a few, up to 30%)
           top = mix( top, uStoneBase * 1.25, uHueDrift * 0.6 * smoothstep( 0.25, 0.65, ph ) );
           top = mix( top, uStoneDark * 2.2, uHueDrift * 0.3 * smoothstep( 0.8, 1.0, ph ) );
+          // a small extra per-tile shift toward the pale tone, layered on the hue drift above
+          top = mix( top, uStoneLight, uTintJitter * 0.4 * smoothstep( 0.5, 1.0, h21( sd.zy + 19.0 ) ) );
           // pillow: the middle catches a little more, the edge a little less
           float rr = length( xz ) / max( vInlay.w * 1.15, 1e-3 );
           top *= 1.0 + uPillow * ( 0.35 - 0.9 * smoothstep( 0.25, 1.0, rr ) );
@@ -211,6 +232,9 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
           gAgent = agent;
           gWall = 1.0 - smoothstep( 0.35, 0.75, vNy );
           vec3 col = stone( vCell, vStone, gWall, vRock.x, vRock.y, agent );
+          // soft gradient across the whole sphere: brighter toward the top, a cool shift toward the bottom
+          col = mix( col, uStoneDark * 0.85, uGradient * 0.5 * saturate( -vWorldN.y ) );
+          col = mix( col, uStoneLight, uGradient * 0.22 * saturate( vWorldN.y ) );
           // thin catch-light along the chamfer (the rounded edge between wall and top): a small albedo lift, twice as strong on the caps
           float chamfer = smoothstep( 0.2, 0.5, vNy ) * ( 1.0 - smoothstep( 0.94, 0.995, vNy ) );
           col = mix( col, uStoneLight, saturate( uEdge * chamfer * ( 0.5 + 0.5 * agent ) ) );
@@ -238,6 +262,12 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
       .replace(
         '#include <roughnessmap_fragment>',
         `#include <roughnessmap_fragment>
+        {
+          // procedural roughness: a per-tile hash step plus a fine noise term, so the metal never reads as one flat sheet
+          float ptR = h21( vStone.yz );
+          float rn = vnoise( cellUV( vCell, vStone ) * 9.0 + 4.0 ) - 0.5;
+          roughnessFactor = clamp( roughnessFactor * ( 1.0 + uRoughJitter * ( ( ptR - 0.5 ) * 1.4 + 0.8 * rn ) ), 0.04, 1.0 );
+        }
         roughnessFactor = mix( roughnessFactor, roughnessFactor * ( 1.0 - uCapGloss ), gAgent * ( 1.0 - gWall ) ); // the cap is polished`,
       )
       .replace(
@@ -265,13 +295,13 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
             sheen *= 1.0 + 1.6 * gAgent * ( 1.0 - gWall ); // no studio reflection on medium: the cap gets a stronger satin lift instead
           #endif
           outgoingLight += uSheenColor * lum * sheen * pow( grazing, 2.0 ) * lit;
-          // the column walls sit in soft shadow, deeper toward the foot: rock faces, not black gaps
-          outgoingLight *= 1.0 - gWall * ( 0.25 + 0.3 * ( 1.0 - smoothstep( 0.0, 0.16, vWallH ) ) );
+          // the column walls sit in soft shadow, deeper toward the foot: dark metal lit by the env, never a black gap
+          outgoingLight *= 1.0 - gWall * ( 0.12 + 0.15 * ( 1.0 - smoothstep( 0.0, 0.16, vWallH ) ) );
         }
         #include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => `cell-${tier}-r9c`;
+  material.customProgramCacheKey = () => `cell-${tier}-r11`;
 
   return {
     material,
@@ -288,19 +318,26 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
       uniforms.uHueDrift.value = c.hueDrift;
       uniforms.uGrainBump.value = tier === 'high' ? c.grainBump : 0;
       uniforms.uEdge.value = c.edge;
+      uniforms.uRoughJitter.value = c.roughJitter;
+      uniforms.uTintJitter.value = c.tintJitter;
+      uniforms.uGradient.value = c.gradient;
       uniforms.uCapGloss.value = c.capGloss;
       uniforms.uCapBevel.value = capBevelOf(c, tier);
       uniforms.uCapEnv.value = capEnvOf(c);
       uniforms.uHover.value = c.hover;
       material.roughness = c.roughness;
+      material.metalness = c.metalness;
+      material.clearcoat = c.clearcoat;
+      material.clearcoatRoughness = c.clearcoatRoughness;
       material.envMapIntensity = c.envIntensity;
     },
   };
 }
 
 /**
- * Procedural studio reflection for the stone (high tier): a dark ink room with a soft overhead box, a warm key panel and
- * a cool thin strip behind. Colours are palette mixes; nothing is loaded. Baked once into a PMREM texture.
+ * Procedural studio reflection for the metal (round 11: both tiers): a dark ink room with a bright overhead softbox, a
+ * warm key panel, a dim fill card opposite it, a cool rim strip behind and a faint floor bounce below. Metal needs
+ * something to reflect. Colours are palette mixes; nothing is loaded. Baked once into a PMREM texture.
  */
 export function createStudioEnv(renderer: WebGLRenderer, palette: Palette): { texture: Texture; dispose(): void } {
   const ink = new Color(palette.ink), ink2 = new Color(palette.ink2), text = new Color(palette.text);
@@ -328,9 +365,11 @@ export function createStudioEnv(renderer: WebGLRenderer, palette: Palette): { te
   add(dome, new MeshBasicMaterial({ vertexColors: true, side: BackSide }), 0, 0, 0, false);
   const panel = (w: number, h: number, colr: Color, k: number) =>
     [new BoxGeometry(w, h, 0.5), new MeshBasicMaterial({ color: colr.clone().multiplyScalar(k) })] as const;
-  add(...panel(26, 26, text.clone().lerp(wax, 0.2), 5.0), 0, 30, 4); // overhead softbox
-  add(...panel(10, 22, wax.clone().lerp(text, 0.4), 7.0), -24, 8, 14); // warm key panel, front left
-  add(...panel(3, 24, ink2.clone().lerp(text, 0.55), 6.0), 20, 4, -22); // cool strip behind
+  add(...panel(26, 26, text.clone().lerp(wax, 0.2), 6.0), 0, 30, 4); // overhead softbox
+  add(...panel(10, 22, wax.clone().lerp(text, 0.4), 8.0), -24, 8, 14); // warm key panel, front left
+  add(...panel(12, 20, ink2.clone().lerp(wax, 0.3), 2.2), 24, 2, -6); // dim fill card, opposite the key
+  add(...panel(3, 24, ink2.clone().lerp(text, 0.55), 6.0), 20, 4, -22); // cool rim strip behind
+  add(...panel(30, 30, ink.clone().lerp(waxDim, 0.2), 1.0), 0, -26, 0); // faint floor bounce
 
   const pmrem = new PMREMGenerator(renderer);
   const rt = pmrem.fromScene(room, 0.03);

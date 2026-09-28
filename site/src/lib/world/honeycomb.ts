@@ -1,11 +1,12 @@
 import {
   BufferGeometry, Color, DynamicDrawUsage, Float32BufferAttribute, Group, InstancedBufferAttribute, InstancedMesh, Matrix4,
-  Mesh, MeshBasicMaterial, MeshStandardMaterial, Quaternion, SphereGeometry, Vector3, type WebGLRenderer,
+  Mesh, MeshBasicMaterial, MeshNormalMaterial, MeshPhysicalMaterial, Quaternion, SphereGeometry, Vector3, type WebGLRenderer,
 } from 'three';
-import { CELL_RADIUS, look, readPalette, SINK, type Tier } from './config';
+import { CELL_RADIUS, look, readPalette, SINK, type Look, type Tier } from './config';
 import { motion } from './motion-config';
 import { createCellMaterial, createStudioEnv, type CellUniforms } from './cell-material';
 import { createCellDepthMaterial } from './cell-depth';
+import { createCellNormalMaterial } from './cell-normal';
 import { buildSphere, type Sphere } from './sphere';
 import { terrainField } from './terrain';
 import type { Agent } from '../agents';
@@ -364,6 +365,9 @@ const ease = (t: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
 export interface Honeycomb {
   /** root object: two instanced panel meshes (hex, pentagon) sharing one material, plus the dark seam floors */
   object: Group;
+  /** GTAO's G-buffer scene content (round 11, high tier only): the same panels and floors, unparented, normal-material only.
+   *  post.ts adds it to its own private scene; the caller (world.ts) keeps its spin in sync with the globe's. */
+  aoGroup: Group | null;
   /** the pickable instanced meshes */
   meshes: InstancedMesh[];
   /** cell index for an instance of one of `meshes` */
@@ -373,7 +377,7 @@ export interface Honeycomb {
    *  moon's spin and drift (omitted: every column rests at its base height and the moon sits at home, which is what reduced-motion style callers want).
    *  `moonWeight` 0..1 (default 1) is how freely the moon moves: 0 parks it exactly at home, in between it eases there (see world.ts, spinWeight). */
   update(growth: number, dim: number, time?: number, moonWeight?: number): void;
-  material: MeshStandardMaterial;
+  material: MeshPhysicalMaterial;
   uniforms: CellUniforms;
   /** re-read look.cell into the material uniforms (and rebuild the seam footprints when the seam slider moved) */
   syncLook(): void;
@@ -483,11 +487,13 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
   const palette = readPalette();
   const cellMat = createCellMaterial(tier, palette, look.cell);
   const { material } = cellMat;
-  // procedural studio reflection: high tier only, and only when the caller can give us the renderer to bake it with
-  const env = tier === 'high' && renderer ? createStudioEnv(renderer, palette) : null;
+  // procedural studio reflection (round 11: both tiers, metal needs something to reflect), only when the caller can give us the renderer to bake it with
+  const env = renderer ? createStudioEnv(renderer, palette) : null;
   // cast shadows are high tier only (world.ts turns the shadow map on for it); medium darkens tops beside taller neighbours instead
   const shadows = tier === 'high';
   const depthMat = shadows ? createCellDepthMaterial(cellMat.uniforms) : null;
+  // GTAO's own G-buffer (high tier only): a normal-material twin of the panels, mirroring cell-depth.ts's shadow-depth trick
+  const normalMat = tier === 'high' ? createCellNormalMaterial(cellMat.uniforms) : null;
   const useAO = tier === 'medium';
   if (env) material.envMap = env.texture;
 
@@ -514,7 +520,15 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
     mesh.instanceMatrix.setUsage(DynamicDrawUsage);
     mesh.frustumCulled = false;
     if (shadows) { mesh.castShadow = true; mesh.receiveShadow = true; mesh.customDepthMaterial = depthMat!; } // the depth pass must run the cells' own vertex shader
-    return { cellIdx, geometry, state, stone, inlay, rock, corners, mesh };
+    // GTAO's twin: shares this mesh's own instanceMatrix (not the geometry's instanced attributes, which are already shared
+    // by both meshes reading `geometry`), so it never needs its own per-frame update
+    let gMesh: InstancedMesh | null = null;
+    if (normalMat) {
+      gMesh = new InstancedMesh(geometry, normalMat, cnt);
+      gMesh.instanceMatrix = mesh.instanceMatrix; // the default one it allocated is never uploaded, so just drops
+      gMesh.frustumCulled = false;
+    }
+    return { cellIdx, geometry, state, stone, inlay, rock, corners, mesh, gMesh };
   });
   const slotOf = new Map<number, { k: number; slot: number }>();
   kinds.forEach((kd, k) => kd.cellIdx.forEach((ci, slot) => slotOf.set(ci, { k, slot })));
@@ -558,26 +572,41 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
     return ring === 0 ? -1 : ((ring - 1) / ringSpan) * 0.72 + c.sweep * 0.06;
   };
 
-  // Seam floor: a dark matte sphere just under each body. It hides the far side through the seams, so the engraved
-  // seams read as recessed dark channels. It is the background ink: no emission, no growth-driven colour.
-  const floorMat = new MeshBasicMaterial({ color: new Color(palette.ink), fog: false });
+  // Seam floors: matte spheres just under each body. They hide the far side through the seams, so the engraved seams
+  // read as recessed channels. The moon's stays dark ink; the globe's (round 11) is a faint HDR emissive core, a cool
+  // iron-blue light glowing through its seams (never the comet's accent), so bloom catches it. It follows view.dim.
+  const coreColorOf = (core: Look['core']) =>
+    new Color(palette.ink2).lerp(new Color(palette.waxDim).lerp(new Color(palette.text), core.color), 0.7).multiplyScalar(core.intensity);
+  const coreMat = new MeshBasicMaterial({ color: coreColorOf(look.core), fog: false });
+  const moonMat = new MeshBasicMaterial({ color: new Color(palette.ink), fog: false });
   const floorGeos: SphereGeometry[] = [];
   const floors: Mesh[] = [];
   let moonFloor: Mesh | null = null;
-  const addFloor = (radius: number, at?: Vector3) => {
+  const addFloor = (radius: number, mat: MeshBasicMaterial, at?: Vector3) => {
     const g = new SphereGeometry(radius - SINK * 0.5, 96, 48);
     floorGeos.push(g);
-    const m = new Mesh(g, floorMat);
+    const m = new Mesh(g, mat);
     if (at) m.position.copy(at);
     floors.push(m);
     return m;
   };
-  addFloor(lattice.radius);
+  addFloor(lattice.radius, coreMat);
   const moonCell = lattice.cells.find((c) => c.moon);
-  if (moonCell) moonFloor = addFloor(moonCell.bodyRadius, lattice.moon.pos);
+  if (moonCell) moonFloor = addFloor(moonCell.bodyRadius, moonMat, lattice.moon.pos);
 
   const object = new Group();
   object.add(...floors, ...kinds.map((kd) => kd.mesh));
+  // GTAO's G-buffer twin (round 11, high tier only): the same floors and panels, normal-material only, never added to `object`
+  // or the real scene (world.ts keeps its spin in sync with the globe's; post.ts owns and renders it)
+  let aoGroup: Group | null = null;
+  let gFloorMat: MeshNormalMaterial | null = null;
+  if (normalMat) {
+    aoGroup = new Group();
+    gFloorMat = new MeshNormalMaterial();
+    const gFloors = floorGeos.map((g) => new Mesh(g, gFloorMat!));
+    gFloors.forEach((m, i) => m.position.copy(floors[i].position));
+    aoGroup.add(...gFloors, ...kinds.flatMap((kd) => (kd.gMesh ? [kd.gMesh] : [])));
+  }
 
   const m = new Matrix4();
   const p = new Vector3();
@@ -602,15 +631,17 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
     moonFloor?.position.copy(lattice.moon.pos);
   };
   const whiteBase = material.color.clone();
+  const coreBase = coreMat.color.clone();
 
   return {
     object,
+    aoGroup,
     meshes: kinds.map((kd) => kd.mesh),
     cellAt: (mesh, id) => kinds.find((kd) => kd.mesh === mesh)?.cellIdx[id] ?? -1,
     lattice,
     material,
     uniforms: cellMat.uniforms,
-    syncLook() { cellMat.sync(look.cell); },
+    syncLook() { cellMat.sync(look.cell); coreMat.color.copy(coreColorOf(look.core)); },
     setCellState(i, bright, lf) {
       const s = slotOf.get(i);
       if (!s) return;
@@ -671,14 +702,18 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
       if (dim !== lastDim) {
         lastDim = dim;
         material.color.copy(whiteBase).multiplyScalar(1 - 0.65 * dim);
+        coreMat.color.copy(coreBase).multiplyScalar(1 - 0.65 * dim); // the core follows the proof-chapter dim like the rest of the stone
       }
     },
     dispose() {
-      kinds.forEach((kd) => { kd.geometry.dispose(); kd.mesh.dispose(); });
+      kinds.forEach((kd) => { kd.geometry.dispose(); kd.mesh.dispose(); kd.gMesh?.dispose(); });
       floorGeos.forEach((g) => g.dispose());
-      floorMat.dispose();
+      coreMat.dispose();
+      moonMat.dispose();
       material.dispose();
       depthMat?.dispose();
+      normalMat?.dispose();
+      gFloorMat?.dispose();
       env?.dispose();
     },
   };
