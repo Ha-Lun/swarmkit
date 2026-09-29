@@ -384,7 +384,7 @@ export interface TowerRef { name: string; top: Vector3 }
 
 /** The tower whose card the walker sees: the nearest one in front of the camera, above the horizon, within `maxDist`. The one already shown (`current`) keeps
  *  the card unless another is at least 20% closer, so neighbours do not flicker. Pure. */
-export function nearestTowerAhead(towers: TowerRef[], camPos: Vector3, camFwd: Vector3, R: number, current: string | null, maxDist = 12): string | null {
+export function nearestTowerAhead(towers: TowerRef[], camPos: Vector3, camFwd: Vector3, R: number, current: string | null, maxDist = 7): string | null {
   let best: TowerRef | null = null, bd = maxDist, curD = Infinity;
   const dv = new Vector3();
   for (const t of towers) {

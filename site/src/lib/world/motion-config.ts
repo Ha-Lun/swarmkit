@@ -5,7 +5,7 @@ export const SWARM_CAM = { fov: 40, z: 24 } as const;
 
 export const motion = {
   /** Scroll length of each chapter runway, in viewport heights. Every runway holds one fixed, viewport-tall scene that only fades. */
-  runway: { intro: 100, hive: 300, cells: 300, proof: 150, finale: 400 },
+  runway: { intro: 100, hive: 300, cells: 800, proof: 150, finale: 400 },
   /** The hive packet is scrubbed by scroll across the pinned window; these are the seconds of route time it spans. */
   hive: { holdSec: 1.6, captionBlend: 0.05 },
   hud: { stagger: 0.035 },
@@ -86,7 +86,7 @@ export function dissolveMix(chapter: number, p: number): number {
 
 /** The walk (Cells chapter): where the camera is on the ground. The ramp values are provisional (tuned in the story integration): it dives in over
  *  chapterProgress inFrom..inTo and rises out over outFrom..outTo, finishing before the Cells -> Proof dissolve window opens (p = 0.917). */
-export const walkRamp = { inFrom: 0.1, inTo: 0.26, outFrom: 0.84, outTo: 0.9 } as const;
+export const walkRamp = { inFrom: 0.06, inTo: 0.2, outFrom: 0.8, outTo: 0.9 } as const;
 /** Walk weight 0..1 for chapter `chapter` at chapterProgress p: 0 = on the spline fly-over path, 1 = walking. Modelled on spinWeight; the pistons park with it. */
 export function walkWeight(chapter: number, p: number): number {
   if (chapter !== 2) return 0;
@@ -96,6 +96,6 @@ export function walkWeight(chapter: number, p: number): number {
 
 /** The walker (provisional values, tuned in the Phase 4 review): eye height above the local ground, vertical FOV, pitch below the horizon, near plane,
  *  and where in the Cells chapter progress the route runs from its first stand point (uFrom) to its last (uTo). */
-export const walkCfg = { eye: 0.3, fov: 75, pitchDeg: 15, near: 0.03, uFrom: 0.2, uTo: 0.86, coreDim: 0.9, fogNear: 0.5, fogFar: 1.6 } as const;
+export const walkCfg = { eye: 0.3, fov: 75, pitchDeg: 15, near: 0.03, uFrom: 0.14, uTo: 0.82, coreDim: 0.9, fogNear: 0.5, fogFar: 1.6 } as const;
 /** Route parameter 0..1 for Cells chapter progress p. */
 export const walkUOf = (p: number): number => Math.min(1, Math.max(0, (p - walkCfg.uFrom) / (walkCfg.uTo - walkCfg.uFrom)));
