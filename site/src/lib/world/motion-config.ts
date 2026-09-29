@@ -66,6 +66,7 @@ export const motion = {
   moon: {
     driftSec: 50, // seconds per lap of the drift ellipse
   },
+  walkScroll: 0.3, // wheel/touchpad multiplier while the walk is on screen (scroll.ts)
   probe: { ms: 1000, warmupFrames: 10, minFrames: 6, stepDownBelow: 45, fallbackBelow: 30 },
 } as const;
 

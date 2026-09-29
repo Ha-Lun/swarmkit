@@ -6,6 +6,7 @@ import Lenis from 'lenis';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { scrollToProgress, SEGMENTS } from './world/camera-path';
+import { motion } from './world/motion-config';
 
 export interface ScrollState {
   chapter: number;
@@ -36,6 +37,9 @@ export function initScroll(): Scroll {
   // SEGMENTS[i].t0/t1 exactly at the boundaries).
   const triggers = sections.map((el, i) => {
     const write = (p: number) => {
+      // the walk is read at walking pace: wheel and touchpad input is scaled down in the Cells chapter (a touchpad flick sends thousands of px);
+      // scrollbar drag and keyboard are not scaled. Lenis reads it from its virtual scroll on every wheel event.
+      (lenis as unknown as { virtualScroll: { options: { wheelMultiplier: number } } }).virtualScroll.options.wheelMultiplier = i === 2 ? motion.walkScroll : 1;
       state.chapter = i;
       state.chapterProgress = p;
       state.globalProgress = scrollToProgress(i, p); // arc-length balanced: the camera speed per scroll never jumps at a chapter boundary
