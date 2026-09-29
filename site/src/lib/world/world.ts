@@ -119,6 +119,8 @@ export function createWorld(opts: WorldOptions): World {
 
   const accent = readAccent();
   const flows: Flow[] = Array.from({ length: 4 }, () => createFlow(accent));
+  // GTAO's G-buffer content: the panels' twin plus the comets' (so the AO of the stone behind a comet is not multiplied onto it)
+  const aoGroupsOf = (h: Honeycomb) => [...(h.aoGroup ? [h.aoGroup] : []), ...flows.map((f) => f.packet.aoGroup)];
   flows.forEach((f) => globe.add(f.packet.group));
   // the comet's crisp scan ring and arrival ripples sit just above the tower cap they mark (hive.ts moves the shell to it)
   const agentTop = Math.max(...lattice.cells.filter((c) => c.agent && !c.moon).map((c) => c.reach));
@@ -217,7 +219,7 @@ export function createWorld(opts: WorldOptions): World {
     applyShadows();
     hiCur.clear();
     post?.dispose();
-    post = tier === 'high' ? createPost(renderer, scene, camera, look.post, comb.aoGroup) : null;
+    post = tier === 'high' ? createPost(renderer, scene, camera, look.post, aoGroupsOf(comb)) : null;
     freeTargets();
     if (swarm) {
       swarmScene.remove(swarm.points);
@@ -304,6 +306,7 @@ export function createWorld(opts: WorldOptions): World {
     globe.updateMatrixWorld(true);
     // the G-buffer twin (post.ts) is unparented (its own private scene, so nothing else can corrupt it): keep its spin in sync by hand
     if (comb.aoGroup) comb.aoGroup.rotation.y = globe.rotation.y;
+    flows.forEach((f) => (f.packet.aoGroup.rotation.y = globe.rotation.y));
   }
 
   function pose(g: number, dt: number) {
@@ -451,6 +454,7 @@ export function createWorld(opts: WorldOptions): World {
     if (!walkDprCap && walkW > 0.05) { walkDprCap = true; resize(true); } // (hysteresis: back to full resolution only once the rise is over)
     else if (walkDprCap && walkW < 0.005) { walkDprCap = false; resize(true); }
     if (walkW > 0.001) { flows.forEach((f) => (f.packet.group.visible = false)); rings.mesh.visible = false; } // the walker does not see the comet
+    flows.forEach((f) => (f.packet.aoGroup.visible = f.packet.group.visible));
     const coreScale = 1 - walkCfg.coreDim * walkW; // the seam glow dims under the walk camera so bloom does not bleed through the seams
     if (Math.abs(coreScale - walkCoreApplied) > 0.005 || (walkW === 0 && walkCoreApplied !== 1)) { comb.setCoreScale(coreScale); walkCoreApplied = coreScale; }
     comb.uniforms.uDetail.value = Math.max(look.cell.detail, walkCfg.detail * walkW); // the close-up richness of the metal fades in with the dive (the orbit views are untouched)
@@ -501,7 +505,7 @@ export function createWorld(opts: WorldOptions): World {
     }
   }
 
-  post = tier === 'high' ? createPost(renderer, scene, camera, look.post, comb.aoGroup) : null;
+  post = tier === 'high' ? createPost(renderer, scene, camera, look.post, aoGroupsOf(comb)) : null;
   resize(true);
   return world;
 }

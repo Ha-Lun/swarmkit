@@ -125,7 +125,7 @@ const favicon =
       type PanelId = 'cell' | 'packet' | 'dissolve' | 'particles' | 'post' | 'palette';
       const PANELS: Record<PanelId, { title: string; note: string; groups: (keyof typeof look)[] }> = {
         cell: { title: 'Metal panels + lights', groups: ['cell', 'light', 'core', 'bg'], note: 'Round 11 (overrides round 7-8 matte basalt and round 4 no-glow): machined metal panels (metalness, roughness, clearcoat), per-tile roughness/tint jitter, a soft top-lit/cool-bottom gradient across the sphere, key + fill + rim + env lighting, an emissive core glowing through the seams (core.color/intensity), and the gradient background + fog (bg.gradient/fog). Judge: no black faces, even seams, the polished agent facets, the moving key (swing the orbit slider), the moon (view moon), and whether the core glow reads as a light source rather than a smear.' },
-        packet: { title: 'Comet', groups: ['packet'], note: 'Judge: is the head small and hard, does the tail lengthen with speed (move the speed slider) and taper crisply, are the sparks few. Should stay hard-edged, not bloom (raise post.bloomThreshold or lower packet.headBrightness if it does). Three accent candidates run the same loop.' },
+        packet: { title: 'Comet', groups: ['packet'], note: 'Judge: is the head a solid lit sphere with a clean outline (a shadow under it on the high tier), does the tail lengthen with speed (move the speed slider) and taper crisply, are the sparks few. Should stay hard-edged, not bloom (raise post.bloomThreshold or lower packet.headBrightness if it does). Three accent candidates run the same loop.' },
         dissolve: { title: 'Hex dissolve', groups: ['dissolve'], note: 'Judge: speed (use auto), hex size against the lattice, wavefront uniformity. Hex size is tied to the on-screen lattice cell.' },
         particles: { title: 'Particle swarm', groups: ['particles'], note: 'Judge: curl flow reads as swarm not fireworks, dim-to-bright, convergence on the target. attract stands in for chapterProgress.' },
         post: { title: 'AO + bloom + vignette + grain', groups: ['post'], note: 'High tier only. GTAO in the seams and column shadows, bloom on highlights and the emissive core, ACES exposure, a light vignette, chromatic aberration and grain. Judge: each effect noticeable only up close, never at a glance. Toggle to compare.' },
@@ -344,7 +344,7 @@ const favicon =
         pathShown = false; applyPath();
         fxRadial = fxCore = fxShadowExt = -1; // the honeycomb and studio were rebuilt: re-apply the fixes
         post?.dispose();
-        post = tier === 'high' ? createPost(renderer, scene, cam, look.post, comb.aoGroup) : null;
+        post = tier === 'high' ? createPost(renderer, scene, cam, look.post, [...(comb.aoGroup ? [comb.aoGroup] : []), ...packets.map((k) => k.aoGroup)]) : null;
         if (swarm) buildSwarm();
         resize();
         document.querySelectorAll<HTMLButtonElement>('[data-tier]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tier === tier)));
@@ -495,6 +495,7 @@ const favicon =
         const showPackets = panel === 'packet' || panel === 'post' || panel === 'dissolve' || (inWalk && fx.comet); // the walker hides the comet: the toggle shows it for comparison
         packets.forEach((p, i) => {
           p.group.visible = showPackets && (accentSel === 'all' || accentSel === accentCandidates[i].name);
+          p.aoGroup.visible = p.group.visible;
           if (p.group.visible) p.update(loop, cometDist + (accentSel === 'all' ? (i * loop.length) / packets.length : 0), cam, look.packet, 1, dt);
         });
 

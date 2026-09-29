@@ -1,13 +1,15 @@
 import {
-  BufferAttribute, BufferGeometry, CatmullRomCurve3, Color, DoubleSide, Group, Mesh, Points, ShaderMaterial, Vector3, type Camera,
+  BufferAttribute, BufferGeometry, CatmullRomCurve3, Color, Group, Mesh, MeshNormalMaterial, MeshPhysicalMaterial, MeshStandardMaterial, Points, ShaderMaterial,
+  SphereGeometry, Vector3, type Camera,
 } from 'three';
 import { look, type Look } from './config';
 import { cellTopOf, type Lattice } from './honeycomb';
 
-// The comet: a large hard bright head, a camera-facing tail that tapers to a point and lengthens with the speed it is seen
-// to move at, and a few short-lived sparks it sheds. Everything is opaque with crisp edges (no additive blending, no soft
-// sprite), and it is the only thing on the site that uses the accent.
+// The comet: a glass orb (frosted, translucent, bright rim, a glowing core inside) trailing a tapered glass tube that lengthens with the speed
+// it is seen to move at, and a few short-lived sparks it sheds. Real meshes, studio-lit; alpha-blended (no additive blending, no soft sprite),
+// and it is the only thing on the site that uses the accent.
 const TAIL_POINTS = 40;
+const TAIL_SIDES = 8;
 const MAX_SPARKS = 20;
 
 /** Anything the comet can travel along: distance (world units) to a point. Routes clamp; loops wrap. */
@@ -18,6 +20,9 @@ export interface PathSource {
 
 export interface Packet {
   group: Group;
+  /** GTAO G-buffer twin of the head and tail (post.ts renders it): without it the AO of the panels behind the comet darkens the comet. The owner
+   *  mirrors the globe's spin onto it (like the honeycomb's aoGroup) and its visibility onto `group`'s. */
+  aoGroup: Group;
   /** draw the comet with its head at distance d along the path; dt (s) drives the observed speed and the sparks */
   update(path: PathSource, d: number, camera: Camera, cfg: Look['packet'], fade: number, dt: number): void;
   /** forget the observed speed and clear the sparks (after a route change or a jump) */
@@ -46,44 +51,6 @@ export function createTestCurve(lattice: Lattice, count = 8): CatmullRomCurve3 {
   return new CatmullRomCurve3(loop, true, 'centripetal');
 }
 
-const headVert = /* glsl */ `
-  uniform float uSize;
-  void main() {
-    gl_PointSize = uSize;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-  }`;
-// a hard disc: a white-hot core, an accent body and a darker outline ring (so it reads on pale tile tops and on dark seams alike), one pixel of edge anti-aliasing and nothing outside it
-const headFrag = /* glsl */ `
-  uniform vec3 uColor;
-  uniform vec3 uHot;
-  uniform float uBright;
-  uniform float uSize;
-  void main() {
-    float d = length( gl_PointCoord - 0.5 ) * 2.0;
-    float px = 2.0 / max( uSize, 2.0 );
-    if ( d > 1.0 ) discard;
-    vec3 c = mix( uHot, uColor, smoothstep( 0.45 - px, 0.45 + px, d ) );
-    c = mix( c, uColor * 0.4, smoothstep( 0.82 - px, 0.82 + px, d ) ) * uBright;
-    gl_FragColor = vec4( c, 1.0 );
-    #include <colorspace_fragment>
-  }`;
-const tailVert = /* glsl */ `
-  attribute float aFade;
-  varying float vFade;
-  void main() {
-    vFade = aFade;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-  }`;
-const tailFrag = /* glsl */ `
-  uniform vec3 uColor;
-  uniform vec3 uHot;
-  uniform float uBright;
-  varying float vFade;
-  void main() {
-    // solid colour, darker toward the tail end; the taper is geometry, so the edges stay crisp
-    gl_FragColor = vec4( mix( uColor * 0.35, mix( uColor, uHot, 0.35 ), vFade ) * uBright, 1.0 );
-    #include <colorspace_fragment>
-  }`;
 const sparkVert = /* glsl */ `
   attribute float aSize;
   uniform float uPx;
@@ -105,33 +72,48 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
   const colour = new Color(color);
   const hot = colour.clone().lerp(new Color(1, 1, 1), 0.5);
 
-  const headGeo = new BufferGeometry();
-  headGeo.setAttribute('position', new BufferAttribute(new Float32Array(3), 3));
-  const headMat = new ShaderMaterial({
-    uniforms: { uColor: { value: colour }, uHot: { value: hot }, uBright: { value: cfg.headBrightness }, uSize: { value: cfg.headSize } },
-    vertexShader: headVert, fragmentShader: headFrag, fog: false,
-  });
-  const head = new Points(headGeo, headMat);
-  head.frustumCulled = false;
+  // head: a glass sphere (unit radius, scaled per frame) with a small opaque glowing core inside, which keeps it readable on any background
+  const glass = { transparent: true, depthWrite: false, roughness: 0.12, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.05, sheen: 1, sheenRoughness: 0.35, sheenColor: new Color(1, 1, 1), fog: false } as const;
+  const headGeo = new SphereGeometry(1, 32, 16);
+  const headMat = new MeshPhysicalMaterial({ ...glass, color: colour.clone().lerp(new Color(1, 1, 1), 0.35), emissive: colour, opacity: cfg.glassOpacity });
+  const coreMat = new MeshStandardMaterial({ color: colour, emissive: hot, roughness: 0.5, metalness: 0, fog: false });
+  const head = new Mesh(headGeo, headMat);
+  const core = new Mesh(headGeo, coreMat);
+  core.scale.setScalar(0.5);
+  core.castShadow = true;
+  head.add(core);
+  head.renderOrder = 2;
+  head.frustumCulled = core.frustumCulled = false;
 
-  const N = TAIL_POINTS;
+  // tail: a tube of TAIL_SIDES per ring, rebuilt every frame in globe space; normals are the radial direction of each ring
+  const N = TAIL_POINTS, S = TAIL_SIDES;
   const tailGeo = new BufferGeometry();
-  const pos = new Float32Array(N * 2 * 3);
-  const fadeA = new Float32Array(N * 2);
+  const pos = new Float32Array(N * S * 3);
+  const nor = new Float32Array(N * S * 3);
+  const col = new Float32Array(N * S * 3);
   const index: number[] = [];
   for (let i = 0; i < N - 1; i++) {
-    const a = i * 2;
-    index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    for (let j = 0; j < S; j++) {
+      const a = i * S + j, b = i * S + ((j + 1) % S), c = (i + 1) * S + j, d = (i + 1) * S + ((j + 1) % S);
+      index.push(a, c, b, b, c, d);
+    }
   }
   tailGeo.setAttribute('position', new BufferAttribute(pos, 3));
-  tailGeo.setAttribute('aFade', new BufferAttribute(fadeA, 1));
+  tailGeo.setAttribute('normal', new BufferAttribute(nor, 3));
+  tailGeo.setAttribute('color', new BufferAttribute(col, 3));
   tailGeo.setIndex(index);
-  const tailMat = new ShaderMaterial({
-    uniforms: { uColor: { value: colour }, uHot: { value: hot }, uBright: { value: cfg.headBrightness } },
-    vertexShader: tailVert, fragmentShader: tailFrag, side: DoubleSide, fog: false,
-  });
+  const tailMat = new MeshPhysicalMaterial({ ...glass, color: 0xffffff, vertexColors: true, emissive: colour, opacity: cfg.glassOpacity });
   const tail = new Mesh(tailGeo, tailMat);
+  tail.renderOrder = 1;
   tail.frustumCulled = false;
+
+  // the GTAO twin: shares both geometries, normal material only (see Packet.aoGroup)
+  const aoGroup = new Group();
+  const aoMat = new MeshNormalMaterial();
+  const aoHead = new Mesh(headGeo, aoMat);
+  const aoTail = new Mesh(tailGeo, aoMat);
+  aoHead.frustumCulled = aoTail.frustumCulled = false;
+  aoGroup.add(aoHead, aoTail);
 
   // sparks: a small pool, CPU-simulated, hard dots that shrink to nothing over their life
   const sparkGeo = new BufferGeometry();
@@ -156,12 +138,17 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
 
   let viewportScale = 1;
   const pts = Array.from({ length: N }, () => new Vector3());
-  const tan = new Vector3(), view = new Vector3(), side = new Vector3(), tmp = new Vector3(), out = new Vector3();
+  const tan = new Vector3(), up = new Vector3(), bv = new Vector3(), uv = new Vector3(), side = new Vector3(), tmp = new Vector3(), out = new Vector3();
+  const dark = new Color(), lit = new Color(), tint = new Color();
   let lastD = NaN, speed = 0, tailDir = 1, tailLen = look.packet.tailMin;
 
   return {
     group,
-    setColor(hex) { colour.set(hex); hot.copy(colour).lerp(new Color(1, 1, 1), 0.5); },
+    aoGroup,
+    setColor(hex) {
+      colour.set(hex); hot.copy(colour).lerp(new Color(1, 1, 1), 0.5);
+      headMat.color.copy(colour).lerp(new Color(1, 1, 1), 0.35); headMat.emissive.copy(colour); tailMat.emissive.copy(colour); coreMat.color.copy(colour); coreMat.emissive.copy(hot);
+    },
     setViewportHeight: (px) => (viewportScale = px / 1080),
     reset() {
       lastD = NaN; speed = 0; tailLen = look.packet.tailMin;
@@ -181,27 +168,49 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
       const want = Math.min(c.tailMax, c.tailMin + c.tailGain * speed);
       tailLen += (want - tailLen) * (1 - Math.exp(-dt * 10));
 
-      headMat.uniforms.uBright.value = tailMat.uniforms.uBright.value = c.headBrightness;
-      headMat.uniforms.uSize.value = Math.max(2, c.headSize * viewportScale * fade);
+      const R = c.headRadius * fade;
+      headMat.emissiveIntensity = c.headGlow * c.headBrightness * 0.3;
+      tailMat.emissiveIntensity = c.headGlow * c.headBrightness * 0.3;
+      coreMat.emissiveIntensity = c.headGlow * c.headBrightness * 2;
+      headMat.opacity = c.glassOpacity;
+      tailMat.opacity = c.glassOpacity * 0.9;
       path.pointAt(d, out);
-      headGeo.attributes.position.setXYZ(0, out.x, out.y, out.z);
-      headGeo.attributes.position.needsUpdate = true;
+      head.position.copy(out);
+      head.scale.setScalar(Math.max(R, 1e-4));
+      head.visible = aoHead.visible = R > 1e-3;
+      aoHead.position.copy(out);
+      aoHead.scale.copy(head.scale);
+      aoTail.visible = tail.visible = head.visible;
 
       for (let i = 0; i < N; i++) path.pointAt(d - tailDir * (i / (N - 1)) * tailLen, pts[i]);
+      dark.copy(colour).multiplyScalar(0.35);
+      lit.copy(colour).lerp(hot, 0.35);
       for (let i = 0; i < N; i++) {
         const prev = pts[Math.max(0, i - 1)], next = pts[Math.min(N - 1, i + 1)];
         tan.subVectors(prev, next);
         if (tan.lengthSq() < 1e-10) tan.set(1, 0, 0);
         tan.normalize();
-        view.subVectors(camera.position, pts[i]);
+        // ring frame: b is across the path along the surface, uv is the globe's radial direction made perpendicular to the path
+        up.copy(pts[i]).normalize();
+        bv.crossVectors(tan, up);
+        if (bv.lengthSq() < 1e-8) bv.set(0, 0, 1).cross(tan);
+        bv.normalize();
+        uv.crossVectors(bv, tan);
         const u = i / (N - 1);
-        side.crossVectors(tan, view).normalize().multiplyScalar(c.tailWidth * 0.5 * fade * Math.pow(1 - u, 0.9));
+        const r = R * c.tailRadius * Math.pow(1 - u, 0.9);
+        tint.copy(dark).lerp(lit, Math.pow(1 - u, c.tailFade));
         const p = pts[i];
-        pos.set([p.x + side.x, p.y + side.y, p.z + side.z, p.x - side.x, p.y - side.y, p.z - side.z], i * 6);
-        fadeA[i * 2] = fadeA[i * 2 + 1] = Math.pow(1 - u, c.tailFade);
+        for (let j = 0; j < S; j++) {
+          const a = (j / S) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+          const k = (i * S + j) * 3;
+          nor[k] = uv.x * ca + bv.x * sa; nor[k + 1] = uv.y * ca + bv.y * sa; nor[k + 2] = uv.z * ca + bv.z * sa;
+          pos[k] = p.x + nor[k] * r; pos[k + 1] = p.y + nor[k + 1] * r; pos[k + 2] = p.z + nor[k + 2] * r;
+          col[k] = tint.r; col[k + 1] = tint.g; col[k + 2] = tint.b;
+        }
       }
       tailGeo.attributes.position.needsUpdate = true;
-      tailGeo.attributes.aFade.needsUpdate = true;
+      tailGeo.attributes.normal.needsUpdate = true;
+      tailGeo.attributes.color.needsUpdate = true;
 
       // sparks: shed from the head while it moves fast, thrown back and a little outward, gone in half a second
       emitAcc += dt * c.sparks * 11 * Math.min(1, Math.max(0, (speed - 0.8) / 2.6));
@@ -231,7 +240,7 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
       sparkMat.uniforms.uPx.value = 1;
     },
     dispose() {
-      headGeo.dispose(); headMat.dispose(); tailGeo.dispose(); tailMat.dispose(); sparkGeo.dispose(); sparkMat.dispose();
+      headGeo.dispose(); headMat.dispose(); coreMat.dispose(); tailGeo.dispose(); tailMat.dispose(); aoMat.dispose(); sparkGeo.dispose(); sparkMat.dispose();
     },
   };
 }
