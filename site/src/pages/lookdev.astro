@@ -35,6 +35,16 @@ const favicon =
       #readout { position: fixed; left: var(--space-4); right: var(--space-4); bottom: var(--space-3); white-space: pre; z-index: 2; color: var(--wax); }
       #specimen { position: fixed; top: var(--space-12); left: calc(320px + var(--space-8)); right: var(--space-4); bottom: var(--space-12); overflow: auto; padding: var(--space-6); z-index: 1; background: var(--ink); border: 1px solid var(--ink-2); }
       #specimen[hidden] { display: none; }
+      /* the walker's tower card: name, tier and band, what the subagent does (its own frontmatter description), and its tools. Opacity + transform only. */
+      #tower-card { position: fixed; top: 0; left: 0; z-index: 3; width: max-content; max-width: 40ch; padding: var(--space-3) var(--space-4); background: var(--ink); border: 1px solid var(--wax-dim);
+        opacity: 0; pointer-events: none; will-change: transform; transition: opacity 160ms linear; }
+      #tower-card.is-on { opacity: 1; }
+      #tower-card .head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); margin: 0; font: var(--text-base)/1.3 var(--font-mono); color: var(--text); }
+      #tower-card .head span:last-child { opacity: 0.72; }
+      #tower-card .band { margin: var(--space-1) 0 0; font: var(--text-xs)/1.3 var(--font-mono); color: var(--wax); text-transform: uppercase; letter-spacing: 0.08em; }
+      #tower-card .desc { margin: var(--space-2) 0 0; font: var(--text-sm)/1.45 var(--font-display); color: var(--text); }
+      #tower-card .caps { display: flex; gap: var(--space-2); margin: var(--space-2) 0 0; padding: 0; list-style: none; font: var(--text-xs) var(--font-mono); color: var(--wax); }
+      #tower-card .caps li { border: 1px solid var(--wax-dim); padding: 0 var(--space-2); }
       .sw { display: inline-grid; gap: var(--space-1); margin: 0 var(--space-4) var(--space-4) 0; width: 112px; }
       .sw i { display: block; height: 56px; border: 1px solid var(--wax-dim); }
       .scale { display: grid; grid-template-columns: 72px 1fr; align-items: baseline; gap: var(--space-4); margin-bottom: var(--space-2); }
@@ -79,6 +89,7 @@ const favicon =
       ))}
     </section>
     <div id="readout"></div>
+    <div id="tower-card" aria-hidden="true"></div>
     <script id="agents-data" type="application/json" set:html={JSON.stringify(agents)} />
     <script>
       import {
@@ -92,8 +103,9 @@ const favicon =
       import { createHexDissolve, hexPixelSize } from '../lib/world/transitions';
       import { createPost, type Post } from '../lib/world/post';
       import { createStudio, shadowExtentOf, type Studio } from '../lib/world/studio';
-      import { createWalkRoute, horizonDistance, horizonFog, type WalkPose } from '../lib/world/walk';
+      import { createWalkRoute, horizonDistance, horizonFog, visibleOverGlobe, type WalkPose } from '../lib/world/walk';
       import { walkWeight } from '../lib/world/motion-config';
+      import { bandLabels } from '../content/tiers';
       import { createSwarm, type Swarm } from '../lib/world/swarm-particles';
       import { createBgTexture } from '../lib/world/world';
 
@@ -137,7 +149,7 @@ const favicon =
       };
       function num2(k: string, d: number) { return q.has(k) && !isNaN(Number(q.get(k))) ? Number(q.get(k)) : d; }
       const walk = {
-        eye: num('eye', 0.3), fov: num('fov', 60), pitch: num('pitch', 20), near: num('near', 0.03), env: q.get('ground') !== 'smooth', path: num('path', 0.55), speed: num('speed', 0), u: num('u', 0),
+        cards: q.get('cards') !== '0', eye: num('eye', 0.3), fov: num('fov', 60), pitch: num('pitch', 20), near: num('near', 0.03), env: q.get('ground') !== 'smooth', path: num('path', 0.55), speed: num('speed', 0), u: num('u', 0),
         fogNear: num('fogNear', 6), fogFar: num('fogFar', 40), park: q.get('park') === '1',
       };
       let dissolveProgress = Number(q.get('progress') ?? 0.5), dissolveAuto = q.get('auto') === '1';
@@ -205,6 +217,55 @@ const favicon =
         if (ext !== fxShadowExt) { fxShadowExt = ext; if (ext > 0) { shadowFocus.extent = ext; studio.fitShadow(shadowFocus); } else studio.fitShadow(null); }
         // the tight frustum follows the walker: centred a little ahead of the camera (before the studio update places the key)
         if (ext > 0) shadowFocus.center.copy(walkPose.position).addScaledVector(walkPose.forward, ext * 0.4);
+      }
+      // ---- the tower card: the nearest visible tower ahead shows what that subagent does (agents' own frontmatter, nothing written here) ----
+      const cardEl = $('tower-card');
+      const blurb = (a: Agent, max = 230) => {
+        let out = '';
+        for (const sent of a.description.split(/(?<=[.!?])\s+/)) { if (out && (out + ' ' + sent).length > max) break; out = out ? `${out} ${sent}` : sent; if (out.length >= max) break; }
+        return out.length > max ? `${out.slice(0, max - 3).replace(/[\s,;:]+\S*$/, '')}...` : out;
+      };
+      const towerList = lat.cells.filter((c) => c.agent && !c.moon).map((c) => ({ agent: c.agent!, top: c.normal.clone().multiplyScalar(R + c.base) }));
+      let cardFor: string | null = null, cardSize: [number, number] = [0, 0];
+      const camFwd = new Vector3(), dv = new Vector3(), pv = new Vector3();
+      function updateCard(active: boolean) {
+        if (!active || !walk.cards) { if (cardFor) { cardEl.classList.remove('is-on'); cardFor = null; } return; }
+        camFwd.set(0, 0, -1).applyQuaternion(cam.quaternion);
+        // nearest visible tower in front of the camera (a closer one must win by 20% to replace the one shown: no flicker between neighbours)
+        let best: (typeof towerList)[number] | null = null, bd = 12, curD = Infinity;
+        for (const t of towerList) {
+          dv.copy(t.top).sub(cam.position);
+          const d = dv.length();
+          if (d > 12 || dv.dot(camFwd) / d < 0.3 || !visibleOverGlobe(cam.position, t.top, R + 0.3)) continue;
+          if (t.agent.name === cardFor) curD = d;
+          if (d < bd) { bd = d; best = t; }
+        }
+        if (best && cardFor && best.agent.name !== cardFor && curD < bd * 1.2) best = towerList.find((t) => t.agent.name === cardFor)!;
+        if (!best) { cardEl.classList.remove('is-on'); cardFor = null; return; }
+        if (best.agent.name !== cardFor) {
+          const a = best.agent;
+          cardEl.replaceChildren();
+          const head = document.createElement('p'); head.className = 'head';
+          const n = document.createElement('span'); n.textContent = a.name;
+          const tr = document.createElement('span'); tr.textContent = a.tier;
+          head.append(n, tr);
+          const band = document.createElement('p'); band.className = 'band'; band.textContent = bandLabels[a.band].title;
+          const desc = document.createElement('p'); desc.className = 'desc'; desc.textContent = blurb(a);
+          cardEl.append(head, band, desc);
+          if (a.capabilities.length) {
+            const ul = document.createElement('ul'); ul.className = 'caps';
+            a.capabilities.slice(0, 5).forEach((c) => { const li = document.createElement('li'); li.textContent = c; ul.append(li); });
+            cardEl.append(ul);
+          }
+          cardSize = [cardEl.offsetWidth, cardEl.offsetHeight];
+          cardFor = a.name;
+        }
+        pv.copy(best.top).project(cam);
+        const w = window.innerWidth, h = window.innerHeight;
+        const x = Math.min(w - 12 - cardSize[0] / 2, Math.max(12 + cardSize[0] / 2, ((pv.x + 1) / 2) * w));
+        const y = Math.min(h - 12, Math.max(56 + cardSize[1], ((1 - pv.y) / 2) * h - 14));
+        cardEl.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -100%)`;
+        cardEl.classList.add('is-on');
       }
       const route = createWalkRoute(lat);
       const walkPose: WalkPose = { position: cam.position.clone(), quaternion: cam.quaternion.clone(), fov: 50, up: cam.position.clone(), forward: cam.position.clone(), ground: 0, stop: 0 };
@@ -332,6 +393,7 @@ const favicon =
         sl.replaceChildren(); ex.replaceChildren();
         document.querySelectorAll<HTMLButtonElement>('[data-panel]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.panel === panel)));
         $('specimen').hidden = panel !== 'palette';
+        if (!(panel === 'cell' && cellView === 'walk')) { cardEl.classList.remove('is-on'); cardFor = null; }
         canvas.style.visibility = panel === 'palette' ? 'hidden' : 'visible';
 
         if (panel === 'cell') {
@@ -353,6 +415,7 @@ const favicon =
             if (tier === 'high') button(ex, 'post (GTAO, bloom)', () => { postOn = !postOn; buildPanel(); }, postOn);
             slider(ex, 'path tiles: brightness of the tiles the route crosses', () => walk.path, (v) => { walk.path = v; applyPath(); }, wr('path'));
             button(ex, 'ground: envelope (never clips columns)', () => { walk.env = !walk.env; buildPanel(); }, walk.env);
+            button(ex, 'tower cards (what each subagent does)', () => { walk.cards = !walk.cards; buildPanel(); }, walk.cards);
             const h = document.createElement('h3'); h.textContent = 'close-up fixes (each off by default)'; ex.append(h);
             const tog = (label: string, key: 'pistons' | 'radial' | 'core' | 'fog' | 'light' | 'shadow' | 'comet') => button(ex, label, () => { fx[key] = !fx[key]; fxRadial = fxCore = fxShadowExt = -1; buildPanel(); }, fx[key]);
             tog('1 pistons park (walk weight)', 'pistons');
@@ -459,6 +522,7 @@ const favicon =
           dissolve.render(renderer, rtA.texture, rtB.texture, dissolveProgress, hexPx, look.dissolve);
         } else {
           if (panel === 'cell' && cellView === 'walk') walkCam(dt); else pose(panel === 'cell' ? cellView : 'wide');
+          updateCard(inWalk); // (after the camera is placed; the palette panel returns before this)
           studio.update(cam, { timeSec: time, frame: inWalk && fx.light ? { up: walkPose.up, forward: walkPose.forward, weight: 1 } : undefined });
           if ((panel === 'post' || (panel === 'cell' && cellView === 'walk')) && postOn && post) { post.sync(look.post); post.render(dt, time); } // the walk bench shows the full high-tier chain, as the site does
           else { renderer.setRenderTarget(null); renderer.render(scene, cam); }
