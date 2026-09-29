@@ -6,7 +6,7 @@ import Lenis from 'lenis';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { scrollToProgress, SEGMENTS } from './world/camera-path';
-import { motion } from './world/motion-config';
+import { motion, walkRamp } from './world/motion-config';
 
 export interface ScrollState {
   chapter: number;
@@ -37,9 +37,6 @@ export function initScroll(): Scroll {
   // SEGMENTS[i].t0/t1 exactly at the boundaries).
   const triggers = sections.map((el, i) => {
     const write = (p: number) => {
-      // the walk is read at walking pace: wheel and touchpad input is scaled down in the Cells chapter (a touchpad flick sends thousands of px);
-      // scrollbar drag and keyboard are not scaled. Lenis reads it from its virtual scroll on every wheel event.
-      (lenis as unknown as { virtualScroll: { options: { wheelMultiplier: number } } }).virtualScroll.options.wheelMultiplier = i === 2 ? motion.walkScroll : 1;
       state.chapter = i;
       state.chapterProgress = p;
       state.globalProgress = scrollToProgress(i, p); // arc-length balanced: the camera speed per scroll never jumps at a chapter boundary
@@ -56,6 +53,38 @@ export function initScroll(): Scroll {
   });
   document.fonts?.ready.then(() => ScrollTrigger.refresh());
 
+  // The walk plays by itself: from the dive to the end of Cells the page scrolls at a steady rate (through the same scroll state as a wheel, so the
+  // camera, fades and pull-back are untouched). Holding the primary pointer or pressing Space pauses it; your own scrolling always wins and, once you
+  // scroll up, autoplay stays off until you scroll down again. Velocity eases, so start, pause and resume glide.
+  const cells = triggers[2];
+  let held = false, paused = false, off = false, vel = 0, acc = 0;
+  const inWalk = () => state.chapter === 2 && state.chapterProgress >= walkRamp.inFrom;
+  const offVirtual = lenis.on('virtual-scroll', ({ deltaY }) => { if (deltaY) off = deltaY < 0; });
+  const onDown = (e: PointerEvent) => { if (e.button === 0) held = true; };
+  const onUp = () => { held = false; };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === ' ' && !e.repeat && inWalk() && !(e.target instanceof Element && e.target.closest('a, button, input, select, textarea'))) { e.preventDefault(); paused = !paused; }
+    else if (e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'Home') off = true;
+    else if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === 'End') off = false;
+  };
+  window.addEventListener('pointerdown', onDown);
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onUp);
+  window.addEventListener('blur', onUp);
+  window.addEventListener('keydown', onKey);
+  const auto = (_t: number, dtMs: number) => {
+    const dt = Math.min(dtMs, 100) / 1000;
+    if (state.chapter !== 2) paused = false; // a new visit to the walk plays again
+    const go = inWalk() && !held && !paused && !off && !lenis.isScrolling && !lenis.isStopped;
+    const pxPerSec = ((cells.end - cells.start) * (1 - walkRamp.inFrom)) / motion.walkAuto.sec;
+    vel += ((go ? pxPerSec : 0) - vel) * (1 - Math.exp(-dt / motion.walkAuto.easeSec));
+    if (Math.abs(lenis.scroll - acc) > 2) acc = lenis.scroll; // moved by something else (scrollbar, wheel, anchor): follow it
+    if (vel < 0.5 || !inWalk()) return;
+    acc += vel * dt; // own float accumulator: a sub-pixel step per frame would otherwise round away
+    lenis.scrollTo(acc, { immediate: true });
+  };
+  gsap.ticker.add(auto);
+
   return {
     state,
     lock: () => lenis.stop(),
@@ -63,6 +92,13 @@ export function initScroll(): Scroll {
     dispose() {
       triggers.forEach((t) => t.kill());
       gsap.ticker.remove(raf);
+      gsap.ticker.remove(auto);
+      offVirtual();
+      window.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      window.removeEventListener('blur', onUp);
+      window.removeEventListener('keydown', onKey);
       lenis.destroy();
     },
   };

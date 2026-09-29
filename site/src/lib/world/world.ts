@@ -8,7 +8,7 @@ import {
 import type { Agent } from '../agents';
 import type { ScrollState } from '../scroll';
 import { createCameraPath, progressOfG, scrollToProgress, SEGMENTS } from './camera-path';
-import { applyWalkLook, createWalkRoute, horizonFog, walkBlendBase, walkCameraPose, type WalkPose, type WalkRoute } from './walk';
+import { applyWalkLook, applyWalkSway, createWalkRoute, createWalkSway, horizonFog, walkBlendBase, walkCameraPose, type WalkPose, type WalkRoute } from './walk';
 import { sceneAlpha } from './scene-dom';
 import { accentCandidates, look, readPalette, type Palette } from './config';
 import { cellTopOf, createHoneycomb, layoutLattice, type Honeycomb } from './honeycomb';
@@ -128,7 +128,7 @@ export function createWorld(opts: WorldOptions): World {
   // ---- view + panel highlight ----
   const view: View = {
     growth: 1, dim: 0, dissolve: 0, canvasOpacity: 1, latticeVisible: true, swarmFade: 0, swarmAttract: 0,
-    focus: new Vector3(), focusWeight: 0, focusDrop: 0, overview: 0, camFloor: 0, walk: 0, lookYaw: 0, lookPitch: 0,
+    focus: new Vector3(), focusWeight: 0, focusDrop: 0, overview: 0, camFloor: 0, walk: 0, walkStop: 0, lookYaw: 0, lookPitch: 0,
   };
   const hiTarget = new Map<number, number>();
   const hiCur = new Map<number, number>();
@@ -136,6 +136,7 @@ export function createWorld(opts: WorldOptions): World {
   const ctx: WorldCtx = {
     agents, routing, scene, camera, renderer, state, view, lattice, flows, rings, scroll,
     get comb() { return comb; },
+    get walkRoute() { return walkRoute; },
     time: 0,
     dt: 0,
     cellIndex: (name) => cellByName.get(name) ?? -1,
@@ -289,6 +290,9 @@ export function createWorld(opts: WorldOptions): World {
     walkBase.copy(walkBlendBase(walkRoute, (p, o, t) => path.sample(scrollToProgress(2, p), o, t), [[walkRamp.inFrom, walkRamp.inTo], [walkRamp.outFrom, walkRamp.outTo]], walkCfg));
   };
   const wpose: WalkPose = { position: new Vector3(), quaternion: new Quaternion(), fov: 40, up: new Vector3(), forward: new Vector3(), ground: 0, stop: 0 };
+  const sway = createWalkSway();
+  // the mean leg speed under autoplay, route units per second: the walker takes walkCfg.sway.hz steps a second at it (the route parameter advances at a constant rate)
+  const swayRef = () => ((1 - walkRamp.inFrom) / (motion.walkAuto.sec * (walkCfg.uTo - walkCfg.uFrom))) * (walkRoute ? walkRoute.length : 0);
   let walkCp = 0; // Cells chapter progress read back from the damped camera parameter
   function stepSpin(dt: number) {
     const w = spinW = spinWeight(state.chapter, state.chapterProgress);
@@ -302,7 +306,7 @@ export function createWorld(opts: WorldOptions): World {
     if (comb.aoGroup) comb.aoGroup.rotation.y = globe.rotation.y;
   }
 
-  function pose(g: number) {
+  function pose(g: number, dt: number) {
     path.sample(g, pos, target);
     if (overviewSm > 0.001) {
       path.sample(SEGMENTS[1].t1, posB, targetB); // end of the hive chapter: the whole globe and its moon in frame
@@ -324,8 +328,10 @@ export function createWorld(opts: WorldOptions): World {
       // drag-to-look, faded in with the weight so the dive and the rise are never turned (walk-look.ts)
       const lf = Math.min(1, Math.max(0, (walkW - 0.6) / 0.4));
       applyWalkLook(camera.quaternion, wpose.up, view.lookYaw, view.lookPitch, lf * lf * (3 - 2 * lf), camera.quaternion);
+      applyWalkSway(sway, camera.position, camera.quaternion, wpose.up, wpose.forward, dt, walkW, walkCfg.sway, swayRef()); // handheld bob, only while actually walking
+      view.walkStop = wpose.stop;
       near = 0.1 + (walkCfg.near - 0.1) * walkW;
-    }
+    } else sway.has = false;
     if (camera.fov !== fov || camera.near !== near) { camera.fov = fov; camera.near = near; camera.updateProjectionMatrix(); }
     // the key sweeps round the globe as the camera orbits (studio.ts), with a soft kicker from behind; while walking it follows the walker's own frame
     studio.update(camera, { timeSec: time, frame: walkW > 0.001 ? { up: wpose.up, forward: wpose.forward, weight: walkW } : undefined });
@@ -448,9 +454,11 @@ export function createWorld(opts: WorldOptions): World {
     const coreScale = 1 - walkCfg.coreDim * walkW; // the seam glow dims under the walk camera so bloom does not bleed through the seams
     if (Math.abs(coreScale - walkCoreApplied) > 0.005 || (walkW === 0 && walkCoreApplied !== 1)) { comb.setCoreScale(coreScale); walkCoreApplied = coreScale; }
     comb.uniforms.uDetail.value = Math.max(look.cell.detail, walkCfg.detail * walkW); // the close-up richness of the metal fades in with the dive (the orbit views are untouched)
+    comb.uniforms.uWalkWall.value = look.walk.wallLift * walkW;
+    comb.uniforms.uWalkRough.value = look.walk.topRough * walkW; // rougher tile tops under the walker (the key's highlight spreads instead of glaring)
     comb.update(view.growth, view.dim, time, spinW, walkW);
     comb.object.visible = view.latticeVisible;
-    pose(g);
+    pose(g, dt);
     // the key moved in pose(): refresh its shadow map once, on the first render of this frame (the dissolve draws two halves)
     if (renderer.shadowMap.enabled && view.latticeVisible) renderer.shadowMap.needsUpdate = true;
 

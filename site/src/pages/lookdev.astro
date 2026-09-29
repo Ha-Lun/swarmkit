@@ -489,6 +489,8 @@ const favicon =
         // fix 1: walk weight parks the pistons (1 = at rest); the ease demo runs the real walkWeight() ramp over a 16 s loop
         const pistonWalk = inWalk && fx.pistons ? (fx.pistonEase ? walkWeight(2, (time / 16) % 1) : fx.pistonW) : 0;
         applyFx(inWalk);
+        comb.uniforms.uWalkWall.value = inWalk && fx.light ? look.walk.wallLift : 0;
+        comb.uniforms.uWalkRough.value = inWalk && fx.light ? look.walk.topRough : 0; // round 14 ground look rides on the walker-light toggle (the lantern and fill boost are in studio.update)
         comb.update(1, 0, inWalk && walk.park ? undefined : time, 1, pistonWalk); // runs the pistons (parked at rest in the walk bench when asked); re-lays the terrain when relief, elevation, terrainScale or stroke changed
         const showPackets = panel === 'packet' || panel === 'post' || panel === 'dissolve' || (inWalk && fx.comet); // the walker hides the comet: the toggle shows it for comparison
         packets.forEach((p, i) => {

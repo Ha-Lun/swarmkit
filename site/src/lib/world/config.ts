@@ -91,6 +91,14 @@ export const look = {
     sweep: 0.6, // 0 = key rides with the camera, 1 = fixed in the world; between, highlights travel as the camera orbits
     keyElevation: 30, // degrees: a low, raking key
   },
+  walk: {
+    // the ground view (round 14), all scaled by the walk weight so the orbit views are untouched
+    lantern: 8, // a small point light just behind and above the walker's eye (intensity, decay 2): lifts the near walls and tower shafts out of black
+    lanternRange: 6, // world units it reaches
+    fillBoost: 12, // hemisphere and ambient light are multiplied by (1 + fillBoost x weight), so the far walls are not pure black
+    wallLift: 9, // the column walls' albedo is multiplied by (1 + wallLift x weight): their stone is near ink, and metalness leaves almost no diffuse to light
+    topRough: 1.2, // extra roughness on the tile tops (not the caps): the key's highlight spreads instead of mirroring into the lens
+  },
   core: {
     color: 0.5, // 0..1 mix toward the pale tone (a cool iron-blue floor stays in at every value; never the comet accent)
     intensity: 2.5, // HDR multiplier on the globe's seam floor: values above 1 bloom through the seams. The moon's floor stays dark ink.
@@ -161,6 +169,7 @@ export const ranges: { [G in keyof Look]?: { [K in keyof Look[G]]?: [number, num
     moonTurnSec: [8, 120, 1], moonDrift: [0, 0.6, 0.01], moonStroke: [0, 1, 0.01],
   },
   light: { key: [0, 4, 0.05], hemi: [0, 2, 0.02], ambient: [0, 1, 0.01], fill: [0, 2, 0.02], kicker: [0, 3, 0.05], sweep: [0, 1, 0.01], keyElevation: [5, 80, 1] },
+  walk: { lantern: [0, 16, 0.05], lanternRange: [1, 12, 0.1], fillBoost: [0, 24, 0.1], wallLift: [0, 20, 0.1], topRough: [0, 2, 0.01] },
   core: { color: [0, 1, 0.01], intensity: [0, 6, 0.05] },
   bg: { gradient: [0, 1, 0.01], fog: [0.3, 2, 0.01] },
   packet: {

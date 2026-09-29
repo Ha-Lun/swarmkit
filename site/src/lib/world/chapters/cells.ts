@@ -2,9 +2,9 @@
 // hidden agent list, lifts and brightens it and shows its label card (pick.ts). No roster panels: the roster lives in
 // the Reference section. The tier legend chip of the active agent's band lights (opacity only).
 import { Vector3 } from 'three';
-import { nearestTowerAhead, type TowerRef } from '../walk';
+import { nearestTowerAhead, type TowerRef, type WalkRoute } from '../walk';
 import { createWalkLook } from '../walk-look';
-import { motion, recedeMix } from '../motion-config';
+import { motion, recedeMix, walkUOf } from '../motion-config';
 import { createPick } from '../pick';
 import { sceneOf, setOpacity } from '../scene-dom';
 import type { Chapter, WorldCtx } from '../types';
@@ -16,8 +16,20 @@ export function createCells(ctx: WorldCtx): Chapter {
   const tmp = new Vector3();
   // the walk: the tower the walker is heading for shows its card (pointer hover and keyboard focus still win)
   const towers: TowerRef[] = ctx.lattice.cells.filter((c) => c.agent && !c.moon).map((c) => ({ name: c.agent!.name, top: new Vector3() }));
+  const towerByName = new Map(towers.map((t) => [t.name, t]));
   const fwd = new Vector3();
   let ahead: string | null = null;
+  // the band chips fill as the walk passes through their towers: a band runs from the end of the previous band's last stop to the end of its own (route data, nothing hardcoded)
+  const fills = scene.q('[data-fill]').map((el) => ({ el, band: el.dataset.fill!, last: -1 }));
+  let bandRange: Map<string, [number, number]> | null = null, bandRoute: WalkRoute | null = null;
+  const rangesOf = (route: WalkRoute) => {
+    const m = new Map<string, [number, number]>();
+    let start = 0;
+    route.stops.forEach((s, i) => {
+      if (i === route.stops.length - 1 || route.stops[i + 1].band !== s.band) { m.set(s.band, [start, s.u1]); start = s.u1; }
+    });
+    return m;
+  };
   const look = createWalkLook(); // drag to look around while walking
   const bandOf = new Map(ctx.agents.map((a) => [a.name, a.band as string]));
   const legend = new Map(scene.q('[data-legend]').map((e) => [e.dataset.legend!, e.querySelector<HTMLElement>('.chip-ring')!]));
@@ -37,14 +49,30 @@ export function createCells(ctx: WorldCtx): Chapter {
       view.lookYaw = look.yaw;
       view.lookPitch = look.pitch;
       const walking = view.walk > 0.05;
+      const route = ctx.walkRoute;
+      const u = walkUOf(p);
+      if (route) {
+        if (bandRoute !== route) { bandRange = rangesOf(route); bandRoute = route; } // (rebuilt if the world ever builds a new route)
+        for (const f of fills) {
+          const r = bandRange!.get(f.band);
+          const v = r ? Math.round(Math.min(1, Math.max(0, (u - r[0]) / (r[1] - r[0]))) * 500) / 500 : 0;
+          if (v !== f.last) { f.last = v; f.el.style.transform = `scaleX(${v})`; }
+        }
+      }
+      const stop = route?.stops[view.walkStop];
+      const dwelling = stop && u >= stop.u0 && u <= stop.u1 ? stop.name : null; // holding at this tower
       if (view.walk > 0.85) { // cards only once the camera is on the ground (not mid-dive)
         towers.forEach((t) => ctx.cellTop(t.name, t.top));
         fwd.set(0, 0, -1).applyQuaternion(ctx.camera.quaternion);
-        ahead = nearestTowerAhead(towers, ctx.camera.position, fwd, ctx.lattice.radius, ahead);
+        // the tour: the tower the route is heading for (or holding at) owns the card, unless you have turned your head away from it; otherwise the nearest one ahead
+        const lookedAway = Math.abs(look.yaw) > 0.35 || Math.abs(look.pitch) > 0.35;
+        const stopTower = stop && !lookedAway ? towerByName.get(stop.name) : undefined;
+        ahead = (stopTower ? nearestTowerAhead([stopTower], ctx.camera.position, fwd, ctx.lattice.radius, ahead) : null)
+          ?? nearestTowerAhead(towers, ctx.camera.position, fwd, ctx.lattice.radius, ahead);
       } else ahead = null;
       const { name, byKeyboard, byWalk } = pick.update({ strict: walking, forced: ahead });
       if (name && ctx.cellTop(name, tmp)) {
-        ctx.hilite(name, byWalk ? 0.6 : 1);
+        ctx.hilite(name, byWalk ? (name === dwelling ? 1 : 0.6) : 1);
         if (byKeyboard && !walking) { // a keyboard-focused cell may be off screen: ease the camera toward it (never on the walk: there the camera is the walker's, and focus only shows the card and highlight). A hovered one never moves the camera.
           view.focus.copy(tmp);
           view.focusWeight = motion.camera.hoverBias;

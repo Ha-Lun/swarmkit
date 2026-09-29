@@ -3,7 +3,7 @@
 // tokens (never the accent); everything reads `look.light` each frame, so the /lookdev sliders act live. Nothing here
 // draws anything: it is lights only.
 import {
-  AmbientLight, Color, DirectionalLight, HemisphereLight, Vector3, type PerspectiveCamera, type Scene,
+  AmbientLight, Color, DirectionalLight, HemisphereLight, PointLight, Vector3, type PerspectiveCamera, type Scene,
 } from 'three';
 import { look, type Palette, type Tier } from './config';
 import type { Lattice } from './honeycomb';
@@ -47,7 +47,9 @@ export function createStudio(scene: Scene, tier: Tier, palette: Palette, shadowE
   const fill = new DirectionalLight(ink2.clone().lerp(wax, 0.4), look.light.fill);
   const kicker = new DirectionalLight(text.clone().lerp(ink2, 0.3), look.light.kicker);
   key.position.set(-8, 20, 10);
-  scene.add(amb, hemi, key, fill, kicker);
+  // the walker's lantern: always in the scene (a light count that never changes means no shader recompile when the walk starts), dark outside the walk
+  const lantern = new PointLight(text.clone().lerp(wax, 0.35), 0, look.walk.lanternRange, 2);
+  scene.add(amb, hemi, key, fill, kicker, lantern);
   if (tier === 'high' && shadowExtent) {
     key.castShadow = true;
     const sh = key.shadow, e = shadowExtent;
@@ -77,7 +79,12 @@ export function createStudio(scene: Scene, tier: Tier, palette: Palette, shadowE
     },
     update(camera, f) {
       const L = look.light;
-      amb.intensity = L.ambient; hemi.intensity = L.hemi; key.intensity = L.key; fill.intensity = L.fill; kicker.intensity = L.kicker;
+      const ww = f.frame ? f.frame.weight : 0; // walk weight
+      const boost = 1 + look.walk.fillBoost * ww;
+      amb.intensity = L.ambient * boost; hemi.intensity = L.hemi * boost; key.intensity = L.key; fill.intensity = L.fill; kicker.intensity = L.kicker;
+      lantern.intensity = look.walk.lantern * ww;
+      lantern.distance = look.walk.lanternRange;
+      if (f.frame && ww > 0) lantern.position.copy(camera.position).addScaledVector(f.frame.up, 0.25).addScaledVector(f.frame.forward, -0.2);
       // the camera's azimuth about the globe (0 = the core cell's side): the key follows it at (1 - sweep), so the light
       // slides across the stone as the camera orbits; the fill sits opposite the key, the kicker behind the globe as seen from the camera
       const camAz = Math.atan2(camera.position.x, camera.position.z);
@@ -121,7 +128,7 @@ export function createStudio(scene: Scene, tier: Tier, palette: Palette, shadowE
     },
     dispose() {
       key.shadow.dispose();
-      scene.remove(amb, hemi, key, fill, kicker);
+      scene.remove(amb, hemi, key, fill, kicker, lantern);
     },
   };
 }

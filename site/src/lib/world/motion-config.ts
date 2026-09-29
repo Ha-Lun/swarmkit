@@ -5,7 +5,7 @@ export const SWARM_CAM = { fov: 40, z: 24 } as const;
 
 export const motion = {
   /** Scroll length of each chapter runway, in viewport heights. Every runway holds one fixed, viewport-tall scene that only fades. */
-  runway: { intro: 100, hive: 300, cells: 800, proof: 150, finale: 400 },
+  runway: { intro: 100, hive: 300, cells: 1500, proof: 150, finale: 400 },
   /** The scroll lengths camera-path.ts solves its speed profile for (the lengths before the walk). The layout lengths above may differ (Cells is longer for the walk); the camera's
    *  scroll-to-position mapping is solved on THESE, so every chapter keeps exactly the camera it had, and a longer Cells only spreads its progress over more scroll. */
   mapRunway: { intro: 100, hive: 300, cells: 300, proof: 150, finale: 400 },
@@ -69,7 +69,7 @@ export const motion = {
   moon: {
     driftSec: 50, // seconds per lap of the drift ellipse
   },
-  walkScroll: 0.3, // wheel/touchpad multiplier while the walk is on screen (scroll.ts)
+  walkAuto: { sec: 130, easeSec: 0.4 }, // the walk plays itself (scroll.ts): seconds from the dive to the end of Cells, and the ease of start/pause/resume
   probe: { ms: 1000, warmupFrames: 10, minFrames: 6, stepDownBelow: 45, fallbackBelow: 30 },
 } as const;
 
@@ -100,7 +100,13 @@ export function walkWeight(chapter: number, p: number): number {
 
 /** The walker (provisional values, tuned in the Phase 4 review): eye height above the local ground, vertical FOV, pitch below the horizon, near plane,
  *  and where in the Cells chapter progress the route runs from its first stand point (uFrom) to its last (uTo). */
-export const walkCfg = { eye: 0.3, fov: 75, pitchDeg: 15, near: 0.03, uFrom: 0.2, uTo: 0.82, detail: 1, coreDim: 0.9, fogNear: 0.5, fogFar: 1.6 } as const;
+export const walkCfg = {
+  eye: 0.3, fov: 75, pitchDeg: 15, near: 0.03, uFrom: 0.2, uTo: 0.82, detail: 1, coreDim: 0.9, fogNear: 0.5, fogFar: 1.6,
+  /** route units the walker holds at a tower (turn to face it, look, turn on), and at the last tower of a band; walking speed is 1 unit per world unit */
+  dwell: 12, dwellBand: 18,
+  /** handheld sway: vertical bob and side shift in world units, roll in degrees, steps per second at the mean autoplay leg speed (world.ts derives that from walkAuto) */
+  sway: { bob: 0.008, side: 0.005, rollDeg: 0.4, hz: 1.8 },
+} as const;
 /** Route parameter 0..1 for Cells chapter progress p. */
 export const walkUOf = (p: number): number => Math.min(1, Math.max(0, (p - walkCfg.uFrom) / (walkCfg.uTo - walkCfg.uFrom)));
 

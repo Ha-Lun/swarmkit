@@ -25,6 +25,8 @@ export interface CellUniforms {
   uCapBevel: IUniform<number>;
   uRadial: IUniform<number>;
   uDetail: IUniform<number>;
+  uWalkRough: IUniform<number>;
+  uWalkWall: IUniform<number>;
   uCapEnv: IUniform<number>;
   uHover: IUniform<number>;
   uStoneBase: IUniform<Color>;
@@ -95,6 +97,8 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
     uCapGloss: { value: cfg.capGloss },
     uCapBevel: { value: capBevelOf(cfg, tier) },
     uDetail: { value: cfg.detail },
+    uWalkRough: { value: 0 }, // the walker's rougher tile tops (look.walk.topRough x walk weight, set by the world)
+    uWalkWall: { value: 0 }, // the walker's lighter column walls (look.walk.wallLift x walk weight)
     uRadial: { value: 0 }, // walk bench / story: radial wall extrusion, 0 = straight prisms (the default look)
     uCapEnv: { value: capEnvOf(cfg) },
     uHover: { value: cfg.hover },
@@ -171,7 +175,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         '#include <common>',
         `${defs}#include <common>
         uniform float uSheen, uSideDark, uGrain, uMottle, uTone, uAgentTone, uHover, uCapGloss, uCapEnv, uPillow, uHueDrift, uGrainBump, uEdge, uAO;
-        uniform float uRoughJitter, uTintJitter, uGradient, uDetail;
+        uniform float uRoughJitter, uTintJitter, uGradient, uDetail, uWalkRough, uWalkWall;
         uniform vec3 uStoneBase, uStoneMid, uStoneLight, uStoneDark, uSheenColor;
         varying vec2 vCell;
         varying vec3 vStone;
@@ -250,6 +254,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
               side *= ( 1.0 + uDetail * 0.6 ) * ( 1.0 + uDetail * ( 0.25 * f1 + 0.18 * f2 + 0.2 * pit ) );
             }
           }
+          side *= 1.0 + uWalkWall; // on the ground the near-black walls are lifted so the towers and shafts read
           vec3 col = mix( top, side, wall );
           col *= 1.0 + uTone * ( pt - 0.5 ) * 2.0;
           // agents are cut flat and polished: a paler cap, a small tone step per band
@@ -319,6 +324,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
             float k = 1.0 - 0.35 * uDetail * gWear + uDetail * ( 0.6 * gStreak + 0.5 * rn );
             roughnessFactor = clamp( roughnessFactor * k, 0.04, 1.0 );
           }
+          roughnessFactor = clamp( roughnessFactor * ( 1.0 + uWalkRough * ( 1.0 - gWall ) * ( 1.0 - gAgent ) ), 0.04, 1.0 ); // the walker's tile tops spread the key's highlight (caps keep their polish)
         }
         roughnessFactor = mix( roughnessFactor, roughnessFactor * ( 1.0 - uCapGloss ), gAgent * ( 1.0 - gWall ) ); // the cap is polished`,
       )

@@ -5,7 +5,7 @@
 // cell, turns to face it, then turns to the next leg's heading. Orientation is built from quaternions (right, up, back basis,
 // then a pitch about `right`): no lookAt, no fixed world up, so the horizon can roll with the sphere.
 import { Matrix4, Quaternion, Vector3 } from 'three';
-import { walkUOf } from './motion-config';
+import { walkCfg, walkUOf } from './motion-config';
 import type { Lattice } from './honeycomb';
 
 export interface WalkParams {
@@ -58,9 +58,7 @@ export interface WalkRoute {
 }
 
 const BAND_ORDER = ['core', 't1', 'domain', 'gate'] as const;
-const DWELL = 4; // world units of route parameter spent turning at an ordinary stop (face the tower, then turn on)
-const DWELL_BAND = 6; // ... at the last tower of a band
-const HEADING_SIGMA = 10; // route units the heading is smoothed over (~ 3 cells): the walker turns gradually, never in a snap
+const HEADING_SIGMA = 0.0373; // fraction of the route the heading is smoothed over (10 route units of the 268 the route had with 4-unit holds): the walker turns gradually, never in a snap, however long the holds are
 const START_BACK = 0.6; // rad: the walk starts this far north (+Y) of the core cell
 const SPAN_SAMPLES = 20; // Catmull-Rom samples per cell-to-cell span
 const FLAT_COST = 3; // Dijkstra: extra cost per world unit of height change between neighbouring cells
@@ -208,7 +206,7 @@ export function createWalkRoute(lattice: Lattice): WalkRoute {
     const len = Math.max(0.001, built[i].len);
     segs.push({ kind: 'walk', i, s0: s, s1: s + len }); s += len;
     const lastOfBand = i === towers.length - 1 || towers[i + 1].band !== t.band;
-    const dw = lastOfBand ? DWELL_BAND : DWELL;
+    const dw = lastOfBand ? walkCfg.dwellBand : walkCfg.dwell; // route units held at the tower (motion-config walkCfg)
     segs.push({ kind: 'dwell', i, s0: s, s1: s + dw }); s += dw;
   });
   const total = s;
@@ -266,7 +264,7 @@ export function createWalkRoute(lattice: Lattice): WalkRoute {
   // ---- heading: the wanted heading, low-passed along the route ----
   // Turning to face each tower and then the next street as separate quick turns swings the camera by up to 180 degrees over a few pixels of scroll.
   // Instead the wanted heading (as an angle about the local up, measured from a reference direction carried along the route) is unwrapped and
-  // smoothed with a Gaussian of HEADING_SIGMA route units, so every turn is spread over many scroll steps. Stateless: a table over u.
+  // smoothed with a Gaussian of HEADING_SIGMA of the route, so every turn is spread over many scroll steps. Stateless: a table over u.
   const HEAD_N = 4096;
   const headDir: Vector3[] = [], headRef: Vector3[] = [], headPsi: number[] = [];
   {
@@ -283,7 +281,7 @@ export function createWalkRoute(lattice: Lattice): WalkRoute {
       prev = psi;
       headDir.push(d.clone()); headRef.push(e.clone()); headPsi.push(psi);
     }
-    const sig = (HEADING_SIGMA / total) * HEAD_N, rad = Math.ceil(3 * sig);
+    const sig = HEADING_SIGMA * HEAD_N, rad = Math.ceil(3 * sig);
     const kern = Array.from({ length: 2 * rad + 1 }, (_, k) => Math.exp(-0.5 * ((k - rad) / sig) ** 2));
     const ks = kern.reduce((a, b) => a + b, 0);
     const sm = headPsi.map((_, i) => { let v = 0; for (let k = -rad; k <= rad; k++) v += headPsi[clamp(i + k, 0, HEAD_N)] * kern[k + rad]; return v / ks; });
@@ -483,6 +481,34 @@ export function walkCameraPose(
   _qSpline.setFromRotationMatrix(_lookM);
   route.sample(walkUOf(chapterProgress), cfg, walker);
   return blendWalkPose(splinePos, _qSpline, 40, walker.position, walker.quaternion, cfg.fov, base, w, outPos, outQuat);
+}
+
+/** Handheld sway state: the smoothed ground speed and the step phase. Fresh per world. */
+export interface WalkSway { phase: number; speed: number; prev: Vector3; has: boolean }
+export const createWalkSway = (): WalkSway => ({ phase: 0, speed: 0, prev: new Vector3(), has: false });
+
+const _swRoll = new Quaternion(), _swZ = new Vector3(0, 0, 1), _swRight = new Vector3();
+/**
+ * The walker's bob, side shift and roll, on top of the finished camera (position `pos`, orientation `q`, both edited in place). Amplitude and cadence follow the
+ * walker's ground speed (measured from `pos` frame to frame, smoothed), so it is zero when paused or holding at a tower, and `weight` fades it in with the dive and
+ * out with the rise. `refSpeed` is the mean leg speed (route units per second): at that speed the walker takes `cfg.hz` steps a second.
+ */
+export function applyWalkSway(
+  s: WalkSway, pos: Vector3, q: Quaternion, up: Vector3, forward: Vector3, dt: number, weight: number,
+  cfg: { bob: number; side: number; rollDeg: number; hz: number }, refSpeed: number,
+): void {
+  const raw = s.has && dt > 1e-4 ? s.prev.distanceTo(pos) / dt : 0;
+  s.prev.copy(pos); s.has = true;
+  s.speed += (Math.min(raw, 4 * refSpeed) - s.speed) * (1 - Math.exp(-dt / 0.25));
+  const k = clamp(s.speed / Math.max(1e-6, refSpeed), 0, 1.3);
+  s.phase += Math.PI * 2 * cfg.hz * k * dt;
+  const amp = weight * Math.min(1, k * 1.5); // (fully swaying a little below the mean leg speed, so the eased ends of a leg still move)
+  if (amp < 1e-4) return;
+  _swRight.crossVectors(forward, up).normalize();
+  const lateral = Math.sin(s.phase * 0.5);
+  pos.addScaledVector(up, amp * cfg.bob * Math.sin(s.phase)).addScaledVector(_swRight, amp * cfg.side * lateral);
+  _swRoll.setFromAxisAngle(_swZ, amp * ((cfg.rollDeg * Math.PI) / 180) * lateral);
+  q.multiply(_swRoll);
 }
 
 const _lookYaw = new Quaternion(), _lookPitch = new Quaternion(), _lookOut = new Quaternion(), _axisX = new Vector3(1, 0, 0);

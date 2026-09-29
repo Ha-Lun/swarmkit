@@ -4,6 +4,7 @@ import type { ScrollState } from '../scroll';
 import type { Honeycomb, Lattice } from './honeycomb';
 import type { Flow } from './routes';
 import type { RingFx } from './rings';
+import type { WalkRoute } from './walk';
 
 export interface RoutingNames {
   /** the three quality-gate agents */
@@ -35,6 +36,7 @@ export interface View {
   lookYaw: number; // the walker's drag-to-look offsets (radians), written by the Cells chapter and applied by the world on the ground
   lookPitch: number;
   walk: number; // 0..1 how far the camera is into the ground walk (world.ts writes it every frame; chapters read the last frame's value)
+  walkStop: number; // index of the tower the walker is approaching or holding at (a route stop; world.ts writes it while walking)
 }
 
 export interface WorldCtx {
@@ -53,6 +55,8 @@ export interface WorldCtx {
   readonly scroll: { lock(): void; unlock(): void };
   /** current honeycomb (globe + moon) (replaced on a tier change: never cache it) */
   readonly comb: Honeycomb;
+  /** the walk route once it is built (a little before the Cells chapter), else null */
+  readonly walkRoute: WalkRoute | null;
   time: number;
   dt: number;
   cellIndex(name: string): number;
