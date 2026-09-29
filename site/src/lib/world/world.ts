@@ -7,12 +7,12 @@ import {
 } from 'three';
 import type { Agent } from '../agents';
 import type { ScrollState } from '../scroll';
-import { createCameraPath, progressOfG, SEGMENTS } from './camera-path';
-import { blendWalkPose, createWalkRoute, horizonFog, type WalkPose, type WalkRoute } from './walk';
+import { createCameraPath, progressOfG, scrollToProgress, SEGMENTS } from './camera-path';
+import { createWalkRoute, horizonFog, walkBlendBase, walkCameraPose, type WalkPose, type WalkRoute } from './walk';
 import { sceneAlpha } from './scene-dom';
 import { accentCandidates, look, readPalette, type Palette } from './config';
 import { cellTopOf, createHoneycomb, layoutLattice, type Honeycomb } from './honeycomb';
-import { motion, spinWeight, SWARM_CAM, walkCfg, walkUOf, walkWeight } from './motion-config';
+import { motion, spinWeight, SWARM_CAM, walkCfg, walkRamp, walkWeight } from './motion-config';
 import { createPost, type Post } from './post';
 import { createStudio, shadowExtentOf, type Studio } from './studio';
 import { createFlow, type Flow } from './routes';
@@ -279,8 +279,12 @@ export function createWorld(opts: WorldOptions): World {
   // changes with it: the pistons hold at rest, the lights follow the walker's frame, the fog comes from the horizon, the seam glow dims, the comet hides.
   let walkW = 0, walkCoreApplied = 1;
   let walkRoute: WalkRoute | null = null;
+  const walkBase = new Quaternion(); // the orientation the dive and the rise are blended about (walkBlendBase)
+  const buildWalk = () => {
+    walkRoute = createWalkRoute(lattice);
+    walkBase.copy(walkBlendBase(walkRoute, (p, o, t) => path.sample(scrollToProgress(2, p), o, t), [[walkRamp.inFrom, walkRamp.inTo], [walkRamp.outFrom, walkRamp.outTo]], walkCfg));
+  };
   const wpose: WalkPose = { position: new Vector3(), quaternion: new Quaternion(), fov: 40, up: new Vector3(), forward: new Vector3(), ground: 0, stop: 0 };
-  const qSpline = new Quaternion();
   let walkCp = 0; // Cells chapter progress read back from the damped camera parameter
   function stepSpin(dt: number) {
     const w = spinW = spinWeight(state.chapter, state.chapterProgress);
@@ -311,10 +315,8 @@ export function createWorld(opts: WorldOptions): World {
     let fov = 40, near = 0.1;
     if (walkW > 0.001) {
       // the walk: blend the spline pose into the walker's pose with the one walk weight (position, orientation and FOV on the same curve)
-      walkRoute ??= createWalkRoute(lattice);
-      qSpline.copy(camera.quaternion);
-      walkRoute.sample(walkUOf(walkCp), { eye: walkCfg.eye, fov: walkCfg.fov, pitchDeg: walkCfg.pitchDeg }, wpose);
-      fov = blendWalkPose(pos, qSpline, 40, wpose.position, wpose.quaternion, walkCfg.fov, walkW, camera.position, camera.quaternion);
+      if (!walkRoute) buildWalk();
+      fov = walkCameraPose(walkRoute!, walkBase, pos, target, walkW, walkCp, walkCfg, camera.position, camera.quaternion, wpose);
       near = 0.1 + (walkCfg.near - 0.1) * walkW;
     }
     if (camera.fov !== fov || camera.near !== near) { camera.fov = fov; camera.near = near; camera.updateProjectionMatrix(); }
@@ -390,7 +392,7 @@ export function createWorld(opts: WorldOptions): World {
       dampProgress(dt);
 
       // lazy pieces, built ahead of the chapter that needs them
-      if (!walkRoute && ch >= 1) walkRoute = createWalkRoute(lattice); // ahead of the Cells chapter (a few tens of ms, off the dive)
+      if (!walkRoute && ch >= 1) buildWalk(); // ahead of the Cells chapter (a few tens of ms, off the dive)
       if (!swarm && !swarmBuilding && ch >= 2) void ensureSwarm();
       if (ch === 3 || (ch === 2 && state.chapterProgress > 0.8)) ensureTargets();
       else if (ch === 4 || ch <= 1) freeTargets();

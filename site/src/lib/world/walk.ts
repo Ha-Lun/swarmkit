@@ -5,6 +5,7 @@
 // cell, turns to face it, then turns to the next leg's heading. Orientation is built from quaternions (right, up, back basis,
 // then a pitch about `right`): no lookAt, no fixed world up, so the horizon can roll with the sphere.
 import { Matrix4, Quaternion, Vector3 } from 'three';
+import { walkUOf } from './motion-config';
 import type { Lattice } from './honeycomb';
 
 export interface WalkParams {
@@ -59,6 +60,7 @@ export interface WalkRoute {
 const BAND_ORDER = ['core', 't1', 'domain', 'gate'] as const;
 const DWELL = 4; // world units of route parameter spent turning at an ordinary stop (face the tower, then turn on)
 const DWELL_BAND = 6; // ... at the last tower of a band
+const HEADING_SIGMA = 10; // route units the heading is smoothed over (~ 3 cells): the walker turns gradually, never in a snap
 const START_BACK = 0.6; // rad: the walk starts this far north (+Y) of the core cell
 const SPAN_SAMPLES = 20; // Catmull-Rom samples per cell-to-cell span
 const FLAT_COST = 3; // Dijkstra: extra cost per world unit of height change between neighbouring cells
@@ -217,7 +219,7 @@ export function createWalkRoute(lattice: Lattice): WalkRoute {
   });
 
   // scratch
-  const tmp = new Vector3(), tmp2 = new Vector3(), hIn = new Vector3(), hFace = new Vector3(), hOut = new Vector3();
+  const tmp = new Vector3(), tmp2 = new Vector3();
   const right = new Vector3(), back = new Vector3();
   const m = new Matrix4(), qBase = new Quaternion(), qPitch = new Quaternion();
 
@@ -241,48 +243,67 @@ export function createWalkRoute(lattice: Lattice): WalkRoute {
     }
     return out;
   };
-  const headingOut = (i: number, out: Vector3) => {
-    onChain(built[i], 0, tmp, out);
-    if (out.lengthSq() < 1e-12) { // already standing at the next stand cell: the street is empty, so the next heading is toward its tower
-      const tn = cells[towers[i].cell].normal;
-      out.copy(tn).addScaledVector(tmp, -tn.dot(tmp)).normalize();
-    }
-    return out;
-  };
-  const signedAngle = (a: Vector3, b: Vector3, up: Vector3) => Math.atan2(tmp2.crossVectors(a, b).dot(up), a.dot(b));
-  const rotate = (h: Vector3, up: Vector3, ang: number, out: Vector3) => {
-    tmp2.crossVectors(up, h);
-    return out.copy(h).multiplyScalar(Math.cos(ang)).addScaledVector(tmp2, Math.sin(ang));
-  };
-
-  /** position direction and heading on the route at u (both unit, heading in the tangent plane); returns the stop index */
-  function place(u: number, dirOut: Vector3, fwdOut: Vector3): number {
+  /** position direction on the route at u and the heading it WANTS there (the street tangent while walking, toward the tower while dwelling); returns the stop index */
+  function placeRaw(u: number, dirOut: Vector3, wantOut: Vector3): number {
     const S = clamp(u, 0, 1) * total;
     let k = 0;
     while (k < segs.length - 1 && S > segs[k].s1) k++;
     const sg = segs[k];
     const f = clamp((S - sg.s0) / (sg.s1 - sg.s0), 0, 1);
+    const c = built[sg.i];
     if (sg.kind === 'walk') {
-      const c = built[sg.i];
-      onChain(c, smooth(f) * c.len, dirOut, fwdOut); // eased: the camera starts and stops each street at rest
-      if (fwdOut.lengthSq() < 1e-12) headingIn(sg.i, fwdOut);
+      onChain(c, smooth(f) * c.len, dirOut, wantOut); // eased: the camera starts and stops each street at rest
+      if (wantOut.lengthSq() < 1e-12) headingIn(sg.i, wantOut);
     } else {
-      const c = built[sg.i];
-      onChain(c, c.len, dirOut, hIn);
-      if (hIn.lengthSq() < 1e-12) headingIn(sg.i, hIn);
-      // face the tower (the direction from this cell toward the tower's cell, in the tangent plane) ...
-      hFace.copy(cells[towers[sg.i].cell].normal);
-      hFace.addScaledVector(dirOut, -hFace.dot(dirOut)).normalize();
-      // ... then turn to the heading of the next street (or stay facing the tower at the end)
-      if (sg.i + 1 < built.length) headingOut(sg.i + 1, hOut); else hOut.copy(hFace);
-      if (hOut.lengthSq() < 1e-12) hOut.copy(hFace);
-      const a1 = signedAngle(hIn, hFace, dirOut) * smooth(clamp(f / 0.45, 0, 1));
-      const a2 = signedAngle(hFace, hOut, dirOut) * smooth(clamp((f - 0.55) / 0.45, 0, 1));
-      rotate(hIn, dirOut, a1 + a2, fwdOut);
+      onChain(c, c.len, dirOut, wantOut);
+      wantOut.copy(cells[towers[sg.i].cell].normal);
+      wantOut.addScaledVector(dirOut, -wantOut.dot(dirOut)).normalize();
     }
     dirOut.normalize();
-    fwdOut.addScaledVector(dirOut, -fwdOut.dot(dirOut)).normalize(); // keep the heading exactly in the tangent plane
     return sg.i;
+  }
+
+  // ---- heading: the wanted heading, low-passed along the route ----
+  // Turning to face each tower and then the next street as separate quick turns swings the camera by up to 180 degrees over a few pixels of scroll.
+  // Instead the wanted heading (as an angle about the local up, measured from a reference direction carried along the route) is unwrapped and
+  // smoothed with a Gaussian of HEADING_SIGMA route units, so every turn is spread over many scroll steps. Stateless: a table over u.
+  const HEAD_N = 4096;
+  const headDir: Vector3[] = [], headRef: Vector3[] = [], headPsi: number[] = [];
+  {
+    const d = new Vector3(), want = new Vector3(), e = new Vector3(), side = new Vector3();
+    let prev = 0;
+    for (let i = 0; i <= HEAD_N; i++) {
+      placeRaw(i / HEAD_N, d, want);
+      if (i === 0) e.copy(want); else e.addScaledVector(d, -e.dot(d));
+      if (e.lengthSq() < 1e-10) e.copy(want);
+      e.normalize();
+      side.crossVectors(d, e);
+      let psi = Math.atan2(want.dot(side), want.dot(e));
+      if (i > 0) psi += Math.PI * 2 * Math.round((prev - psi) / (Math.PI * 2)); // unwrap: no 2 pi jumps
+      prev = psi;
+      headDir.push(d.clone()); headRef.push(e.clone()); headPsi.push(psi);
+    }
+    const sig = (HEADING_SIGMA / total) * HEAD_N, rad = Math.ceil(3 * sig);
+    const kern = Array.from({ length: 2 * rad + 1 }, (_, k) => Math.exp(-0.5 * ((k - rad) / sig) ** 2));
+    const ks = kern.reduce((a, b) => a + b, 0);
+    const sm = headPsi.map((_, i) => { let v = 0; for (let k = -rad; k <= rad; k++) v += headPsi[clamp(i + k, 0, HEAD_N)] * kern[k + rad]; return v / ks; });
+    for (let i = 0; i <= HEAD_N; i++) headPsi[i] = sm[i];
+  }
+  const headAt = (u: number, dirNow: Vector3, out: Vector3): Vector3 => {
+    const x = clamp(u, 0, 1) * HEAD_N, i = Math.min(HEAD_N - 1, Math.floor(x)), t = x - i;
+    const psi = headPsi[i] + (headPsi[i + 1] - headPsi[i]) * t;
+    tmp.copy(headRef[i]).lerp(headRef[i + 1], t);
+    tmp.addScaledVector(dirNow, -tmp.dot(dirNow)).normalize();
+    tmp2.crossVectors(dirNow, tmp);
+    return out.copy(tmp).multiplyScalar(Math.cos(psi)).addScaledVector(tmp2, Math.sin(psi)).normalize();
+  };
+
+  const want = new Vector3();
+  /** position direction and heading on the route at u (both unit, heading in the tangent plane); returns the stop index */
+  function place(u: number, dirOut: Vector3, fwdOut: Vector3): number {
+    const stop = placeRaw(u, dirOut, want);
+    headAt(u, dirOut, fwdOut);
+    return stop;
   }
 
   // ---- ground envelope along the route ----
@@ -368,7 +389,7 @@ export function visibleOverGlobe(cam: Vector3, point: Vector3, R: number): boole
  * Writes outPos and outQuat; returns the blended FOV. At w = 0 it returns the spline pose exactly, at w = 1 the walker's.
  */
 export function blendWalkPose(
-  posA: Vector3, quatA: Quaternion, fovA: number, posB: Vector3, quatB: Quaternion, fovB: number, w: number, outPos: Vector3, outQuat: Quaternion,
+  posA: Vector3, quatA: Quaternion, fovA: number, posB: Vector3, quatB: Quaternion, fovB: number, base: Quaternion, w: number, outPos: Vector3, outQuat: Quaternion,
 ): number {
   const rA = posA.length(), rB = posB.length();
   const dA = posA.clone().divideScalar(rA), dB = posB.clone().divideScalar(rB);
@@ -376,8 +397,56 @@ export function blendWalkPose(
   if (sin < 1e-6) outPos.copy(dA);
   else outPos.copy(dA).multiplyScalar(Math.sin((1 - w) * ang) / sin).addScaledVector(dB, Math.sin(w * ang) / sin);
   outPos.normalize().multiplyScalar(rA + (rB - rA) * w);
-  outQuat.copy(quatA).slerp(quatB, w);
+  blendOrientation(quatA, quatB, base, w, outQuat);
   return fovA + (fovB - fovA) * w;
+}
+
+const _lookM = new Matrix4(), _up = new Vector3(0, 1, 0);
+const _bInv = new Quaternion(), _rA = new Quaternion(), _rB = new Quaternion(), _va = new Vector3(), _vb = new Vector3();
+/** rotation vector (axis x angle, angle in [0, pi]) of the rotation `q` relative to `base` */
+function rotVec(base: Quaternion, q: Quaternion, out: Vector3): Vector3 {
+  _bInv.copy(base).invert();
+  _rA.copy(_bInv).multiply(q);
+  if (_rA.w < 0) { _rA.x = -_rA.x; _rA.y = -_rA.y; _rA.z = -_rA.z; _rA.w = -_rA.w; }
+  const half = Math.acos(Math.min(1, _rA.w)), s = Math.sin(half);
+  return s < 1e-9 ? out.set(0, 0, 0) : out.set(_rA.x, _rA.y, _rA.z).multiplyScalar((2 * half) / s);
+}
+/**
+ * Orientation blend for the dive and the rise: both orientations are written as rotation vectors about a fixed `base` orientation and the vectors are blended.
+ * A quaternion slerp between the spline camera and the walker is discontinuous where the two are exactly 180 degrees apart (the shortest arc flips), and
+ * they get within 8 degrees of that (172); an up-vector blend goes degenerate; a frame that follows the position still meets the 180. About a base that both
+ * stay well clear of (see walkBlendBase, 147 degrees at most) the blend is smooth everywhere, and it is exactly quatA at w = 0 and quatB at w = 1.
+ */
+export function blendOrientation(quatA: Quaternion, quatB: Quaternion, base: Quaternion, w: number, out: Quaternion): Quaternion {
+  rotVec(base, quatA, _va);
+  rotVec(base, quatB, _vb);
+  _va.multiplyScalar(1 - w).addScaledVector(_vb, w);
+  const ang = _va.length();
+  if (ang < 1e-9) return out.copy(base);
+  _rB.setFromAxisAngle(_va.multiplyScalar(1 / ang), ang);
+  return out.copy(base).multiply(_rB);
+}
+
+/**
+ * The base orientation for blendOrientation: the sampled camera orientation (spline or walker, over the Cells progress ranges where the weight is between 0 and 1)
+ * that minimises the largest angle to all the others. `sampleSpline(p, pos, target)` gives the spline camera at Cells progress p.
+ */
+export function walkBlendBase(
+  route: WalkRoute, sampleSpline: (p: number, pos: Vector3, target: Vector3) => void, ranges: readonly (readonly [number, number])[], cfg: { eye: number; fov: number; pitchDeg: number },
+): Quaternion {
+  const qs: Quaternion[] = [], pos = new Vector3(), tgt = new Vector3(), wk: WalkPose = { position: new Vector3(), quaternion: new Quaternion(), fov: 0, up: new Vector3(), forward: new Vector3(), ground: 0, stop: 0 };
+  for (const [a, b] of ranges) for (let k = 0; k <= 24; k++) {
+    const p = a + ((b - a) * k) / 24;
+    sampleSpline(p, pos, tgt);
+    _lookM.lookAt(pos, tgt, _up);
+    qs.push(new Quaternion().setFromRotationMatrix(_lookM));
+    route.sample(walkUOf(p), cfg, wk);
+    qs.push(wk.quaternion.clone());
+  }
+  const angle = (x: Quaternion, y: Quaternion) => 2 * Math.acos(Math.min(1, Math.abs(x.dot(y))));
+  let best = qs[0], bv = Infinity;
+  for (const c of qs) { let m = 0; for (const q of qs) m = Math.max(m, angle(c, q)); if (m < bv) { bv = m; best = c; } }
+  return best.clone();
 }
 
 export interface TowerRef { name: string; top: Vector3 }
@@ -396,4 +465,22 @@ export function nearestTowerAhead(towers: TowerRef[], camPos: Vector3, camFwd: V
   }
   if (best && current && best.name !== current && curD < bd * 1.2) return current;
   return best ? best.name : null;
+}
+
+const _qSpline = new Quaternion();
+const _walkScratch: WalkPose = { position: new Vector3(), quaternion: new Quaternion(), fov: 40, up: new Vector3(), forward: new Vector3(), ground: 0, stop: 0 };
+
+/**
+ * The story camera while the walk weight `w` is above zero: the spline pose (position `splinePos`, looking at `splineTarget`, FOV 40) blended into the
+ * walker at Cells chapter progress `chapterProgress`. The world calls this every frame and scripts/smoothness-check.mjs samples the same function,
+ * so what is verified is what ships. Writes outPos/outQuat, returns the FOV; `walker` receives the walker's own pose (its up/forward drive the lights).
+ */
+export function walkCameraPose(
+  route: WalkRoute, base: Quaternion, splinePos: Vector3, splineTarget: Vector3, w: number, chapterProgress: number,
+  cfg: { eye: number; fov: number; pitchDeg: number }, outPos: Vector3, outQuat: Quaternion, walker: WalkPose = _walkScratch,
+): number {
+  _lookM.lookAt(splinePos, splineTarget, _up); // the same orientation Object3D.lookAt gives a camera
+  _qSpline.setFromRotationMatrix(_lookM);
+  route.sample(walkUOf(chapterProgress), cfg, walker);
+  return blendWalkPose(splinePos, _qSpline, 40, walker.position, walker.quaternion, cfg.fov, base, w, outPos, outQuat);
 }
