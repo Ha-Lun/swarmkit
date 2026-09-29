@@ -2,7 +2,7 @@ import {
   AmbientLight, DirectionalLight, Fog, HemisphereLight, PerspectiveCamera, Scene, Vector3, WebGLRenderer,
 } from 'three';
 import type { Agent } from '../agents';
-import { chapterAt, createCameraPath } from './camera-path';
+import { chapterAt, createCameraPath, smooth } from './camera-path';
 import { createHoneycomb } from './honeycomb';
 
 /** The only thing the world reads. Written elsewhere (slider now, ScrollTrigger later). */
@@ -66,7 +66,7 @@ export function createWorld(
     const { chapter, chapterProgress } = chapterAt(g);
     honeycomb.update(
       chapter === 0 ? chapterProgress : 1,
-      chapter < 3 ? 0 : chapter === 3 ? chapterProgress : 1,
+      chapter < 3 ? 0 : chapter === 3 ? smooth(chapterProgress) : 1,
     );
     path.sample(g, pos, target);
     camera.position.copy(pos);

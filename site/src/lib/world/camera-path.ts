@@ -53,7 +53,7 @@ export function chapterAt(globalProgress: number): { chapter: number; chapterPro
   return { chapter: 0, chapterProgress: 0 };
 }
 
-const smooth = (t: number) => t * t * (3 - 2 * t);
+export const smooth = (t: number) => t * t * (3 - 2 * t);
 
 export function createCameraPath(L: number): CameraPath {
   SAT.set(((L + SATELLITE_GAP) * Math.cos(SATELLITE_DIR)) / L, 0, ((L + SATELLITE_GAP) * Math.sin(SATELLITE_DIR)) / L);
