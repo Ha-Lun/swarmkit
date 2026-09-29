@@ -9,6 +9,7 @@
 import { Raycaster, Vector2, Vector3 } from 'three';
 import type { WorldCtx } from './types';
 import { look } from './config';
+import { visibleOverGlobe } from './walk';
 
 const CARD_GAP = 14; // px between the cell centre and the card
 const EDGE = 12;
@@ -18,7 +19,8 @@ export interface Pick {
   enable(): void;
   disable(): void;
   /** agent under the pointer, else the keyboard-focused one */
-  update(): { name: string | null; byKeyboard: boolean };
+  /** `strict` (the walk): hide a card whose tower is behind the camera or past the horizon; off, cards behave exactly as before */
+  update(opts?: { strict?: boolean }): { name: string | null; byKeyboard: boolean };
   dispose(): void;
 }
 
@@ -69,8 +71,11 @@ export function createPick(ctx: WorldCtx, root: HTMLElement | null): Pick {
     return hit?.instanceId !== undefined ? ctx.lattice.cells[comb.cellAt(hit.object, hit.instanceId)]?.agent?.name ?? null : null;
   }
 
-  function place(card: HTMLElement, name: string) {
+  function place(card: HTMLElement, name: string, strict: boolean) {
     if (!ctx.cellTop(name, tmp)) return;
+    // the walker sees the globe from the ground: a tower past the horizon (the globe is in the way) or behind the camera has no card
+    const seen = !strict || (visibleOverGlobe(ctx.camera.position, tmp, ctx.lattice.radius + 0.3) && tmp.clone().project(ctx.camera).z < 1);
+    card.classList.toggle('is-off', !seen);
     tmp.project(ctx.camera);
     let dim = size.get(card);
     if (!dim) { dim = [card.offsetWidth, card.offsetHeight]; size.set(card, dim); }
@@ -99,11 +104,11 @@ export function createPick(ctx: WorldCtx, root: HTMLElement | null): Pick {
       root?.removeEventListener('keydown', onKey);
       hovered = focused = null;
       onCanvas = dirty = false;
-      shown?.classList.remove('is-on', 'is-key');
+      shown?.classList.remove('is-on', 'is-key', 'is-off');
       shown = null;
       document.body.style.cursor = '';
     },
-    update() {
+    update(opts) {
       if (onCanvas || dirty) {
         dirty = false;
         hovered = onCanvas ? raycast() : null;
@@ -113,13 +118,13 @@ export function createPick(ctx: WorldCtx, root: HTMLElement | null): Pick {
       const byKeyboard = !hovered && !!focused;
       const card = name ? cards.get(name) ?? null : null;
       if (card !== shown) {
-        shown?.classList.remove('is-on', 'is-key');
+        shown?.classList.remove('is-on', 'is-key', 'is-off');
         card?.classList.add('is-on');
         shown = card;
       }
       if (card && name) {
         card.classList.toggle('is-key', byKeyboard);
-        place(card, name);
+        place(card, name, !!opts?.strict);
       }
       return { name, byKeyboard };
     },

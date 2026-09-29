@@ -83,3 +83,13 @@ export function dissolveMix(chapter: number, p: number): number {
   const vh = chapter === 2 ? (p - 1) * motion.runway.cells : chapter === 3 ? p * motion.runway.proof : chapter < 2 ? -Infinity : Infinity;
   return smooth3(Math.min(1, Math.max(0, (vh - fromVh) / (toVh - fromVh))));
 }
+
+/** The walk (Cells chapter): where the camera is on the ground. The ramp values are provisional (tuned in the story integration): it dives in over
+ *  chapterProgress inFrom..inTo and rises out over outFrom..outTo, finishing before the Cells -> Proof dissolve window opens (p = 0.917). */
+export const walkRamp = { inFrom: 0.1, inTo: 0.26, outFrom: 0.84, outTo: 0.9 } as const;
+/** Walk weight 0..1 for chapter `chapter` at chapterProgress p: 0 = on the spline fly-over path, 1 = walking. Modelled on spinWeight; the pistons park with it. */
+export function walkWeight(chapter: number, p: number): number {
+  if (chapter !== 2) return 0;
+  const r = (a: number, b: number) => smooth3(Math.min(1, Math.max(0, (p - a) / (b - a))));
+  return r(walkRamp.inFrom, walkRamp.inTo) * (1 - r(walkRamp.outFrom, walkRamp.outTo));
+}

@@ -10,10 +10,16 @@ import type { Lattice } from './honeycomb';
 
 export interface StudioFrame {
   timeSec: number;
+  /** the walk camera's local frame (unit vectors): with weight > 0 the key, fill and kicker are placed relative to `up` and `forward` instead of the
+   *  camera's azimuth about Y, so the light stays consistent wherever on the globe the walker stands. weight 0 = the azimuth rig. */
+  frame?: { up: Vector3; forward: Vector3; weight: number };
 }
 
 export interface Studio {
   update(camera: PerspectiveCamera, f: StudioFrame): void;
+  /** high tier: fit the key's shadow frustum tightly (+-extent world units) round `center`, snapped to shadow texels so it never shimmers
+   *  while the camera moves; null restores the full-globe frustum. No effect on medium (no shadow map). */
+  fitShadow(focus: { center: Vector3; extent: number } | null): void;
   dispose(): void;
 }
 
@@ -53,11 +59,22 @@ export function createStudio(scene: Scene, tier: Tier, palette: Palette, shadowE
     sh.radius = SHADOW.radius;
   }
 
-  const dir = new Vector3();
+  const dir = new Vector3(), dirB = new Vector3(), lr = new Vector3(), lu = new Vector3(), lz = new Vector3();
+  const baseNear = key.shadow.camera.near, baseFar = key.shadow.camera.far;
+  let focus: { center: Vector3; extent: number } | null = null;
+  const baseExt = shadowExtent ?? 0;
   const polar = (az: number, el: number, out: Vector3) =>
     out.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
 
   return {
+    fitShadow(f) {
+      if (!key.castShadow) return;
+      focus = f;
+      const e = f ? f.extent : baseExt;
+      const sc = key.shadow.camera;
+      Object.assign(sc, f ? { left: -e, right: e, top: e, bottom: -e, near: SHADOW.keyDistance - e - 2, far: SHADOW.keyDistance + e + 2 } : { left: -e, right: e, top: e, bottom: -e, near: baseNear, far: baseFar });
+      sc.updateProjectionMatrix();
+    },
     update(camera, f) {
       const L = look.light;
       amb.intensity = L.ambient; hemi.intensity = L.hemi; key.intensity = L.key; fill.intensity = L.fill; kicker.intensity = L.kicker;
@@ -66,10 +83,41 @@ export function createStudio(scene: Scene, tier: Tier, palette: Palette, shadowE
       const camAz = Math.atan2(camera.position.x, camera.position.z);
       const idle = Math.sin(f.timeSec * 0.11) * 0.14;
       polar(camAz * (1 - L.sweep) + KEY_OFFSET + idle, (L.keyElevation * Math.PI) / 180, dir);
-      key.position.copy(dir).multiplyScalar(SHADOW.keyDistance);
+      polar(camAz + KICKER_BEHIND - idle, 0.3, dirB);
+      if (f.frame && f.frame.weight > 0) {
+        // walking: the same rig in the walker's own frame. The key sits behind-left and above, the fill opposite it, the kicker ahead and high
+        // (rimming the towers without glaring off the ground), each blended with the azimuth rig by the frame weight
+        const { up, forward, weight } = f.frame;
+        lr.crossVectors(forward, up).normalize();
+        const el = (L.keyElevation * Math.PI) / 180, ce = Math.cos(el), se = Math.sin(el);
+        const a = KEY_OFFSET + idle; // rad, as in the azimuth rig, measured from behind the walker
+        // local key direction: behind (-forward) rotated by a about up, raised by el
+        lz.copy(forward).multiplyScalar(-Math.cos(a)).addScaledVector(lr, Math.sin(a)).multiplyScalar(ce).addScaledVector(up, se);
+        dir.multiplyScalar(1 - weight).addScaledVector(lz, weight).normalize();
+        // high (about 55 degrees) and to the left of ahead: a low kicker straight ahead mirrors off the flat tile tops into the camera and blooms
+        lu.copy(forward).multiplyScalar(Math.cos(0.95)).addScaledVector(lr, -0.5).addScaledVector(up, Math.sin(0.95)).normalize();
+        dirB.multiplyScalar(1 - weight).addScaledVector(lu, weight).normalize();
+      }
+      if (focus) {
+        // the tight shadow frustum is centred on the walker's focus point, snapped to the light's own texel grid so texels never crawl
+        lz.copy(dir);
+        lr.set(0, 1, 0).cross(lz);
+        if (lr.lengthSq() < 1e-6) lr.set(1, 0, 0);
+        lr.normalize();
+        lu.crossVectors(lz, lr);
+        const texel = (2 * focus.extent) / SHADOW.map;
+        key.target.position.set(0, 0, 0)
+          .addScaledVector(lr, Math.round(focus.center.dot(lr) / texel) * texel)
+          .addScaledVector(lu, Math.round(focus.center.dot(lu) / texel) * texel)
+          .addScaledVector(lz, focus.center.dot(lz));
+        key.position.copy(key.target.position).addScaledVector(dir, SHADOW.keyDistance);
+      } else {
+        key.target.position.set(0, 0, 0);
+        key.position.copy(dir).multiplyScalar(SHADOW.keyDistance);
+      }
+      key.target.updateMatrixWorld();
       fill.position.copy(dir).multiplyScalar(-30);
-      polar(camAz + KICKER_BEHIND - idle, 0.3, dir);
-      kicker.position.copy(dir).multiplyScalar(30);
+      kicker.position.copy(dirB).multiplyScalar(30);
     },
     dispose() {
       key.shadow.dispose();

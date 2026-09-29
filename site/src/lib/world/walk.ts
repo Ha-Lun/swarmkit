@@ -340,3 +340,24 @@ export function createWalkRoute(lattice: Lattice): WalkRoute {
     },
   };
 }
+
+/** Ground distance to the horizon for a camera `camDist` from the globe centre: the tangent length sqrt(camDist^2 - R^2) (= sqrt(2 R h + h^2) at altitude h). */
+export function horizonDistance(R: number, camDist: number): number {
+  return Math.sqrt(Math.max(0, camDist * camDist - R * R));
+}
+
+/** Fog for the walker: near/far as multiples of the horizon distance, so the limb fades out instead of ending in a hard edge. */
+export function horizonFog(R: number, camDist: number, nearK: number, farK: number): { near: number; far: number } {
+  const d = horizonDistance(R, camDist);
+  return { near: Math.max(0.05, d * nearK), far: Math.max(0.5, d * farK) };
+}
+
+/** Is `point` visible from `cam` over a globe of radius `R`? The segment cam -> point must clear the sphere (pure; used to hide label cards of towers past the horizon). */
+export function visibleOverGlobe(cam: Vector3, point: Vector3, R: number): boolean {
+  const dx = point.x - cam.x, dy = point.y - cam.y, dz = point.z - cam.z;
+  const l2 = dx * dx + dy * dy + dz * dz;
+  if (l2 < 1e-12) return true;
+  const t = clamp(-(cam.x * dx + cam.y * dy + cam.z * dz) / l2, 0, 1);
+  const x = cam.x + dx * t, y = cam.y + dy * t, z = cam.z + dz * t;
+  return x * x + y * y + z * z >= R * R;
+}

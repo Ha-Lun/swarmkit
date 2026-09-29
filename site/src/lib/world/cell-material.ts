@@ -23,6 +23,7 @@ export interface CellUniforms {
   uGradient: IUniform<number>;
   uCapGloss: IUniform<number>;
   uCapBevel: IUniform<number>;
+  uRadial: IUniform<number>;
   uCapEnv: IUniform<number>;
   uHover: IUniform<number>;
   uStoneBase: IUniform<Color>;
@@ -92,6 +93,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
     uGradient: { value: cfg.gradient },
     uCapGloss: { value: cfg.capGloss },
     uCapBevel: { value: capBevelOf(cfg, tier) },
+    uRadial: { value: 0 }, // walk bench / story: radial wall extrusion, 0 = straight prisms (the default look)
     uCapEnv: { value: capEnvOf(cfg) },
     uHover: { value: cfg.hover },
     uStoneBase: { value: waxDim.clone() }, // the column sides start from this, then darken toward ink-2
@@ -138,6 +140,9 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
           float sxn = length( instanceMatrix[ 0 ].xyz );
           float syn = length( instanceMatrix[ 1 ].xyz );
           objectNormal = normalize( objectNormal + vec3( cornerOf().x, 0.0, cornerOf().y ) * ( -sxn * sxn * aStone.w / max( syn, 1e-4 ) ) );
+        } else if ( abs( normal.y ) < 0.05 && uRadial > 0.0 ) {
+          // radial walls lean out with height, so the wall normal tips down by the same slope
+          objectNormal = normalize( vec3( objectNormal.x, objectNormal.y - uRadial * length( cornerOf() ) * aStone.w, objectNormal.z ) );
         }`,
       )
       .replace(
@@ -303,7 +308,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         #include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => `cell-${tier}-r11`;
+  material.customProgramCacheKey = () => `cell-${tier}-r12`;
 
   return {
     material,

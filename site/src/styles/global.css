@@ -102,6 +102,7 @@
 .agent-list { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .cell-card { position: fixed; top: 0; left: 0; z-index: 30; width: max-content; max-width: 34ch; padding: var(--space-3) var(--space-4); background: var(--ink); border: 1px solid var(--wax-dim); opacity: 0; pointer-events: none; will-change: transform; }
 .cell-card.is-on { opacity: 1; }
+.cell-card.is-on.is-off { opacity: 0; } /* the walker: tower behind the camera or past the horizon (pick.ts strict) */
 .cell-card.is-key { outline: 2px solid var(--text); outline-offset: 2px; }
 .cell-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); margin: 0; font-family: var(--font-mono); font-size: var(--text-base); color: var(--text); }
 .cell-card-tier { color: var(--text); opacity: 0.72; }

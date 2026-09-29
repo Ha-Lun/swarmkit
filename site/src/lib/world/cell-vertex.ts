@@ -15,7 +15,7 @@ attribute vec2 aRock;
 attribute vec4 aCornA;
 attribute vec4 aCornB;
 attribute vec4 aCornC;
-uniform float uBevel, uCapBevel;
+uniform float uBevel, uCapBevel, uRadial;
 vec2 cornerOf() {
   float k = floor( aK + 0.5 );
   return k < 0.0 ? vec2( 0.0 ) : k < 0.5 ? aCornA.xy : k < 1.5 ? aCornA.zw : k < 2.5 ? aCornB.xy : k < 3.5 ? aCornB.zw : k < 4.5 ? aCornC.xy : aCornC.zw;
@@ -37,6 +37,9 @@ float cellWallH;
   transformed.y -= aBev.x * b / max( sy, 1e-4 );
   transformed.xz *= 1.0 - aBev.y * b / max( length( cxz ) * sx, 1e-4 );
   // the whole panel sits on its sphere: drop by (distance^2) / (2 body radius)
+  // radial walls (uRadial 0..1): the footprint widens with height in proportion to the sphere (R + h) / R, so the walls run out from the
+  // globe centre and the seam between neighbours keeps (nearly) its base width instead of opening up along the column
+  transformed.xz *= 1.0 + uRadial * max( cellWallH, 0.0 ) * aStone.w;
   vec2 wxz = transformed.xz * sx;
   transformed.y -= dot( wxz, wxz ) * aStone.w * 0.5 / max( sy, 1e-4 );
 }`;

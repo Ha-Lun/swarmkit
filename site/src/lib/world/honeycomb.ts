@@ -376,7 +376,11 @@ export interface Honeycomb {
   /** growth 0..1 drives the ring-by-ring rise; dim 0..1 darkens the lattice; `time` (seconds) runs the pistons, the agent breath and the
    *  moon's spin and drift (omitted: every column rests at its base height and the moon sits at home, which is what reduced-motion style callers want).
    *  `moonWeight` 0..1 (default 1) is how freely the moon moves: 0 parks it exactly at home, in between it eases there (see world.ts, spinWeight). */
-  update(growth: number, dim: number, time?: number, moonWeight?: number): void;
+  update(growth: number, dim: number, time?: number, moonWeight?: number, walkWeight?: number): void;
+  /** radial wall extrusion 0..1 (0 = straight prisms). Shared by the lit, shadow and AO shapes. */
+  setRadial(k: number): void;
+  /** multiplies the globe's emissive seam floor (1 = as tuned): dimmed under the walk camera so bloom does not bleed through the seams */
+  setCoreScale(k: number): void;
   material: MeshPhysicalMaterial;
   uniforms: CellUniforms;
   /** re-read look.cell into the material uniforms (and rebuild the seam footprints when the seam slider moved) */
@@ -632,6 +636,7 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
   };
   const whiteBase = material.color.clone();
   const coreBase = coreMat.color.clone();
+  let coreScale = 1;
 
   return {
     object,
@@ -641,7 +646,9 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
     lattice,
     material,
     uniforms: cellMat.uniforms,
-    syncLook() { cellMat.sync(look.cell); coreMat.color.copy(coreColorOf(look.core)); },
+    syncLook() { cellMat.sync(look.cell); coreMat.color.copy(coreColorOf(look.core)).multiplyScalar(coreScale); },
+    setRadial(k) { cellMat.uniforms.uRadial.value = k; },
+    setCoreScale(k) { coreScale = k; lastDim = NaN; coreMat.color.copy(coreColorOf(look.core)).multiplyScalar(k); },
     setCellState(i, bright, lf) {
       const s = slotOf.get(i);
       if (!s) return;
@@ -649,7 +656,7 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
       kd.state.setXY(s.slot, bright, lf * look.cell.lift); // (z, the occlusion, is left alone)
       kd.state.needsUpdate = true;
     },
-    update(growth, dim, time, moonWeight = 1) {
+    update(growth, dim, time, moonWeight = 1, walk = 0) {
       if (look.cell.seam !== lastSeam) { lastSeam = look.cell.seam; setFootprints(look.cell.seam); }
       if (applyTerrain(lattice)) {
         dirty = true;
@@ -674,8 +681,8 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
             const c = lattice.cells[ci];
             // agents: towers, breathing on the globe and steady on the moon; fillers: pistons, the moon's at moonStroke of the globe's throw
             if (time === undefined || (c.moon && c.agent)) c.height = c.base;
-            else if (c.agent) c.height = c.base + AGENT_BREATH * Math.sin(time * 0.55 + pistons[ci].agentPhase);
-            else c.height = c.base + look.cell.stroke * (c.moon ? look.cell.moonStroke : 1) * stroke(ci, pistons[ci], time);
+            else if (c.agent) c.height = c.base + (1 - walk) * AGENT_BREATH * Math.sin(time * 0.55 + pistons[ci].agentPhase);
+            else c.height = c.base + (1 - walk) * look.cell.stroke * (c.moon ? look.cell.moonStroke : 1) * stroke(ci, pistons[ci], time); // walk 0..1 parks the rods at rest
             const s = ease((growth - startOf(c)) / 0.28);
             // flush growth: the panel rises out of the seam floor, ring by ring, widening as it comes up; no scale on the height
             const rise = (1 - s) * 0.5;
@@ -702,7 +709,7 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
       if (dim !== lastDim) {
         lastDim = dim;
         material.color.copy(whiteBase).multiplyScalar(1 - 0.65 * dim);
-        coreMat.color.copy(coreBase).multiplyScalar(1 - 0.65 * dim); // the core follows the proof-chapter dim like the rest of the stone
+        coreMat.color.copy(coreBase).multiplyScalar((1 - 0.65 * dim) * coreScale); // the core follows the proof-chapter dim like the rest of the stone
       }
     },
     dispose() {
