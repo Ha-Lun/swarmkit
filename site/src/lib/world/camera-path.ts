@@ -147,7 +147,7 @@ function gOfArc(s: number): number {
 // control point; the speed profile blends smoothly between neighbouring chapters (smoothstep across a window on each side of
 // the boundary), so speed and its slope are continuous at every boundary. The chapter means are solved so the blended profile
 // still integrates to each chapter's arc length.
-const RUNWAY = [motion.runway.intro, motion.runway.hive, motion.runway.cells, motion.runway.proof, motion.runway.finale];
+const RUNWAY = [motion.mapRunway.intro, motion.mapRunway.hive, motion.mapRunway.cells, motion.mapRunway.proof, motion.mapRunway.finale];
 const SCROLL_AT: number[] = [0];
 RUNWAY.forEach((r) => SCROLL_AT.push(SCROLL_AT[SCROLL_AT.length - 1] + r));
 const SCROLL_TOTAL = SCROLL_AT[SCROLL_AT.length - 1];
@@ -219,8 +219,32 @@ function scrollArcAt(S: number): number {
  * Chapter boundaries still land on SEGMENTS[i].t0/t1, but between them the camera speed per scroll varies smoothly instead of
  * jumping where the runways change.
  */
+// The Cells chapter is laid out longer than the 300vh its speed profile was solved for (the walk needs the room). Its progress is warped onto the design length:
+// at both ends it runs at the neighbouring chapters' speed (1 design vh per layout vh, so the camera speed per scroll stays continuous across hive|cells and cells|proof,
+// and the dissolve window sits where it always did), and slows in the middle, where the walker is on the ground. Every other chapter is untouched.
+const CELLS_LAYOUT = motion.runway.cells, CELLS_DESIGN = RUNWAY[2];
+const WARP_T = Math.min(90, CELLS_LAYOUT / 3); // layout vh over which the speed eases between the neighbours' and the middle's
+const WARP_MID = (CELLS_DESIGN - WARP_T) / (CELLS_LAYOUT - WARP_T);
+const WARP_N = 2000;
+const WARP: number[] = [0]; // WARP[i] = design vh reached at layout vh i * CELLS_LAYOUT / WARP_N
+for (let i = 1; i <= WARP_N; i++) {
+  const v = ((i - 0.5) / WARP_N) * CELLS_LAYOUT, e = 1 - smoothstep(Math.min(v, CELLS_LAYOUT - v) / WARP_T);
+  WARP.push(WARP[i - 1] + (WARP_MID + (1 - WARP_MID) * e) * (CELLS_LAYOUT / WARP_N));
+}
+const warpCells = (p: number): number => { // Cells progress -> design vh
+  const x = Math.min(1, Math.max(0, p)) * WARP_N, i = Math.min(WARP_N - 1, Math.floor(x));
+  return (WARP[i] + (WARP[i + 1] - WARP[i]) * (x - i)) * (CELLS_DESIGN / WARP[WARP_N]);
+};
+const unwarpCells = (sd: number): number => { // design vh -> Cells progress
+  const target = (Math.min(CELLS_DESIGN, Math.max(0, sd)) / CELLS_DESIGN) * WARP[WARP_N];
+  let lo = 0, hi = WARP_N;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (WARP[mid] <= target) lo = mid; else hi = mid; }
+  return (lo + (target - WARP[lo]) / (WARP[hi] - WARP[lo])) / WARP_N;
+};
+
 export function scrollToProgress(chapter: number, chapterProgress: number): number {
-  const S = SCROLL_AT[chapter] + Math.min(1, Math.max(0, chapterProgress)) * RUNWAY[chapter];
+  const p = Math.min(1, Math.max(0, chapterProgress));
+  const S = SCROLL_AT[chapter] + (chapter === 2 ? warpCells(p) : p * RUNWAY[chapter]);
   return gOfArc(scrollArcAt(S));
 }
 
@@ -235,7 +259,7 @@ export function progressOfG(g: number): { chapter: number; chapterProgress: numb
   const S = (lo + hi) / 2;
   let ch = 0;
   while (ch < RUNWAY.length - 1 && S >= SCROLL_AT[ch + 1]) ch++;
-  return { chapter: ch, chapterProgress: Math.min(1, Math.max(0, (S - SCROLL_AT[ch]) / RUNWAY[ch])) };
+  return { chapter: ch, chapterProgress: ch === 2 ? unwarpCells(S - SCROLL_AT[2]) : Math.min(1, Math.max(0, (S - SCROLL_AT[ch]) / RUNWAY[ch])) };
 }
 
 export function createCameraPath(lattice: Lattice): CameraPath {

@@ -49,6 +49,9 @@ export interface World {
 }
 
 const MAX_DPR: Record<ActiveTier, number> = { high: 2, medium: 1.5 };
+/** The walk fills the screen with close-up metal, which costs far more fragment work than the orbit views: on a 2015 laptop GPU the high tier fell to 30-40 fps at a
+ *  pixel ratio of 2 and held 60 at 1.5. So the ratio is capped here while the camera is on the ground (switched once, with hysteresis, at the start of the dive and after the rise). */
+const WALK_DPR = 1.5;
 
 /** Radial gradient background (round 11): ink-2 centre fading to ink at the edge, strength look.bg.gradient. Procedural,
  *  sRGB (matches the palette tokens' own space), small (256px: it only ever shows through as a soft blend). Shared with
@@ -78,6 +81,7 @@ function readAccent(): string {
 export function createWorld(opts: WorldOptions): World {
   const { canvas, agents, routing, state, scroll } = opts;
   let tier = opts.tier;
+  let walkDprCap = false; // true while the walk is on screen (WALK_DPR); declared here because resize() runs during setup
   const palette = readPalette();
 
   const renderer = new WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -229,7 +233,7 @@ export function createWorld(opts: WorldOptions): World {
     // mobile URL-bar collapse changes innerHeight by a few dozen px on scroll: not worth reallocating every target
     if (!force && w === lw && Math.abs(h - lh) < 120) return;
     lw = w; lh = h;
-    const pr = Math.min(window.devicePixelRatio || 1, MAX_DPR[tier]);
+    const pr = Math.min(window.devicePixelRatio || 1, MAX_DPR[tier], walkDprCap ? WALK_DPR : Infinity);
     renderer.setPixelRatio(pr);
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
@@ -436,6 +440,8 @@ export function createWorld(opts: WorldOptions): World {
     walkW = walkWeight(dp.chapter, dp.chapterProgress);
     walkCp = dp.chapterProgress;
     view.walk = walkW;
+    if (!walkDprCap && walkW > 0.05) { walkDprCap = true; resize(true); } // (hysteresis: back to full resolution only once the rise is over)
+    else if (walkDprCap && walkW < 0.005) { walkDprCap = false; resize(true); }
     if (walkW > 0.001) { flows.forEach((f) => (f.packet.group.visible = false)); rings.mesh.visible = false; } // the walker does not see the comet
     const coreScale = 1 - walkCfg.coreDim * walkW; // the seam glow dims under the walk camera so bloom does not bleed through the seams
     if (Math.abs(coreScale - walkCoreApplied) > 0.005 || (walkW === 0 && walkCoreApplied !== 1)) { comb.setCoreScale(coreScale); walkCoreApplied = coreScale; }
