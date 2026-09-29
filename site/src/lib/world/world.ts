@@ -401,8 +401,7 @@ export function createWorld(opts: WorldOptions): World {
       // lazy pieces, built ahead of the chapter that needs them
       if (!walkRoute && ch >= 1) buildWalk(); // ahead of the Cells chapter (a few tens of ms, off the dive)
       if (!swarm && !swarmBuilding && ch >= 2) void ensureSwarm();
-      if (ch === 3 || (ch === 2 && state.chapterProgress > 0.8)) ensureTargets();
-      else if (ch === 4 || ch <= 1) freeTargets();
+      if (ch === 4 || ch <= 1) freeTargets(); // (the hex-dissolve targets are no longer allocated: the Cells -> Proof transition is a continuous pull-back, view.dissolve stays 0)
 
       const kf = 1 - Math.exp(-motion.camera.focusRatePerSec * dt);
       focusSm.lerp(view.focus, focusSm.lengthSq() === 0 ? 1 : kf);

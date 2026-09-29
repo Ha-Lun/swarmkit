@@ -4,7 +4,7 @@
 import { Vector3 } from 'three';
 import { nearestTowerAhead, type TowerRef } from '../walk';
 import { createWalkLook } from '../walk-look';
-import { dissolveMix, motion } from '../motion-config';
+import { motion, recedeMix } from '../motion-config';
 import { createPick } from '../pick';
 import { sceneOf, setOpacity } from '../scene-dom';
 import type { Chapter, WorldCtx } from '../types';
@@ -29,9 +29,8 @@ export function createCells(ctx: WorldCtx): Chapter {
     },
     fade: (v) => scene.fade(v),
     update(p) {
-      // the tail of the fly-over already carries the first part of the Cells -> Proof dissolve (proof.ts carries the rest)
-      const e = dissolveMix(2, p);
-      view.dissolve = e;
+      // the rise out of the walk already carries the pull-back that dims the globe into the Proof view (proof.ts carries the rest): one ease, no dissolve
+      const e = recedeMix(2, p);
       view.dim = e;
       view.canvasOpacity = 1 - (1 - motion.proof.canvasOpacity) * e;
       look.step(ctx.dt, view.walk > 0.85, view.walk);

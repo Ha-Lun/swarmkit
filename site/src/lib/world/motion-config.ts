@@ -79,7 +79,7 @@ const smooth3 = (t: number) => t * t * (3 - 2 * t);
 export function spinWeight(chapter: number, p: number): number {
   if (chapter === 0) { const f = motion.spin.introFrom; return 1 - smooth3(Math.min(1, Math.max(0, (p - f) / (1 - f)))); }
   if (chapter === 1) return 0;
-  return dissolveMix(chapter, p);
+  return recedeMix(chapter, p);
 }
 /** The shared dissolve ease, 0..1, for chapter 2 (Cells, its tail) or 3 (Proof, its head) at chapterProgress p; 0 or 1 elsewhere. */
 export function dissolveMix(chapter: number, p: number): number {
@@ -103,3 +103,14 @@ export function walkWeight(chapter: number, p: number): number {
 export const walkCfg = { eye: 0.3, fov: 75, pitchDeg: 15, near: 0.03, uFrom: 0.2, uTo: 0.82, detail: 1, coreDim: 0.9, fogNear: 0.5, fogFar: 1.6 } as const;
 /** Route parameter 0..1 for Cells chapter progress p. */
 export const walkUOf = (p: number): number => Math.min(1, Math.max(0, (p - walkCfg.uFrom) / (walkCfg.uTo - walkCfg.uFrom)));
+
+/**
+ * The pull-back from the walk into the Proof view. No dissolve: the rise carries straight on, and the dimming, the canvas receding and the globe's spin
+ * coming back all run on this ONE smooth ease (0..1), from the start of the rise (Cells progress walkRamp.outFrom) to `motion.proof.toVh` into Proof.
+ * Chapter 2 (Cells) at progress p, chapter 3 (Proof); 0 before and 1 after.
+ */
+export function recedeMix(chapter: number, p: number): number {
+  const from = walkRamp.outFrom * motion.runway.cells, to = motion.runway.cells + motion.proof.toVh;
+  const vh = chapter === 2 ? p * motion.runway.cells : chapter === 3 ? motion.runway.cells + p * motion.runway.proof : chapter < 2 ? -Infinity : Infinity;
+  return smooth3(Math.min(1, Math.max(0, (vh - from) / (to - from))));
+}
