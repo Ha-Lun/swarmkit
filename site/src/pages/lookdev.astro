@@ -107,6 +107,8 @@ const favicon =
       import { walkWeight } from '../lib/world/motion-config';
       import { bandLabels } from '../content/tiers';
       import { blurb } from '../lib/blurb';
+      import { applyWalkLook } from '../lib/world/walk';
+      import { createWalkLook } from '../lib/world/walk-look';
       import { createSwarm, type Swarm } from '../lib/world/swarm-particles';
       import { createBgTexture } from '../lib/world/world';
 
@@ -268,12 +270,15 @@ const favicon =
       }
       (window as unknown as { __bench: unknown }).__bench = { route, walk }; // inspection hook for QA shots
       // the walk camera: placed and oriented from the route's quaternion, never lookAt; fog from the sliders
+      const walkLook = createWalkLook(); // drag the canvas to turn your head (double click: look forward)
       function walkCam(dt: number) {
         if (walk.speed > 0) walk.u = (walk.u + (walk.speed * dt) / route.length) % 1;
         route.sample(walk.u, { eye: walk.eye, fov: walk.fov, pitchDeg: walk.pitch, ground: walk.env ? 'env' : 'smooth' }, walkPose);
         if (cam.near !== walk.near) { cam.near = walk.near; cam.updateProjectionMatrix(); }
         cam.position.copy(walkPose.position);
-        cam.quaternion.copy(walkPose.quaternion);
+        walkLook.enable();
+        walkLook.step(dt, true, 1);
+        applyWalkLook(walkPose.quaternion, walkPose.up, walkLook.yaw, walkLook.pitch, 1, cam.quaternion);
         if (cam.fov !== walkPose.fov) { cam.fov = walkPose.fov; cam.updateProjectionMatrix(); }
         if (fx.fog) { const hf = horizonFog(R, cam.position.length(), fx.fogNear, fx.fogFar); (scene.fog as Fog).near = hf.near; (scene.fog as Fog).far = hf.far; }
         else { (scene.fog as Fog).near = walk.fogNear; (scene.fog as Fog).far = walk.fogFar; }
@@ -381,7 +386,7 @@ const favicon =
         sl.replaceChildren(); ex.replaceChildren();
         document.querySelectorAll<HTMLButtonElement>('[data-panel]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.panel === panel)));
         $('specimen').hidden = panel !== 'palette';
-        if (!(panel === 'cell' && cellView === 'walk')) { cardEl.classList.remove('is-on'); cardFor = null; }
+        if (!(panel === 'cell' && cellView === 'walk')) { cardEl.classList.remove('is-on'); cardFor = null; walkLook.disable(); }
         canvas.style.visibility = panel === 'palette' ? 'hidden' : 'visible';
 
         if (panel === 'cell') {

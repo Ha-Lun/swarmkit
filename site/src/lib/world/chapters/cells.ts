@@ -3,6 +3,7 @@
 // the Reference section. The tier legend chip of the active agent's band lights (opacity only).
 import { Vector3 } from 'three';
 import { nearestTowerAhead, type TowerRef } from '../walk';
+import { createWalkLook } from '../walk-look';
 import { dissolveMix, motion } from '../motion-config';
 import { createPick } from '../pick';
 import { sceneOf, setOpacity } from '../scene-dom';
@@ -17,12 +18,14 @@ export function createCells(ctx: WorldCtx): Chapter {
   const towers: TowerRef[] = ctx.lattice.cells.filter((c) => c.agent && !c.moon).map((c) => ({ name: c.agent!.name, top: new Vector3() }));
   const fwd = new Vector3();
   let ahead: string | null = null;
+  const look = createWalkLook(); // drag to look around while walking
   const bandOf = new Map(ctx.agents.map((a) => [a.name, a.band as string]));
   const legend = new Map(scene.q('[data-legend]').map((e) => [e.dataset.legend!, e.querySelector<HTMLElement>('.chip-ring')!]));
 
   return {
     enter() {
       pick.enable();
+      look.enable();
     },
     fade: (v) => scene.fade(v),
     update(p) {
@@ -31,6 +34,9 @@ export function createCells(ctx: WorldCtx): Chapter {
       view.dissolve = e;
       view.dim = e;
       view.canvasOpacity = 1 - (1 - motion.proof.canvasOpacity) * e;
+      look.step(ctx.dt, view.walk > 0.85, view.walk);
+      view.lookYaw = look.yaw;
+      view.lookPitch = look.pitch;
       const walking = view.walk > 0.05;
       if (view.walk > 0.85) { // cards only once the camera is on the ground (not mid-dive)
         towers.forEach((t) => ctx.cellTop(t.name, t.top));
@@ -50,11 +56,14 @@ export function createCells(ctx: WorldCtx): Chapter {
     },
     exit() {
       pick.disable();
+      look.disable();
+      view.lookYaw = view.lookPitch = 0;
       legend.forEach((ring) => setOpacity(ring, 0));
       scene.fade(0);
     },
     dispose() {
       pick.dispose();
+      look.disable();
     },
   };
 }

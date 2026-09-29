@@ -17,6 +17,8 @@ Worktree `/home/ha-lun/opencode-config/.worktrees/site-walk`, branched from `sit
 
 **Metal detail (added after the review).** `look.cell.detail` (0 = the round-11 look; `/lookdev` slider, `?cell.detail=1`) adds close-up richness in `cell-material.ts`: rotated multi-octave blotches, two fine grain scales, brush streaks, polished wear patches, worn edges, wall strata and pits, a wall bump and lift, all procedural and faded by pixel footprint. On the site it is driven by the walk weight (`walkCfg.detail`), so orbit views are unchanged. Cost on the test GPU: about 5% on high, none on medium (walk on high at pixel ratio 2, capped to 1.5: mean 57.9, median 59.9).
 
+**Drag to look.** While walking, dragging with the mouse or pen turns the head on top of the walker's orientation (`walk-look.ts`, applied in `world.ts` via `applyWalkLook`): 0.3 degrees per pixel (a full turn is ~1200 px), yaw about the walker's up, pitch -60 to +80 degrees, smoothed, kept where you leave it, faded out with the walk weight so the dive and the rise are never turned, double click looks forward again. Scroll still moves the walker; the nearest-tower-ahead card follows where you look. Touch is not supported (a touch drag scrolls the page); no keyboard equivalent yet. Also works on `/lookdev?view=walk`.
+
 **Open / for the human.**
 1. Look: the ground view is dark (walls near-black even with walker-frame lights), a bright glare sits on the tile tops, the grain bump sparkles up close, medium tier walls go bright and flat with the walker's lights (no shadow/AO). Round 12 (walk) is opened in `.buildlog/artdirection.jsonl`, no verdict.
 2. The 2x-to-1.5x pixel-ratio swap hitches at the two transitions; the alternative is a permanent 1.5 cap on the high tier.

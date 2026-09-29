@@ -8,7 +8,7 @@ import {
 import type { Agent } from '../agents';
 import type { ScrollState } from '../scroll';
 import { createCameraPath, progressOfG, scrollToProgress, SEGMENTS } from './camera-path';
-import { createWalkRoute, horizonFog, walkBlendBase, walkCameraPose, type WalkPose, type WalkRoute } from './walk';
+import { applyWalkLook, createWalkRoute, horizonFog, walkBlendBase, walkCameraPose, type WalkPose, type WalkRoute } from './walk';
 import { sceneAlpha } from './scene-dom';
 import { accentCandidates, look, readPalette, type Palette } from './config';
 import { cellTopOf, createHoneycomb, layoutLattice, type Honeycomb } from './honeycomb';
@@ -128,7 +128,7 @@ export function createWorld(opts: WorldOptions): World {
   // ---- view + panel highlight ----
   const view: View = {
     growth: 1, dim: 0, dissolve: 0, canvasOpacity: 1, latticeVisible: true, swarmFade: 0, swarmAttract: 0,
-    focus: new Vector3(), focusWeight: 0, focusDrop: 0, overview: 0, camFloor: 0, walk: 0,
+    focus: new Vector3(), focusWeight: 0, focusDrop: 0, overview: 0, camFloor: 0, walk: 0, lookYaw: 0, lookPitch: 0,
   };
   const hiTarget = new Map<number, number>();
   const hiCur = new Map<number, number>();
@@ -321,6 +321,9 @@ export function createWorld(opts: WorldOptions): World {
       // the walk: blend the spline pose into the walker's pose with the one walk weight (position, orientation and FOV on the same curve)
       if (!walkRoute) buildWalk();
       fov = walkCameraPose(walkRoute!, walkBase, pos, target, walkW, walkCp, walkCfg, camera.position, camera.quaternion, wpose);
+      // drag-to-look, faded in with the weight so the dive and the rise are never turned (walk-look.ts)
+      const lf = Math.min(1, Math.max(0, (walkW - 0.6) / 0.4));
+      applyWalkLook(camera.quaternion, wpose.up, view.lookYaw, view.lookPitch, lf * lf * (3 - 2 * lf), camera.quaternion);
       near = 0.1 + (walkCfg.near - 0.1) * walkW;
     }
     if (camera.fov !== fov || camera.near !== near) { camera.fov = fov; camera.near = near; camera.updateProjectionMatrix(); }

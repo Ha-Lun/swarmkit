@@ -34,7 +34,7 @@ const ordered = bandOrder.flatMap((b) => agents.filter((a) => a.band === b));
     </div>
 
     <div class="scene-foot">
-      <p class="caption">{agents.length} agents, one cell each. <span class="world-only">Hover or focus a cell.</span></p>
+      <p class="caption">{agents.length} agents, one cell each. <span class="world-only">Hover or focus a cell. Drag to look around.</span></p>
       <ul class="chips" aria-label="Agent groups, from the core outwards">
         {bands.map((b) => (
           <li class="chip" data-legend={b.band} title={b.note}><i class="chip-ring" data-fx aria-hidden="true"></i>{b.title} {b.count}</li>

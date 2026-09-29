@@ -484,3 +484,13 @@ export function walkCameraPose(
   route.sample(walkUOf(chapterProgress), cfg, walker);
   return blendWalkPose(splinePos, _qSpline, 40, walker.position, walker.quaternion, cfg.fov, base, w, outPos, outQuat);
 }
+
+const _lookYaw = new Quaternion(), _lookPitch = new Quaternion(), _lookOut = new Quaternion(), _axisX = new Vector3(1, 0, 0);
+/** Turn the walker's head: `yaw` about the walker's up (world), `pitch` about the camera's own right, both scaled by `fade` (0 = untouched). Writes `out` (may be `q`). */
+export function applyWalkLook(q: Quaternion, up: Vector3, yaw: number, pitch: number, fade: number, out: Quaternion): Quaternion {
+  if (fade <= 0 || (yaw === 0 && pitch === 0)) return out.copy(q);
+  _lookYaw.setFromAxisAngle(up, yaw * fade);
+  _lookPitch.setFromAxisAngle(_axisX, pitch * fade);
+  _lookOut.copy(_lookYaw).multiply(q).multiply(_lookPitch); // (through a scratch: `out` may be `q` itself)
+  return out.copy(_lookOut);
+}
