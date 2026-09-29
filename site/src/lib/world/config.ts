@@ -66,6 +66,7 @@ export const look = {
     mottle: 0.2, // slow blotchy tone variation of the tops
     pillow: 0.3, // tops fall off gently toward the edge (a soft pillow gradient, centre lighter): 0 = flat
     hueDrift: 0.5, // per-column drift of the top tone among wax, wax-dim and ink-2, so neighbours are never identical
+    detail: 0, // close-up richness of the metal, 0 = the round-11 look. Multi-octave blotches, fine grain, brushed streaks, worn edges, wall strata and pits, wall bump and lift; all procedural, faded by pixel footprint
     grainBump: 0.35, // very fine grain as a bump normal on the tops, high tier only (no cracks, no crags)
     edge: 0.5, // thin catch-light along the chamfer of every column (twice as strong on the caps)
     tone: 0.04, // per-column brightness variation
@@ -154,7 +155,7 @@ export const ranges: { [G in keyof Look]?: { [K in keyof Look[G]]?: [number, num
     relief: [0.01, 0.15, 0.005], elevation: [0, 0.85, 0.005], steps: [2, 10, 1], terrainScale: [0.5, 4, 0.05], stroke: [0, 0.8, 0.01], pistonSpeed: [3, 30, 0.5], activity: [0.05, 0.6, 0.01], wave: [0, 1, 0.01], seam: [0.02, 0.25, 0.005], bevel: [0, 0.06, 0.0025], lift: [0, 0.3, 0.005],
     metalness: [0, 1, 0.01], roughness: [0.05, 1, 0.01], clearcoat: [0, 1, 0.01], clearcoatRoughness: [0, 1, 0.01],
     sheen: [0, 1.5, 0.01], envIntensity: [0, 2, 0.01], roughJitter: [0, 1, 0.01], tintJitter: [0, 1, 0.01], gradient: [0, 1, 0.01],
-    sideDark: [0, 1, 0.01], grain: [0, 1, 0.01], mottle: [0, 1, 0.01], pillow: [0, 0.8, 0.01], hueDrift: [0, 1, 0.01], grainBump: [0, 1, 0.01], edge: [0, 1.5, 0.01], tone: [0, 0.2, 0.005],
+    sideDark: [0, 1, 0.01], grain: [0, 1, 0.01], mottle: [0, 1, 0.01], pillow: [0, 0.8, 0.01], hueDrift: [0, 1, 0.01], grainBump: [0, 1, 0.01], detail: [0, 1, 0.01], edge: [0, 1.5, 0.01], tone: [0, 0.2, 0.005],
     towerLift: [0, 1, 0.01], towerStep: [0, 0.3, 0.005], capGloss: [0, 0.95, 0.01], capBevel: [1, 6, 0.1],
     agentTone: [0, 0.6, 0.01], hover: [0, 1.2, 0.01],
     moonTurnSec: [8, 120, 1], moonDrift: [0, 0.6, 0.01], moonStroke: [0, 1, 0.01],

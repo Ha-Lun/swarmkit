@@ -24,6 +24,7 @@ export interface CellUniforms {
   uCapGloss: IUniform<number>;
   uCapBevel: IUniform<number>;
   uRadial: IUniform<number>;
+  uDetail: IUniform<number>;
   uCapEnv: IUniform<number>;
   uHover: IUniform<number>;
   uStoneBase: IUniform<Color>;
@@ -93,6 +94,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
     uGradient: { value: cfg.gradient },
     uCapGloss: { value: cfg.capGloss },
     uCapBevel: { value: capBevelOf(cfg, tier) },
+    uDetail: { value: cfg.detail },
     uRadial: { value: 0 }, // walk bench / story: radial wall extrusion, 0 = straight prisms (the default look)
     uCapEnv: { value: capEnvOf(cfg) },
     uHover: { value: cfg.hover },
@@ -169,7 +171,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         '#include <common>',
         `${defs}#include <common>
         uniform float uSheen, uSideDark, uGrain, uMottle, uTone, uAgentTone, uHover, uCapGloss, uCapEnv, uPillow, uHueDrift, uGrainBump, uEdge, uAO;
-        uniform float uRoughJitter, uTintJitter, uGradient;
+        uniform float uRoughJitter, uTintJitter, uGradient, uDetail;
         uniform vec3 uStoneBase, uStoneMid, uStoneLight, uStoneDark, uSheenColor;
         varying vec2 vCell;
         varying vec3 vStone;
@@ -182,6 +184,8 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         varying vec3 vWorldN;
         float gAgent = 0.0;
         float gWall = 0.0;
+        float gStreak = 0.0; // brush-streak and wear values, computed once for the colour and reused by the roughness and the bump (uDetail)
+        float gWear = 0.0;
 
         float h21( vec2 p ) { vec3 q = fract( vec3( p.xyx ) * 0.1031 ); q += dot( q, q.yzx + 33.33 ); return fract( ( q.x + q.y ) * q.z ); }
         float vnoise( vec2 p ) {
@@ -191,6 +195,8 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         }
         // 1 while a detail of frequency freq is well resolved by the pixel grid, 0 once a pixel spans most of its period
         float octFade( vec2 q, float freq ) { vec2 w = fwidth( q ) * freq; return 1.0 - smoothstep( 0.3, 0.8, max( w.x, w.y ) ); }
+        // (each detail octave is turned about 37 degrees from the last, so the value-noise lattice never lines up into visible squares)
+        const mat2 ROT = mat2( 0.8, -0.6, 0.6, 0.8 );
         vec2 cellUV( vec2 xz, vec3 sd ) { float ca = cos( sd.x ), sa = sin( sd.x ); return mat2( ca, -sa, sa, ca ) * xz + sd.yz; }
         // The basalt: xz is the panel-local position, sd its anchor (rotation, offset), wall 1 on a side wall and 0 on the top.
         // Tops: light stone with a per-column tone and hue drift (wax, wax-dim, ink-2), a soft pillow gradient, a slow mottle, fine grain
@@ -221,6 +227,29 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
           float bf = 1.0 - smoothstep( 0.25, 0.6, fwidth( hw ) );
           float bands = ( vnoise( vec2( hw, 11.0 + pt * 40.0 ) ) - 0.5 ) * bf;
           vec3 side = mix( uStoneBase * 0.7, uStoneDark, uSideDark ) * ( 1.0 + 0.35 * striae + 0.22 * bands );
+          if ( uDetail > 0.0 ) {
+            // Close-up richness (all procedural, every octave faded by its pixel footprint so nothing shimmers at a distance). The derivative-based fades are
+            // taken here, in uniform flow; the noise itself is only evaluated on the surface that uses it (tops or walls).
+            float fd38 = octFade( uv, 38.0 ), fd97 = octFade( uv, 97.0 );
+            vec2 br = vec2( uv.x * 4.0, uv.y * 260.0 ); // brush streaks run along the tile's own x
+            float fdb = octFade( br, 1.0 );
+            float fw23 = 1.0 - smoothstep( 0.2, 0.5, fwidth( along * 23.0 ) ), fw61 = 1.0 - smoothstep( 0.2, 0.5, fwidth( along * 61.0 ) );
+            if ( wall < 0.98 ) {
+              // tops: blotches, two fine grain scales, brush streaks, polished wear patches, lighter worn edges
+              gStreak = ( vnoise( br ) - 0.5 ) * fdb;
+              gWear = smoothstep( 0.58, 0.78, vnoise( uv * 3.1 + 3.0 ) );
+              float blotch = 0.5 * vnoise( uv * 2.3 + 11.0 ) + 0.25 * vnoise( ROT * uv * 4.7 + 7.1 );
+              top *= 1.0 + uDetail * ( 0.22 * ( blotch - 0.4 ) + 0.10 * ( vnoise( ROT * uv * 38.0 + 5.0 ) - 0.5 ) * fd38 + 0.08 * ( vnoise( ROT * ROT * uv * 97.0 + 9.0 ) - 0.5 ) * fd97
+                + 0.05 * gStreak + 0.14 * gWear + 0.35 * smoothstep( 0.8, 1.0, rr ) * ( 0.5 + vnoise( uv * 11.0 ) ) );
+            }
+            if ( wall > 0.02 ) {
+              // walls: strata and pits at two finer scales, and the wall lifted enough that they read
+              float f1 = ( vnoise( vec2( along * 23.0, 7.0 ) ) - 0.5 ) * fw23;
+              float f2 = ( vnoise( vec2( along * 61.0, 13.0 ) ) - 0.5 ) * fw61;
+              float pit = ( vnoise( vec2( along * 17.0, hw * 3.7 ) ) - 0.5 ) * bf;
+              side *= ( 1.0 + uDetail * 0.6 ) * ( 1.0 + uDetail * ( 0.25 * f1 + 0.18 * f2 + 0.2 * pit ) );
+            }
+          }
           vec3 col = mix( top, side, wall );
           col *= 1.0 + uTone * ( pt - 0.5 ) * 2.0;
           // agents are cut flat and polished: a paler cap, a small tone step per band
@@ -252,10 +281,21 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         '#include <normal_fragment_maps>',
         `#include <normal_fragment_maps>
         #ifdef CELL_HIGH
-        if ( uGrainBump > 0.0 && gWall < 0.5 && gAgent < 0.5 ) { // the polished caps stay smooth
-          // very fine grain as a bump normal (tilt = amplitude x noise gradient, in world units), faded by the pixel footprint
-          vec2 guv = cellUV( vCell, vStone ) * 22.0;
-          float gh = ( vnoise( guv ) - 0.5 ) * uGrainBump * 0.02 * octFade( guv, 1.0 ) * ( 1.0 - gWall );
+        if ( uGrainBump > 0.0 || uDetail > 0.0 ) {
+          // bump normals from a height (tilt = amplitude x noise gradient, in world units), every octave faded by the pixel footprint. The tops keep the
+          // very fine grain (the polished caps stay smooth); with detail on, the tops add three finer octaves and brush streaks, and the walls get strata.
+          float gh = 0.0;
+          vec2 tuv = cellUV( vCell, vStone );
+          if ( gWall < 0.5 && gAgent < 0.5 ) {
+            vec2 guv = tuv * 22.0;
+            gh += ( vnoise( guv ) - 0.5 ) * uGrainBump * 0.02 * octFade( guv, 1.0 );
+            vec2 g2 = ROT * tuv * 70.0, g3 = ROT * ROT * tuv * 190.0;
+            gh += uDetail * ( ( vnoise( g2 ) - 0.5 ) * 0.0016 * octFade( g2, 1.0 ) + ( vnoise( g3 ) - 0.5 ) * 0.0006 * octFade( g3, 1.0 ) + gStreak * 0.0004 );
+          } else if ( gWall >= 0.5 && gAgent < 0.5 ) {
+            float alongW = tuv.x + 0.61 * tuv.y;
+            vec2 w2 = vec2( alongW * 9.0, vWallH * 14.0 );
+            gh += uDetail * ( ( vnoise( vec2( alongW * 23.0, 3.0 ) ) - 0.5 ) * 0.004 * ( 1.0 - smoothstep( 0.2, 0.5, fwidth( alongW * 23.0 ) ) ) + ( vnoise( w2 ) - 0.5 ) * 0.006 * octFade( w2, 1.0 ) );
+          }
           vec3 sX = dFdx( - vViewPosition ), sY = dFdy( - vViewPosition );
           vec3 R1 = cross( sY, normal ), R2 = cross( normal, sX );
           float fDet = dot( sX, R1 ) * faceDirection;
@@ -274,6 +314,11 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
           float ptR = h21( vStone.yz );
           float rn = vnoise( cellUV( vCell, vStone ) * 9.0 + 4.0 ) - 0.5;
           roughnessFactor = clamp( roughnessFactor * ( 1.0 + uRoughJitter * ( ( ptR - 0.5 ) * 1.4 + 0.8 * rn ) ), 0.04, 1.0 );
+          if ( uDetail > 0.0 ) {
+            // polished wear patches, brush streaks and fine pitting change how the metal shines, not just how bright it is
+            float k = 1.0 - 0.35 * uDetail * gWear + uDetail * ( 0.6 * gStreak + 0.5 * rn );
+            roughnessFactor = clamp( roughnessFactor * k, 0.04, 1.0 );
+          }
         }
         roughnessFactor = mix( roughnessFactor, roughnessFactor * ( 1.0 - uCapGloss ), gAgent * ( 1.0 - gWall ) ); // the cap is polished`,
       )
@@ -281,7 +326,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         '#include <lights_fragment_maps>',
         `#include <lights_fragment_maps>
         #if defined( USE_ENVMAP ) && defined( RE_IndirectSpecular )
-          radiance *= mix( mix( 1.0, uCapEnv, gAgent ), 0.2, gWall ); // shafts and walls do not mirror the studio
+          radiance *= mix( mix( 1.0, uCapEnv, gAgent ), 0.2 + 0.4 * uDetail, gWall ); // shafts and walls barely mirror the studio (detail lifts them so the strata catch it)
         #endif`,
       )
       .replace(
@@ -308,7 +353,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         #include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => `cell-${tier}-r12`;
+  material.customProgramCacheKey = () => `cell-${tier}-r13`;
 
   return {
     material,
@@ -325,6 +370,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
       uniforms.uHueDrift.value = c.hueDrift;
       uniforms.uGrainBump.value = tier === 'high' ? c.grainBump : 0;
       uniforms.uEdge.value = c.edge;
+      uniforms.uDetail.value = c.detail;
       uniforms.uRoughJitter.value = c.roughJitter;
       uniforms.uTintJitter.value = c.tintJitter;
       uniforms.uGradient.value = c.gradient;

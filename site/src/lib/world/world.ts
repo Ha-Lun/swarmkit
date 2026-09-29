@@ -445,6 +445,7 @@ export function createWorld(opts: WorldOptions): World {
     if (walkW > 0.001) { flows.forEach((f) => (f.packet.group.visible = false)); rings.mesh.visible = false; } // the walker does not see the comet
     const coreScale = 1 - walkCfg.coreDim * walkW; // the seam glow dims under the walk camera so bloom does not bleed through the seams
     if (Math.abs(coreScale - walkCoreApplied) > 0.005 || (walkW === 0 && walkCoreApplied !== 1)) { comb.setCoreScale(coreScale); walkCoreApplied = coreScale; }
+    comb.uniforms.uDetail.value = Math.max(look.cell.detail, walkCfg.detail * walkW); // the close-up richness of the metal fades in with the dive (the orbit views are untouched)
     comb.update(view.growth, view.dim, time, spinW, walkW);
     comb.object.visible = view.latticeVisible;
     pose(g);
