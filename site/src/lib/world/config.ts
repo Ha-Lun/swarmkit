@@ -108,15 +108,15 @@ export const look = {
     fog: 1.0, // scales the fog distances set in world.ts/lookdev.astro: > 1 = lighter (farther) fog
   },
   packet: {
-    // the comet: small hard head, tapering tail that grows with speed, a few shed sparks. Nothing additive.
-    headSize: 13, // px at 1080p
+    // the comet (round 15: much larger, it was too small to follow): a big hard head with an outline ring, a wide tapering tail that grows with speed, shed sparks. Nothing additive, no bloom.
+    headSize: 46, // px at 1080p
     headBrightness: 1.0,
-    tailMin: 0.5, // world units of tail at rest
-    tailGain: 0.55, // extra tail per (unit/s) of visible speed
-    tailMax: 3.4,
-    tailWidth: 0.17, // world units at the head
+    tailMin: 1.0, // world units of tail at rest
+    tailGain: 0.9, // extra tail per (unit/s) of visible speed
+    tailMax: 6,
+    tailWidth: 0.6, // world units at the head
     tailFade: 1.5, // darkening exponent toward the tail end
-    sparks: 0.8, // emission strength (0 = none)
+    sparks: 1.2, // emission strength (0 = none)
     height: 0.16, // low constant lift above the panel tops
   },
   dissolve: {
@@ -173,8 +173,8 @@ export const ranges: { [G in keyof Look]?: { [K in keyof Look[G]]?: [number, num
   core: { color: [0, 1, 0.01], intensity: [0, 6, 0.05] },
   bg: { gradient: [0, 1, 0.01], fog: [0.3, 2, 0.01] },
   packet: {
-    headSize: [3, 24, 0.5], headBrightness: [0.2, 2, 0.01], tailMin: [0, 2, 0.02], tailGain: [0, 2, 0.01], tailMax: [0.5, 8, 0.05],
-    tailWidth: [0.02, 0.4, 0.005], tailFade: [0.3, 4, 0.05], sparks: [0, 2, 0.05], height: [0.05, 0.8, 0.01],
+    headSize: [3, 60, 0.5], headBrightness: [0.2, 2, 0.01], tailMin: [0, 2, 0.02], tailGain: [0, 2, 0.01], tailMax: [0.5, 12, 0.05],
+    tailWidth: [0.02, 1, 0.005], tailFade: [0.3, 4, 0.05], sparks: [0, 2, 0.05], height: [0.05, 0.8, 0.01],
   },
   dissolve: { hexScale: [0.4, 4, 0.05], spread: [0.05, 0.9, 0.01], noise: [0, 1, 0.01], edge: [0.5, 6, 0.05] },
   particles: {

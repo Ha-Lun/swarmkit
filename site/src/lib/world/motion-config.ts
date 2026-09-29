@@ -31,7 +31,7 @@ export const motion = {
     ripple: { speed: 2.4, sec: 0.9, width: 0.055 }, // arrival ripple: world units/s across the surface, lifetime, line width
     scan: { radius: 0.62, width: 0.06, fade: 0.4 }, // the scanning ring: fraction of the panel half-width, line width, fade-out seconds
   },
-  hilite: { ratePerSec: 9, strike: 0.6 }, // panel lift/brighten smoothing, and how strongly a comet landing lifts a panel
+  hilite: { ratePerSec: 9, strike: 0.8 }, // panel lift/brighten smoothing, and how strongly a comet landing lifts a panel
   camera: {
     focusRatePerSec: 4,
     hoverBias: 0.3, // keyboard focus only: how far the look-at target moves toward the focused cell (pointer hover never moves the camera)

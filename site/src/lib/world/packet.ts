@@ -4,11 +4,11 @@ import {
 import { look, type Look } from './config';
 import { cellTopOf, type Lattice } from './honeycomb';
 
-// The comet: a small hard bright head, a camera-facing tail that tapers to a point and lengthens with the speed it is seen
+// The comet: a large hard bright head, a camera-facing tail that tapers to a point and lengthens with the speed it is seen
 // to move at, and a few short-lived sparks it sheds. Everything is opaque with crisp edges (no additive blending, no soft
 // sprite), and it is the only thing on the site that uses the accent.
 const TAIL_POINTS = 40;
-const MAX_SPARKS = 14;
+const MAX_SPARKS = 20;
 
 /** Anything the comet can travel along: distance (world units) to a point. Routes clamp; loops wrap. */
 export interface PathSource {
@@ -52,7 +52,7 @@ const headVert = /* glsl */ `
     gl_PointSize = uSize;
     gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
   }`;
-// a hard disc: a bright core and a crisp accent rim, one pixel of edge anti-aliasing and nothing outside it
+// a hard disc: a white-hot core, an accent body and a darker outline ring (so it reads on pale tile tops and on dark seams alike), one pixel of edge anti-aliasing and nothing outside it
 const headFrag = /* glsl */ `
   uniform vec3 uColor;
   uniform vec3 uHot;
@@ -62,7 +62,8 @@ const headFrag = /* glsl */ `
     float d = length( gl_PointCoord - 0.5 ) * 2.0;
     float px = 2.0 / max( uSize, 2.0 );
     if ( d > 1.0 ) discard;
-    vec3 c = mix( uHot, uColor, smoothstep( 0.5 - px, 0.5 + px, d ) ) * uBright;
+    vec3 c = mix( uHot, uColor, smoothstep( 0.45 - px, 0.45 + px, d ) );
+    c = mix( c, uColor * 0.4, smoothstep( 0.82 - px, 0.82 + px, d ) ) * uBright;
     gl_FragColor = vec4( c, 1.0 );
     #include <colorspace_fragment>
   }`;
@@ -223,7 +224,7 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
           vel[s].multiplyScalar(Math.exp(-dt * 2.2));
           sPos[s * 3] += vel[s].x * dt; sPos[s * 3 + 1] += vel[s].y * dt; sPos[s * 3 + 2] += vel[s].z * dt;
         }
-        sSize[s] = life[s] > 0 ? Math.max(0, 4.5 * (life[s] / span[s])) * viewportScale * fade : 0;
+        sSize[s] = life[s] > 0 ? Math.max(0, 8 * (life[s] / span[s])) * viewportScale * fade : 0;
       }
       sparkGeo.attributes.position.needsUpdate = true;
       sparkGeo.attributes.aSize.needsUpdate = true;
