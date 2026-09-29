@@ -224,6 +224,20 @@ export function scrollToProgress(chapter: number, chapterProgress: number): numb
   return gOfArc(scrollArcAt(S));
 }
 
+/**
+ * The inverse of scrollToProgress: the chapter and chapter progress whose camera parameter is `g`. The walk is driven by the world's damped
+ * progress (the same input as the camera), so it reads its chapter progress back from g instead of from the raw scroll state.
+ */
+export function progressOfG(g: number): { chapter: number; chapterProgress: number } {
+  const target = arcOf(Math.min(1, Math.max(0, g)));
+  let lo = 0, hi = SCROLL_TOTAL;
+  for (let k = 0; k < 40; k++) { const mid = (lo + hi) / 2; if (scrollArcAt(mid) < target) lo = mid; else hi = mid; }
+  const S = (lo + hi) / 2;
+  let ch = 0;
+  while (ch < RUNWAY.length - 1 && S >= SCROLL_AT[ch + 1]) ch++;
+  return { chapter: ch, chapterProgress: Math.min(1, Math.max(0, (S - SCROLL_AT[ch]) / RUNWAY[ch])) };
+}
+
 export function createCameraPath(lattice: Lattice): CameraPath {
   const L = lattice.radius;
   MOON.copy(lattice.moon.centre).multiplyScalar(1 / L);

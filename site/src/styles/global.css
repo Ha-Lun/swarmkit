@@ -100,13 +100,16 @@
 .copy-status { font-family: var(--font-mono); font-size: var(--text-base); color: var(--text); }
 .agent-list, .agent-list * { pointer-events: none; }
 .agent-list { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.cell-card { position: fixed; top: 0; left: 0; z-index: 30; width: max-content; max-width: 34ch; padding: var(--space-3) var(--space-4); background: var(--ink); border: 1px solid var(--wax-dim); opacity: 0; pointer-events: none; will-change: transform; }
+.cell-card { position: fixed; top: 0; left: 0; z-index: 30; width: max-content; max-width: 40ch; padding: var(--space-3) var(--space-4); background: var(--ink); border: 1px solid var(--wax-dim); opacity: 0; pointer-events: none; will-change: transform; }
 .cell-card.is-on { opacity: 1; }
 .cell-card.is-on.is-off { opacity: 0; } /* the walker: tower behind the camera or past the horizon (pick.ts strict) */
 .cell-card.is-key { outline: 2px solid var(--text); outline-offset: 2px; }
 .cell-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); margin: 0; font-family: var(--font-mono); font-size: var(--text-base); color: var(--text); }
 .cell-card-tier { color: var(--text); opacity: 0.72; }
-.cell-card-role { margin: var(--space-1) 0 0; font-size: var(--text-base); line-height: 1.4; color: var(--text); }
+.cell-card-role { margin: var(--space-2) 0 0; font-size: var(--text-base); line-height: 1.4; color: var(--text); }
+.cell-card-band { margin: var(--space-1) 0 0; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--wax); }
+.cell-card-caps { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-2) 0 0; padding: 0; list-style: none; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--wax); }
+.cell-card-caps li { border: 1px solid var(--wax-dim); padding: 0 var(--space-2); }
 /* Intro: a large wordmark and a ~24px tagline, off-centre (left) so the globe stays the hero. The wordmark is the
    scramble target and, with the world running, travels into the corner mark on scroll (intro.ts). Static: just large. */
 .intro-lede { padding: var(--space-8) 0 var(--space-6); }

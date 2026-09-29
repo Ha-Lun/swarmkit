@@ -20,7 +20,7 @@ export interface Pick {
   disable(): void;
   /** agent under the pointer, else the keyboard-focused one */
   /** `strict` (the walk): hide a card whose tower is behind the camera or past the horizon; off, cards behave exactly as before */
-  update(opts?: { strict?: boolean }): { name: string | null; byKeyboard: boolean };
+  update(opts?: { strict?: boolean; forced?: string | null }): { name: string | null; byKeyboard: boolean; byWalk: boolean };
   dispose(): void;
 }
 
@@ -114,8 +114,10 @@ export function createPick(ctx: WorldCtx, root: HTMLElement | null): Pick {
         hovered = onCanvas ? raycast() : null;
         document.body.style.cursor = hovered ? 'pointer' : '';
       }
-      const name = hovered ?? focused;
+      // pointer hover wins, then keyboard focus, then (on the walk) the tower the walker is heading for
+      const name = hovered ?? focused ?? opts?.forced ?? null;
       const byKeyboard = !hovered && !!focused;
+      const byWalk = !hovered && !focused && !!opts?.forced;
       const card = name ? cards.get(name) ?? null : null;
       if (card !== shown) {
         shown?.classList.remove('is-on', 'is-key', 'is-off');
@@ -126,7 +128,7 @@ export function createPick(ctx: WorldCtx, root: HTMLElement | null): Pick {
         card.classList.toggle('is-key', byKeyboard);
         place(card, name, !!opts?.strict);
       }
-      return { name, byKeyboard };
+      return { name, byKeyboard, byWalk };
     },
     dispose() {
       this.disable();

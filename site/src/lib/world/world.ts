@@ -3,15 +3,16 @@
 // The camera reads a critically damped copy of the scroll progress (about 0.15 s), so wheel and trackpad steps never reach it raw.
 import {
   ACESFilmicToneMapping, CanvasTexture, Color, Fog, Group, HalfFloatType, PCFShadowMap, PerspectiveCamera, Scene,
-  SRGBColorSpace, Vector2, Vector3, WebGLRenderer, WebGLRenderTarget,
+  Quaternion, SRGBColorSpace, Vector2, Vector3, WebGLRenderer, WebGLRenderTarget,
 } from 'three';
 import type { Agent } from '../agents';
 import type { ScrollState } from '../scroll';
-import { createCameraPath, SEGMENTS } from './camera-path';
+import { createCameraPath, progressOfG, SEGMENTS } from './camera-path';
+import { blendWalkPose, createWalkRoute, horizonFog, type WalkPose, type WalkRoute } from './walk';
 import { sceneAlpha } from './scene-dom';
 import { accentCandidates, look, readPalette, type Palette } from './config';
 import { cellTopOf, createHoneycomb, layoutLattice, type Honeycomb } from './honeycomb';
-import { motion, spinWeight, SWARM_CAM, walkWeight } from './motion-config';
+import { motion, spinWeight, SWARM_CAM, walkCfg, walkUOf, walkWeight } from './motion-config';
 import { createPost, type Post } from './post';
 import { createStudio, shadowExtentOf, type Studio } from './studio';
 import { createFlow, type Flow } from './routes';
@@ -123,7 +124,7 @@ export function createWorld(opts: WorldOptions): World {
   // ---- view + panel highlight ----
   const view: View = {
     growth: 1, dim: 0, dissolve: 0, canvasOpacity: 1, latticeVisible: true, swarmFade: 0, swarmAttract: 0,
-    focus: new Vector3(), focusWeight: 0, focusDrop: 0, overview: 0, camFloor: 0,
+    focus: new Vector3(), focusWeight: 0, focusDrop: 0, overview: 0, camFloor: 0, walk: 0,
   };
   const hiTarget = new Map<number, number>();
   const hiCur = new Map<number, number>();
@@ -204,6 +205,7 @@ export function createWorld(opts: WorldOptions): World {
     globe.remove(comb.object);
     comb.dispose();
     comb = createHoneycomb(agents, tier, renderer);
+    walkCoreApplied = 1; // the new honeycomb starts at full glow; render() re-applies the walk's dimming
     globe.add(comb.object);
     studio.dispose();
     studio = createStudio(scene, tier, palette, shadowExtent);
@@ -273,9 +275,14 @@ export function createWorld(opts: WorldOptions): World {
   // exactly home, so the framing, routes and fly-over match the un-spun ones. Parked, `free` is re-anchored to home so the next spin starts from rest.
   const TAU = Math.PI * 2;
   let spinFree = 0, spinHome = 0, spinWPrev = 1, spinW = 1; // spinW also parks the moon's own motion (honeycomb.ts)
-  let walkW = 0; // 1 = the walk: the reactor pistons hold at rest (motion-config.ts walkWeight), eased in and out
+  // The walk (Cells): one weight (walkWeight of the DAMPED progress) blends the spline camera into a walker on the ground and drives everything that
+  // changes with it: the pistons hold at rest, the lights follow the walker's frame, the fog comes from the horizon, the seam glow dims, the comet hides.
+  let walkW = 0, walkCoreApplied = 1;
+  let walkRoute: WalkRoute | null = null;
+  const wpose: WalkPose = { position: new Vector3(), quaternion: new Quaternion(), fov: 40, up: new Vector3(), forward: new Vector3(), ground: 0, stop: 0 };
+  const qSpline = new Quaternion();
+  let walkCp = 0; // Cells chapter progress read back from the damped camera parameter
   function stepSpin(dt: number) {
-    walkW = walkWeight(state.chapter, state.chapterProgress);
     const w = spinW = spinWeight(state.chapter, state.chapterProgress);
     if (w < 1 && spinWPrev >= 1) spinHome = Math.round(spinFree / TAU) * TAU;
     spinWPrev = w;
@@ -301,12 +308,27 @@ export function createWorld(opts: WorldOptions): World {
     }
     camera.position.copy(pos);
     camera.lookAt(target);
-    // the key sweeps round the globe as the camera orbits (studio.ts), with a soft kicker from behind
-    studio.update(camera, { timeSec: time });
+    let fov = 40, near = 0.1;
+    if (walkW > 0.001) {
+      // the walk: blend the spline pose into the walker's pose with the one walk weight (position, orientation and FOV on the same curve)
+      walkRoute ??= createWalkRoute(lattice);
+      qSpline.copy(camera.quaternion);
+      walkRoute.sample(walkUOf(walkCp), { eye: walkCfg.eye, fov: walkCfg.fov, pitchDeg: walkCfg.pitchDeg }, wpose);
+      fov = blendWalkPose(pos, qSpline, 40, wpose.position, wpose.quaternion, walkCfg.fov, walkW, camera.position, camera.quaternion);
+      near = 0.1 + (walkCfg.near - 0.1) * walkW;
+    }
+    if (camera.fov !== fov || camera.near !== near) { camera.fov = fov; camera.near = near; camera.updateProjectionMatrix(); }
+    // the key sweeps round the globe as the camera orbits (studio.ts), with a soft kicker from behind; while walking it follows the walker's own frame
+    studio.update(camera, { timeSec: time, frame: walkW > 0.001 ? { up: wpose.up, forward: wpose.forward, weight: walkW } : undefined });
     // fog follows camera distance so the recede reads as dimming, not clipping; look.bg.fog > 1 pushes it farther out
-    const d = pos.length();
-    (scene.fog as Fog).near = d * 0.6 * look.bg.fog;
-    (scene.fog as Fog).far = (d * 3 + 40) * look.bg.fog;
+    const d = camera.position.length();
+    let fogNear = d * 0.6 * look.bg.fog, fogFar = (d * 3 + 40) * look.bg.fog;
+    if (walkW > 0.001) { // ... and on the ground it follows the distance to the horizon, so the limb fades out instead of ending in a hard edge
+      const hf = horizonFog(lattice.radius, d, walkCfg.fogNear, walkCfg.fogFar);
+      fogNear += (hf.near - fogNear) * walkW; fogFar += (hf.far - fogFar) * walkW;
+    }
+    (scene.fog as Fog).near = fogNear;
+    (scene.fog as Fog).far = fogFar;
   }
 
   function stepHilite(dt: number) {
@@ -368,6 +390,7 @@ export function createWorld(opts: WorldOptions): World {
       dampProgress(dt);
 
       // lazy pieces, built ahead of the chapter that needs them
+      if (!walkRoute && ch >= 1) walkRoute = createWalkRoute(lattice); // ahead of the Cells chapter (a few tens of ms, off the dive)
       if (!swarm && !swarmBuilding && ch >= 2) void ensureSwarm();
       if (ch === 3 || (ch === 2 && state.chapterProgress > 0.8)) ensureTargets();
       else if (ch === 4 || ch <= 1) freeTargets();
@@ -407,6 +430,13 @@ export function createWorld(opts: WorldOptions): World {
 
   function render(dt: number) {
     const g = Math.max(gSm, view.camFloor);
+    const dp = progressOfG(g);
+    walkW = walkWeight(dp.chapter, dp.chapterProgress);
+    walkCp = dp.chapterProgress;
+    view.walk = walkW;
+    if (walkW > 0.001) { flows.forEach((f) => (f.packet.group.visible = false)); rings.mesh.visible = false; } // the walker does not see the comet
+    const coreScale = 1 - walkCfg.coreDim * walkW; // the seam glow dims under the walk camera so bloom does not bleed through the seams
+    if (Math.abs(coreScale - walkCoreApplied) > 0.005 || (walkW === 0 && walkCoreApplied !== 1)) { comb.setCoreScale(coreScale); walkCoreApplied = coreScale; }
     comb.update(view.growth, view.dim, time, spinW, walkW);
     comb.object.visible = view.latticeVisible;
     pose(g);

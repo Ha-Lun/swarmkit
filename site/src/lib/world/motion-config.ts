@@ -93,3 +93,9 @@ export function walkWeight(chapter: number, p: number): number {
   const r = (a: number, b: number) => smooth3(Math.min(1, Math.max(0, (p - a) / (b - a))));
   return r(walkRamp.inFrom, walkRamp.inTo) * (1 - r(walkRamp.outFrom, walkRamp.outTo));
 }
+
+/** The walker (provisional values, tuned in the Phase 4 review): eye height above the local ground, vertical FOV, pitch below the horizon, near plane,
+ *  and where in the Cells chapter progress the route runs from its first stand point (uFrom) to its last (uTo). */
+export const walkCfg = { eye: 0.3, fov: 75, pitchDeg: 15, near: 0.03, uFrom: 0.2, uTo: 0.86, coreDim: 0.9, fogNear: 0.5, fogFar: 1.6 } as const;
+/** Route parameter 0..1 for Cells chapter progress p. */
+export const walkUOf = (p: number): number => Math.min(1, Math.max(0, (p - walkCfg.uFrom) / (walkCfg.uTo - walkCfg.uFrom)));

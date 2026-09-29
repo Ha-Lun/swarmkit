@@ -103,9 +103,10 @@ const favicon =
       import { createHexDissolve, hexPixelSize } from '../lib/world/transitions';
       import { createPost, type Post } from '../lib/world/post';
       import { createStudio, shadowExtentOf, type Studio } from '../lib/world/studio';
-      import { createWalkRoute, horizonDistance, horizonFog, visibleOverGlobe, type WalkPose } from '../lib/world/walk';
+      import { createWalkRoute, horizonDistance, horizonFog, nearestTowerAhead, type WalkPose } from '../lib/world/walk';
       import { walkWeight } from '../lib/world/motion-config';
       import { bandLabels } from '../content/tiers';
+      import { blurb } from '../lib/blurb';
       import { createSwarm, type Swarm } from '../lib/world/swarm-particles';
       import { createBgTexture } from '../lib/world/world';
 
@@ -220,27 +221,14 @@ const favicon =
       }
       // ---- the tower card: the nearest visible tower ahead shows what that subagent does (agents' own frontmatter, nothing written here) ----
       const cardEl = $('tower-card');
-      const blurb = (a: Agent, max = 230) => {
-        let out = '';
-        for (const sent of a.description.split(/(?<=[.!?])\s+/)) { if (out && (out + ' ' + sent).length > max) break; out = out ? `${out} ${sent}` : sent; if (out.length >= max) break; }
-        return out.length > max ? `${out.slice(0, max - 3).replace(/[\s,;:]+\S*$/, '')}...` : out;
-      };
       const towerList = lat.cells.filter((c) => c.agent && !c.moon).map((c) => ({ agent: c.agent!, top: c.normal.clone().multiplyScalar(R + c.base) }));
       let cardFor: string | null = null, cardSize: [number, number] = [0, 0];
-      const camFwd = new Vector3(), dv = new Vector3(), pv = new Vector3();
+      const camFwd = new Vector3(), pv = new Vector3();
       function updateCard(active: boolean) {
         if (!active || !walk.cards) { if (cardFor) { cardEl.classList.remove('is-on'); cardFor = null; } return; }
         camFwd.set(0, 0, -1).applyQuaternion(cam.quaternion);
-        // nearest visible tower in front of the camera (a closer one must win by 20% to replace the one shown: no flicker between neighbours)
-        let best: (typeof towerList)[number] | null = null, bd = 12, curD = Infinity;
-        for (const t of towerList) {
-          dv.copy(t.top).sub(cam.position);
-          const d = dv.length();
-          if (d > 12 || dv.dot(camFwd) / d < 0.3 || !visibleOverGlobe(cam.position, t.top, R + 0.3)) continue;
-          if (t.agent.name === cardFor) curD = d;
-          if (d < bd) { bd = d; best = t; }
-        }
-        if (best && cardFor && best.agent.name !== cardFor && curD < bd * 1.2) best = towerList.find((t) => t.agent.name === cardFor)!;
+        const name = nearestTowerAhead(towerList.map((t) => ({ name: t.agent.name, top: t.top })), cam.position, camFwd, R, cardFor);
+        const best = name ? towerList.find((t) => t.agent.name === name)! : null;
         if (!best) { cardEl.classList.remove('is-on'); cardFor = null; return; }
         if (best.agent.name !== cardFor) {
           const a = best.agent;
@@ -250,7 +238,7 @@ const favicon =
           const tr = document.createElement('span'); tr.textContent = a.tier;
           head.append(n, tr);
           const band = document.createElement('p'); band.className = 'band'; band.textContent = bandLabels[a.band].title;
-          const desc = document.createElement('p'); desc.className = 'desc'; desc.textContent = blurb(a);
+          const desc = document.createElement('p'); desc.className = 'desc'; desc.textContent = blurb(a.description);
           cardEl.append(head, band, desc);
           if (a.capabilities.length) {
             const ul = document.createElement('ul'); ul.className = 'caps';

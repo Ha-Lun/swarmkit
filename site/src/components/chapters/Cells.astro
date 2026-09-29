@@ -3,6 +3,7 @@
 // pick.ts (pointer raycast) and the roving-tabindex list drive the same highlight. The full roster is in Reference.
 import { facts } from '../../lib/facts';
 import { roleLine } from '../../lib/agents';
+import { blurb } from '../../lib/blurb';
 import { bandLabels, bandOrder } from '../../content/tiers';
 import { motion } from '../../lib/world/motion-config';
 
@@ -25,7 +26,9 @@ const ordered = bandOrder.flatMap((b) => agents.filter((a) => a.band === b));
       {ordered.map((a) => (
         <div class="cell-card" data-card={a.name}>
           <p class="cell-card-head"><span>{a.name}</span><span class="cell-card-tier">{a.tier}</span></p>
-          <p class="cell-card-role">{roleLine(a)}</p>
+          <p class="cell-card-band">{bandLabels[a.band].title}</p>
+          <p class="cell-card-role">{blurb(a.description)}</p>
+          {a.capabilities.length > 0 && <ul class="cell-card-caps">{a.capabilities.slice(0, 5).map((c) => <li>{c}</li>)}</ul>}
         </div>
       ))}
     </div>

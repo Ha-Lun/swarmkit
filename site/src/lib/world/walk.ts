@@ -361,3 +361,39 @@ export function visibleOverGlobe(cam: Vector3, point: Vector3, R: number): boole
   const x = cam.x + dx * t, y = cam.y + dy * t, z = cam.z + dz * t;
   return x * x + y * y + z * z >= R * R;
 }
+
+/**
+ * Blend the spline camera into the walker with ONE weight `w` (the walk weight): direction by slerp about the globe centre and distance by lerp
+ * (a straight lerp between the far spline pose and a pose on the ground would cut through the globe), orientation by quaternion slerp, FOV by lerp.
+ * Writes outPos and outQuat; returns the blended FOV. At w = 0 it returns the spline pose exactly, at w = 1 the walker's.
+ */
+export function blendWalkPose(
+  posA: Vector3, quatA: Quaternion, fovA: number, posB: Vector3, quatB: Quaternion, fovB: number, w: number, outPos: Vector3, outQuat: Quaternion,
+): number {
+  const rA = posA.length(), rB = posB.length();
+  const dA = posA.clone().divideScalar(rA), dB = posB.clone().divideScalar(rB);
+  const cos = clamp(dA.dot(dB), -1, 1), ang = Math.acos(cos), sin = Math.sin(ang);
+  if (sin < 1e-6) outPos.copy(dA);
+  else outPos.copy(dA).multiplyScalar(Math.sin((1 - w) * ang) / sin).addScaledVector(dB, Math.sin(w * ang) / sin);
+  outPos.normalize().multiplyScalar(rA + (rB - rA) * w);
+  outQuat.copy(quatA).slerp(quatB, w);
+  return fovA + (fovB - fovA) * w;
+}
+
+export interface TowerRef { name: string; top: Vector3 }
+
+/** The tower whose card the walker sees: the nearest one in front of the camera, above the horizon, within `maxDist`. The one already shown (`current`) keeps
+ *  the card unless another is at least 20% closer, so neighbours do not flicker. Pure. */
+export function nearestTowerAhead(towers: TowerRef[], camPos: Vector3, camFwd: Vector3, R: number, current: string | null, maxDist = 12): string | null {
+  let best: TowerRef | null = null, bd = maxDist, curD = Infinity;
+  const dv = new Vector3();
+  for (const t of towers) {
+    dv.copy(t.top).sub(camPos);
+    const d = dv.length();
+    if (d > maxDist || dv.dot(camFwd) / d < 0.3 || !visibleOverGlobe(camPos, t.top, R + 0.3)) continue;
+    if (t.name === current) curD = d;
+    if (d < bd) { bd = d; best = t; }
+  }
+  if (best && current && best.name !== current && curD < bd * 1.2) return current;
+  return best ? best.name : null;
+}

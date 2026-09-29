@@ -32,6 +32,7 @@ export interface View {
   overview: number; // 0..1 blend toward the wide hive view of the whole lattice
   // persistent
   camFloor: number; // camera path never goes below this (intro sets it)
+  walk: number; // 0..1 how far the camera is into the ground walk (world.ts writes it every frame; chapters read the last frame's value)
 }
 
 export interface WorldCtx {
