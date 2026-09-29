@@ -128,7 +128,7 @@ const favicon =
       // walk bench (view=walk): a camera standing on the globe, up = the surface normal; ?eye= ?fov= ?pitch= ?u= ?speed= ?park=1 ?fogNear= ?fogFar=
       const num = (k: string, d: number) => (q.has(k) && !isNaN(Number(q.get(k))) ? Number(q.get(k)) : d);
       const walk = {
-        eye: num('eye', 1.5), fov: num('fov', 55), pitch: num('pitch', 30), speed: num('speed', 0), u: num('u', 0),
+        eye: num('eye', 0.3), fov: num('fov', 60), pitch: num('pitch', 20), near: num('near', 0.03), env: q.get('ground') !== 'smooth', path: num('path', 0.55), speed: num('speed', 0), u: num('u', 0),
         fogNear: num('fogNear', 6), fogFar: num('fogFar', 40), park: q.get('park') === '1',
       };
       let dissolveProgress = Number(q.get('progress') ?? 0.5), dissolveAuto = q.get('auto') === '1';
@@ -175,7 +175,7 @@ const favicon =
       };
       let orbitAz = Number(q.get('az') ?? 0); // degrees: swings the camera round the globe to preview the moving key and kicker
       function pose(name: string) {
-        if (cam.fov !== 40) { cam.fov = 40; cam.updateProjectionMatrix(); } // the walk view changes it
+        if (cam.fov !== 40 || cam.near !== 0.1) { cam.fov = 40; cam.near = 0.1; cam.updateProjectionMatrix(); } // the walk view changes both
         const [p, t] = POSE[name];
         const a = (orbitAz * Math.PI) / 180, ca = Math.cos(a), sa = Math.sin(a);
         cam.position.set(p[0] * ca + p[2] * sa, p[1], -p[0] * sa + p[2] * ca);
@@ -187,11 +187,20 @@ const favicon =
       const route = createWalkRoute(lat);
       const walkPose: WalkPose = { position: cam.position.clone(), quaternion: cam.quaternion.clone(), fov: 50, up: cam.position.clone(), forward: cam.position.clone(), ground: 0, stop: 0 };
       let walkInfo = '';
+      // the path to follow: the tiles the route crosses are brightened with the existing panel-tone state (palette only, no accent, no glow)
+      const pathIdx = route.pathCells();
+      let pathShown = false;
+      function applyPath() {
+        const on = panel === 'cell' && cellView === 'walk' && walk.path > 0;
+        if (on) { pathIdx.forEach((i) => comb.setCellState(i, walk.path, 0)); pathShown = true; }
+        else if (pathShown) { pathIdx.forEach((i) => comb.setCellState(i, 0, 0)); pathShown = false; applyCellState(); }
+      }
       (window as unknown as { __bench: unknown }).__bench = { route, walk }; // inspection hook for QA shots
       // the walk camera: placed and oriented from the route's quaternion, never lookAt; fog from the sliders
       function walkCam(dt: number) {
         if (walk.speed > 0) walk.u = (walk.u + (walk.speed * dt) / route.length) % 1;
-        route.sample(walk.u, { eye: walk.eye, fov: walk.fov, pitchDeg: walk.pitch }, walkPose);
+        route.sample(walk.u, { eye: walk.eye, fov: walk.fov, pitchDeg: walk.pitch, ground: walk.env ? 'env' : 'smooth' }, walkPose);
+        if (cam.near !== walk.near) { cam.near = walk.near; cam.updateProjectionMatrix(); }
         cam.position.copy(walkPose.position);
         cam.quaternion.copy(walkPose.quaternion);
         if (cam.fov !== walkPose.fov) { cam.fov = walkPose.fov; cam.updateProjectionMatrix(); }
@@ -256,6 +265,7 @@ const favicon =
         studio = createStudio(scene, tier, palette, shadowExtentOf(comb.lattice));
         applyShadows();
         applyCellState();
+        pathShown = false; applyPath();
         post?.dispose();
         post = tier === 'high' ? createPost(renderer, scene, cam, look.post, comb.aoGroup) : null;
         if (swarm) buildSwarm();
@@ -308,8 +318,9 @@ const favicon =
           const views = document.createElement('div'); views.className = 'row'; ex.append(views);
           for (const v of ['cell', 'wide', 'fly', 'top', 'moon', 'walk']) button(views, `view ${v}`, () => { cellView = v; buildPanel(); }, cellView === v);
           if (cellView === 'walk') {
-            const wr = (k: string) => ({ eye: [0.5, 3, 0.05], fov: [40, 70, 1], pitch: [0, 45, 0.5], speed: [0, 12, 0.1], fogNear: [0, 40, 0.5], fogFar: [5, 150, 1] } as Record<string, [number, number, number]>)[k];
+            const wr = (k: string) => ({ eye: [0.1, 3, 0.05], near: [0.01, 0.1, 0.005], path: [0, 1, 0.01], fov: [40, 70, 1], pitch: [0, 45, 0.5], speed: [0, 12, 0.1], fogNear: [0, 40, 0.5], fogFar: [5, 150, 1] } as Record<string, [number, number, number]>)[k];
             slider(ex, 'eye height above the local column top', () => walk.eye, (v) => (walk.eye = v), wr('eye'));
+            slider(ex, 'near plane (walk cam only)', () => walk.near, (v) => (walk.near = v), wr('near'));
             slider(ex, 'vertical FOV (deg)', () => walk.fov, (v) => (walk.fov = v), wr('fov'));
             slider(ex, 'pitch below the horizon (deg)', () => walk.pitch, (v) => (walk.pitch = v), wr('pitch'));
             slider(ex, 'walk speed (units/s, 0 = scrub)', () => walk.speed, (v) => (walk.speed = v), wr('speed'));
@@ -317,6 +328,8 @@ const favicon =
             slider(ex, 'fog far', () => walk.fogFar, (v) => (walk.fogFar = v), wr('fogFar'));
             slider(ex, 'scrub along the route (0..1)', () => walk.u, (v) => (walk.u = v), [0, 1, 0.0005]);
             if (tier === 'high') button(ex, 'post (GTAO, bloom)', () => { postOn = !postOn; buildPanel(); }, postOn);
+            slider(ex, 'path tiles: brightness of the tiles the route crosses', () => walk.path, (v) => { walk.path = v; applyPath(); }, wr('path'));
+            button(ex, 'ground: envelope (never clips columns)', () => { walk.env = !walk.env; buildPanel(); }, walk.env);
             button(ex, 'park pistons', () => { walk.park = !walk.park; buildPanel(); }, walk.park);
           }
           if (tier === 'medium') { const n = document.createElement('p'); n.textContent = 'medium tier: no fine flecks, one mottle octave, no studio reflection.'; ex.append(n); }
@@ -344,6 +357,7 @@ const favicon =
           const r = (ranges as Record<string, Record<string, [number, number, number]>>)[g];
           for (const k of Object.keys(r)) slider(sl, `${g}.${k}`, () => L[g][k], (v) => (L[g][k] = v), r[k], g === 'particles' && k === 'textWidth' ? () => swarm?.retarget(L.particles.textWidth) : g === 'bg' && k === 'gradient' ? applyBg : undefined);
         }
+        applyPath();
         if (panel === 'particles' && !swarm) buildSwarm();
         if (panel !== 'particles' && swarm) { swarm.dispose(); swarm = null; swarmScene.clear(); }
       }
