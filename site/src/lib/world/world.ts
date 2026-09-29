@@ -11,7 +11,7 @@ import { createCameraPath, SEGMENTS } from './camera-path';
 import { sceneAlpha } from './scene-dom';
 import { accentCandidates, look, readPalette, type Palette } from './config';
 import { cellTopOf, createHoneycomb, layoutLattice, type Honeycomb } from './honeycomb';
-import { motion, spinWeight, SWARM_CAM } from './motion-config';
+import { motion, spinWeight, SWARM_CAM, walkWeight } from './motion-config';
 import { createPost, type Post } from './post';
 import { createStudio, shadowExtentOf, type Studio } from './studio';
 import { createFlow, type Flow } from './routes';
@@ -273,7 +273,9 @@ export function createWorld(opts: WorldOptions): World {
   // exactly home, so the framing, routes and fly-over match the un-spun ones. Parked, `free` is re-anchored to home so the next spin starts from rest.
   const TAU = Math.PI * 2;
   let spinFree = 0, spinHome = 0, spinWPrev = 1, spinW = 1; // spinW also parks the moon's own motion (honeycomb.ts)
+  let walkW = 0; // 1 = the walk: the reactor pistons hold at rest (motion-config.ts walkWeight), eased in and out
   function stepSpin(dt: number) {
+    walkW = walkWeight(state.chapter, state.chapterProgress);
     const w = spinW = spinWeight(state.chapter, state.chapterProgress);
     if (w < 1 && spinWPrev >= 1) spinHome = Math.round(spinFree / TAU) * TAU;
     spinWPrev = w;
@@ -405,7 +407,7 @@ export function createWorld(opts: WorldOptions): World {
 
   function render(dt: number) {
     const g = Math.max(gSm, view.camFloor);
-    comb.update(view.growth, view.dim, time, spinW);
+    comb.update(view.growth, view.dim, time, spinW, walkW);
     comb.object.visible = view.latticeVisible;
     pose(g);
     // the key moved in pose(): refresh its shadow map once, on the first render of this frame (the dissolve draws two halves)
@@ -417,9 +419,9 @@ export function createWorld(opts: WorldOptions): World {
       // tier each half already carries GTAO and bloom (post.renderScene), so neither pops in or out of the transition; the
       // composite then goes through the same output stage (ACES, aberration, grain, vignette) as every other frame.
       if (post) post.sync(look.post);
-      comb.update(view.growth, 0, time, spinW);
+      comb.update(view.growth, 0, time, spinW, walkW);
       if (post) post.renderScene(rtA, dt); else { renderer.setRenderTarget(rtA); renderer.render(scene, camera); }
-      comb.update(view.growth, view.dim, time, spinW);
+      comb.update(view.growth, view.dim, time, spinW, walkW);
       if (post) post.renderScene(rtB, dt); else { renderer.setRenderTarget(rtB); renderer.render(scene, camera); }
       // distance to the visible cells: when the look-at is the globe centre, the surface is one radius nearer
       const dCell = Math.max(2, camera.position.distanceTo(target) - (target.length() < lattice.radius * 0.5 ? lattice.radius : 0));

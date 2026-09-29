@@ -128,10 +128,10 @@ const favicon =
       if (clean) document.querySelectorAll<HTMLElement>('#bar, #side, #readout').forEach((e) => (e.style.display = 'none'));
       // walk bench (view=walk): a camera standing on the globe, up = the surface normal; ?eye= ?fov= ?pitch= ?u= ?speed= ?park=1 ?fogNear= ?fogFar=
       const num = (k: string, d: number) => (q.has(k) && !isNaN(Number(q.get(k))) ? Number(q.get(k)) : d);
-      // phase 2 close-up fixes, each toggleable (?fx=pistons,radial,core,fog,light,shadow,comet). All default off: the bench then shows exactly what the site does.
+      // phase 2 close-up fixes, each toggleable (?fx=radial,core,fog,light,shadow,comet; pistons are parked in the walk by default, ?fx=nopistons runs them). The rest default off: the bench then shows exactly what the site does.
       const fxq = new Set((q.get('fx') ?? '').split(',').filter(Boolean));
       const fx = {
-        pistons: fxq.has('pistons'), pistonW: num2('pistonw', 1), radial: fxq.has('radial'), radialK: num2('radialk', 1), core: fxq.has('core'), coreK: num2('corek', 0.1),
+        pistons: !fxq.has('nopistons'), pistonW: num2('pistonw', 1), radial: fxq.has('radial'), radialK: num2('radialk', 1), core: fxq.has('core'), coreK: num2('corek', 0.1),
         fog: fxq.has('fog'), fogNear: num2('fognear', 0.5), fogFar: num2('fogfar', 1.6), light: fxq.has('light'), shadow: fxq.has('shadow'), shadowExt: num2('shadowext', 6), comet: fxq.has('comet'),
         pistonEase: false,
       };
