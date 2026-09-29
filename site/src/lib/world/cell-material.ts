@@ -255,7 +255,9 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
           vec3 R1 = cross( sY, normal ), R2 = cross( normal, sX );
           float fDet = dot( sX, R1 ) * faceDirection;
           vec3 grad = sign( fDet ) * ( dFdx( gh ) * R1 + dFdy( gh ) * R2 );
-          normal = normalize( abs( fDet ) * normal - grad );
+          // (guarded: at close range fDet and grad can both vanish on a pixel, normalize(0) is NaN, and bloom/GTAO spread one NaN pixel over the whole frame)
+          vec3 bumped = abs( fDet ) * normal - grad;
+          if ( dot( bumped, bumped ) > 1e-20 ) normal = normalize( bumped );
         }
         #endif`,
       )

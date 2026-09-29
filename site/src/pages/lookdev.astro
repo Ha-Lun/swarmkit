@@ -92,6 +92,7 @@ const favicon =
       import { createHexDissolve, hexPixelSize } from '../lib/world/transitions';
       import { createPost, type Post } from '../lib/world/post';
       import { createStudio, shadowExtentOf, type Studio } from '../lib/world/studio';
+      import { createWalkRoute, type WalkPose } from '../lib/world/walk';
       import { createSwarm, type Swarm } from '../lib/world/swarm-particles';
       import { createBgTexture } from '../lib/world/world';
 
@@ -118,9 +119,18 @@ const favicon =
       let tier: Tier = q.get('tier') === 'medium' ? 'medium' : 'high';
       let panel: PanelId = (q.get('panel') as PanelId) in PANELS ? (q.get('panel') as PanelId) : 'cell';
       let accentSel = 'violet';
-      let postOn = true;
+      let postOn = q.get('post') !== '0';
       let activeBoost = 0, activeLift = 0, cometSpeed = 4.5;
       let cellView = q.get('view') ?? 'wide';
+      // ?clean=1 hides the UI and the sidebar view shift (screenshots)
+      const clean = q.has('clean');
+      if (clean) document.querySelectorAll<HTMLElement>('#bar, #side, #readout').forEach((e) => (e.style.display = 'none'));
+      // walk bench (view=walk): a camera standing on the globe, up = the surface normal; ?eye= ?fov= ?pitch= ?u= ?speed= ?park=1 ?fogNear= ?fogFar=
+      const num = (k: string, d: number) => (q.has(k) && !isNaN(Number(q.get(k))) ? Number(q.get(k)) : d);
+      const walk = {
+        eye: num('eye', 1.5), fov: num('fov', 55), pitch: num('pitch', 30), speed: num('speed', 0), u: num('u', 0),
+        fogNear: num('fogNear', 6), fogFar: num('fogFar', 40), park: q.get('park') === '1',
+      };
       let dissolveProgress = Number(q.get('progress') ?? 0.5), dissolveAuto = q.get('auto') === '1';
       L.particles.attract = q.has('attract') ? Number(q.get('attract')) : L.particles.attract;
 
@@ -165,6 +175,7 @@ const favicon =
       };
       let orbitAz = Number(q.get('az') ?? 0); // degrees: swings the camera round the globe to preview the moving key and kicker
       function pose(name: string) {
+        if (cam.fov !== 40) { cam.fov = 40; cam.updateProjectionMatrix(); } // the walk view changes it
         const [p, t] = POSE[name];
         const a = (orbitAz * Math.PI) / 180, ca = Math.cos(a), sa = Math.sin(a);
         cam.position.set(p[0] * ca + p[2] * sa, p[1], -p[0] * sa + p[2] * ca);
@@ -172,6 +183,22 @@ const favicon =
         const d = cam.position.length();
         (scene.fog as Fog).near = d * 0.6 * look.bg.fog;
         (scene.fog as Fog).far = (d * 3 + 40) * look.bg.fog;
+      }
+      const route = createWalkRoute(lat);
+      const walkPose: WalkPose = { position: cam.position.clone(), quaternion: cam.quaternion.clone(), fov: 50, up: cam.position.clone(), forward: cam.position.clone(), ground: 0, stop: 0 };
+      let walkInfo = '';
+      (window as unknown as { __bench: unknown }).__bench = { route, walk }; // inspection hook for QA shots
+      // the walk camera: placed and oriented from the route's quaternion, never lookAt; fog from the sliders
+      function walkCam(dt: number) {
+        if (walk.speed > 0) walk.u = (walk.u + (walk.speed * dt) / route.length) % 1;
+        route.sample(walk.u, { eye: walk.eye, fov: walk.fov, pitchDeg: walk.pitch }, walkPose);
+        cam.position.copy(walkPose.position);
+        cam.quaternion.copy(walkPose.quaternion);
+        if (cam.fov !== walkPose.fov) { cam.fov = walkPose.fov; cam.updateProjectionMatrix(); }
+        (scene.fog as Fog).near = walk.fogNear;
+        (scene.fog as Fog).far = walk.fogFar;
+        const st = route.stops[walkPose.stop];
+        walkInfo = `walk u ${walk.u.toFixed(3)}  toward ${st.name} (${st.band}, ${walkPose.stop + 1}/${route.stops.length})  ground ${walkPose.ground.toFixed(2)}  altitude ${(cam.position.length() - R).toFixed(2)}  horizon dip ${((Math.acos(R / cam.position.length()) * 180) / Math.PI).toFixed(1)} deg  route ${route.length.toFixed(0)} units`;
       }
       // the gradient is a baked CanvasTexture (world.ts's createBgTexture), so the bg.gradient slider must rebuild it by hand
       function applyBg() {
@@ -200,7 +227,7 @@ const favicon =
         renderer.setPixelRatio(pr);
         renderer.setSize(w, h, false);
         // shift the view centre right so scenes sit in the free area beside the 320px sidebar
-        const shift = w > 900 ? 168 : 0;
+        const shift = w > 900 && !clean ? 168 : 0;
         for (const c of [cam, swarmCam]) { c.aspect = w / h; c.setViewOffset(w, h, -shift, 0, w, h); c.updateProjectionMatrix(); }
         const bh = renderer.getDrawingBufferSize(new Vector2()).y;
         rtA.setSize(w * pr, h * pr);
@@ -279,7 +306,19 @@ const favicon =
           slider(ex, 'active lift (0..1 x lift)', () => activeLift, (v) => { activeLift = v; applyCellState(); }, [0, 1, 0.01]);
           slider(ex, 'orbit azimuth (deg): moves the camera, so the key and kicker travel', () => orbitAz, (v) => (orbitAz = v), [-180, 180, 1]);
           const views = document.createElement('div'); views.className = 'row'; ex.append(views);
-          for (const v of ['cell', 'wide', 'fly', 'top', 'moon']) button(views, `view ${v}`, () => { cellView = v; }, undefined);
+          for (const v of ['cell', 'wide', 'fly', 'top', 'moon', 'walk']) button(views, `view ${v}`, () => { cellView = v; buildPanel(); }, cellView === v);
+          if (cellView === 'walk') {
+            const wr = (k: string) => ({ eye: [0.5, 3, 0.05], fov: [40, 70, 1], pitch: [0, 45, 0.5], speed: [0, 12, 0.1], fogNear: [0, 40, 0.5], fogFar: [5, 150, 1] } as Record<string, [number, number, number]>)[k];
+            slider(ex, 'eye height above the local column top', () => walk.eye, (v) => (walk.eye = v), wr('eye'));
+            slider(ex, 'vertical FOV (deg)', () => walk.fov, (v) => (walk.fov = v), wr('fov'));
+            slider(ex, 'pitch below the horizon (deg)', () => walk.pitch, (v) => (walk.pitch = v), wr('pitch'));
+            slider(ex, 'walk speed (units/s, 0 = scrub)', () => walk.speed, (v) => (walk.speed = v), wr('speed'));
+            slider(ex, 'fog near', () => walk.fogNear, (v) => (walk.fogNear = v), wr('fogNear'));
+            slider(ex, 'fog far', () => walk.fogFar, (v) => (walk.fogFar = v), wr('fogFar'));
+            slider(ex, 'scrub along the route (0..1)', () => walk.u, (v) => (walk.u = v), [0, 1, 0.0005]);
+            if (tier === 'high') button(ex, 'post (GTAO, bloom)', () => { postOn = !postOn; buildPanel(); }, postOn);
+            button(ex, 'park pistons', () => { walk.park = !walk.park; buildPanel(); }, walk.park);
+          }
           if (tier === 'medium') { const n = document.createElement('p'); n.textContent = 'medium tier: no fine flecks, one mottle octave, no studio reflection.'; ex.append(n); }
         }
         if (panel === 'packet') {
@@ -333,7 +372,7 @@ const favicon =
         cometDist += cometSpeed * dt;
         comb.syncLook();
         renderer.shadowMap.needsUpdate = true;
-        comb.update(1, 0, time); // runs the pistons; re-lays the terrain when relief, elevation, terrainScale or stroke changed
+        comb.update(1, 0, panel === 'cell' && cellView === 'walk' && walk.park ? undefined : time); // runs the pistons (parked at rest in the walk bench when asked); re-lays the terrain when relief, elevation, terrainScale or stroke changed
         const showPackets = panel === 'packet' || panel === 'post' || panel === 'dissolve';
         packets.forEach((p, i) => {
           p.group.visible = showPackets && (accentSel === 'all' || accentSel === accentCandidates[i].name);
@@ -358,9 +397,9 @@ const favicon =
           renderer.setRenderTarget(rtB); renderer.render(scene, cam);
           dissolve.render(renderer, rtA.texture, rtB.texture, dissolveProgress, hexPx, look.dissolve);
         } else {
-          pose(panel === 'cell' ? cellView : 'wide');
+          if (panel === 'cell' && cellView === 'walk') walkCam(dt); else pose(panel === 'cell' ? cellView : 'wide');
           studio.update(cam, { timeSec: time });
-          if (panel === 'post' && postOn && post) { post.sync(look.post); post.render(dt, time); }
+          if ((panel === 'post' || (panel === 'cell' && cellView === 'walk')) && postOn && post) { post.sync(look.post); post.render(dt, time); } // the walk bench shows the full high-tier chain, as the site does
           else { renderer.setRenderTarget(null); renderer.render(scene, cam); }
         }
       }
@@ -370,7 +409,7 @@ const favicon =
         const fps = recent.length ? 1000 / (recent.reduce((s, v) => s + v, 0) / recent.length) : 0;
         $('readout').textContent =
           `panel ${panel}   tier ${tier}   fps ${fps.toFixed(1)} (software GL in headless is meaningless)   agent cells ${comb.lattice.agentCount} / agents ${agents.length}` +
-          (panel === 'dissolve' ? `   hex ${hexPx.toFixed(0)}px` : '') + `\nrenderer ${rendererName}` + (sweepText ? `\n${sweepText}` : '');
+          (panel === 'dissolve' ? `   hex ${hexPx.toFixed(0)}px` : '') + `\nrenderer ${rendererName}` + (sweepText ? `\n${sweepText}` : '') + (panel === 'cell' && cellView === 'walk' ? `\n${walkInfo}` : '');
         setTimeout(paint, 250);
       }
 
