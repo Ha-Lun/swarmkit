@@ -1,0 +1,184 @@
+// Checks the globe and moon layout (src/lib/world/honeycomb.ts + sphere.ts) against the agent roster in ../core/agents.
+// Run from site/:  node scripts/layout-check.mjs   (exits 1 on any failure)
+import { build } from 'esbuild';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const dir = mkdtempSync(join(tmpdir(), 'layout-check-'));
+const out = join(dir, 'bundle.mjs');
+await build({
+  stdin: {
+    contents: "export { loadAgents } from './src/lib/agents.ts'; export { look } from './src/lib/world/config.ts'; export { layoutLattice, GLOBE_FREQ, MOON_FREQ, footprint, cellFrame, setMoonPose, moonDriftAt } from './src/lib/world/honeycomb.ts'; export { buildSphere } from './src/lib/world/sphere.ts';",
+    resolveDir: resolve('.'), loader: 'ts',
+  },
+  bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error',
+});
+const { loadAgents, layoutLattice, buildSphere, GLOBE_FREQ, MOON_FREQ, footprint, cellFrame, setMoonPose, moonDriftAt, look } = await import(pathToFileURL(out).href);
+rmSync(dir, { recursive: true, force: true });
+
+const agents = loadAgents();
+const lat = layoutLattice(agents);
+const sphere = buildSphere(GLOBE_FREQ);
+const moonSphere = buildSphere(MOON_FREQ);
+const F = GLOBE_FREQ;
+const fails = [];
+const check = (ok, msg) => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${msg}`); if (!ok) fails.push(msg); };
+
+const globe = lat.cells.filter((c) => !c.moon);
+const moon = lat.cells.filter((c) => c.moon);
+const pent = globe.filter((c) => c.sides === 5).length;
+const mpent = moon.filter((c) => c.sides === 5).length;
+console.log(`cells: ${lat.cells.length} total = ${globe.length} globe (${globe.length - pent} hex + ${pent} pentagon) + ${moon.length} moon (${moon.length - mpent} hex + ${mpent} pentagon); agents ${agents.length}; maxRing ${lat.maxRing}; radius ${lat.radius.toFixed(3)}; mean hex circumradius ${lat.cellRadius.toFixed(3)}`);
+
+check(F === 5, `globe is GP(5,0) (freq ${F})`);
+check(globe.length === 252 && globe.length === 10 * F * F + 2, `globe cell count is 10*f^2+2 = 252 (got ${globe.length})`);
+check(globe.length - pent === 240, `240 hexagons (got ${globe.length - pent})`);
+check(pent === 12, `exactly 12 pentagons (got ${pent})`);
+check(MOON_FREQ === 2 && moon.length === 10 * MOON_FREQ * MOON_FREQ + 2 && moon.length === 42, `moon is a GP(2,0) sphere with 42 cells (got ${moon.length})`);
+check(moon.length - mpent === 30 && mpent === 12, `moon has 30 hexagons and exactly 12 pentagons (got ${moon.length - mpent} + ${mpent})`);
+check(moonSphere.cells.length === moon.length && moonSphere.cells.every((c, i) => c.neighbours.length === c.sides && c.neighbours.every((j) => moonSphere.cells[j].neighbours.includes(i))), 'moon valence and neighbour symmetry');
+
+const val = sphere.cells.map((c) => c.neighbours.length);
+check(val.every((n, i) => n === sphere.cells[i].sides) && val.filter((n) => n === 5).length === 12 && val.filter((n) => n === 6).length === globe.length - 12, 'valence: 12 cells with 5 neighbours, the rest with 6, sides match');
+check(sphere.cells.every((c, i) => c.neighbours.every((j) => sphere.cells[j].neighbours.includes(i))), 'neighbour relation is symmetric');
+
+// every agent exactly once
+const seen = new Map();
+lat.cells.forEach((c) => c.agent && seen.set(c.agent.name, (seen.get(c.agent.name) ?? 0) + 1));
+const missing = agents.filter((a) => !seen.has(a.name)).map((a) => a.name);
+const dup = [...seen].filter(([, n]) => n !== 1).map(([k]) => k);
+check(!missing.length && !dup.length && seen.size === agents.length, `every agent placed exactly once (${seen.size}/${agents.length}${missing.length ? `, missing ${missing}` : ''}${dup.length ? `, duplicated ${dup}` : ''})`);
+const band = (b) => lat.cells.filter((c) => c.agent?.band === b);
+check(band('core').length === 1 && !band('core')[0].moon && band('core')[0].ring === 0 && band('core')[0].normal.z > 0.999, 'lead-dev is the single core cell at ring 0 on +Z');
+check(band('satellite').every((c) => c.moon) && moon.filter((c) => c.agent).length === band('satellite').length, 'satellite agents are exactly the moon cluster agents');
+console.log('agents per band/ring (geodesic ring):');
+for (const b of ['core', 't1', 'domain', 'gate', 'satellite']) {
+  const rings = {};
+  band(b).forEach((c) => (rings[c.ring] = (rings[c.ring] ?? 0) + 1));
+  console.log(`  ${b.padEnd(9)} ${band(b).length} in rings ${JSON.stringify(rings)}`);
+}
+const used = ['core', 't1', 'domain', 'gate'].flatMap((b) => [...new Set(band(b).map((c) => c.ring))].sort((a, z) => a - z));
+check(used.every((r, i) => r === i), `bands occupy consecutive geodesic rings with no gap (rings ${used})`);
+const order = ['core', 't1', 'domain', 'gate'].map((b) => Math.max(...band(b).map((c) => c.ring)));
+check(order.every((r, i) => i === 0 || r > order[i - 1]), `bands are ordered outward by ring (outermost ring per band ${order})`);
+
+// no overlap and an even seam: every panel footprint is its Voronoi polygon inset by half the seam. For every neighbour pair, the gap
+// between the two inset footprints along the line between the centres must be the seam width, everywhere on the globe and on the moon.
+let minCentre = Infinity;
+for (let i = 0; i < lat.cells.length; i++) for (let j = i + 1; j < lat.cells.length; j++) minCentre = Math.min(minCentre, lat.cells[i].pos.distanceTo(lat.cells[j].pos));
+check(minCentre > 0.5, `no coincident centres (min centre distance ${minCentre.toFixed(3)})`);
+const along = (poly, ux, uz) => { // distance from the origin to the polygon edge along direction (ux, uz)
+  let best = Infinity;
+  for (let k = 0; k < poly.length / 2; k++) {
+    const ax = poly[k * 2], az = poly[k * 2 + 1], bx = poly[((k + 1) % (poly.length / 2)) * 2], bz = poly[((k + 1) % (poly.length / 2)) * 2 + 1];
+    const ex = bx - ax, ez = bz - az, den = ux * ez - uz * ex;
+    if (Math.abs(den) < 1e-12) continue;
+    const t = (ax * ez - az * ex) / den, u = (ax * uz - az * ux) / den;
+    if (t > 0 && u >= -1e-9 && u <= 1 + 1e-9) best = Math.min(best, t);
+  }
+  return best;
+};
+const gaps = { globe: [], moon: [] };
+const seamOf = (c) => (c.moon ? look.cell.seam * 0.7 : look.cell.seam);
+const bodies = [[0, sphere, 'globe'], [globe.length, moonSphere, 'moon']];
+for (const [off, sph, name] of bodies) {
+  sph.cells.forEach((sc, i) => sc.neighbours.forEach((j) => {
+    if (j < i) return;
+    const a = lat.cells[off + i], b = lat.cells[off + j];
+    // the panel top follows its sphere, so measure the gap as arc length on the sphere: a footprint reaching a (planar, in the tangent plane) covers R * asin(a / R)
+    const reach = (c, o) => {
+      const f = cellFrame(c), d = o.pos.clone().sub(c.pos);
+      const ux = d.dot(f.x), uz = d.dot(f.z), L = Math.hypot(ux, uz);
+      const a = along(footprint(c, seamOf(c)), ux / L, uz / L);
+      return c.bodyRadius * Math.asin(Math.min(1, a / c.bodyRadius));
+    };
+    const theta = Math.acos(Math.min(1, a.normal.dot(b.normal)));
+    gaps[name].push({ gap: a.bodyRadius * theta - reach(a, b) - reach(b, a), pair: `${off + i}-${off + j}`, want: seamOf(a) });
+  }));
+}
+for (const name of ['globe', 'moon']) {
+  const g = gaps[name].map((x) => x.gap), want = gaps[name][0].want;
+  const mn = Math.min(...g), mx = Math.max(...g), mean = g.reduce((a, b) => a + b, 0) / g.length;
+  console.log(`${name} seam: ${g.length} neighbour pairs, gap min ${mn.toFixed(4)} mean ${mean.toFixed(4)} max ${mx.toFixed(4)} (target ${want.toFixed(4)}, spread ${(mx - mn).toFixed(4)})`);
+  check(mn > 0, `${name}: no overlapping footprints (min gap ${mn.toFixed(4)} world units)`);
+  check(mn > 0.95 * want && mx < 1.1 * want, `${name}: seam is even, every gap within 5-10% of ${want.toFixed(3)}`);
+}
+const moonToGlobe = Math.min(...moon.map((m) => Math.min(...globe.map((g) => m.pos.distanceTo(g.pos) - g.reach - m.reach))));
+check(moonToGlobe > 2, `moon cluster clear of the globe (closest ${moonToGlobe.toFixed(2)} units)`);
+
+// the moon's own motion (round 10): parked it IS the layout; spun it stays a rigid sphere about its own centre; drifted at full amplitude it never reaches the globe
+const V = lat.moon.centre.constructor;
+const zero = new V(0, 0, 0);
+setMoonPose(lat, 0, zero);
+check(moon.every((c) => c.pos.distanceTo(c.home.pos) < 1e-9 && c.normal.distanceTo(c.home.normal) < 1e-9 && 1 - Math.abs(c.quat.dot(c.home.quat)) < 1e-12) && lat.moon.pos.distanceTo(lat.moon.centre) < 1e-9,
+  'moon parked (angle 0, no drift): every cell sits at its layout pose and the moon at its layout position');
+setMoonPose(lat, Math.PI * 2, zero); // a whole turn is the same pose (the parked angle is a multiple of 2 pi)
+check(moon.every((c) => c.pos.distanceTo(c.home.pos) < 1e-9), 'moon after a whole turn is back at its layout pose');
+const dm = lat.moon.driftMax;
+console.log(`moon drift: up to ${dm.toFixed(3)} world units = ${(dm / lat.radius).toFixed(3)} globe radii (slider ${look.cell.moonDrift}); one turn per ${look.cell.moonTurnSec} s`);
+check(dm > 0 && dm <= look.cell.moonDrift * lat.radius + 1e-9, `moon drift amplitude is set and within the slider (${dm.toFixed(3)})`);
+check(moonDriftAt(lat, 1.234, 0).length() === 0, 'drift at weight 0 is exactly zero (parked)');
+let rigid = true, tallestAgent = 0, closest = Infinity, farthest = 0;
+const drift = new V();
+for (let a = 0; a < 24; a++) for (let ph = 0; ph < 48; ph++) {
+  moonDriftAt(lat, (ph / 48) * Math.PI * 2, 1, drift);
+  farthest = Math.max(farthest, drift.length());
+  setMoonPose(lat, (a / 24) * Math.PI * 2 + 0.37, drift);
+  for (const c of moon) {
+    if (Math.abs(c.pos.distanceTo(lat.moon.pos) - c.bodyRadius) > 1e-9 || Math.abs(c.normal.length() - 1) > 1e-9 || Math.abs(new V(0, 1, 0).applyQuaternion(c.quat).distanceTo(c.normal)) > 1e-9) rigid = false;
+  }
+  if (a % 6 === 0) for (const m of moon) for (const g of globe) closest = Math.min(closest, m.pos.distanceTo(g.pos) - g.reach - m.reach);
+}
+check(rigid, 'spun and drifted, every moon cell stays on its sphere with a unit normal and its orientation on that normal');
+check(farthest <= dm + 1e-9, `the drift ellipse stays within its amplitude (farthest ${farthest.toFixed(3)} <= ${dm.toFixed(3)})`);
+check(closest > 0.5, `moon never reaches the globe at full drift and any spin (closest panel gap ${closest.toFixed(2)} units, reaches included)`);
+setMoonPose(lat, 0, zero);
+
+// no missing cells: the polygons must tile the sphere (sum of spherical areas = 4 pi)
+const tri = (a, b, c) => {
+  const dot = (p, q) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
+  const cr = (p, q) => [p[1] * q[2] - p[2] * q[1], p[2] * q[0] - p[0] * q[2], p[0] * q[1] - p[1] * q[0]];
+  return 2 * Math.atan2(Math.abs(dot(a, cr(b, c))), 1 + dot(a, b) + dot(b, c) + dot(c, a));
+};
+for (const [name, sph] of [['globe', sphere], ['moon', moonSphere]]) {
+  let area = 0;
+  sph.cells.forEach((c) => c.corners.forEach((k, i) => (area += tri(c.center, k, c.corners[(i + 1) % c.corners.length]))));
+  check(Math.abs(area - 4 * Math.PI) < 1e-6, `${name} cell polygons tile the sphere: area sum ${area.toFixed(6)} vs 4pi ${(4 * Math.PI).toFixed(6)}`);
+}
+const spacing = [];
+sphere.cells.forEach((c, i) => c.neighbours.forEach((j) => j > i && spacing.push(Math.hypot(...c.center.map((v, k) => v - sphere.cells[j].center[k])))));
+console.log(`neighbour spacing on the unit sphere: min ${Math.min(...spacing).toFixed(4)} max ${Math.max(...spacing).toFixed(4)} ratio ${(Math.max(...spacing) / Math.min(...spacing)).toFixed(3)}`);
+const scales = globe.map((c) => c.scale);
+console.log(`panel footprint circumradius: min ${Math.min(...scales).toFixed(3)} max ${Math.max(...scales).toFixed(3)}`);
+const pm = globe.filter((c) => c.sides === 5).map((c) => c.scale);
+console.log(`pentagon circumradius mean ${(pm.reduce((a, b) => a + b, 0) / pm.length).toFixed(3)} vs hex mean ${(scales.reduce((a, b) => a + b, 0) / scales.length).toFixed(3)}`);
+// terrain: every resting column stands between relief and relief + elevation, never above 0.9 world units, quantised into look.cell.steps levels;
+// a filler rod can drive out up to look.cell.stroke more (reach), so the tallest a column ever stands is 0.9 + stroke; agents are towers above every filler reach
+const hs = lat.cells.filter((c) => !c.agent).map((c) => c.base); // fillers; agent towers are checked below
+const top = look.cell.relief + look.cell.elevation;
+check(Math.min(...hs) >= look.cell.relief - 1e-9 && Math.max(...hs) <= Math.min(top, 0.9) + 1e-9, `resting heights within [${look.cell.relief}, ${Math.min(top, 0.9)}] (got ${Math.min(...hs).toFixed(3)}..${Math.max(...hs).toFixed(3)})`);
+const reach = Math.max(...lat.cells.filter((c) => !c.agent).map((c) => c.reach));
+check(reach <= 0.9 + look.cell.stroke + 1e-9 && reach > Math.max(...hs), `tallest filler reach ${reach.toFixed(3)} = resting + full stroke, within 0.9 + ${look.cell.stroke}`);
+check(lat.cells.every((c) => c.height === c.base), 'layout leaves every column at rest (the pistons are driven by update(time))');
+check(globe.some((c) => c.base > look.cell.relief + 0.15), 'the globe has real relief (a column stands 0.15+ above the base)');
+const levels = new Set(globe.filter((c) => !c.agent).map((c) => c.base.toFixed(4)));
+check(levels.size <= look.cell.steps && levels.size >= 3, `basalt heights snap to at most ${look.cell.steps} levels (got ${levels.size})`);
+const tier = { core: 3, t1: 2, domain: 1, gate: 0 };
+const ag = globe.filter((c) => c.agent);
+const minGap = Math.min(...ag.map((c) => c.base)) - reach;
+check(minGap >= look.cell.towerLift - 1e-9, `every globe agent tower stands at least towerLift (${look.cell.towerLift}) above the tallest filler reach (clearance ${minGap.toFixed(3)})`);
+check(ag.every((c) => Math.abs(c.base - (reach + look.cell.towerLift + look.cell.towerStep * tier[c.agent.band])) < 1e-9), 'tower height = filler reach + towerLift + towerStep x tier rank (core tallest, then t1, domain, gate)');
+const byBand = (b) => ag.filter((c) => c.agent.band === b).map((c) => c.base);
+check(Math.min(...byBand('core')) > Math.max(...byBand('t1')) && Math.min(...byBand('t1')) > Math.max(...byBand('domain')) && Math.min(...byBand('domain')) > Math.max(...byBand('gate')), 'bands are told apart by tower height: core > t1 > domain > gate');
+check(moon.filter((c) => c.agent).every((c) => c.base > Math.max(...moon.filter((m) => !m.agent).map((m) => m.reach)) - 1e-9), 'moon agents stand above the moon fillers');
+const moonThrow = look.cell.stroke * look.cell.moonStroke;
+check(moon.filter((c) => !c.agent).every((c) => Math.abs(c.reach - (c.base + moonThrow)) < 1e-9) && moon.filter((c) => c.agent).every((c) => c.reach === c.base), `moon rods throw moonStroke (${look.cell.moonStroke}) of the globe's stroke = ${moonThrow.toFixed(3)} (reach = base + throw); moon towers stay steady`);
+check(moon.filter((c) => c.agent).every((c) => c.base - Math.max(...moon.filter((m) => !m.agent).map((m) => m.reach)) > 0.05), 'moon towers clear the moon rods at full stroke');
+check(globe.every((c) => Math.abs(c.pos.length() - lat.radius) < 1e-9), 'every globe panel sits at the same radius');
+check(moon.every((c) => Math.abs(c.pos.distanceTo(lat.moon.centre) - c.bodyRadius) < 1e-9), 'every moon panel sits at the same radius from the moon centre');
+check(moon.some((c) => c.agent?.name === 'showroom') && moon.every((c) => c.normal.dot(lat.moon.normal) > -1.01), 'showroom is on the moon');
+
+console.log(fails.length ? `\n${fails.length} check(s) failed` : '\nlayout OK');
+process.exit(fails.length ? 1 : 0);

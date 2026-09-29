@@ -5,3 +5,6 @@ dist/
 .playwright-mcp/
 .lookdev-shots/
 .content-shots/
+
+# Integration screenshots (Phase 5)
+.integration-shots/

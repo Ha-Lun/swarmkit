@@ -1,18 +1,22 @@
 ---
 import Base from '../layouts/Base.astro';
+import WorldCanvas from '../components/WorldCanvas.astro';
 import Intro from '../components/chapters/Intro.astro';
 import Hive from '../components/chapters/Hive.astro';
 import Cells from '../components/chapters/Cells.astro';
 import Proof from '../components/chapters/Proof.astro';
 import Finale from '../components/chapters/Finale.astro';
+import Reference from '../components/Reference.astro';
 ---
 <Base
   title="SwarmKit"
   description="A specialist agent swarm and shared skills for Claude Code, OpenCode and Antigravity, built from one source."
 >
+  <WorldCanvas slot="backdrop" />
   <Intro />
   <Hive />
   <Cells />
   <Proof />
   <Finale />
+  <Reference />
 </Base>

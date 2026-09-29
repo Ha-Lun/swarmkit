@@ -1,5 +1,5 @@
 /* Design tokens, locked at G2 (PLAN §9).
-   Exactly six semantic colour tokens (LOCKED at G2; change only via a new art-direction round). The accent belongs to the task packet and its trail only. */
+   Exactly six semantic colour tokens (LOCKED at G2; change only via a new art-direction round). The accent belongs to the comet only (head, tail, sparks and the rings it draws). */
 
 @font-face {
   font-family: 'Space Grotesk';
@@ -24,12 +24,12 @@
 }
 
 :root {
-  /* colour: A ink (cool blue-black), B wax (muted amber-bone), one accent */
-  --ink: #0c1016;
-  --ink-2: #151b24;
-  --wax: #b9aa88;
-  --wax-dim: #6e6653;
-  --text: #d8d5cb;
+  /* colour: A ink (cool blue-black), B wax (iron-blue stone, locked round 8), one accent */
+  --ink: #080b10;
+  --ink-2: #121824;
+  --wax: #9aa6b4;
+  --wax-dim: #46505e;
+  --text: #d9dee5;
   --accent: #a98bff; /* violet, chosen in round 1; see accentCandidates in world/config.ts */
 
   /* type */

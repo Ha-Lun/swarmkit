@@ -1,13 +1,18 @@
-// Look uniforms as data. LOCKED at G2 (human approved every element in round 3, see .buildlog/artdirection.jsonl).
-// Do not change a value here without a new art-direction round. The /lookdev sliders mutate these objects in memory only (nothing is persisted), so a reload restores the locked values.
+// Look uniforms as data. Round 11 (human override of round 4's no-glow and round 7-8's matte basalt): premium metallic PBR
+// globe (metalness, clearcoat, per-tile roughness/tint jitter, a soft sphere gradient), key+fill+rim+env lighting, an
+// emissive core glowing through the seams, GTAO, bloom and a vignette, a gradient background and light fog. Round 9 adds
+// agent towers (towerLift, towerStep, capGloss, capBevel). The /lookdev sliders mutate these objects in memory only
+// (nothing is persisted), so a reload restores the values here.
 
 export type Tier = 'high' | 'medium';
 
-/** Prism radius of one lattice cell; <1 leaves a visible seam (lattice circumradius is 1). */
-export const CELL_RADIUS = 0.94;
+/** Circumradius of the unit prism geometry. The seam is not baked in: every panel is scaled so the gap to its neighbours is `look.cell.seam` wide. */
+export const CELL_RADIUS = 1;
+/** Prisms start this far below the surface; the (dark, matte) seam floor sits half of it below the surface. */
+export const SINK = 0.12;
 
 // Fallback copy of the colour tokens in src/styles/tokens.css. readPalette() prefers the CSS values.
-const PALETTE_FALLBACK = { ink: '#0c1016', ink2: '#151b24', wax: '#b9aa88', waxDim: '#6e6653', text: '#d8d5cb' };
+const PALETTE_FALLBACK = { ink: '#080b10', ink2: '#121824', wax: '#9aa6b4', waxDim: '#46505e', text: '#d9dee5' };
 export type Palette = typeof PALETTE_FALLBACK;
 
 export function readPalette(): Palette {
@@ -32,28 +37,79 @@ export const accentCandidates = [
 
 export const look = {
   cell: {
-    rim: 0.8, // fresnel rim intensity
-    rimPower: 3.0, // higher = thinner rim
-    thickness: 0.45, // fake-subsurface warm bleed at thin regions (high tier only)
-    density: 0.3, // darkening of the dense centre (high tier only)
-    core: 0.55, // emissive core strength, agent cells only
-    coreRadius: 0.7, // core extent in cell-radius units (<1 stays inside the cell)
-    roughness: 0.85,
-    lift: 0.35, // world units a hovered/focused cell rises
+    // geometry: every panel sits at the same radius; relief and seam are world units (a cell is about 1.7 across)
+    relief: 0.05, // how far the lowest panel stands above the sphere (about 3% of a cell)
+    elevation: 0.85, // terrain: how much taller the highest resting column is than the lowest, world units (clamped so relief + elevation <= 0.9)
+    steps: 5, // basalt: number of distinct column heights (heights snap to these levels)
+    terrainScale: 1.7, // terrain feature size: noise frequency over the unit sphere (higher = more, smaller ranges)
+    // reactor pistons: filler columns drive out and retract; agent columns stay on a steady shelf
+    stroke: 0.5, // how far a rod drives out beyond its resting height, world units (a rod throws half or the full stroke)
+    pistonSpeed: 9, // seconds per rod cycle (hold low, drive out, hold high, retract): larger is slower
+    activity: 0.2, // share of a cycle a rod spends moving (the rest it holds): lower = fewer rods moving at once
+    wave: 0.6, // 0 = every rod on its own random timing, 1 = rods ordered by a slow wave round the globe (fire in sequences)
+    seam: 0.06, // width of the engraved seam between panels, constant over the whole globe
+    bevel: 0.035, // rounded, beveled edge on the panel top, so the seam catches the key and rim light
+    lift: 0.07, // world units a hovered/focused (or comet-struck) panel rises
+    // material: machined metal (MeshPhysicalMaterial), a light clearcoat, env IBL doing most of the modelling work
+    metalness: 0.7,
+    roughness: 0.35,
+    clearcoat: 0.3,
+    clearcoatRoughness: 0.25,
+    sheen: 0.12, // satin lift at grazing angles, small now the clearcoat and env give their own Fresnel
+    envIntensity: 1.0, // procedural studio reflection and diffuse room light (both tiers); caps reflect it much harder (capGloss)
+    roughJitter: 0.25, // per-tile + fine-noise roughness variation, so the metal never reads as one uniform sheet
+    tintJitter: 0.15, // small per-tile shift toward the pale tone, layered on top of hueDrift
+    gradient: 0.25, // soft light-top/cool-bottom gradient across the whole sphere (world-space normal.y)
+    // basalt (procedural, from the five palette tokens): flat tops, dark striated sides
+    sideDark: 0.55, // how dark the column walls are (0 = wax-dim stone, 1 = ink-2)
+    grain: 0.2, // fine grain on the tops, high tier only (faded by pixel footprint)
+    mottle: 0.2, // slow blotchy tone variation of the tops
+    pillow: 0.3, // tops fall off gently toward the edge (a soft pillow gradient, centre lighter): 0 = flat
+    hueDrift: 0.5, // per-column drift of the top tone among wax, wax-dim and ink-2, so neighbours are never identical
+    detail: 0, // close-up richness of the metal, 0 = the round-11 look. Multi-octave blotches, fine grain, brushed streaks, worn edges, wall strata and pits, wall bump and lift; all procedural, faded by pixel footprint
+    grainBump: 0.35, // very fine grain as a bump normal on the tops, high tier only (no cracks, no crags)
+    edge: 0.5, // thin catch-light along the chamfer of every column (twice as strong on the caps)
+    tone: 0.04, // per-column brightness variation
+    // agent towers: stand fixed above every rod, capped with a polished pale cut (no inlay, no ring, no accent)
+    towerLift: 0.25, // world units of clear air between the highest a rod can reach and the shortest tower (the gate tier)
+    towerStep: 0.1, // extra height per tier: core is 3 steps above the gate tier, t1 2, domain 1
+    capGloss: 0.68, // how polished the cap is: the cap's roughness is scaled by (1 - capGloss); the cap also reflects the studio harder
+    capBevel: 3, // the cap's chamfer width as a multiple of the filler bevel
+    agentTone: 0.35, // how much lighter the cap stone is than filler
+    hover: 0.45, // tone brightening of a hovered/focused panel
+    // the moon's own motion (round 10): it spins about its own axis, drifts along a small tilted ellipse round its home and pumps its rods lightly; the story parks it
+    moonTurnSec: 40, // seconds per full turn of the moon's own spin
+    moonDrift: 0.35, // farthest the moon drifts from home, in globe radii (capped so it never reaches the globe)
+    moonStroke: 0.3, // the moon's rod throw as a fraction of the globe's (stroke)
   },
   light: {
-    key: 0.85, // directional key intensity
-    hemi: 0.22,
-    ambient: 0.05,
+    key: 3.0, // directional key intensity (lower than round 8: the key now rakes at 30 degrees, so tops catch more of it)
+    hemi: 0.05,
+    ambient: 0.03, // low, so walls and tops read as different planes
+    fill: 0.4, // dim directional opposite the key, no shadow: keeps the shadow side of the metal from going black
+    kicker: 1.4, // rim light from behind the globe, raised for round 11: a harder rim on the limb and the bevels
+    sweep: 0.6, // 0 = key rides with the camera, 1 = fixed in the world; between, highlights travel as the camera orbits
+    keyElevation: 30, // degrees: a low, raking key
+  },
+  core: {
+    color: 0.5, // 0..1 mix toward the pale tone (a cool iron-blue floor stays in at every value; never the comet accent)
+    intensity: 2.5, // HDR multiplier on the globe's seam floor: values above 1 bloom through the seams. The moon's floor stays dark ink.
+  },
+  bg: {
+    gradient: 0.6, // strength of the radial background gradient (ink-2 centre to ink edge)
+    fog: 1.0, // scales the fog distances set in world.ts/lookdev.astro: > 1 = lighter (farther) fog
   },
   packet: {
-    headSize: 34, // px at 1080p
+    // the comet: small hard head, tapering tail that grows with speed, a few shed sparks. Nothing additive.
+    headSize: 13, // px at 1080p
     headBrightness: 1.0,
-    speed: 0.05, // loops per second along the test curve
-    trailLength: 0.16, // fraction of the loop
-    trailWidth: 0.16, // world units at the head
-    trailFade: 1.8, // fade exponent toward the tail
-    height: 0.55, // world units above the cell top
+    tailMin: 0.5, // world units of tail at rest
+    tailGain: 0.55, // extra tail per (unit/s) of visible speed
+    tailMax: 3.4,
+    tailWidth: 0.17, // world units at the head
+    tailFade: 1.5, // darkening exponent toward the tail end
+    sparks: 0.8, // emission strength (0 = none)
+    height: 0.16, // low constant lift above the panel tops
   },
   dissolve: {
     hexScale: 1.0, // multiplier on the on-screen lattice cell size (1 = native)
@@ -78,7 +134,14 @@ export const look = {
     spawnRadius: 7,
   },
   post: {
-    chromaticAberration: 0.014, // RGB split, grows with distance from centre
+    exposure: 1.0, // renderer.toneMappingExposure (ACES)
+    bloomStrength: 0.35,
+    bloomRadius: 0.4,
+    bloomThreshold: 0.85, // luminance floor: only highlights and the core bloom
+    aoIntensity: 1.0, // GTAO blend strength, high tier only
+    aoRadius: 0.25, // GTAO world-space sample radius, high tier only
+    vignette: 0.35,
+    chromaticAberration: 0.007, // RGB split, grows with distance from centre
     grain: 0.02,
     grainSize: 1.5, // px
   },
@@ -89,13 +152,20 @@ export type Look = typeof look;
 /** [min, max, step] for the lookdev sliders. Keys mirror `look`. */
 export const ranges: { [G in keyof Look]?: { [K in keyof Look[G]]?: [number, number, number] } } = {
   cell: {
-    rim: [0, 2, 0.01], rimPower: [1, 8, 0.1], thickness: [0, 2, 0.01], density: [0, 0.9, 0.01],
-    core: [0, 2, 0.01], coreRadius: [0.2, 1, 0.01], roughness: [0.3, 1, 0.01], lift: [0, 1, 0.01],
+    relief: [0.01, 0.15, 0.005], elevation: [0, 0.85, 0.005], steps: [2, 10, 1], terrainScale: [0.5, 4, 0.05], stroke: [0, 0.8, 0.01], pistonSpeed: [3, 30, 0.5], activity: [0.05, 0.6, 0.01], wave: [0, 1, 0.01], seam: [0.02, 0.25, 0.005], bevel: [0, 0.06, 0.0025], lift: [0, 0.3, 0.005],
+    metalness: [0, 1, 0.01], roughness: [0.05, 1, 0.01], clearcoat: [0, 1, 0.01], clearcoatRoughness: [0, 1, 0.01],
+    sheen: [0, 1.5, 0.01], envIntensity: [0, 2, 0.01], roughJitter: [0, 1, 0.01], tintJitter: [0, 1, 0.01], gradient: [0, 1, 0.01],
+    sideDark: [0, 1, 0.01], grain: [0, 1, 0.01], mottle: [0, 1, 0.01], pillow: [0, 0.8, 0.01], hueDrift: [0, 1, 0.01], grainBump: [0, 1, 0.01], detail: [0, 1, 0.01], edge: [0, 1.5, 0.01], tone: [0, 0.2, 0.005],
+    towerLift: [0, 1, 0.01], towerStep: [0, 0.3, 0.005], capGloss: [0, 0.95, 0.01], capBevel: [1, 6, 0.1],
+    agentTone: [0, 0.6, 0.01], hover: [0, 1.2, 0.01],
+    moonTurnSec: [8, 120, 1], moonDrift: [0, 0.6, 0.01], moonStroke: [0, 1, 0.01],
   },
-  light: { key: [0, 4, 0.05], hemi: [0, 2, 0.02], ambient: [0, 1, 0.01] },
+  light: { key: [0, 4, 0.05], hemi: [0, 2, 0.02], ambient: [0, 1, 0.01], fill: [0, 2, 0.02], kicker: [0, 3, 0.05], sweep: [0, 1, 0.01], keyElevation: [5, 80, 1] },
+  core: { color: [0, 1, 0.01], intensity: [0, 6, 0.05] },
+  bg: { gradient: [0, 1, 0.01], fog: [0.3, 2, 0.01] },
   packet: {
-    headSize: [4, 48, 1], headBrightness: [0.2, 2, 0.01], speed: [0.01, 0.2, 0.005],
-    trailLength: [0.02, 0.3, 0.005], trailWidth: [0.02, 0.4, 0.005], trailFade: [0.5, 4, 0.05], height: [0.2, 1.5, 0.01],
+    headSize: [3, 24, 0.5], headBrightness: [0.2, 2, 0.01], tailMin: [0, 2, 0.02], tailGain: [0, 2, 0.01], tailMax: [0.5, 8, 0.05],
+    tailWidth: [0.02, 0.4, 0.005], tailFade: [0.3, 4, 0.05], sparks: [0, 2, 0.05], height: [0.05, 0.8, 0.01],
   },
   dissolve: { hexScale: [0.4, 4, 0.05], spread: [0.05, 0.9, 0.01], noise: [0, 1, 0.01], edge: [0.5, 6, 0.05] },
   particles: {
@@ -103,5 +173,9 @@ export const ranges: { [G in keyof Look]?: { [K in keyof Look[G]]?: [number, num
     attract: [0, 1, 0.005], attractStrength: [0, 30, 0.1], damping: [0.2, 8, 0.1], maxSpeed: [1, 20, 0.1],
     size: [0.5, 8, 0.1], opacity: [0.05, 1, 0.01], textWidth: [6, 26, 0.5], spawnRadius: [2, 20, 0.5],
   },
-  post: { chromaticAberration: [0, 0.05, 0.001], grain: [0, 0.12, 0.001], grainSize: [1, 4, 0.1] },
+  post: {
+    exposure: [0.4, 2, 0.01], bloomStrength: [0, 1.5, 0.01], bloomRadius: [0, 1, 0.01], bloomThreshold: [0, 1.5, 0.01],
+    aoIntensity: [0, 2, 0.01], aoRadius: [0.05, 1, 0.01], vignette: [0, 1, 0.01],
+    chromaticAberration: [0, 0.05, 0.001], grain: [0, 0.12, 0.001], grainSize: [1, 4, 0.1],
+  },
 };

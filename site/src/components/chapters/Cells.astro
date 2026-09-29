@@ -1,78 +1,45 @@
 ---
+// The Cells scene: no roster panels. The hidden agent list and the label cards are pre-rendered from the agent data;
+// pick.ts (pointer raycast) and the roving-tabindex list drive the same highlight. The full roster is in Reference.
 import { facts } from '../../lib/facts';
+import { roleLine } from '../../lib/agents';
+import { blurb } from '../../lib/blurb';
 import { bandLabels, bandOrder } from '../../content/tiers';
-import { examples } from '../../content/routing';
+import { motion } from '../../lib/world/motion-config';
 
 const agents = facts.agents;
-const groups = bandOrder
-  .map((band) => ({ band, ...bandLabels[band], members: agents.filter((a) => a.band === band) }))
-  .filter((g) => g.members.length > 0);
-
-// First sentence of the frontmatter description, capped for card height.
-function summary(text: string): string {
-  const first = text.split(/(?<=[.!?])\s/)[0];
-  return first.length > 140 ? `${first.slice(0, 137).trimEnd()}...` : first;
-}
+const bands = bandOrder
+  .map((band) => ({ band, ...bandLabels[band], count: agents.filter((a) => a.band === band).length }))
+  .filter((b) => b.count > 0);
+const ordered = bandOrder.flatMap((b) => agents.filter((a) => a.band === b));
 ---
-<section id="cells" class="chapter border-t border-ink-2 py-24" aria-labelledby="cells-title">
-  <div class="mx-auto max-w-page px-6 md:px-8">
-    <p class="eyebrow m-0">Chapter 2 / The roster</p>
-    <h2 id="cells-title" class="mb-0 mt-4 max-w-[20ch] font-display text-2xl font-bold leading-tight">Every agent is one cell.</h2>
-    <p class="mb-0 mt-6 max-w-[60ch] text-lg text-text">
-      {agents.length} agents in {groups.length} groups. Tier is the model class: fast, standard or deep. The model behind each class is set once per CLI.
-    </p>
+<section id="cells" class="chapter" style={`--runway:${motion.runway.cells}`} aria-labelledby="cells-title">
+  <div class="scene" data-scene>
+    <h2 id="cells-title" class="sr-only">The roster</h2>
 
-    <div class="mt-12 grid grid-cols-1 gap-12">
-      {groups.map((g) => (
-        <div>
-          <h3 class="m-0 font-display text-xl font-bold">{g.title} <span class="font-mono text-sm font-normal text-wax">{g.members.length}</span></h3>
-          <p class="mb-0 mt-2 text-sm text-wax">{g.note}</p>
-          <ul class="m-0 mt-6 grid grid-cols-1 list-none gap-4 p-0 sm:grid-cols-2 lg:grid-cols-3" aria-label={g.title}>
-            {g.members.map((a) => (
-              <li
-                tabindex="0"
-                data-agent={a.name}
-                data-band={a.band}
-                data-tier={a.tier}
-                class="panel flex flex-col gap-3 p-4 hover:border-wax focus-visible:border-wax"
-              >
-                <div class="flex items-baseline justify-between gap-3">
-                  <p class="m-0 break-all font-mono text-sm text-text">{a.name}</p>
-                  <p class="m-0 shrink-0 border border-wax-dim px-2 font-mono text-xs text-wax">{a.tier}</p>
-                </div>
-                <p class="m-0 text-sm text-text">{summary(a.description)}</p>
-                <p class="m-0 mt-auto font-mono text-xs text-wax">
-                  <span class="sr-only">Capabilities: </span>{a.capabilities.length ? a.capabilities.join(' / ') : 'no tools declared'}
-                </p>
-              </li>
-            ))}
-          </ul>
+    <div class="agent-list world-only" role="group" aria-label={`Agents (${agents.length}). Arrow keys move between them.`} data-agent-list>
+      {ordered.map((a) => (
+        <button type="button" class="agent-btn" data-agent={a.name} tabindex="-1">{a.name}, {a.tier} tier: {roleLine(a)}</button>
+      ))}
+    </div>
+    <div class="world-only" aria-hidden="true">
+      {ordered.map((a) => (
+        <div class="cell-card" data-card={a.name}>
+          <p class="cell-card-head"><span>{a.name}</span><span class="cell-card-tier">{a.tier}</span></p>
+          <p class="cell-card-band">{bandLabels[a.band].title}</p>
+          <p class="cell-card-role">{blurb(a.description)}</p>
+          {a.capabilities.length > 0 && <ul class="cell-card-caps">{a.capabilities.slice(0, 5).map((c) => <li>{c}</li>)}</ul>}
         </div>
       ))}
     </div>
 
-    <h3 class="mb-0 mt-24 font-display text-xl font-bold">Example routes</h3>
-    <p class="mb-0 mt-3 max-w-[60ch] text-text">Example tasks, routed by the rules above. Illustrative: the actual route depends on what the change touches.</p>
-    <ul class="m-0 mt-8 grid grid-cols-1 list-none gap-4 p-0 lg:grid-cols-3">
-      {examples.map((e) => (
-        <li class="panel p-6" data-example={e.task.toLowerCase().replace(/\s+/g, '-')}>
-          <div class="flex items-baseline justify-between gap-3">
-            <p class="m-0 font-display text-base font-bold">{e.task}</p>
-            <p class="m-0 font-mono text-sm text-wax">{e.tier}</p>
-          </div>
-          <ol class="mb-0 mt-4 grid grid-cols-1 list-none gap-3 p-0">
-            {e.route.map((r, i) => (
-              <li class="flex gap-3 text-sm text-text">
-                <span class="w-4 shrink-0 font-mono text-xs text-wax" aria-hidden="true">{i + 1}</span>
-                <span>
-                  {r.label}
-                  {r.agent && <> <code class="font-mono text-xs text-wax" data-route-agent={r.agent}>{r.agent}</code></>}
-                </span>
-              </li>
-            ))}
-          </ol>
-        </li>
-      ))}
-    </ul>
+    <div class="scene-foot">
+      <p class="caption">{agents.length} agents, one cell each. <span class="world-only">Hover or focus a cell. Drag to look around.</span></p>
+      <ul class="chips" aria-label="Agent groups, from the core outwards">
+        {bands.map((b) => (
+          <li class="chip" data-legend={b.band} title={b.note}><i class="chip-ring" data-fx aria-hidden="true"></i>{b.title} {b.count}</li>
+        ))}
+      </ul>
+    </div>
   </div>
 </section>

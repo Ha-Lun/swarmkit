@@ -176,6 +176,7 @@ export function createSwarm(renderer: WebGLRenderer, tier: Tier, cfg: Look['part
     },
     vertexShader: pointsVert, fragmentShader: pointsFrag,
     transparent: true, depthWrite: false, blending: AdditiveBlending, dithering: true,
+    toneMapped: false, // renders straight to the canvas after the post chain (round 11 ACES); this colour is already final
   });
   const points = new Points(geometry, material);
   points.frustumCulled = false;

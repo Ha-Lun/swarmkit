@@ -1,0 +1,36 @@
+---
+// Fixed, minimal chrome: wordmark (also the intro scramble target), one dot per chapter, and the Reference link.
+// Dots carry no visible text; each has an accessible name. The active one is marked by an IntersectionObserver on the
+// chapter sections (not a scroll listener), so it works in the static fallback too.
+const chapters = [
+  { id: 'hive', label: 'The Hive: how it works' },
+  { id: 'cells', label: 'The Cells: the roster' },
+  { id: 'proof', label: 'Proof' },
+  { id: 'install', label: 'Install' },
+];
+---
+<header class="site-nav">
+  <a href="#top" class="nav-pill nav-mark" data-fx><span id="nav-mark-text" class="block">SwarmKit</span></a>
+  <nav aria-label="Chapters" class="nav-pill nav-dots">
+    <ul class="m-0 flex list-none items-center gap-1 p-0">
+      {chapters.map((c) => (
+        <li><a href={`#${c.id}`} class="nav-dot" data-dot={c.id} aria-label={c.label} title={c.label}><i aria-hidden="true"></i></a></li>
+      ))}
+      <li class="nav-sep" aria-hidden="true"></li>
+      <li><a href="#reference" class="nav-ref" data-dot="reference">Reference</a></li>
+    </ul>
+  </nav>
+</header>
+<script>
+  const dots = new Map([...document.querySelectorAll<HTMLElement>('[data-dot]')].map((d) => [d.dataset.dot!, d]));
+  const io = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        dots.forEach((d, id) => (id === e.target.id ? d.setAttribute('aria-current', 'true') : d.removeAttribute('aria-current')));
+      }
+    },
+    { rootMargin: '-50% 0px -50% 0px' }, // the section that crosses the middle line is the current one
+  );
+  [...dots.keys(), 'top'].forEach((id) => { const s = document.getElementById(id); if (s) io.observe(s); });
+</script>

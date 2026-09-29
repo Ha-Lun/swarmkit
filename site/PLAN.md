@@ -12,7 +12,7 @@ One site, two jobs:
 1. **Explain SwarmKit.** A developer should understand what it is, how routing works, and how to install it in under 90 seconds.
 2. **Prove SwarmKit.** The site is visually ambitious (a continuous scroll-driven 3D world) and shows, with evidence, that the swarm built it.
 
-**Core principle:** the 3D is not decoration. The world *is* the swarm: a procedurally grown honeycomb in which every agent is a cell. The part that impresses and the part that explains are the same thing.
+**Core principle (animation first):** the animation is the centre of the site and the text is small, at the edges, and never in the way. The world *is* the swarm: a procedurally grown honeycomb in which every agent is a cell, so the part that impresses and the part that explains are the same thing. The text only helps describe what the animation is already showing: one or two short lines per scene, small chips, and label cards that appear when you hover or focus a cell. Everything else lives in one compact Reference section after the finale. Text budget on a pinned scene at 1440x810: visible DOM text covers at most about 12% of the viewport, captions are one or two lines, and none sits over the centre of the scene (label cards and the finale command excepted).
 
 ### Non-goals
 
@@ -73,14 +73,15 @@ The site's credibility *is* the product claim.
 │  <canvas> position:fixed, full viewport     │  ← one WebGL world, one camera
 │  z-index: 0, pointer-events only on nodes   │
 ├─────────────────────────────────────────────┤
-│  DOM chapters (normal flow, z-index: 1)     │  ← all text lives here
-│  Each chapter's height = its scroll length  │
+│  DOM chapters (normal flow, z-index: 1)     │  ← all text lives here, small, at the edges
+│  Each chapter = a tall runway holding one   │
+│  position:sticky, 100vh scene               │
 └─────────────────────────────────────────────┘
 ```
 
 - **One scroll source of truth.** ScrollTrigger computes `{ chapter, chapterProgress, globalProgress }` into a plain shared state object. The scene reads it each frame. Nothing else in the scene listens to scroll.
-- **Camera path:** one `CatmullRomCurve3` for the whole site. Each chapter owns a segment of it plus a look-at target. Keyframes live in data (`src/lib/world/camera-path.ts`), not scattered through code.
-- **Text first.** DOM content renders immediately and is the LCP element. The canvas initialises after first paint (`requestIdleCallback`, with a timeout fallback) and fades in.
+- **Camera path:** one continuous camera for the whole site (`src/lib/world/camera-path.ts`): a single C2 spline through evenly spaced control points and a single, Gaussian-smoothed look-at curve, so speed and acceleration are continuous at every chapter boundary. Chapter boundaries land on control points (`SEGMENTS`, `chapterAt`); scroll maps to arc length with a speed profile that blends smoothly from chapter to chapter (`scrollToProgress`), so the camera speed per scroll never jumps where runways change. The world reads a critically damped progress (about 0.15 s). Keyframes live in data, not scattered through code.
+- **Animation first, text small.** The canvas is the centre; each chapter `<section>` is a tall runway (`--runway`, in vh, from `motion-config.ts`) holding one sticky 100vh scene, and every piece of scene text sits on that layer. Captions are pre-rendered and stacked, and the chapter only writes their opacity (no DOM mutation mid-scroll). DOM content still renders immediately (the intro tagline is the LCP element) and the canvas initialises after first paint (`requestIdleCallback`, with a timeout fallback) and fades in. Hover or focus detail (agent name, tier, one-line role) is a label card placed at the projected cell centre by `pick.ts`, driven by a pointer raycast and by a hidden, focusable agent list. Reduced motion, `?tier=fallback` and no-JS get a static layout of the same captions plus the Reference section: a complete page with no canvas.
 - **Chapter modules:** each chapter is a module exposing `enter()`, `update(progress)`, `exit()` and operating on the shared world. No per-chapter renderers.
 
 ### Repo layout
@@ -102,13 +103,22 @@ swarmkit/
         ├── styles/tokens.css
         ├── lib/world/
         │   ├── world.ts           # renderer, scene, camera, loop, tiers
-        │   ├── camera-path.ts
-        │   ├── honeycomb.ts       # lattice growth + agent cells
+        │   ├── camera-path.ts     # one continuous camera: position spline, look-at curve, scroll -> arc length
+        │   ├── sphere.ts          # procedural Goldberg sphere layout (pure, build + browser)
+        │   ├── honeycomb.ts       # globe + moon layout (two Goldberg spheres), growth, instanced stone panels
+        │   ├── cell-material.ts   # speckled stone, engraved rings, hairline bevel
+        │   ├── studio.ts          # moving key + kicker lights (no halo, no dust)
+        │   ├── packet.ts          # the comet: hard head, tapering tail, sparks
+        │   ├── routes.ts          # great-circle routes, ease-in-out timelines, fan-out
+        │   ├── rings.ts           # the comet's crisp scan ring and arrival ripples
         │   ├── transitions.ts     # hex-dissolve pass
         │   ├── swarm-particles.ts # GPGPU finale
+        │   ├── pick.ts            # pointer raycast + keyboard list -> cell highlight + label card
+        │   ├── scene-dom.ts       # opacity-only DOM driver for the pinned scenes
         │   └── chapters/          # intro, hive, cells, proof, finale
         ├── pages/lookdev.astro    # isolated material/effect test bench (not linked in nav)
-        ├── components/chapters/
+        ├── components/chapters/   # one pinned scene per chapter
+        ├── components/Reference.astro, Nav.astro
         └── pages/index.astro
 ```
 
@@ -116,8 +126,18 @@ swarmkit/
 
 ## 6. Chapters
 
-| # | Chapter | DOM content | World |
+Each chapter is a runway with one pinned scene. Scroll lengths live in `motion-config.ts` (`motion.runway`, in viewport heights). The DOM text per scene is deliberately small.
+
+| # | Chapter (runway) | Scene text (small, at the edges) | World |
 |---|---|---|---|
+| 0 | **Intro** (≈ 3–4 s, timed, skippable; 100vh) | A small corner wordmark and one tagline line. No hero block | A single cell appears at the origin and divides; the lattice grows outward ring by ring. Skippable on click, key, or scroll; skipped entirely under reduced motion |
+| 1 | **The Hive** (300vh) | One caption that steps with the comet (task in, classified, routed, gates in parallel), pre-rendered and crossfaded by opacity. Small T1/T2/T3 chips light up per step. Three small focusable buttons (the example tasks) replay their route | Camera pulls back to the full lattice. A small hard-edged violet comet, scrubbed by scroll, enters, holds at the core panel while a scanning ring is engraved, eases to a specialist panel, then fans out to the three gate panels simultaneously (leaving together, landing together, with a ripple on each landing) |
+| 2 | **The Cells** (300vh) | One caption and a slim tier legend. No roster panels. Hover or focus a cell to get a label card (name, tier, one-line role) | Camera flies along the lattice; the hovered or focused panel lifts and brightens (no glow). A hidden, focusable agent list (arrow keys) drives the same highlight, so the keyboard works |
+| 3 | **Proof** (150vh) | A slim HUD strip of readouts: ponytail diff, benchmarks (`pending` until real data exists), harness disclosure, and the real build-log counts | Lattice recedes and dims to a backdrop. Hex-dissolve transition in; the canvas never competes with the numbers |
+| 4 | **Swarm finale: install** (400vh, the climax) | The assembled `./install.sh --all` holds centre screen with a small copy button beside it. Installer flags, platforms and counts appear as small chips only after it has formed | The lattice breaks apart into a GPU particle swarm that flocks and then assembles into `./install.sh --all` |
+| R | **Reference** (normal flow, after the finale) | Compact: roster, installer flags, platforms, MCP servers, skills, slash commands, example routes, benchmark table, harness disclosure, build-log timeline. Reachable from the nav | None (opaque, covers the canvas) |
+
+---|---|---|---|
 | 0 | **Intro** (≈ 3–4 s, skippable) | "SwarmKit" with DOM text scramble, then the tagline | A single cell appears at the origin and divides; the lattice grows outward ring by ring. Skippable on click, key, or scroll; skipped entirely under reduced motion |
 | 1 | **The Hive**: how it works | Pitch, `./install.sh --all` copy button, then the routing story: T1/T2/T3, explore → execute → parallel quality gate | Camera pulls back to reveal the full lattice. A glowing task packet enters, is classified, travels to a specialist cell, then fans out to the three gate cells simultaneously |
 | 2 | **The Cells**: roster | All agents by tier; hover or focus shows role, permissions, tier. Example tasks ("fix typo", "add API route", "refactor auth") replay their routes | Camera flies along the lattice; the hovered/focused agent's cell lifts and glows. The DOM list is the accessible source of truth |
@@ -128,19 +148,23 @@ swarmkit/
 
 ## 7. World spec
 
-### 7.1 Honeycomb lattice (`honeycomb.ts`)
+### 7.1 Stone globe and moon (`sphere.ts`, `honeycomb.ts`, `cell-material.ts`, `studio.ts`)
 
-- Hex grid in axial coordinates; cells grow outward in rings from the origin with staggered scale and extrude.
-- **Agent cells** are assigned by tier to concentric bands: `lead-dev` at the core, then T1 (explore, git-specialist, junior-dev), then domain specialists, then quality gate (security-auditor, code-proofreader, release-tester, test-writer). Assignment is computed from agent data (§8). Never hardcode positions.
-- **Filler cells** (inert, dimmer) complete the lattice so it reads as a structure, not a diagram.
-- Showroom sub-swarm: a small satellite cluster tethered to the frontend band (it also sets up the "built by SwarmKit" story).
-- Render all cells with one `InstancedMesh` (a hex prism); use per-instance attributes for colour, emissive strength, and lift.
-- Material: a custom `ShaderMaterial` or `onBeforeCompile` patch giving a translucent wax/resin look via fresnel rim, fake subsurface through a thickness term, and an emissive core for agent cells. No textures.
+- The lattice is a **Goldberg sphere**, not a flat grid: GP(5,0), built procedurally from an icosahedron subdivided 5 times per edge and dualised. That gives 252 cells: 240 hexagons plus exactly 12 pentagons. No assets. `sphere.ts` is a pure function (no three.js), so the same layout runs at build time (Node: the fallback backdrop, `scripts/layout-check.mjs`) and in the browser. The mesh is relaxed (edge springs) and each cell polygon is its **spherical Voronoi cell** (its corners are triangle circumcentres), so every cell edge lies exactly on the bisector with its neighbour. The sphere is oriented by the layout: the core cell sits on +Z, facing the hive camera.
+- **Flush panels (round 5).** Each cell is a panel whose footprint is its Voronoi polygon inset by half the seam (`look.cell.seam`), so the seam has one constant width over the whole globe (`layout-check.mjs` reports the spread of the gaps: a few thousandths of a world unit). Every panel sits at the same radius with one tiny uniform relief (`look.cell.relief`, about 3% of a cell), not a column; the panel top follows its sphere (vertex stage), with a hairline bevel (`look.cell.bevel`) so the seam edge stays crisp. Two `InstancedMesh`es (hex, pentagon) share one material; the per-instance data is the panel's own corners (the unit prism's corners are replaced in the vertex shader), a random stone rotation and offset, the inlay spec, and the hover state (tone, lift). Under the panels sits a dark matte floor sphere in the background ink, so the seams are thin recessed lines.
+- **Speckled stone (`cell-material.ts`).** A `MeshStandardMaterial` patched with `onBeforeCompile`: a wax-dim to wax body with a slow mottle, three or four layers of hashed-grid flecks in wax, text and ink-2 tones, matte with a gentle satin sheen. The field is anchored per panel with its own random rotation and offset, so each panel reads as its own piece of stone. Fleck size is tuned for the hive distance (2 to 3 px) and each layer fades out when its flecks fall under a pixel (derivative-based), so it never shimmers. Every colour is a mix of `--wax`, `--wax-dim`, `--text`, `--ink-2`, `--ink`; there are no textures. High tier adds a procedural studio reflection map (soft boxes baked with `PMREMGenerator`, low intensity) and the fine fleck layer and second mottle octave; medium is the cheaper stone. All look values live in `config.ts` (`look.cell`, `look.light`, `look.packet`) with slider ranges, and every one is a slider on /lookdev.
+- **Agent panels** are assigned by tier to bands spread outward by **geodesic ring** (graph distance from the core cell): `lead-dev` at the core, then T1, then domain specialists, then quality gates. Agents in a band are spread evenly around their ring by azimuth; assignment is computed from agent data (§8), never hardcoded. An agent panel is slightly lighter stone with an **engraved ring inlay**; ring count and width differ by band (core three rings and a dot, T1 one wide ring, domain two rings, gates a ring and a dot, moon a fine ring). Hover or focus lifts the panel a few percent and brightens its tone: there is no emissive anywhere. **Filler panels** are plain stone.
+- **Moon.** A small round Goldberg sphere GP(2,0): 42 cells, 30 hexagons and 12 pentagons, built the same way as the globe with the same stone, seams, inlay and lights, beside it. Its size and position are derived from the layout (cell size 0.7 of a globe cell, centred at 1.85 globe radii, clear of the globe). The satellite agents (showroom and its workers) sit on the cell that faces the hive camera and the rings around it, so `pick.ts` finds them by name like any other agent. It grows last.
+- **Growth (intro).** Ring by ring outward by geodesic distance with staggered widening and a small radial rise out of the seam floor; panels rise flush, with no glow trail. The back hemisphere grows with the limb.
+- **Lights (`studio.ts`).** Ambient, hemisphere, a key that follows the camera azimuth at (1 - `look.light.sweep`) of its rate plus a slow idle drift, and a cool kicker behind the globe, so highlights travel across the stone and catch the bevels. No atmosphere halo, no dust, no glowing floor: those were removed in round 5, and nothing on the globe emits light.
+- **Camera (`camera-path.ts`).** The scroll orbits the camera around a still globe along one continuous path: an intro pull-back from the core cell, the whole globe and its moon for the hive, a fly-over across the front hemisphere for the cells, a rise over the top and a wide dim recede for the proof, a slow drift for the finale. The position is a natural cubic (C2) spline through 21 control points; the look-at target is a keyframe curve smoothed with a Gaussian in progress (no per-chapter easing). Scroll maps to arc length through a chapter-mean speed that blends smoothly across each boundary, and the world damps the progress (critically damped, about 0.15 s).
 
-### 7.2 Task packet
+### 7.2 Comet (`packet.ts`, `routes.ts`, `rings.ts`, `chapters/hive.ts`)
 
-- A small bright particle with a short trail (a ribbon from its last N positions) moving along a curve between cell centres.
-- It uses the one accent colour on the site. It is the visual thread that ties chapter 1 to chapter 2.
+- A small hard bright head (a crisp disc, light core and accent rim), a camera-facing tail that tapers to a point and lengthens with the speed it is seen moving at, and a few short-lived sparks. Opaque, violet only: no additive blending, no soft sprite.
+- **Routes** are great-circle legs that hug the globe at one low constant lift (`look.packet.height`); only the entry leg descends onto the first stop. **Velocity:** every leg eases in and out (smootherstep: it accelerates out of each stop and decelerates into the next); the fan-out to the three gates uses one duration for all three legs, so they leave together and land together.
+- **Stops:** at classification the comet holds while a thin scanning ring is engraved onto the core panel (a crisp line whose arc sweeps round); on landing at a specialist or gate panel a short ripple ring travels across the surface and the panel lifts a little. The rings are a hard-edged shader on a shell just above the panels, drawn in the accent by the comet only. T1/T2/T3 chips still sync. During the hive scene the look-at leans toward the comet head. The example-task buttons replay the same choreography in real time.
+- It uses the one accent colour on the site, and nothing else does: the globe, moon, lights and DOM never read `--accent`. It is the visual thread that ties chapter 1 to chapter 2.
 
 ### 7.3 Transitions (`transitions.ts`)
 
@@ -158,9 +182,9 @@ swarmkit/
 
 | Tier | Detect | Features |
 |---|---|---|
-| **High** | Desktop GPU, ≥ 8 cores | Full post-processing, 16k particles, DPR ≤ 2 |
-| **Medium** | Most laptops, recent phones | No post-processing, 4k particles, DPR ≤ 1.5, simpler cell shader |
-| **Low / fallback** | No WebGL, `prefers-reduced-motion`, or failed fps probe | Static SVG of the lattice per chapter; no intro; no canvas |
+| **High** | Desktop GPU, ≥ 8 cores | Full post-processing, 16k particles, DPR ≤ 2, speckled stone with studio reflection, fine flecks and second mottle octave |
+| **Medium** | Most laptops, recent phones | No post-processing, 4k particles, DPR ≤ 1.5, cheaper stone (no studio reflection, no fine flecks, one mottle octave; the hemisphere light stands in) |
+| **Low / fallback** | No WebGL, `prefers-reduced-motion`, or failed fps probe | Static SVG of the lattice per chapter; no intro; no canvas; no moving light (the intro wordmark and tagline show large in the static layout) |
 
 - After mount, run a ~1 s fps probe. Below 45 fps drop one tier; below 30 fps drop to fallback.
 - Pause rendering when the tab is hidden.
@@ -296,6 +320,7 @@ Each phase ends with a commit and, where marked, a human gate.
 # SwarmKit site — rules for Claude Code
 
 - Read PLAN.md before each phase. Work one phase at a time and stop at gates.
+- Animation first, text small: the world is the centre; scene text is one or two short lines, small chips, and hover/focus label cards. Detail lives in the Reference section. On a pinned scene at 1440x810 visible text covers at most about 12% of the viewport and never sits over the centre (label cards and the finale command excepted).
 - Static Astro site. No backend, no React. Three.js is vanilla, in one fixed-canvas island.
 - All text lives in the DOM. Never render copy in WebGL.
 - The scene is 100% procedural: no external models, textures, or volume data.

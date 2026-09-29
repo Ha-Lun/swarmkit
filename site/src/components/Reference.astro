@@ -1,0 +1,398 @@
+---
+// The one Reference section, after the finale: everything the scenes leave out, compact. It also keeps the no-3D
+// fallback a complete page. All lists are derived from the repo at build time (facts, routing, benchmarks, build log).
+// Shell: a sticky index rail (chip row on small screens) plus one readable column of six numbered sections.
+import RoutingDiagram from './RoutingDiagram.astro';
+import { facts, repoUrl } from '../lib/facts';
+import { roleLine } from '../lib/agents';
+import { bandLabels, bandOrder } from '../content/tiers';
+import { examples, gates, tiers } from '../content/routing';
+import { loadBenchmarks } from '../lib/benchmarks';
+import { loadBuildlog } from '../lib/buildlog';
+
+const { agents, platforms, flags, mcpServers, skills, commands } = facts;
+const bench = loadBenchmarks();
+const log = loadBuildlog();
+const fmt = (ts: string) => ts.slice(0, 16).replace('T', ' ') + ' UTC';
+const groups = bandOrder
+  .map((band) => ({ band, ...bandLabels[band], members: agents.filter((a) => a.band === band) }))
+  .filter((g) => g.members.length > 0);
+const installCmd = './install.sh --all';
+const sections = [
+  { id: 'ref-install', label: 'Install', summary: 'Clone the repo and run one script; it links everything into place.' },
+  { id: 'ref-routing', label: 'How it routes', summary: 'A request is classified into a tier, explored if needed, executed, then checked.' },
+  { id: 'ref-roster', label: 'Roster', summary: `${agents.length} agents, grouped by the job they do.` },
+  { id: 'ref-extend', label: 'Extend', summary: 'MCP servers, skills and slash commands that ship with the kit.' },
+  { id: 'ref-proof', label: 'Proof', summary: 'What is measured, what is not yet, and how this site was made.' },
+  { id: 'ref-log', label: 'Build log', summary: 'Who did what, read from the repo at build time.' },
+];
+const num = (i: number) => String(i + 1).padStart(2, '0');
+const [sInstall, sRouting, sRoster, sExtend, sProof, sLog] = sections;
+---
+<section id="reference" class="ref" aria-labelledby="reference-title">
+  <div class="ref-wrap">
+    <header class="ref-head">
+      <h2 id="reference-title" class="ref-title">Reference</h2>
+      <p class="ref-lede">
+        The detail behind the scroll. You write every agent, skill and rule once in <code>core/</code>; a small
+        compiler turns them into each CLI's native format and the installer links the results into place.
+      </p>
+    </header>
+
+    <div class="ref-shell">
+      <nav class="ref-rail" aria-label="Reference sections">
+        <ol class="ref-rail-list">
+          {sections.map((s, i) => (
+            <li><a href={`#${s.id}`} class="ref-rail-link" data-ref-link={s.id}><span class="ref-rail-n">{num(i)}</span>{s.label}</a></li>
+          ))}
+        </ol>
+      </nav>
+
+      <div class="ref-main">
+        <section id={sInstall.id} class="ref-section" aria-labelledby={`${sInstall.id}-h`}>
+          <p class="ref-eyebrow">{num(0)} / {sInstall.label}</p>
+          <h3 id={`${sInstall.id}-h`} class="ref-h">{sInstall.label}</h3>
+          <p class="ref-sum">{sInstall.summary}</p>
+          <pre class="ref-code" tabindex="0" aria-label="Install commands"><code>git clone {repoUrl}.git
+cd swarmkit
+{installCmd}</code></pre>
+          <p class="ref-p">Anything it replaces is backed up first. Running it again changes nothing. <code>--all</code> is also the default when no flag is given.</p>
+          <h4 class="ref-sub">Platforms <span class="ref-count">{platforms.length}</span></h4>
+          <ul class="ref-cards ref-cards-3">
+            {platforms.map((p) => (
+              <li class="ref-card">
+                <p class="ref-card-title">{p.name}</p>
+                <code class="ref-tag">{p.flag}</code>
+                <p class="ref-card-body">{p.summary}</p>
+              </li>
+            ))}
+          </ul>
+          <h4 class="ref-sub">Installer flags <span class="ref-count">{flags.length}</span></h4>
+          <div class="ref-table-wrap">
+            <table class="ref-table">
+              <thead><tr><th scope="col">Flag</th><th scope="col">What it does</th></tr></thead>
+              <tbody>
+                {flags.map((f) => <tr><th scope="row"><code>{f.flag}</code></th><td>{f.description}</td></tr>)}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id={sRouting.id} class="ref-section" aria-labelledby={`${sRouting.id}-h`}>
+          <p class="ref-eyebrow">{num(1)} / {sRouting.label}</p>
+          <h3 id={`${sRouting.id}-h`} class="ref-h">{sRouting.label}</h3>
+          <p class="ref-sum">{sRouting.summary}</p>
+          <h4 class="ref-sub">Routing tiers</h4>
+          <div class="ref-table-wrap">
+            <table class="ref-table">
+              <thead><tr><th scope="col">Tier</th><th scope="col">Kind of task</th><th scope="col">What happens</th></tr></thead>
+              <tbody>
+                {tiers.map((t) => <tr><th scope="row"><code>{t.id}</code></th><td class="ref-strong">{t.title}</td><td>{t.body}</td></tr>)}
+              </tbody>
+            </table>
+          </div>
+          <p class="ref-note">T0 to T3 are routing tiers (how much ceremony a task gets). fast, standard and deep are model tiers (which model class runs an agent).</p>
+          <figure class="ref-figure">
+            <div class="hidden md:block"><RoutingDiagram /></div>
+            <div class="mx-auto max-w-[360px] md:hidden"><RoutingDiagram vertical /></div>
+            <figcaption class="ref-note">Explore is for non-trivial work or uncertain context. It can be skipped when the task is self-contained.</figcaption>
+          </figure>
+          <h4 class="ref-sub">Example routes</h4>
+          <p class="ref-p">Illustrative: the actual route depends on what the change touches.</p>
+          <ul class="ref-cards ref-cards-3">
+            {examples.map((e) => (
+              <li class="ref-card">
+                <p class="ref-card-title">{e.task}</p>
+                <code class="ref-tag">{e.tier}</code>
+                <ol class="ref-steps">
+                  {e.route.map((r) => <li>{r.label}{r.agent && <> <code>{r.agent}</code></>}</li>)}
+                </ol>
+              </li>
+            ))}
+          </ul>
+          <h4 class="ref-sub">Quality gates <span class="ref-count">{gates.length}</span></h4>
+          <p class="ref-p">Run after the work, in parallel where the CLI allows, and only when relevant. Worktrees are never merged or removed without an explicit instruction.</p>
+          <div class="ref-table-wrap">
+            <table class="ref-table">
+              <thead><tr><th scope="col">Agent</th><th scope="col">Runs when</th></tr></thead>
+              <tbody>
+                {gates.map((g) => <tr><th scope="row"><code>{g.agent}</code></th><td>{g.when}</td></tr>)}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id={sRoster.id} class="ref-section" aria-labelledby={`${sRoster.id}-h`}>
+          <p class="ref-eyebrow">{num(2)} / {sRoster.label}</p>
+          <h3 id={`${sRoster.id}-h`} class="ref-h">{sRoster.label}</h3>
+          <p class="ref-sum">{sRoster.summary}</p>
+          {groups.map((g) => (
+            <div class="ref-group">
+              <h4 class="ref-sub">{g.title} <span class="ref-count">{g.members.length}</span></h4>
+              <p class="ref-p">{g.note}</p>
+              <ul class="ref-cards ref-cards-roster" aria-label={g.title}>
+                {g.members.map((a) => (
+                  <li class="ref-card ref-card-agent" data-agent-ref={a.name}>
+                    <div class="ref-card-head">
+                      <code class="ref-card-name">{a.name}</code>
+                      <span class="ref-tag">{a.tier}</span>
+                    </div>
+                    <p class="ref-card-body">{roleLine(a, 72)}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </section>
+
+        <section id={sExtend.id} class="ref-section" aria-labelledby={`${sExtend.id}-h`}>
+          <p class="ref-eyebrow">{num(3)} / {sExtend.label}</p>
+          <h3 id={`${sExtend.id}-h`} class="ref-h">{sExtend.label}</h3>
+          <p class="ref-sum">{sExtend.summary}</p>
+          <div class="ref-group">
+            <h4 class="ref-sub">MCP servers <span class="ref-count">{mcpServers.length}</span></h4>
+            <p class="ref-p">Registered for Claude Code and Antigravity from <code>core/mcp.json</code>.</p>
+            <ul class="ref-chips">
+              {mcpServers.map((m) => <li class="ref-chip">{m}</li>)}
+            </ul>
+          </div>
+          <div class="ref-group">
+            <h4 class="ref-sub">Skills <span class="ref-count">{skills.length}</span></h4>
+            <p class="ref-p">Shared by all three CLIs, from <code>core/skills/</code>.</p>
+            <ul class="ref-chips">
+              {skills.map((s) => <li class="ref-chip">{s}</li>)}
+            </ul>
+          </div>
+          <div class="ref-group">
+            <h4 class="ref-sub">Slash commands <span class="ref-count">{commands.length}</span></h4>
+            <p class="ref-p">OpenCode.</p>
+            <ul class="ref-chips ref-chips-desc">
+              {commands.map((c) => <li class="ref-chip"><span class="ref-chip-name">{c.name}</span><span class="ref-chip-desc">{c.description}</span></li>)}
+            </ul>
+          </div>
+        </section>
+
+        <section id={sProof.id} class="ref-section" aria-labelledby={`${sProof.id}-h`}>
+          <p class="ref-eyebrow">{num(4)} / {sProof.label}</p>
+          <h3 id={`${sProof.id}-h`} class="ref-h">{sProof.label}</h3>
+          <p class="ref-sum">{sProof.summary}</p>
+          <div class="ref-proof">
+            <div class="ref-card" data-proof="ponytail">
+              <h4 class="ref-card-title">Ponytail diff</h4>
+              <p class="ref-status">net: pending</p>
+              <p class="ref-card-body">Ponytail is the always-on discipline against over-engineering. No before-and-after diff has been recorded yet, so no figure is shown.</p>
+            </div>
+            <div class="ref-card ref-proof-wide" data-proof="benchmarks">
+              <h4 class="ref-card-title">Benchmarks</h4>
+              {bench ? (
+                <>
+                  <div class="ref-table-wrap">
+                    <table class="ref-table">
+                      <thead><tr>{bench.columns.map((c) => <th scope="col">{c}</th>)}</tr></thead>
+                      <tbody>{bench.rows.map((r) => <tr>{bench.columns.map((c) => <td>{r[c] ?? ''}</td>)}</tr>)}</tbody>
+                    </table>
+                  </div>
+                  <p class="ref-card-body"><a href={bench.rawHref} class="underline underline-offset-4">Raw data (JSON)</a></p>
+                </>
+              ) : (
+                <>
+                  <p class="ref-status">benchmarks pending</p>
+                  <p class="ref-card-body">No benchmark data has been recorded yet. When it exists it will show medians over at least three runs per fixture per agent type, with the raw file linked. Losses will be shown too.</p>
+                </>
+              )}
+            </div>
+            <div class="ref-card ref-proof-full" data-proof="harness">
+              <h4 class="ref-card-title">Harness disclosure</h4>
+              <p class="ref-card-body">
+                Benchmark runs: Antigravity (<code>agy</code>) with <code>gemini-3.8-flash-high</code>.{bench?.harness || bench?.model ? ` Recorded in the data file: ${[bench.harness, bench.model].filter(Boolean).join(', ')}.` : ''}{' '}
+                This site: built with Claude Code, using the agents described above. The scene is procedural: no external models, textures or volume data, and no AI-generated media.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id={sLog.id} class="ref-section" aria-labelledby={`${sLog.id}-h`}>
+          <p class="ref-eyebrow">{num(5)} / {sLog.label}</p>
+          <h3 id={`${sLog.id}-h`} class="ref-h">{sLog.label}</h3>
+          <p class="ref-sum">{sLog.summary} It separates what the human did from what agents did.</p>
+          <dl class="ref-stats">
+            <div class="ref-stat">
+              <dt>Human interventions</dt>
+              <dd class="ref-stat-n">{log.interventions}</dd>
+              <dd class="ref-stat-note">{log.gates} gate approvals, {log.decisions} decisions and answers, {log.artRounds} art-direction rounds with a human verdict. Measurements and agent-applied changes are not counted.</dd>
+            </div>
+            <div class="ref-stat">
+              <dt>Agent dispatches</dt>
+              <dd class="ref-stat-n">{log.dispatches}</dd>
+              <dd class="ref-stat-note">{log.dispatchesByAgent.map(([a, n]) => `${a} ${n}`).join(', ') || 'none recorded'}</dd>
+            </div>
+          </dl>
+          <details class="ref-details">
+            <summary class="ref-summary">Build timeline <span class="ref-count">{log.events.length} events</span></summary>
+            <ol class="ref-timeline" aria-label="Build timeline">
+              {log.events.map((e) => (
+                <li class="ref-event" data-actor={e.actor}>
+                  <span class="ref-marker" aria-hidden="true"></span>
+                  <p class="ref-event-meta"><span class="ref-actor">{e.actor === 'human' ? 'Human' : 'Agent'}</span> <span class="ref-kind">{e.kind}</span> <time datetime={e.ts}>{fmt(e.ts)}</time></p>
+                  <p class="ref-event-text">{e.text}</p>
+                </li>
+              ))}
+            </ol>
+          </details>
+        </section>
+
+        <p class="ref-foot" data-slot="horology">
+          <span class="text-text">Horology demo: link coming.</span>
+          <a href={repoUrl} class="underline underline-offset-4">Source: github.com/ha-lun/swarmkit</a>
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  /* Shell. Tokens only; no new colours. Hierarchy from size and weight; wax for labels; dim borders between sections. */
+  .ref { position: relative; background: var(--ink); border-top: 1px solid var(--ink-2); padding: var(--space-24) var(--space-6) var(--space-16); color: var(--text); font-size: var(--text-base); }
+  .ref-wrap { max-width: 75rem; margin: 0 auto; }
+  .ref-title { margin: 0; font-family: var(--font-display); font-size: var(--text-xl); font-weight: 700; line-height: var(--leading-tight); }
+  .ref-lede { margin: var(--space-2) 0 0; max-width: 72ch; }
+  .ref-shell { margin-top: var(--space-16); } /* block on small screens so the chip row can stay pinned for the whole section */
+  .ref-main { min-width: 0; }
+  .ref-section { padding: var(--space-12) 0; border-top: 1px solid var(--ink-2); scroll-margin-top: 136px; }
+  .ref-section:first-child { border-top: 1px solid var(--wax-dim); }
+  .ref-eyebrow { margin: 0; font-family: var(--font-mono); font-size: var(--text-sm); letter-spacing: 0.08em; text-transform: uppercase; color: var(--wax); }
+  .ref-h { margin: var(--space-2) 0 0; font-family: var(--font-display); font-size: var(--text-2xl); font-weight: 700; line-height: var(--leading-tight); letter-spacing: -0.01em; overflow-wrap: anywhere; }
+  .ref-sum { margin: var(--space-3) 0 0; max-width: 60ch; font-size: var(--text-lg); line-height: 1.4; color: var(--text); }
+  .ref-foot { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-8); margin: 0; padding-top: var(--space-8); border-top: 1px solid var(--ink-2); }
+
+  /* Rail: chip row pinned under the fixed nav on small screens (its top padding sits behind the nav pills so page text never shows between them), sticky index at >= 1024px. */
+  .ref-rail { position: sticky; top: 0; z-index: 2; margin: calc(var(--space-16) * -1) calc(var(--space-6) * -1) 0; padding: calc(var(--space-16) + var(--space-2)) var(--space-6) var(--space-2); background: var(--ink); border-bottom: 1px solid var(--ink-2); overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .ref-rail::-webkit-scrollbar { display: none; }
+  .ref-rail-list { display: flex; gap: var(--space-2); margin: 0; padding: 0; list-style: none; width: max-content; }
+  .ref-rail-link { display: inline-flex; gap: var(--space-2); align-items: baseline; padding: var(--space-2) var(--space-3); border: 1px solid var(--ink-2); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text); text-decoration: none; white-space: nowrap; }
+  .ref-rail-n { color: var(--wax); }
+  .ref-rail-link:hover { border-color: var(--wax-dim); }
+  .ref-rail-link[aria-current] { border-color: var(--text); }
+
+  @media (min-width: 1024px) {
+    .ref-shell { margin-top: var(--space-12); display: grid; grid-template-columns: 200px minmax(0, 1fr); column-gap: var(--space-16); }
+    .ref-section { scroll-margin-top: var(--space-24); }
+    .ref-rail { top: var(--space-24); align-self: start; margin: 0; padding: 0; background: none; overflow: visible; border-bottom: 0; }
+    .ref-rail-list { flex-direction: column; gap: 0; width: auto; border-left: 1px solid var(--ink-2); }
+    .ref-rail-link { display: flex; margin-left: -1px; padding: var(--space-2) var(--space-4); border: 0; border-left: 2px solid transparent; }
+    .ref-rail-link:hover { border-left-color: var(--wax-dim); }
+    .ref-rail-link[aria-current] { border-left-color: var(--text); font-weight: 700; }
+  }
+
+  /* Section content. */
+  .ref code { font-family: var(--font-mono); font-size: var(--text-sm); }
+  .ref-p { margin: var(--space-3) 0 0; max-width: 72ch; }
+  .ref-note { margin: var(--space-3) 0 0; max-width: 72ch; font-family: var(--font-mono); font-size: var(--text-sm); color: var(--wax); }
+  .ref-sub { display: flex; align-items: baseline; gap: var(--space-3); margin: var(--space-12) 0 0; padding-top: var(--space-3); border-top: 1px solid var(--ink-2); font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; color: var(--wax); }
+  .ref-count { letter-spacing: 0; text-transform: none; color: var(--text); }
+  .ref-group { margin-top: 0; }
+  .ref-strong { font-family: var(--font-display); font-weight: 700; }
+  .ref-figure { margin: var(--space-8) 0 0; max-width: 760px; }
+  .ref-code { margin: var(--space-6) 0 0; padding: var(--space-4) var(--space-6); overflow-x: auto; background: var(--ink-2); border: 1px solid var(--wax-dim); font-family: var(--font-mono); font-size: var(--text-base); line-height: 1.6; }
+  .ref-code code { font-size: inherit; }
+
+  .ref-table-wrap { margin-top: var(--space-4); overflow-x: auto; }
+  .ref-table { width: 100%; border-collapse: collapse; text-align: left; }
+  .ref-table th, .ref-table td { padding: var(--space-3) var(--space-4) var(--space-3) 0; border-bottom: 1px solid var(--ink-2); vertical-align: baseline; font-weight: 400; }
+  .ref-table thead th { padding-top: 0; border-bottom: 1px solid var(--wax-dim); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--wax); }
+  .ref-table tbody th { width: 1%; white-space: nowrap; }
+
+  .ref-cards { display: grid; gap: var(--space-4); margin: var(--space-4) 0 0; padding: 0; list-style: none; }
+  .ref-cards-3 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
+  .ref-cards-roster { grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: var(--space-3); }
+  .ref-card { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); min-width: 0; padding: var(--space-4); background: var(--ink-2); border: 1px solid var(--ink-2); }
+  .ref-card:hover { border-color: var(--wax-dim); }
+  .ref-card-title { margin: 0; font-family: var(--font-display); font-size: var(--text-lg); font-weight: 700; line-height: 1.2; }
+  .ref-card-body { margin: 0; font-size: var(--text-base); line-height: 1.45; }
+  .ref-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); width: 100%; }
+  .ref-card-name { font-size: var(--text-sm); font-weight: 400; overflow-wrap: anywhere; }
+  .ref-card-agent .ref-card-body { font-size: var(--text-sm); }
+  .ref-tag { display: inline-block; padding: 0 var(--space-2); border: 1px solid var(--wax-dim); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.6; color: var(--wax); white-space: nowrap; }
+  .ref-steps { margin: 0; padding-left: var(--space-6); font-size: var(--text-sm); line-height: 1.5; }
+  .ref-steps li + li { margin-top: var(--space-1); }
+  .ref-group .ref-p { margin-top: var(--space-2); }
+  .ref-group + .ref-group .ref-sub { margin-top: var(--space-8); }
+
+  .ref-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-4) 0 0; padding: 0; list-style: none; }
+  .ref-chip { padding: var(--space-1) var(--space-3); border: 1px solid var(--wax-dim); font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.6; }
+  .ref-chips-desc { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
+  .ref-chips-desc .ref-chip { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3); }
+  .ref-chip-desc { font-family: var(--font-display); font-size: var(--text-sm); line-height: 1.4; color: var(--text); }
+
+  .ref-proof { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); margin-top: var(--space-6); }
+  .ref-status { margin: 0; font-family: var(--font-mono); font-size: var(--text-sm); color: var(--wax); }
+
+  .ref-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: var(--space-4); margin: var(--space-6) 0 0; }
+  .ref-stat { padding: var(--space-6); background: var(--ink-2); border: 1px solid var(--ink-2); }
+  .ref-stat dt { font-family: var(--font-mono); font-size: var(--text-sm); letter-spacing: 0.08em; text-transform: uppercase; color: var(--wax); }
+  .ref-stat dd { margin: 0; }
+  .ref-stat .ref-stat-n { margin-top: var(--space-2); font-family: var(--font-display); font-size: var(--text-3xl); font-weight: 700; line-height: var(--leading-tight); }
+  .ref-stat .ref-stat-note { margin-top: var(--space-2); font-size: var(--text-sm); line-height: 1.5; }
+
+  .ref-details { margin-top: var(--space-6); }
+  .ref-summary { display: inline-flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); border: 1px solid var(--wax); font-family: var(--font-mono); font-size: var(--text-sm); cursor: pointer; list-style: none; user-select: none; }
+  .ref-summary::-webkit-details-marker { display: none; }
+  .ref-summary::before { content: '+'; display: inline-block; width: 1ch; }
+  .ref-details[open] > .ref-summary::before { content: '\2212'; }
+  .ref-summary:hover { border-color: var(--text); }
+  .ref-timeline { position: relative; margin: var(--space-6) 0 0; padding: 0; list-style: none; }
+  .ref-timeline::before { content: ''; position: absolute; top: 0; bottom: 0; left: 5px; width: 1px; background: var(--wax-dim); }
+  .ref-event { position: relative; padding: 0 0 var(--space-6) var(--space-8); }
+  .ref-marker { position: absolute; left: 0; top: 6px; width: 11px; height: 11px; box-sizing: border-box; background: var(--text); }
+  .ref-event[data-actor='human'] .ref-marker { transform: rotate(45deg) scale(0.9); }
+  .ref-event[data-actor='agent'] .ref-marker { border-radius: 50%; background: var(--ink); border: 2px solid var(--wax); }
+  .ref-event-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); margin: 0; font-family: var(--font-mono); font-size: var(--text-sm); color: var(--wax); }
+  .ref-actor { padding: 0 var(--space-2); border: 1px solid var(--wax-dim); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em; line-height: 1.6; color: var(--text); }
+  .ref-event[data-actor='human'] .ref-actor { background: var(--text); color: var(--ink); border-color: var(--text); }
+  .ref-event-text { margin: var(--space-1) 0 0; max-width: 72ch; }
+
+  @media (min-width: 768px) {
+    .ref-proof { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .ref-proof-wide { grid-column: span 2; }
+    .ref-proof-full { grid-column: 1 / -1; }
+  }
+  @media (max-width: 720px) {
+    .ref { padding-left: var(--space-4); padding-right: var(--space-4); }
+    .ref-rail { margin-left: calc(var(--space-4) * -1); margin-right: calc(var(--space-4) * -1); padding-left: var(--space-4); padding-right: var(--space-4); }
+  }
+</style>
+
+<script>
+  // Scroll-spy for the index rail: only sets aria-current. No scrolling, no layout, no scroll listeners. The links are
+  // plain anchors (Lenis handles them via its `anchors` option, the browser jumps natively without JS).
+  const rail = document.querySelector<HTMLElement>('.ref-rail');
+  if (rail) {
+    const links = new Map([...rail.querySelectorAll<HTMLAnchorElement>('[data-ref-link]')].map((a) => [a.dataset.refLink!, a]));
+    const sections = [...links.keys()].map((id) => document.getElementById(id)).filter((s): s is HTMLElement => !!s);
+    const inBand = new Set<string>();
+    const wide = window.matchMedia('(min-width: 1024px)');
+    let current = '';
+    const set = (id: string) => {
+      if (id === current) return;
+      current = id;
+      links.forEach((a, key) => (key === id ? a.setAttribute('aria-current', 'true') : a.removeAttribute('aria-current')));
+      const a = links.get(id);
+      if (a && !wide.matches && rail.scrollWidth > rail.clientWidth) {
+        rail.scrollLeft = a.offsetLeft - (rail.clientWidth - a.offsetWidth) / 2; // centre the chip in its own row only
+      }
+    };
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) (e.isIntersecting ? inBand.add(e.target.id) : inBand.delete(e.target.id));
+        const first = sections.find((s) => inBand.has(s.id));
+        if (first) set(first.id);
+        else if (sections[0].getBoundingClientRect().top > window.innerHeight * 0.3) {
+          current = '';
+          links.forEach((a) => a.removeAttribute('aria-current'));
+        }
+      },
+      { rootMargin: '-25% 0px -65% 0px' }, // a section counts as current while it crosses the band near the top third
+    );
+    sections.forEach((s) => io.observe(s));
+  }
+</script>

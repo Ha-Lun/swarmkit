@@ -1,5 +1,5 @@
 ---
-// Inline SVG: route -> explore -> execute -> quality gates in parallel.
+// Inline SVG: route -> explore -> execute -> quality gates (in parallel where the CLI allows).
 // Two layouts share one data source so text stays legible at 390px.
 import { gates } from '../content/routing';
 
@@ -23,8 +23,8 @@ const gateX = vertical ? 60 : W - GATE_W;
 const gateY = (i: number) => (vertical ? 330 + i * 64 : 30 + i * 92);
 const capY = vertical ? 288 : 0;
 
-const title = 'Routing: a request is classified, explored, executed, then checked by quality gates in parallel';
-const desc = `Steps: ${stages.map((s) => `${s.name} (${s.sub})`).join(', then ')}. Then in parallel, when relevant: ${gates.map((g) => `${g.agent} when ${g.when}`).join('; ')}.`;
+const title = 'Routing: a request is classified, explored, executed, then checked by quality gates in parallel where the CLI allows';
+const desc = `Steps: ${stages.map((s) => `${s.name} (${s.sub})`).join(', then ')}. Then, in parallel where the CLI allows and when relevant: ${gates.map((g) => `${g.agent} when ${g.when}`).join('; ')}.`;
 const id = vertical ? 'route-v' : 'route-h';
 ---
 <svg
@@ -47,7 +47,7 @@ const id = vertical ? 'route-v' : 'route-h';
     <g>
       <rect x={stageX(i)} y={stageY(i)} width={stageBoxW} height={BOX_H} class="fill-ink-2 stroke-wax-dim" />
       <text x={stageX(i) + 16} y={stageY(i) + 25} font-size="14" class="fill-text font-mono">{s.name}</text>
-      <text x={stageX(i) + 16} y={stageY(i) + 44} font-size="11" class="fill-wax font-mono">{s.sub}</text>
+      <text x={stageX(i) + 16} y={stageY(i) + 44} font-size="13" class="fill-wax font-mono">{s.sub}</text>
     </g>
   ))}
 
@@ -63,13 +63,13 @@ const id = vertical ? 'route-v' : 'route-h';
     </g>
   )}
 
-  <text x={gateX} y={capY + (vertical ? 0 : 14)} font-size="11" class="fill-wax font-mono">in parallel, only when relevant</text>
+  <text x={gateX} y={capY + (vertical ? 0 : 14)} font-size="13" class="fill-wax font-mono">in parallel where the CLI allows</text>
 
   {gates.map((g, i) => (
     <g>
       <rect x={gateX} y={gateY(i)} width={GATE_W} height={BOX_H} class="fill-ink-2 stroke-wax" />
       <text x={gateX + 16} y={gateY(i) + 25} font-size="14" class="fill-text font-mono">{g.agent}</text>
-      <text x={gateX + 16} y={gateY(i) + 44} font-size="11" class="fill-wax font-mono">{g.when}</text>
+      <text x={gateX + 16} y={gateY(i) + 44} font-size="13" class="fill-wax font-mono">{g.when}</text>
     </g>
   ))}
 

@@ -2,6 +2,7 @@
 
 - Read PLAN.md before each phase. Work one phase at a time and stop at gates.
 - Static Astro site. No backend, no React. Three.js is vanilla, in one fixed-canvas island.
+- Animation first, text small: the world is the centre. Scene text is one or two short lines, small chips and hover/focus label cards; detail lives in the Reference section. On a pinned scene at 1440x810 visible text covers at most about 12% of the viewport and never sits over the centre (label cards and the finale command excepted).
 - All text lives in the DOM. Never render copy in WebGL.
 - The scene is 100% procedural: no external models, textures, or volume data.
 - One scroll source of truth: ScrollTrigger writes the shared state; the world only reads it.

@@ -1,4 +1,4 @@
-import { ShaderMaterial, Vector2, type Texture, type WebGLRenderer } from 'three';
+import { ShaderMaterial, Vector2, type Texture, type WebGLRenderer, type WebGLRenderTarget } from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import type { Look } from './config';
 
@@ -53,8 +53,8 @@ const frag = /* glsl */ `
   }`;
 
 export interface HexDissolve {
-  /** draws to the canvas. hexPx is the native lattice cell size in device px (see hexPixelSize). */
-  render(renderer: WebGLRenderer, from: Texture, to: Texture, progress: number, hexPx: number, cfg: Look['dissolve']): void;
+  /** draws to the canvas (or `target`, which the post chain then reads). hexPx is the native lattice cell size in device px (see hexPixelSize). */
+  render(renderer: WebGLRenderer, from: Texture, to: Texture, progress: number, hexPx: number, cfg: Look['dissolve'], target?: WebGLRenderTarget | null): void;
   dispose(): void;
 }
 
@@ -72,7 +72,7 @@ export function createHexDissolve(): HexDissolve {
   const quad = new FullScreenQuad(material);
   const size = new Vector2();
   return {
-    render(renderer, from, to, progress, hexPx, cfg) {
+    render(renderer, from, to, progress, hexPx, cfg, target = null) {
       renderer.getDrawingBufferSize(size);
       const u = material.uniforms;
       u.tFrom.value = from;
@@ -83,7 +83,7 @@ export function createHexDissolve(): HexDissolve {
       u.uSpread.value = cfg.spread;
       u.uNoise.value = cfg.noise;
       u.uEdge.value = cfg.edge;
-      renderer.setRenderTarget(null);
+      renderer.setRenderTarget(target);
       quad.render(renderer);
     },
     dispose() {

@@ -9,13 +9,13 @@ One site, two jobs.
 1. **Explain SwarmKit.** A developer understands what it is, how routing works, and how to install it in under 90 seconds.
 2. **Prove SwarmKit.** The site is a continuous scroll-driven 3D world, and it shows with evidence that the swarm built it.
 
-Core principle: the 3D is not decoration. The world is the swarm, a procedurally grown honeycomb in which every agent is a cell. The part that impresses and the part that explains are the same thing.
+Core principle (animation first): the animation is the centre and the text only helps describe it. The world is the swarm, a procedurally grown honeycomb in which every agent is a cell. The part that impresses and the part that explains are the same thing.
 
 ## 2. Audience and tone
 
 - **Audience:** developers evaluating agent setups (Claude Code, OpenCode, Antigravity). They read docs, distrust hype, and will check numbers.
 - **Tone:** precise, confident, no hype. Short declarative sentences. Say what it does and what it costs. No superlatives, no "revolutionary", no crypto/luxury register.
-- **Copy rule:** all copy lives in the DOM. Nothing is rendered as text in WebGL.
+- **Copy rule:** all copy lives in the DOM. Nothing is rendered as text in WebGL. The animation is the centre; text is small, short and at the edges (one or two lines per scene, small chips, hover/focus label cards), with the detail in one compact Reference section. Honesty rules below are unchanged.
 
 ## 3. Non-goals
 
@@ -51,13 +51,16 @@ Reference: igloo.inc (Abeto; Three.js, Svelte, GSAP, Houdini, Blender).
 
 ## 6. Chapters
 
-| # | Chapter | DOM content | World |
+Each chapter is a scroll runway with one pinned, viewport-tall scene. DOM text is small and at the edges.
+
+| # | Chapter | DOM content (small) | World |
 |---|---|---|---|
-| 0 | Intro (about 3-4 s, skippable) | "SwarmKit" with DOM text scramble, then the tagline | One cell appears at the origin and divides; the lattice grows outward ring by ring. Skippable on click, key or scroll; skipped entirely under reduced motion |
-| 1 | The Hive: how it works | Pitch, `./install.sh --all` copy button, routing story: T1/T2/T3, explore, execute, parallel quality gate | Camera pulls back to the full lattice. A glowing task packet enters, is classified, travels to a specialist cell, then fans out to the three gate cells at once |
-| 2 | The Cells: roster | All agents by tier; hover or focus shows role, permissions, tier. Example tasks ("fix typo", "add API route", "refactor auth") replay their routes | Camera flies along the lattice; the hovered or focused agent's cell lifts and glows. The DOM list is the accessible source of truth |
-| 3 | Proof | Ponytail diff shrinking to `net: -N lines`; benchmark table and chart with harness disclosure; "built by SwarmKit" timeline. **Renders "benchmarks pending" until real data exists** | Lattice recedes and dims to a backdrop. Hex-dissolve transition in; the canvas never competes with the numbers |
-| 4 | Swarm finale: install | Platforms (OpenCode / Antigravity / Claude Code), installer flags, MCP servers, skills, slash commands, horology demo link, footer | Lattice breaks into a GPU particle swarm that flocks, then assembles into `./install.sh --all` |
+| 0 | Intro (about 3-4 s, skippable) | Corner wordmark and one tagline line | One cell appears at the origin and divides; the lattice grows outward ring by ring. Skippable on click, key or scroll; skipped entirely under reduced motion |
+| 1 | The Hive: how it works (300vh) | One caption stepping with the comet (task in, classified, routed, gates in parallel), T1/T2/T3 chips, three focusable example-route replay buttons | Camera pulls back to the full lattice. A small hard-edged violet comet enters, holds at the core panel while a thin scanning ring is engraved onto it, eases to a specialist panel, then fans out to the three gate panels at once (they leave together and land together, each landing sends a short ripple ring across the surface) |
+| 2 | The Cells: roster (300vh) | One caption, a slim tier legend, and a label card (name, tier, one-line role) on hover or focus of a cell. No roster panels | Camera flies along the lattice; the hovered or focused agent's cell lifts and brightens (no glow). A hidden focusable agent list drives the same highlight for keyboard users |
+| 3 | Proof (150vh) | A slim HUD strip: ponytail diff, benchmarks (**"pending" until real data exists**), harness disclosure, build-log counts | Lattice recedes and dims to a backdrop. Hex-dissolve transition in; the canvas never competes with the numbers |
+| 4 | Swarm finale: install (400vh) | The assembled `./install.sh --all` holds centre screen with a small copy button; flags, platforms and counts as small chips only after it forms | Lattice breaks into a GPU particle swarm that flocks, then assembles into `./install.sh --all` |
+| R | Reference (after the finale) | Compact roster, flags, platforms, MCP servers, skills, slash commands, example routes, benchmark table, harness disclosure, build-log timeline | None |
 
 The site must be complete and useful with no 3D at all (Phase 4 requirement); that version is also the fallback.
 
@@ -74,19 +77,25 @@ This is what the art-direction rounds (PLAN section 9) are judged against. Verdi
 **Palette (muted two-colour plus one accent).**
 - Colour A: deep desaturated ink (near-black with a slight cool or warm cast) for background and recessive geometry.
 - Colour B: a muted wax/amber-bone tone for cell bodies and highlights, kept low in saturation.
-- Accent: ONE colour, used for the task packet and nothing else (no UI accents, no hover glows on cells, no links). If the accent appears anywhere but the packet and its trail, that is a defect.
+- Accent: ONE colour, used for the comet (head, tail, sparks and the crisp rings it draws on landing) and nothing else (no UI accents, no hover effects on panels, no links, never on the globe, moon or lights). If the accent appears anywhere but the comet, that is a defect.
 - Exact values are proposed in Phase 3 and locked in `tokens.css`; this brief fixes the roles, not the hex codes.
 
-**Cell material (translucent wax/resin).**
-- **Body:** a hex prism that reads as thick translucent wax, softly lit, no hard specular sparkle. No textures.
-- **Fresnel rim:** a soft, thin brighter edge where the surface turns away from the camera. It defines silhouettes against the dark. Verdict axes: too strong (looks like neon outline / glass toy), too weak (cells vanish into background).
-- **Fake subsurface:** a thickness term that lets light bleed warmer through thinner regions (top edges, cell corners) and stay denser at the centre. Should suggest depth, not glow. Axes: too waxy/flat, too jelly-like.
-- **Emissive core (agent cells only):** a contained inner glow in Colour B, brighter for the cell that is active or hovered. Filler cells have no core and are dimmer, so agent cells read as the structure's nodes. Axes: too hot, too uniform, bleeding past the cell edge.
-- **Lift and state:** hovered or focused cells rise slightly and their core brightens. No colour change to the accent.
+**Cell material (flush speckled stone, round 5).** Replaces the pearlescent ceramic of round 4 (the human found the globe textureless, its panels misaligned and its glow unwanted). Every colour is a mix of the five palette tokens; no new colour token and never the accent. Nothing on the globe glows.
+- **Flush panels:** every panel stands at the same radius above its sphere with one tiny uniform relief (about 3% of a cell), not a column. Each panel's outline is its own Voronoi polygon inset by half a seam, so the engraved seam has one constant width over the whole globe (and pentagons match hexagon neighbours). A hairline bevel keeps the seam edge crisp. The seam floor is dark and matte (the background ink), so seams read as thin recessed lines, never as lit channels. Axes: seam too wide or too thin, relief too tall (columns) or invisible.
+- **Speckled stone:** procedural flecks (hashed grid dots in three or four sizes, in wax, text and ink-2 tones, plus a slow blotchy mottle over a wax-dim to wax body). Matte with a gentle satin highlight from the moving key. The speckle is anchored per panel with a random rotation and offset, so each panel reads as its own piece of stone and the grain never lines up across a seam. Fleck size is tuned to read at the hive viewing distance (2 to 3 px flecks), and flecks smaller than a pixel fade out, so the stone never shimmers. Axes: too busy (dirt, noise), too faint (flat), too coarse (spots).
+- **Agent panels (no glow):** slightly lighter stone and an engraved ring inlay cut into the panel. Rings differ by band so bands stay readable: core three rings and a centre dot, T1 one wide ring, domain specialists two rings, quality gates one ring and a centre dot, the moon a fine ring. Filler panels are plain stone.
+- **Lift and state:** a hovered or focused panel rises a few percent of a cell and its tone brightens. No emissive, no bloom, no colour change to the accent.
+- **Studio (high tier reflection):** a procedural soft-box environment (ink room, overhead box, warm key panel, cool strip) baked once into a low-intensity reflection map. Medium tier has no reflection, one mottle octave, no fine flecks, and a slightly stronger hemisphere light instead.
+- **Moon:** a small round sphere (a Goldberg GP(2,0), 42 cells: 30 hexagons and 12 pentagons) built exactly like the globe with the same stone, seams, inlay and lights; showroom sits on the cell that faces the hive camera, its workers on the rings around it. It grows last.
+
+**Surroundings (round 5).** The globe sits in a quiet studio, not a void, and nothing around it glows: no atmosphere halo, no dust, no glowing floor.
+- **Moving light:** the key light sweeps round the globe as the camera orbits (it follows the camera azimuth at a fraction of its rate), with a soft cool kicker from behind, so highlights travel across the stone and catch the seam bevels. The moon uses the same lights.
 
 **Lattice composition.** Rings grow outward from a single origin cell with staggered scale and extrude, so growth reads as organic but orderly. `lead-dev` at the core, tier bands outward, filler cells completing the structure. Depth of field is implied by dimming and rim falloff with distance, not blur.
 
-**Task packet.** A small, bright point in the accent colour with a short ribbon trail fading to nothing. It is the only saturated element on screen, and the eye should always find it first.
+**Comet (round 5).** Replaces the glowing task packet. A small, hard, bright head (a crisp disc with a light core and an accent rim), a tail that tapers to a point with crisp edges and lengthens and shortens with the speed it is seen moving at, and a few short-lived sparks it sheds (hard dots that shrink away). Opaque and violet only: no additive blending, no soft sprite, no haze. It is the only saturated element on screen. Routes are great-circle arcs that hug the surface at one low constant lift (no horizon zigzag). The velocity profile is real: every leg eases in and out (it accelerates out of each stop and decelerates into the next); the fan-out to the three gates leaves together and lands together. At classification it holds briefly while a thin scanning ring is engraved onto the core panel (a crisp line); on landing at a specialist or gate panel a short ripple ring travels across the surface and the panel lifts a little. While the hive scene is on screen the look-at leans gently toward the comet head. The example-task buttons replay the same choreography in real time.
+
+**Camera and transitions (round 5).** One continuous camera: a single position curve and a single look-at curve for the whole journey (no per-chapter easing that stops the target at every boundary), continuous in speed and acceleration at every chapter boundary. Scroll maps to camera arc length with a speed that varies smoothly where the runways change, so the camera never lurches at a boundary. The world reads a critically damped copy of the scroll progress (about 0.15 s). Pinned scenes hand over with one ease and complementary opacities (they always sum to 1), timed to when the incoming text actually comes on screen.
 
 **Hex dissolve transition.** A full-screen dissolve driven by a hex-grid distance field: cells of the outgoing state shrink or fade in a wavefront across the screen, revealing the next state. Edges are crisp, the hex size matches the lattice scale so the transition feels native to the world. Axes: too slow, hex too large or too small, wavefront too uniform.
 
@@ -94,7 +103,7 @@ This is what the art-direction rounds (PLAN section 9) are judged against. Verdi
 
 **Particle finale.** Small, dim-to-bright particles in Colour B (not the accent) with curl-noise flocking, then converging on the rasterised `./install.sh --all` target. Should read as the lattice dissolving into a swarm, not fireworks.
 
-**Typography and DOM.** One display face plus one mono face, two families maximum. Text sits over the dark scene with strong contrast; the canvas never competes with copy.
+**Typography and DOM.** One display face plus one mono face, two families maximum. Round 4 made the text larger after the human could not notice it: captions, chips, HUD readouts, the tier legend and the label cards are 16px in the --text colour (not --wax), with a little more padding. The intro is a large display wordmark (about 72px) and a 24px tagline placed off-centre so the globe stays the hero; the wordmark scrambles in, then shrinks into the corner mark on scroll. Text still sits at the edges, never covers the centre of the globe, and the copy must not compete with the canvas; the text-area budget is measured per scene (scripts/qa-scenes.mjs).
 
 ## 9. Quality tiers and constraints (summary)
 

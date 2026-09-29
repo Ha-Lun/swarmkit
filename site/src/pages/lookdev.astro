@@ -6,7 +6,7 @@ const agents = loadAgents();
 const typeScale = ['3xl', '2xl', 'xl', 'lg', 'base', 'sm', 'xs'];
 const spacing = ['1', '2', '3', '4', '6', '8', '12', '16', '24'];
 const favicon =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2l12 7v14l-12 7-12-7V9z' fill='%23b9aa88'/%3E%3C/svg%3E";
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2l12 7v14l-12 7-12-7V9z' fill='%239aa6b4'/%3E%3C/svg%3E";
 ---
 <html lang="en">
   <head>
@@ -35,6 +35,16 @@ const favicon =
       #readout { position: fixed; left: var(--space-4); right: var(--space-4); bottom: var(--space-3); white-space: pre; z-index: 2; color: var(--wax); }
       #specimen { position: fixed; top: var(--space-12); left: calc(320px + var(--space-8)); right: var(--space-4); bottom: var(--space-12); overflow: auto; padding: var(--space-6); z-index: 1; background: var(--ink); border: 1px solid var(--ink-2); }
       #specimen[hidden] { display: none; }
+      /* the walker's tower card: name, tier and band, what the subagent does (its own frontmatter description), and its tools. Opacity + transform only. */
+      #tower-card { position: fixed; top: 0; left: 0; z-index: 3; width: max-content; max-width: 40ch; padding: var(--space-3) var(--space-4); background: var(--ink); border: 1px solid var(--wax-dim);
+        opacity: 0; pointer-events: none; will-change: transform; transition: opacity 160ms linear; }
+      #tower-card.is-on { opacity: 1; }
+      #tower-card .head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); margin: 0; font: var(--text-base)/1.3 var(--font-mono); color: var(--text); }
+      #tower-card .head span:last-child { opacity: 0.72; }
+      #tower-card .band { margin: var(--space-1) 0 0; font: var(--text-xs)/1.3 var(--font-mono); color: var(--wax); text-transform: uppercase; letter-spacing: 0.08em; }
+      #tower-card .desc { margin: var(--space-2) 0 0; font: var(--text-sm)/1.45 var(--font-display); color: var(--text); }
+      #tower-card .caps { display: flex; gap: var(--space-2); margin: var(--space-2) 0 0; padding: 0; list-style: none; font: var(--text-xs) var(--font-mono); color: var(--wax); }
+      #tower-card .caps li { border: 1px solid var(--wax-dim); padding: 0 var(--space-2); }
       .sw { display: inline-grid; gap: var(--space-1); margin: 0 var(--space-4) var(--space-4) 0; width: 112px; }
       .sw i { display: block; height: 56px; border: 1px solid var(--wax-dim); }
       .scale { display: grid; grid-template-columns: 72px 1fr; align-items: baseline; gap: var(--space-4); margin-bottom: var(--space-2); }
@@ -79,19 +89,28 @@ const favicon =
       ))}
     </section>
     <div id="readout"></div>
+    <div id="tower-card" aria-hidden="true"></div>
     <script id="agents-data" type="application/json" set:html={JSON.stringify(agents)} />
     <script>
       import {
-        AmbientLight, Color, DirectionalLight, Fog, HalfFloatType, HemisphereLight, PerspectiveCamera, Scene,
-        Vector2, WebGLRenderer, WebGLRenderTarget,
+        ACESFilmicToneMapping, Color, Fog, HalfFloatType, PCFShadowMap, PerspectiveCamera, Scene, SRGBColorSpace, Vector2, Vector3,
+        WebGLRenderer, WebGLRenderTarget,
       } from 'three';
       import type { Agent } from '../lib/agents';
       import { accentCandidates, look, ranges, readPalette, type Tier } from '../lib/world/config';
       import { createHoneycomb, type Honeycomb } from '../lib/world/honeycomb';
-      import { createPacket, createTestCurve, type Packet } from '../lib/world/packet';
+      import { createPacket, createTestCurve, loopPath, type Packet } from '../lib/world/packet';
       import { createHexDissolve, hexPixelSize } from '../lib/world/transitions';
       import { createPost, type Post } from '../lib/world/post';
+      import { createStudio, shadowExtentOf, type Studio } from '../lib/world/studio';
+      import { createWalkRoute, horizonDistance, horizonFog, nearestTowerAhead, type WalkPose } from '../lib/world/walk';
+      import { walkWeight } from '../lib/world/motion-config';
+      import { bandLabels } from '../content/tiers';
+      import { blurb } from '../lib/blurb';
+      import { applyWalkLook } from '../lib/world/walk';
+      import { createWalkLook } from '../lib/world/walk-look';
       import { createSwarm, type Swarm } from '../lib/world/swarm-particles';
+      import { createBgTexture } from '../lib/world/world';
 
       const agents: Agent[] = JSON.parse(document.getElementById('agents-data')!.textContent!);
       const q = new URLSearchParams(location.search);
@@ -105,58 +124,172 @@ const favicon =
 
       type PanelId = 'cell' | 'packet' | 'dissolve' | 'particles' | 'post' | 'palette';
       const PANELS: Record<PanelId, { title: string; note: string; groups: (keyof typeof look)[] }> = {
-        cell: { title: 'Cell material', groups: ['cell', 'light'], note: 'Judge: rim (neon outline vs vanishing), subsurface (waxy/flat vs jelly), core (too hot, too uniform, bleeding past the edge). Lift and core boost below are the hover/active state.' },
-        packet: { title: 'Task packet', groups: ['packet'], note: 'Judge: is it the first thing the eye finds; trail length, width, fade. Three accent candidates run the same loop.' },
+        cell: { title: 'Metal panels + lights', groups: ['cell', 'light', 'core', 'bg'], note: 'Round 11 (overrides round 7-8 matte basalt and round 4 no-glow): machined metal panels (metalness, roughness, clearcoat), per-tile roughness/tint jitter, a soft top-lit/cool-bottom gradient across the sphere, key + fill + rim + env lighting, an emissive core glowing through the seams (core.color/intensity), and the gradient background + fog (bg.gradient/fog). Judge: no black faces, even seams, the polished agent facets, the moving key (swing the orbit slider), the moon (view moon), and whether the core glow reads as a light source rather than a smear.' },
+        packet: { title: 'Comet', groups: ['packet'], note: 'Judge: is the head small and hard, does the tail lengthen with speed (move the speed slider) and taper crisply, are the sparks few. Should stay hard-edged, not bloom (raise post.bloomThreshold or lower packet.headBrightness if it does). Three accent candidates run the same loop.' },
         dissolve: { title: 'Hex dissolve', groups: ['dissolve'], note: 'Judge: speed (use auto), hex size against the lattice, wavefront uniformity. Hex size is tied to the on-screen lattice cell.' },
         particles: { title: 'Particle swarm', groups: ['particles'], note: 'Judge: curl flow reads as swarm not fireworks, dim-to-bright, convergence on the target. attract stands in for chapterProgress.' },
-        post: { title: 'Chromatic aberration + grain', groups: ['post'], note: 'High tier only. Judge: if either is noticeable at a glance it is too much. Toggle to compare.' },
+        post: { title: 'AO + bloom + vignette + grain', groups: ['post'], note: 'High tier only. GTAO in the seams and column shadows, bloom on highlights and the emissive core, ACES exposure, a light vignette, chromatic aberration and grain. Judge: each effect noticeable only up close, never at a glance. Toggle to compare.' },
         palette: { title: 'Palette + type', groups: [], note: 'Round-1 tokens. Pick one accent (cyan / violet / coral).' },
       };
 
       let tier: Tier = q.get('tier') === 'medium' ? 'medium' : 'high';
       let panel: PanelId = (q.get('panel') as PanelId) in PANELS ? (q.get('panel') as PanelId) : 'cell';
       let accentSel = 'violet';
-      let postOn = true;
-      let activeBoost = 0, activeLift = 0;
+      let postOn = q.get('post') !== '0';
+      let activeBoost = 0, activeLift = 0, cometSpeed = 4.5;
+      let cellView = q.get('view') ?? 'wide';
+      // ?clean=1 hides the UI and the sidebar view shift (screenshots)
+      const clean = q.has('clean');
+      if (clean) document.querySelectorAll<HTMLElement>('#bar, #side, #readout').forEach((e) => (e.style.display = 'none'));
+      // walk bench (view=walk): a camera standing on the globe, up = the surface normal; ?eye= ?fov= ?pitch= ?u= ?speed= ?park=1 ?fogNear= ?fogFar=
+      const num = (k: string, d: number) => (q.has(k) && !isNaN(Number(q.get(k))) ? Number(q.get(k)) : d);
+      // phase 2 close-up fixes, each toggleable (?fx=radial,core,fog,light,shadow,comet; pistons are parked in the walk by default, ?fx=nopistons runs them). The rest default off: the bench then shows exactly what the site does.
+      const fxq = new Set((q.get('fx') ?? '').split(',').filter(Boolean));
+      const fx = {
+        pistons: !fxq.has('nopistons'), pistonW: num2('pistonw', 1), radial: fxq.has('radial'), radialK: num2('radialk', 1), core: fxq.has('core'), coreK: num2('corek', 0.1),
+        fog: fxq.has('fog'), fogNear: num2('fognear', 0.5), fogFar: num2('fogfar', 1.6), light: fxq.has('light'), shadow: fxq.has('shadow'), shadowExt: num2('shadowext', 6), comet: fxq.has('comet'),
+        pistonEase: false,
+      };
+      function num2(k: string, d: number) { return q.has(k) && !isNaN(Number(q.get(k))) ? Number(q.get(k)) : d; }
+      const walk = {
+        cards: q.get('cards') !== '0', eye: num('eye', 0.3), fov: num('fov', 60), pitch: num('pitch', 20), near: num('near', 0.03), env: q.get('ground') !== 'smooth', path: num('path', 0.55), speed: num('speed', 0), u: num('u', 0),
+        fogNear: num('fogNear', 6), fogFar: num('fogFar', 40), park: q.get('park') === '1',
+      };
       let dissolveProgress = Number(q.get('progress') ?? 0.5), dissolveAuto = q.get('auto') === '1';
       L.particles.attract = q.has('attract') ? Number(q.get('attract')) : L.particles.attract;
 
       // ---- renderer + shared scene ----
       const renderer = new WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
       renderer.setClearColor(palette.ink);
+      renderer.toneMapping = ACESFilmicToneMapping;
+      renderer.toneMappingExposure = look.post.exposure;
+      renderer.outputColorSpace = SRGBColorSpace;
       const scene = new Scene();
-      scene.background = new Color(palette.ink); // (not just clear colour: render targets need the linear value)
+      scene.background = createBgTexture(palette, look.bg.gradient);
       scene.fog = new Fog(palette.ink, 20, 120);
-      const amb = new AmbientLight(0xffffff, look.light.ambient);
-      const hemi = new HemisphereLight(0xffffff, 0x222226, look.light.hemi);
-      scene.add(amb, hemi);
-      const key = new DirectionalLight(0xffffff, look.light.key);
-      key.position.set(-8, 20, 10);
-      scene.add(key);
       const cam = new PerspectiveCamera(40, 1, 0.1, 400);
 
-      let comb: Honeycomb = createHoneycomb(agents, tier);
+      let comb: Honeycomb = createHoneycomb(agents, tier, renderer);
       comb.update(1, 0);
-      scene.add(comb.mesh);
+      scene.add(comb.object);
+      // cast shadows, high tier only (as on the site): the shadow map is redrawn once per frame
+      const applyShadows = () => {
+        renderer.shadowMap.enabled = tier === 'high';
+        renderer.shadowMap.type = PCFShadowMap;
+        renderer.shadowMap.autoUpdate = false;
+      };
+      applyShadows();
+      let studio: Studio = createStudio(scene, tier, palette, shadowExtentOf(comb.lattice));
       const curve = createTestCurve(comb.lattice);
       const lat = comb.lattice;
-      const packets: Packet[] = accentCandidates.map((c) => createPacket(curve, c.hex, look.packet));
+      const loop = loopPath(curve);
+      const packets: Packet[] = accentCandidates.map((c) => createPacket(c.hex, look.packet));
       packets.forEach((p) => scene.add(p.group));
       const leadIdx = comb.lattice.cells.findIndex((c) => c.agent?.band === 'core');
       const t1Idx = comb.lattice.cells.findIndex((c) => c.agent?.band === 't1');
 
+      const R = lat.radius;
+      const mc = lat.moon.centre, mn = lat.moon.normal;
       const POSE: Record<string, [number[], number[]]> = {
-        cell: [[0, 8, 12.5], [0, 0.3, 0]],
-        wide: [[0, lat.radius * 1.15, lat.radius * 1.3], [0, 0, 0]],
-        top: [[0, lat.radius * 2.3, 0.01], [0, 0, 0]],
+        moon: [[mc.x + mn.x * 11, mc.y + mn.y * 11 + 1.5, mc.z + mn.z * 11], [mc.x, mc.y, mc.z]], // the moon close up
+        cell: [[0, 3.2, R + 8], [0, 0, R + 0.4]], // close on the core cell
+        wide: [[0.7 * R, 0.8 * R, 3.6 * R], [0.2 * R, 0, 0]], // the whole globe and its moon
+        fly: [[-1.3 * R, 1.2 * R, 2.3 * R], [-0.1 * R, 0.1 * R, 0.4 * R]], // the cells fly-over distance and height
+        top: [[0, 0.3 * R, 3.4 * R], [0, 0, 0]], // straight at the core face
       };
+      let orbitAz = Number(q.get('az') ?? 0); // degrees: swings the camera round the globe to preview the moving key and kicker
       function pose(name: string) {
+        if (cam.fov !== 40 || cam.near !== 0.1) { cam.fov = 40; cam.near = 0.1; cam.updateProjectionMatrix(); } // the walk view changes both
         const [p, t] = POSE[name];
-        cam.position.set(p[0], p[1], p[2]);
-        cam.lookAt(t[0], t[1], t[2]);
+        const a = (orbitAz * Math.PI) / 180, ca = Math.cos(a), sa = Math.sin(a);
+        cam.position.set(p[0] * ca + p[2] * sa, p[1], -p[0] * sa + p[2] * ca);
+        cam.lookAt(t[0] * ca + t[2] * sa, t[1], -t[0] * sa + t[2] * ca);
         const d = cam.position.length();
-        (scene.fog as Fog).near = d * 0.6;
-        (scene.fog as Fog).far = d * 3 + 40;
+        (scene.fog as Fog).near = d * 0.6 * look.bg.fog;
+        (scene.fog as Fog).far = (d * 3 + 40) * look.bg.fog;
+      }
+      // applies the close-up fixes when the walk view is active and restores the plain look otherwise (only on change)
+      const shadowFocus = { center: new Vector3(), extent: 6 };
+      let fxRadial = -1, fxCore = -1, fxShadowExt = -1;
+      function applyFx(active: boolean) {
+        const rad = active && fx.radial ? fx.radialK : 0;
+        if (rad !== fxRadial) { fxRadial = rad; comb.setRadial(rad); }
+        const core = active && fx.core ? fx.coreK : 1;
+        if (core !== fxCore) { fxCore = core; comb.setCoreScale(core); }
+        const ext = active && fx.shadow ? fx.shadowExt : 0;
+        if (ext !== fxShadowExt) { fxShadowExt = ext; if (ext > 0) { shadowFocus.extent = ext; studio.fitShadow(shadowFocus); } else studio.fitShadow(null); }
+        // the tight frustum follows the walker: centred a little ahead of the camera (before the studio update places the key)
+        if (ext > 0) shadowFocus.center.copy(walkPose.position).addScaledVector(walkPose.forward, ext * 0.4);
+      }
+      // ---- the tower card: the nearest visible tower ahead shows what that subagent does (agents' own frontmatter, nothing written here) ----
+      const cardEl = $('tower-card');
+      const towerList = lat.cells.filter((c) => c.agent && !c.moon).map((c) => ({ agent: c.agent!, top: c.normal.clone().multiplyScalar(R + c.base) }));
+      let cardFor: string | null = null, cardSize: [number, number] = [0, 0];
+      const camFwd = new Vector3(), pv = new Vector3();
+      function updateCard(active: boolean) {
+        if (!active || !walk.cards) { if (cardFor) { cardEl.classList.remove('is-on'); cardFor = null; } return; }
+        camFwd.set(0, 0, -1).applyQuaternion(cam.quaternion);
+        const name = nearestTowerAhead(towerList.map((t) => ({ name: t.agent.name, top: t.top })), cam.position, camFwd, R, cardFor);
+        const best = name ? towerList.find((t) => t.agent.name === name)! : null;
+        if (!best) { cardEl.classList.remove('is-on'); cardFor = null; return; }
+        if (best.agent.name !== cardFor) {
+          const a = best.agent;
+          cardEl.replaceChildren();
+          const head = document.createElement('p'); head.className = 'head';
+          const n = document.createElement('span'); n.textContent = a.name;
+          const tr = document.createElement('span'); tr.textContent = a.tier;
+          head.append(n, tr);
+          const band = document.createElement('p'); band.className = 'band'; band.textContent = bandLabels[a.band].title;
+          const desc = document.createElement('p'); desc.className = 'desc'; desc.textContent = blurb(a.description);
+          cardEl.append(head, band, desc);
+          if (a.capabilities.length) {
+            const ul = document.createElement('ul'); ul.className = 'caps';
+            a.capabilities.slice(0, 5).forEach((c) => { const li = document.createElement('li'); li.textContent = c; ul.append(li); });
+            cardEl.append(ul);
+          }
+          cardSize = [cardEl.offsetWidth, cardEl.offsetHeight];
+          cardFor = a.name;
+        }
+        pv.copy(best.top).project(cam);
+        const w = window.innerWidth, h = window.innerHeight;
+        const x = Math.min(w - 12 - cardSize[0] / 2, Math.max(12 + cardSize[0] / 2, ((pv.x + 1) / 2) * w));
+        const y = Math.min(h - 12, Math.max(56 + cardSize[1], ((1 - pv.y) / 2) * h - 14));
+        cardEl.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -100%)`;
+        cardEl.classList.add('is-on');
+      }
+      const route = createWalkRoute(lat);
+      const walkPose: WalkPose = { position: cam.position.clone(), quaternion: cam.quaternion.clone(), fov: 50, up: cam.position.clone(), forward: cam.position.clone(), ground: 0, stop: 0 };
+      let walkInfo = '';
+      // the path to follow: the tiles the route crosses are brightened with the existing panel-tone state (palette only, no accent, no glow)
+      const pathIdx = route.pathCells();
+      let pathShown = false;
+      function applyPath() {
+        const on = panel === 'cell' && cellView === 'walk' && walk.path > 0;
+        if (on) { pathIdx.forEach((i) => comb.setCellState(i, walk.path, 0)); pathShown = true; }
+        else if (pathShown) { pathIdx.forEach((i) => comb.setCellState(i, 0, 0)); pathShown = false; applyCellState(); }
+      }
+      (window as unknown as { __bench: unknown }).__bench = { route, walk }; // inspection hook for QA shots
+      // the walk camera: placed and oriented from the route's quaternion, never lookAt; fog from the sliders
+      const walkLook = createWalkLook(); // drag the canvas to turn your head (double click: look forward)
+      function walkCam(dt: number) {
+        if (walk.speed > 0) walk.u = (walk.u + (walk.speed * dt) / route.length) % 1;
+        route.sample(walk.u, { eye: walk.eye, fov: walk.fov, pitchDeg: walk.pitch, ground: walk.env ? 'env' : 'smooth' }, walkPose);
+        if (cam.near !== walk.near) { cam.near = walk.near; cam.updateProjectionMatrix(); }
+        cam.position.copy(walkPose.position);
+        walkLook.enable();
+        walkLook.step(dt, true, 1);
+        applyWalkLook(walkPose.quaternion, walkPose.up, walkLook.yaw, walkLook.pitch, 1, cam.quaternion);
+        if (cam.fov !== walkPose.fov) { cam.fov = walkPose.fov; cam.updateProjectionMatrix(); }
+        if (fx.fog) { const hf = horizonFog(R, cam.position.length(), fx.fogNear, fx.fogFar); (scene.fog as Fog).near = hf.near; (scene.fog as Fog).far = hf.far; }
+        else { (scene.fog as Fog).near = walk.fogNear; (scene.fog as Fog).far = walk.fogFar; }
+        const st = route.stops[walkPose.stop];
+        walkInfo = `walk u ${walk.u.toFixed(3)}  horizon ${horizonDistance(R, cam.position.length()).toFixed(1)}u  toward ${st.name} (${st.band}, ${walkPose.stop + 1}/${route.stops.length})  ground ${walkPose.ground.toFixed(2)}  altitude ${(cam.position.length() - R).toFixed(2)}  horizon dip ${((Math.acos(R / cam.position.length()) * 180) / Math.PI).toFixed(1)} deg  route ${route.length.toFixed(0)} units`;
+      }
+      // the gradient is a baked CanvasTexture (world.ts's createBgTexture), so the bg.gradient slider must rebuild it by hand
+      function applyBg() {
+        const old = scene.background;
+        scene.background = createBgTexture(palette, look.bg.gradient);
+        if (old && 'dispose' in old) old.dispose();
       }
 
       const dissolve = createHexDissolve();
@@ -179,7 +312,7 @@ const favicon =
         renderer.setPixelRatio(pr);
         renderer.setSize(w, h, false);
         // shift the view centre right so scenes sit in the free area beside the 320px sidebar
-        const shift = w > 900 ? 168 : 0;
+        const shift = w > 900 && !clean ? 168 : 0;
         for (const c of [cam, swarmCam]) { c.aspect = w / h; c.setViewOffset(w, h, -shift, 0, w, h); c.updateProjectionMatrix(); }
         const bh = renderer.getDrawingBufferSize(new Vector2()).y;
         rtA.setSize(w * pr, h * pr);
@@ -199,14 +332,19 @@ const favicon =
         resize();
       }
       async function applyTier() {
-        scene.remove(comb.mesh);
+        scene.remove(comb.object);
         comb.dispose();
-        comb = createHoneycomb(agents, tier);
+        comb = createHoneycomb(agents, tier, renderer);
         comb.update(1, 0); // fully grown, undimmed
-        scene.add(comb.mesh);
+        scene.add(comb.object);
+        studio.dispose();
+        studio = createStudio(scene, tier, palette, shadowExtentOf(comb.lattice));
+        applyShadows();
         applyCellState();
+        pathShown = false; applyPath();
+        fxRadial = fxCore = fxShadowExt = -1; // the honeycomb and studio were rebuilt: re-apply the fixes
         post?.dispose();
-        post = tier === 'high' ? createPost(renderer, scene, cam, look.post) : null;
+        post = tier === 'high' ? createPost(renderer, scene, cam, look.post, comb.aoGroup) : null;
         if (swarm) buildSwarm();
         resize();
         document.querySelectorAll<HTMLButtonElement>('[data-tier]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tier === tier)));
@@ -248,14 +386,55 @@ const favicon =
         sl.replaceChildren(); ex.replaceChildren();
         document.querySelectorAll<HTMLButtonElement>('[data-panel]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.panel === panel)));
         $('specimen').hidden = panel !== 'palette';
+        if (!(panel === 'cell' && cellView === 'walk')) { cardEl.classList.remove('is-on'); cardFor = null; walkLook.disable(); }
         canvas.style.visibility = panel === 'palette' ? 'hidden' : 'visible';
 
         if (panel === 'cell') {
-          slider(ex, 'active core boost', () => activeBoost, (v) => { activeBoost = v; applyCellState(); }, [0, 1.5, 0.01]);
+          slider(ex, 'active tone brighten (0..1)', () => activeBoost, (v) => { activeBoost = v; applyCellState(); }, [0, 1, 0.01]);
           slider(ex, 'active lift (0..1 x lift)', () => activeLift, (v) => { activeLift = v; applyCellState(); }, [0, 1, 0.01]);
-          if (tier === 'medium') { const n = document.createElement('p'); n.textContent = 'medium tier: thickness and density are not compiled in.'; ex.append(n); }
+          slider(ex, 'orbit azimuth (deg): moves the camera, so the key and kicker travel', () => orbitAz, (v) => (orbitAz = v), [-180, 180, 1]);
+          const views = document.createElement('div'); views.className = 'row'; ex.append(views);
+          for (const v of ['cell', 'wide', 'fly', 'top', 'moon', 'walk']) button(views, `view ${v}`, () => { cellView = v; buildPanel(); }, cellView === v);
+          if (cellView === 'walk') {
+            const wr = (k: string) => ({ eye: [0.1, 3, 0.05], near: [0.01, 0.1, 0.005], path: [0, 1, 0.01], fov: [40, 70, 1], pitch: [0, 45, 0.5], speed: [0, 12, 0.1], fogNear: [0, 40, 0.5], fogFar: [5, 150, 1] } as Record<string, [number, number, number]>)[k];
+            slider(ex, 'eye height above the local column top', () => walk.eye, (v) => (walk.eye = v), wr('eye'));
+            slider(ex, 'near plane (walk cam only)', () => walk.near, (v) => (walk.near = v), wr('near'));
+            slider(ex, 'vertical FOV (deg)', () => walk.fov, (v) => (walk.fov = v), wr('fov'));
+            slider(ex, 'pitch below the horizon (deg)', () => walk.pitch, (v) => (walk.pitch = v), wr('pitch'));
+            slider(ex, 'walk speed (units/s, 0 = scrub)', () => walk.speed, (v) => (walk.speed = v), wr('speed'));
+            slider(ex, 'fog near', () => walk.fogNear, (v) => (walk.fogNear = v), wr('fogNear'));
+            slider(ex, 'fog far', () => walk.fogFar, (v) => (walk.fogFar = v), wr('fogFar'));
+            slider(ex, 'scrub along the route (0..1)', () => walk.u, (v) => (walk.u = v), [0, 1, 0.0005]);
+            if (tier === 'high') button(ex, 'post (GTAO, bloom)', () => { postOn = !postOn; buildPanel(); }, postOn);
+            slider(ex, 'path tiles: brightness of the tiles the route crosses', () => walk.path, (v) => { walk.path = v; applyPath(); }, wr('path'));
+            button(ex, 'ground: envelope (never clips columns)', () => { walk.env = !walk.env; buildPanel(); }, walk.env);
+            button(ex, 'tower cards (what each subagent does)', () => { walk.cards = !walk.cards; buildPanel(); }, walk.cards);
+            const h = document.createElement('h3'); h.textContent = 'close-up fixes (each off by default)'; ex.append(h);
+            const tog = (label: string, key: 'pistons' | 'radial' | 'core' | 'fog' | 'light' | 'shadow' | 'comet') => button(ex, label, () => { fx[key] = !fx[key]; fxRadial = fxCore = fxShadowExt = -1; buildPanel(); }, fx[key]);
+            tog('1 pistons park (walk weight)', 'pistons');
+            if (fx.pistons) {
+              slider(ex, '   walk weight (1 = rods at rest)', () => fx.pistonW, (v) => (fx.pistonW = v), [0, 1, 0.01]);
+              button(ex, '   ease demo: real walkWeight() ramp, 16 s loop', () => { fx.pistonEase = !fx.pistonEase; buildPanel(); }, fx.pistonEase);
+            }
+            tog('2 radial walls (art direction)', 'radial');
+            if (fx.radial) slider(ex, '   radial amount', () => fx.radialK, (v) => { fx.radialK = v; fxRadial = -1; }, [0, 1, 0.01]);
+            tog('3 dim the seam floor (core glow)', 'core');
+            if (fx.core) slider(ex, '   core scale (1 = as tuned)', () => fx.coreK, (v) => { fx.coreK = v; fxCore = -1; }, [0, 1, 0.01]);
+            tog('4 fog from the horizon distance', 'fog');
+            if (fx.fog) {
+              slider(ex, '   near = x horizon', () => fx.fogNear, (v) => (fx.fogNear = v), [0, 2, 0.01]);
+              slider(ex, '   far = x horizon', () => fx.fogFar, (v) => (fx.fogFar = v), [0.3, 4, 0.01]);
+            }
+            tog('5 lights in the walker\'s frame', 'light');
+            if (tier === 'high') tog('6 tight shadow frustum (texel-snapped)', 'shadow');
+            if (fx.shadow) slider(ex, '   shadow half-extent (units)', () => fx.shadowExt, (v) => { fx.shadowExt = v; fxShadowExt = -1; }, [2, 16, 0.5]);
+            tog('8 show the comet (the walker hides it)', 'comet');
+            button(ex, 'park pistons', () => { walk.park = !walk.park; buildPanel(); }, walk.park);
+          }
+          if (tier === 'medium') { const n = document.createElement('p'); n.textContent = 'medium tier: no fine flecks, one mottle octave, no studio reflection.'; ex.append(n); }
         }
         if (panel === 'packet') {
+          slider(ex, 'comet speed (units/s: the tail follows it)', () => cometSpeed, (v) => (cometSpeed = v), [0, 12, 0.1]);
           const row = document.createElement('div'); row.className = 'row'; ex.append(row);
           for (const id of ['all', ...accentCandidates.map((c) => c.name)]) {
             const b = button(row, id, () => { accentSel = id; row.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); }, id === accentSel);
@@ -275,8 +454,9 @@ const favicon =
         }
         for (const g of def.groups) {
           const r = (ranges as Record<string, Record<string, [number, number, number]>>)[g];
-          for (const k of Object.keys(r)) slider(sl, `${g}.${k}`, () => L[g][k], (v) => (L[g][k] = v), r[k], g === 'particles' && k === 'textWidth' ? () => swarm?.retarget(L.particles.textWidth) : undefined);
+          for (const k of Object.keys(r)) slider(sl, `${g}.${k}`, () => L[g][k], (v) => (L[g][k] = v), r[k], g === 'particles' && k === 'textWidth' ? () => swarm?.retarget(L.particles.textWidth) : g === 'bg' && k === 'gradient' ? applyBg : undefined);
         }
+        applyPath();
         if (panel === 'particles' && !swarm) buildSwarm();
         if (panel !== 'particles' && swarm) { swarm.dispose(); swarm = null; swarmScene.clear(); }
       }
@@ -287,7 +467,7 @@ const favicon =
 
       // ---- loop ----
       const frames: number[] = [];
-      let last = 0, time = 0, hexPx = 0;
+      let last = 0, time = 0, hexPx = 0, cometDist = 0;
       const gl = canvas.getContext('webgl2');
       const dbg = gl?.getExtension('WEBGL_debug_renderer_info');
       const rendererName = gl && dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'unknown';
@@ -302,13 +482,18 @@ const favicon =
         frames.push(dt * 1000);
         if (frames.length > 600) frames.shift();
 
+        cometDist += cometSpeed * dt;
         comb.syncLook();
-        amb.intensity = look.light.ambient; hemi.intensity = look.light.hemi; key.intensity = look.light.key;
-        const phase = (time * look.packet.speed) % 1;
-        const showPackets = panel === 'packet' || panel === 'post' || panel === 'dissolve';
+        renderer.shadowMap.needsUpdate = true;
+        const inWalk = panel === 'cell' && cellView === 'walk';
+        // fix 1: walk weight parks the pistons (1 = at rest); the ease demo runs the real walkWeight() ramp over a 16 s loop
+        const pistonWalk = inWalk && fx.pistons ? (fx.pistonEase ? walkWeight(2, (time / 16) % 1) : fx.pistonW) : 0;
+        applyFx(inWalk);
+        comb.update(1, 0, inWalk && walk.park ? undefined : time, 1, pistonWalk); // runs the pistons (parked at rest in the walk bench when asked); re-lays the terrain when relief, elevation, terrainScale or stroke changed
+        const showPackets = panel === 'packet' || panel === 'post' || panel === 'dissolve' || (inWalk && fx.comet); // the walker hides the comet: the toggle shows it for comparison
         packets.forEach((p, i) => {
           p.group.visible = showPackets && (accentSel === 'all' || accentSel === accentCandidates[i].name);
-          if (p.group.visible) p.update(accentSel === 'all' ? phase + i / packets.length : phase, cam, look.packet);
+          if (p.group.visible) p.update(loop, cometDist + (accentSel === 'all' ? (i * loop.length) / packets.length : 0), cam, look.packet, 1, dt);
         });
 
         if (panel === 'palette') return;
@@ -324,13 +509,15 @@ const favicon =
           if (dissolveAuto) dissolveProgress = (Math.sin(time * 0.9) + 1) / 2;
           pose('wide');
           renderer.setRenderTarget(rtA); renderer.render(scene, cam);
-          hexPx = hexPixelSize(cam.fov, rtA.height, 1, cam.position.length());
+          hexPx = hexPixelSize(cam.fov, rtA.height, lat.cellRadius, Math.max(2, cam.position.length() - R));
           pose('top');
           renderer.setRenderTarget(rtB); renderer.render(scene, cam);
           dissolve.render(renderer, rtA.texture, rtB.texture, dissolveProgress, hexPx, look.dissolve);
         } else {
-          pose(panel === 'cell' ? 'cell' : 'wide');
-          if (panel === 'post' && postOn && post) { post.sync(look.post); post.render(dt, time); }
+          if (panel === 'cell' && cellView === 'walk') walkCam(dt); else pose(panel === 'cell' ? cellView : 'wide');
+          updateCard(inWalk); // (after the camera is placed; the palette panel returns before this)
+          studio.update(cam, { timeSec: time, frame: inWalk && fx.light ? { up: walkPose.up, forward: walkPose.forward, weight: 1 } : undefined });
+          if ((panel === 'post' || (panel === 'cell' && cellView === 'walk')) && postOn && post) { post.sync(look.post); post.render(dt, time); } // the walk bench shows the full high-tier chain, as the site does
           else { renderer.setRenderTarget(null); renderer.render(scene, cam); }
         }
       }
@@ -340,7 +527,7 @@ const favicon =
         const fps = recent.length ? 1000 / (recent.reduce((s, v) => s + v, 0) / recent.length) : 0;
         $('readout').textContent =
           `panel ${panel}   tier ${tier}   fps ${fps.toFixed(1)} (software GL in headless is meaningless)   agent cells ${comb.lattice.agentCount} / agents ${agents.length}` +
-          (panel === 'dissolve' ? `   hex ${hexPx.toFixed(0)}px` : '') + `\nrenderer ${rendererName}` + (sweepText ? `\n${sweepText}` : '');
+          (panel === 'dissolve' ? `   hex ${hexPx.toFixed(0)}px` : '') + `\nrenderer ${rendererName}` + (sweepText ? `\n${sweepText}` : '') + (panel === 'cell' && cellView === 'walk' ? `\n${walkInfo}` : '');
         setTimeout(paint, 250);
       }
 
@@ -366,7 +553,7 @@ const favicon =
       }
 
       window.addEventListener('pagehide', () => {
-        comb.dispose(); packets.forEach((p) => p.dispose()); dissolve.dispose(); rtA.dispose(); rtB.dispose();
+        comb.dispose(); studio.dispose(); packets.forEach((p) => p.dispose()); dissolve.dispose(); rtA.dispose(); rtB.dispose();
         post?.dispose(); swarm?.dispose(); renderer.dispose(); renderer.forceContextLoss();
       });
     </script>
