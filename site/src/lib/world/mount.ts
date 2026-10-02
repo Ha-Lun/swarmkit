@@ -7,6 +7,7 @@ import { mountReferencePanel } from '../reference-panel';
 import type { RoutingNames } from './types';
 import { markTier, createFpsProbe, type PlayTier, type TierDecision } from './tiers';
 import { resetFx } from './scene-dom';
+import { look } from './config';
 import { createWorld, type World } from './world';
 
 export function mountWorld(decision: TierDecision, agents: Agent[], routing: RoutingNames) {
@@ -47,7 +48,7 @@ export function mountWorld(decision: TierDecision, agents: Agent[], routing: Rou
   }
   disposePanel = mountReferencePanel(scroll);
   markTier(decision.tier, decision.reason);
-  if (new URLSearchParams(location.search).has('debug')) (window as unknown as { __world: World }).__world = world; // inspection hook for QA
+  if (new URLSearchParams(location.search).has('debug')) Object.assign(window, { __world: world, __look: look }); // inspection hook for QA (the look object too, so values can be tuned live)
   world.warmup();
   gsap.ticker.add(tick); // after lenis.raf (added in initScroll), so the world reads this frame's scroll
   canvas.addEventListener('webglcontextlost', () => toFallback('WebGL context lost'));

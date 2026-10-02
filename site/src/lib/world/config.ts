@@ -96,7 +96,14 @@ export const look = {
     lantern: 8, // a small point light just behind and above the walker's eye (intensity, decay 2): lifts the near walls and tower shafts out of black
     lanternRange: 6, // world units it reaches
     fillBoost: 12, // hemisphere and ambient light are multiplied by (1 + fillBoost x weight), so the far walls are not pure black
-    wallLift: 9, // the column walls' albedo is multiplied by (1 + wallLift x weight): their stone is near ink, and metalness leaves almost no diffuse to light
+    wallLift: 1.2, // the column walls' albedo is multiplied by (1 + wallLift x weight): their stone is near ink, and metalness leaves almost no diffuse to light
+    ao: 0.35, // the fraction of the GTAO strength kept under the walker (x the walk weight): in the tight streets full strength crushed every wall to black on the high tier
+    bloom: 0.3, // the fraction of the bloom strength kept near the surface: close-up tile tops throw big glare
+    bloomLift: 0.6, // ... and the bloom threshold is raised by this much there
+    haze: 1, // the cool glow along the globe's limb in the walker's sky (sky.ts), and the colour the ground fog fades to
+    stars: 1, // brightness of the small stars above it
+    wallMatte: 0.7, // the column walls' metalness is multiplied by (1 - wallMatte x weight): plain stone takes the light, polished metal only mirrors the dark env
+    towerWall: 0.5, // the tower shafts' stone as a fraction of the cap's pale tone (x the walk weight): the whole pillar reads, not only its cap
     topRough: 1.2, // extra roughness on the tile tops (not the caps): the key's highlight spreads instead of mirroring into the lens
   },
   core: {
@@ -171,7 +178,7 @@ export const ranges: { [G in keyof Look]?: { [K in keyof Look[G]]?: [number, num
     moonTurnSec: [8, 120, 1], moonDrift: [0, 0.6, 0.01], moonStroke: [0, 1, 0.01],
   },
   light: { key: [0, 4, 0.05], hemi: [0, 2, 0.02], ambient: [0, 1, 0.01], fill: [0, 2, 0.02], kicker: [0, 3, 0.05], sweep: [0, 1, 0.01], keyElevation: [5, 80, 1] },
-  walk: { lantern: [0, 16, 0.05], lanternRange: [1, 12, 0.1], fillBoost: [0, 24, 0.1], wallLift: [0, 20, 0.1], topRough: [0, 2, 0.01] },
+  walk: { lantern: [0, 16, 0.05], lanternRange: [1, 12, 0.1], fillBoost: [0, 24, 0.1], wallLift: [0, 20, 0.1], wallMatte: [0, 1, 0.01], towerWall: [0, 1, 0.01], topRough: [0, 2, 0.01] },
   core: { color: [0, 1, 0.01], intensity: [0, 6, 0.05] },
   bg: { gradient: [0, 1, 0.01], fog: [0.3, 2, 0.01] },
   packet: {

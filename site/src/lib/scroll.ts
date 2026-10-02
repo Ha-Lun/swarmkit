@@ -6,7 +6,7 @@ import Lenis from 'lenis';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { scrollToProgress, SEGMENTS } from './world/camera-path';
-import { motion, walkRamp } from './world/motion-config';
+import { motion, walkCfg, walkRamp } from './world/motion-config';
 
 export interface ScrollState {
   chapter: number;
@@ -19,6 +19,8 @@ export interface Scroll {
   /** Stop and start page scroll. Each caller locks under its own reason; the page scrolls again only when every reason has let go. */
   lock(reason: string): void;
   unlock(reason: string): void;
+  /** The seconds the tour's route takes under autoplay (the world knows the route's length once it is built; before that a default). */
+  setWalkSec(sec: number): void;
   dispose(): void;
 }
 
@@ -59,7 +61,7 @@ export function initScroll(): Scroll {
   // camera, fades and pull-back are untouched). Holding the primary pointer or pressing Space pauses it; your own scrolling always wins and, once you
   // scroll up, autoplay stays off until you scroll down again. Velocity eases, so start, pause and resume glide.
   const cells = triggers[2];
-  let held = false, paused = false, off = false, vel = 0, acc = 0;
+  let held = false, paused = false, off = false, vel = 0, acc = 0, routeSec = 140;
   const inWalk = () => state.chapter === 2 && state.chapterProgress >= walkRamp.inFrom;
   const inPanel = (t: EventTarget | null) => t instanceof Element && !!t.closest('dialog'); // the Reference panel scrolls itself; its wheel and keys are not the page's
   const offVirtual = lenis.on('virtual-scroll', ({ deltaY, event }) => { if (deltaY && !inPanel(event.target)) off = deltaY < 0; });
@@ -79,8 +81,12 @@ export function initScroll(): Scroll {
   const auto = (_t: number, dtMs: number) => {
     const dt = Math.min(dtMs, 100) / 1000;
     if (state.chapter !== 2) paused = false; // a new visit to the walk plays again
-    const go = inWalk() && !held && !paused && !off && !lenis.isScrolling && !lenis.isStopped;
-    const pxPerSec = ((cells.end - cells.start) * (1 - walkRamp.inFrom)) / motion.walkAuto.sec;
+    // (not `!lenis.isScrolling`: our own scrollTo raises 'native' for a few frames after every step, which held autoplay off four frames in five; only the wheel's and touch's own inertia, 'smooth', is the user scrolling)
+    const go = inWalk() && !held && !paused && !off && lenis.isScrolling !== 'smooth' && !lenis.isStopped;
+    // the dive, the route and the rise each have their own pace: the route runs at walkCfg.rate (so its holds and turns are in seconds), the dive and the rise are brisk
+    const w = motion.walkAuto, p = state.chapterProgress;
+    const perSec = p < walkCfg.uFrom ? (walkCfg.uFrom - walkRamp.inFrom) / w.diveSec : p < walkCfg.uTo ? (walkCfg.uTo - walkCfg.uFrom) / routeSec : (1 - walkCfg.uTo) / w.tailSec;
+    const pxPerSec = (cells.end - cells.start) * perSec;
     vel += ((go ? pxPerSec : 0) - vel) * (1 - Math.exp(-dt / motion.walkAuto.easeSec));
     if (Math.abs(lenis.scroll - acc) > 2) acc = lenis.scroll; // moved by something else (scrollbar, wheel, anchor): follow it
     if (vel < 0.5 || !inWalk()) return;
@@ -91,6 +97,7 @@ export function initScroll(): Scroll {
 
   return {
     state,
+    setWalkSec(sec) { routeSec = sec; },
     lock(reason) { locks.add(reason); lenis.stop(); },
     unlock(reason) { locks.delete(reason); if (!locks.size) lenis.start(); },
     dispose() {

@@ -18,6 +18,7 @@ import { createPost, type Post } from './post';
 import { createStudio, shadowExtentOf, type Studio } from './studio';
 import { createFlow, type Flow } from './routes';
 import { createRingFx } from './rings';
+import { createSky } from './sky';
 import { createSwarm, type Swarm } from './swarm-particles';
 import { createHexDissolve, hexPixelSize, type HexDissolve } from './transitions';
 import type { ActiveTier, Chapter, RoutingNames, View, WorldCtx } from './types';
@@ -33,7 +34,7 @@ export interface WorldOptions {
   routing: RoutingNames;
   state: Readonly<ScrollState>;
   tier: ActiveTier;
-  scroll: { lock(reason: string): void; unlock(reason: string): void };
+  scroll: { lock(reason: string): void; unlock(reason: string): void; setWalkSec(sec: number): void };
 }
 
 export interface World {
@@ -49,10 +50,8 @@ export interface World {
   dispose(): void;
 }
 
-const MAX_DPR: Record<ActiveTier, number> = { high: 2, medium: 1.5 };
-/** The walk fills the screen with close-up metal, which costs far more fragment work than the orbit views: on a 2015 laptop GPU the high tier fell to 30-40 fps at a
- *  pixel ratio of 2 and held 60 at 1.5. So the ratio is capped here while the camera is on the ground (switched once, with hysteresis, at the start of the dive and after the rise). */
-const WALK_DPR = 1.5;
+/** The pixel ratio cap: the walk's close-up metal costs far more fragment work than the orbit views (a 2015 laptop GPU held 60 fps at 1.5 and fell to 30-40 at 2), so both tiers stop at 1.5 throughout, with no resize at the dive and the rise. */
+const MAX_DPR = 1.5;
 
 /** Radial gradient background (round 11): ink-2 centre fading to ink at the edge, strength look.bg.gradient. Procedural,
  *  sRGB (matches the palette tokens' own space), small (256px: it only ever shows through as a soft blend). Shared with
@@ -82,7 +81,6 @@ function readAccent(): string {
 export function createWorld(opts: WorldOptions): World {
   const { canvas, agents, routing, state, scroll } = opts;
   let tier = opts.tier;
-  let walkDprCap = false; // true while the walk is on screen (WALK_DPR); declared here because resize() runs during setup
   const palette = readPalette();
 
   const renderer = new WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -94,6 +92,9 @@ export function createWorld(opts: WorldOptions): World {
   const bgTex = createBgTexture(palette, look.bg.gradient);
   scene.background = bgTex;
   scene.fog = new Fog(palette.ink, 20, 120);
+  const sky = createSky(palette); // the walker's horizon (sky.ts): drawn only while the camera is on the ground
+  scene.add(sky.mesh);
+  const inkColor = new Color(palette.ink);
   const camera = new PerspectiveCamera(40, 1, 0.1, 400);
 
   const lattice = layoutLattice(agents); // identical for every tier: cell indices stay valid across a rebuild
@@ -238,7 +239,7 @@ export function createWorld(opts: WorldOptions): World {
     // mobile URL-bar collapse changes innerHeight by a few dozen px on scroll: not worth reallocating every target
     if (!force && w === lw && Math.abs(h - lh) < 120) return;
     lw = w; lh = h;
-    const pr = Math.min(window.devicePixelRatio || 1, MAX_DPR[tier], walkDprCap ? WALK_DPR : Infinity);
+    const pr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
     renderer.setPixelRatio(pr);
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
@@ -294,12 +295,13 @@ export function createWorld(opts: WorldOptions): World {
   const walkBase = new Quaternion(); // the orientation the dive and the rise are blended about (walkBlendBase)
   const buildWalk = () => {
     walkRoute = createWalkRoute(lattice);
+    ctx.scroll.setWalkSec(walkRoute.length / walkCfg.rate); // autoplay runs the route at walkCfg.rate route units a second
     walkBase.copy(walkBlendBase(walkRoute, (p, o, t) => path.sample(scrollToProgress(2, p), o, t), [[walkRamp.inFrom, walkRamp.inTo], [walkRamp.outFrom, walkRamp.outTo]], walkCfg));
   };
   const wpose: WalkPose = { position: new Vector3(), quaternion: new Quaternion(), fov: 40, up: new Vector3(), forward: new Vector3(), ground: 0, stop: 0 };
   const sway = createWalkSway();
-  // the mean leg speed under autoplay, route units per second: the walker takes walkCfg.sway.hz steps a second at it (the route parameter advances at a constant rate)
-  const swayRef = () => ((1 - walkRamp.inFrom) / (motion.walkAuto.sec * (walkCfg.uTo - walkCfg.uFrom))) * (walkRoute ? walkRoute.length : 0);
+  // the mean leg speed under autoplay, world units per second: the walker takes walkCfg.sway.hz steps a second at it
+  const swayRef = () => walkCfg.rate / walkCfg.legStretch; // (a street is walked at 1 / legStretch world units per route unit)
   let walkCp = 0; // Cells chapter progress read back from the damped camera parameter
   function stepSpin(dt: number) {
     const w = spinW = spinWeight(state.chapter, state.chapterProgress);
@@ -356,6 +358,9 @@ export function createWorld(opts: WorldOptions): World {
     }
     (scene.fog as Fog).near = fogNear;
     (scene.fog as Fog).far = fogFar;
+    // the horizon: the haze along the limb, and the fog fades to its colour (so the far pillars stand against it)
+    sky.update(camera.position, wpose.up, Math.acos(Math.min(1, lattice.radius / Math.max(lattice.radius, d))), walkW, look.walk.haze, look.walk.stars);
+    (scene.fog as Fog).color.copy(inkColor).lerp(sky.hazeColor, Math.min(1, walkW * look.walk.haze * 0.8));
   }
 
   function stepHilite(dt: number) {
@@ -448,6 +453,7 @@ export function createWorld(opts: WorldOptions): World {
       freeTargets();
       post?.dispose();
       swarm?.dispose();
+      sky.dispose();
       comb.dispose();
       studio.dispose();
       scene.clear();
@@ -457,22 +463,40 @@ export function createWorld(opts: WorldOptions): World {
     },
   };
 
+  // the post settings for this frame: GTAO is cut back under the walker (look.walk.ao), the rest is the look
+  const postWalk = { ...look.post };
+  let nearGround = 0; // 0..1: how close the camera is to the surface (the walk weight, or its altitude on the dive and the rise)
+  function syncPost() {
+    if (!post) return;
+    if (nearGround > 0.001) { // (nearGround is at least the walk weight)
+      Object.assign(postWalk, look.post);
+      postWalk.aoIntensity = look.post.aoIntensity * (1 - (1 - look.walk.ao) * walkW);
+      // bloom: close to the surface (the walk, and the dive and the rise that pass it) big lit tile tops sit above the threshold and wash the frame white
+      postWalk.bloomStrength = look.post.bloomStrength * (1 - (1 - look.walk.bloom) * nearGround);
+      postWalk.bloomThreshold = look.post.bloomThreshold + look.walk.bloomLift * nearGround;
+      post.sync(postWalk);
+    }
+    else post.sync(look.post);
+  }
   function render(dt: number) {
     const g = Math.max(gSm, view.camFloor);
     const dp = progressOfG(g);
     walkW = walkWeight(dp.chapter, dp.chapterProgress);
     walkCp = dp.chapterProgress;
     view.walk = walkW;
-    if (!walkDprCap && walkW > 0.05) { walkDprCap = true; resize(true); } // (hysteresis: back to full resolution only once the rise is over)
-    else if (walkDprCap && walkW < 0.005) { walkDprCap = false; resize(true); }
     if (walkW > 0.001) { flows.forEach((f) => (f.packet.group.visible = false)); rings.mesh.visible = false; } // the walker does not see the comet
     flows.forEach((f) => (f.packet.aoGroup.visible = f.packet.group.visible));
     // the seam glow dims under the walk camera so bloom does not bleed through the seams, and on the homecoming it comes in with the regrowing lattice (a bare glowing ball is only the very first rings' worth)
     const loopCore = view.loop > 0 ? range(view.growth, 0.45, 1) : 1;
-    const coreScale = (1 - walkCfg.coreDim * walkW) * loopCore;
+    // ... and it follows the camera's altitude too: on the dive and the rise the camera passes close to the surface (and the core region), where full glow plus bloom washes the frame white
+    const alt = dp.chapter === 2 ? range(lattice.radius * 2.9 - camera.position.length(), 0, lattice.radius * 1.4) : 0; // Cells only (the intro's first frames are untouched): 1 at 1.5 radii from the centre, 0 from 2.9 out (the fly-over never comes closer)
+    nearGround = Math.max(walkW, alt);
+    const coreScale = (1 - walkCfg.coreDim * nearGround) * loopCore;
     if (Math.abs(coreScale - walkCoreApplied) > 0.005 || (coreScale === 1 && walkCoreApplied !== 1)) { comb.setCoreScale(coreScale); walkCoreApplied = coreScale; }
     comb.uniforms.uDetail.value = Math.max(look.cell.detail, walkCfg.detail * walkW); // the close-up richness of the metal fades in with the dive (the orbit views are untouched)
     comb.uniforms.uWalkWall.value = look.walk.wallLift * walkW;
+    comb.uniforms.uWalkTower.value = look.walk.towerWall * walkW;
+    comb.uniforms.uWalkMatte.value = look.walk.wallMatte * walkW;
     comb.uniforms.uWalkRough.value = look.walk.topRough * walkW; // rougher tile tops under the walker (the key's highlight spreads instead of glaring)
     comb.update(view.growth, view.dim, time, spinW, walkW);
     comb.object.visible = view.latticeVisible;
@@ -485,7 +509,7 @@ export function createWorld(opts: WorldOptions): World {
       // outgoing = the lattice undimmed, incoming = the lattice as dimmed by the same ease that drives the dissolve. On the high
       // tier each half already carries GTAO and bloom (post.renderScene), so neither pops in or out of the transition; the
       // composite then goes through the same output stage (ACES, aberration, grain, vignette) as every other frame.
-      if (post) post.sync(look.post);
+      if (post) syncPost();
       comb.update(view.growth, 0, time, spinW, walkW);
       if (post) post.renderScene(rtA, dt); else { renderer.setRenderTarget(rtA); renderer.render(scene, camera); }
       comb.update(view.growth, view.dim, time, spinW, walkW);
@@ -500,7 +524,7 @@ export function createWorld(opts: WorldOptions): World {
         dissolve.render(renderer, rtA.texture, rtB.texture, view.dissolve, hexPx, look.dissolve);
       }
     } else if (post) {
-      post.sync(look.post);
+      syncPost();
       post.render(dt, time);
     } else {
       renderer.setRenderTarget(null);

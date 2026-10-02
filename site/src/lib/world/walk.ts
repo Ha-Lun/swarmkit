@@ -26,9 +26,8 @@ export interface WalkStop {
   /** route parameter range (0..1) the camera dwells at this stop */
   u0: number;
   u1: number;
-  /** unit normal of the tower cell (the landmark) and of the cell the camera stands on */
+  /** unit normal of the tower cell (the landmark) */
   tower: Vector3;
-  stand: Vector3;
 }
 
 export interface WalkPose {
@@ -45,7 +44,7 @@ export interface WalkPose {
 }
 
 export interface WalkRoute {
-  /** total route parameter length in world units (street length at globe radius, plus dwell allowances) */
+  /** total route parameter length in route units (walkCfg.rate of them pass per second under autoplay): the streets stretched by walkCfg.legStretch, plus the holds */
   length: number;
   stops: WalkStop[];
   sample(u: number, p: WalkParams, out?: WalkPose): WalkPose;
@@ -58,7 +57,7 @@ export interface WalkRoute {
 }
 
 const BAND_ORDER = ['core', 't1', 'domain', 'gate'] as const;
-const HEADING_SIGMA = 0.0373; // fraction of the route the heading is smoothed over (10 route units of the 268 the route had with 4-unit holds): the walker turns gradually, never in a snap, however long the holds are
+const HEADING_SIGMA = 0.004; // fraction of the route the heading is lightly rounded over (a couple of route units): the turns themselves are the ramps of walkCfg.turnSecQuarter
 const START_BACK = 0.6; // rad: the walk starts this far north (+Y) of the core cell
 const SPAN_SAMPLES = 20; // Catmull-Rom samples per cell-to-cell span
 const FLAT_COST = 3; // Dijkstra: extra cost per world unit of height change between neighbouring cells
@@ -67,7 +66,7 @@ const clamp = (x: number, a: number, b: number) => Math.min(b, Math.max(a, x));
 const smooth = (t: number) => t * t * (3 - 2 * t);
 
 type Seg = { kind: 'walk' | 'dwell'; i: number; s0: number; s1: number };
-interface Chain { pts: Vector3[]; cum: number[]; tan: Vector3[]; len: number; cells: number[] }
+interface Chain { pts: Vector3[]; cum: number[]; tan: Vector3[]; len: number; cells: number[]; /** arc length at which the walker stops, holdBack short of the end */ stop: number }
 
 export function createWalkRoute(lattice: Lattice): WalkRoute {
   const R = lattice.radius;
@@ -176,17 +175,9 @@ export function createWalkRoute(lattice: Lattice): WalkRoute {
       .addScaledVector(p3, 0.5 * t3 - 0.5 * t2);
     return out.normalize();
   };
-  const built: Chain[] = chains.map((ch) => {
-    const cp = ch.map((i) => cells[i].normal);
-    const pts: Vector3[] = [];
-    if (cp.length === 1) pts.push(cp[0].clone(), cp[0].clone());
-    else {
-      for (let k = 0; k < cp.length - 1; k++) {
-        const p0 = cp[Math.max(0, k - 1)], p1 = cp[k], p2 = cp[k + 1], p3 = cp[Math.min(cp.length - 1, k + 2)];
-        for (let j = 0; j < SPAN_SAMPLES; j++) pts.push(cr(p0, p1, p2, p3, j / SPAN_SAMPLES, new Vector3()));
-      }
-      pts.push(cp[cp.length - 1].clone());
-    }
+  // The walker stops walkCfg.holdBack world units short of the stand cell (not on it, 1.7 units from the tower: one slab would fill the frame), far enough off to see the whole pillar.
+  // So each leg starts where the last one stopped: its curve begins with the tail of the previous one, from that stop to the stand cell, and goes on from there.
+  const finish = (pts: Vector3[], cellsOf: number[]): Chain => {
     const cum = [0];
     for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.acos(clamp(pts[k - 1].dot(pts[k]), -1, 1)) * R);
     const tan = pts.map((p, k) => {
@@ -195,25 +186,46 @@ export function createWalkRoute(lattice: Lattice): WalkRoute {
       t.addScaledVector(p, -t.dot(p));
       return t.lengthSq() < 1e-12 ? new Vector3() : t.normalize();
     });
-    // a chain with no length has no direction of its own: borrow the next non-empty one below
-    return { pts, cum, tan, len: cum[cum.length - 1], cells: ch };
+    const len = cum[cum.length - 1];
+    // a chain with no length has no direction of its own: the walkers borrow (see headingIn)
+    return { pts, cum, tan, len, cells: cellsOf, stop: Math.max(0, len - walkCfg.holdBack) };
+  };
+  const built: Chain[] = [];
+  chains.forEach((ch, k) => {
+    const cp = ch.map((i) => cells[i].normal.clone());
+    if (k > 0) { // this leg starts where the last one stopped (holdBack short of its stand cell), and the curve runs on through that stand cell: one rounded curve, no corner at it
+      const pc = built[k - 1], x = pc.stop;
+      let lo = 0; while (lo < pc.cum.length - 2 && pc.cum[lo + 1] <= x) lo++;
+      const span = pc.cum[lo + 1] - pc.cum[lo], f = span > 1e-9 ? (x - pc.cum[lo]) / span : 0;
+      cp.unshift(pc.pts[lo].clone().lerp(pc.pts[lo + 1], f).normalize());
+    }
+    const pts: Vector3[] = [];
+    if (cp.length === 1) pts.push(cp[0].clone(), cp[0].clone());
+    else {
+      for (let j = 0; j < cp.length - 1; j++) {
+        const p0 = cp[Math.max(0, j - 1)], p1 = cp[j], p2 = cp[j + 1], p3 = cp[Math.min(cp.length - 1, j + 2)];
+        for (let q = 0; q < SPAN_SAMPLES; q++) pts.push(cr(p0, p1, p2, p3, q / SPAN_SAMPLES, new Vector3()));
+      }
+      pts.push(cp[cp.length - 1].clone());
+    }
+    built.push(finish(pts, ch));
   });
 
   // ---- segments along the route parameter: walk the street to a stand cell, then dwell there facing the tower ----
   const segs: Seg[] = [];
   let s = 0;
   towers.forEach((t, i) => {
-    const len = Math.max(0.001, built[i].len);
+    const len = Math.max(0.001, built[i].stop) * walkCfg.legStretch;
     segs.push({ kind: 'walk', i, s0: s, s1: s + len }); s += len;
     const lastOfBand = i === towers.length - 1 || towers[i + 1].band !== t.band;
-    const dw = lastOfBand ? walkCfg.dwellBand : walkCfg.dwell; // route units held at the tower (motion-config walkCfg)
+    const dw = (lastOfBand ? walkCfg.dwellBandSec : walkCfg.dwellSec) * walkCfg.rate; // route units held at the tower (motion-config walkCfg)
     segs.push({ kind: 'dwell', i, s0: s, s1: s + dw }); s += dw;
   });
   const total = s;
 
   const stops: WalkStop[] = towers.map((t, i) => {
     const d = segs[2 * i + 1];
-    return { name: t.name, band: t.band, u0: d.s0 / total, u1: d.s1 / total, tower: cells[t.cell].normal.clone(), stand: cells[stands[i]].normal.clone() };
+    return { name: t.name, band: t.band, u0: d.s0 / total, u1: d.s1 / total, tower: cells[t.cell].normal.clone() };
   });
 
   // scratch
@@ -235,7 +247,7 @@ export function createWalkRoute(lattice: Lattice): WalkRoute {
   }
   const headingIn = (i: number, out: Vector3) => {
     const c = built[i];
-    onChain(c, c.len, tmp, out);
+    onChain(c, c.stop, tmp, out);
     if (out.lengthSq() < 1e-12) { // a zero-length street: face the tower's side
       out.copy(cells[towers[i].cell].normal).addScaledVector(tmp, -cells[towers[i].cell].normal.dot(tmp)).normalize();
     }
@@ -250,10 +262,10 @@ export function createWalkRoute(lattice: Lattice): WalkRoute {
     const f = clamp((S - sg.s0) / (sg.s1 - sg.s0), 0, 1);
     const c = built[sg.i];
     if (sg.kind === 'walk') {
-      onChain(c, smooth(f) * c.len, dirOut, wantOut); // eased: the camera starts and stops each street at rest
+      onChain(c, smooth(f) * c.stop, dirOut, wantOut); // eased: the camera starts and stops each street at rest
       if (wantOut.lengthSq() < 1e-12) headingIn(sg.i, wantOut);
     } else {
-      onChain(c, c.len, dirOut, wantOut);
+      onChain(c, c.stop, dirOut, wantOut);
       wantOut.copy(cells[towers[sg.i].cell].normal);
       wantOut.addScaledVector(dirOut, -wantOut.dot(dirOut)).normalize();
     }
@@ -261,32 +273,98 @@ export function createWalkRoute(lattice: Lattice): WalkRoute {
     return sg.i;
   }
 
-  // ---- heading: the wanted heading, low-passed along the route ----
-  // Turning to face each tower and then the next street as separate quick turns swings the camera by up to 180 degrees over a few pixels of scroll.
-  // Instead the wanted heading (as an angle about the local up, measured from a reference direction carried along the route) is unwrapped and
-  // smoothed with a Gaussian of HEADING_SIGMA of the route, so every turn is spread over many scroll steps. Stateless: a table over u.
-  const HEAD_N = 4096;
-  const headDir: Vector3[] = [], headRef: Vector3[] = [], headPsi: number[] = [];
+  // ---- how long each turn takes: walkCfg.turnSecQuarter seconds per 90 degrees, so a small turn is quick and a half turn is not a whip ----
+  // tin[i]: from the way the street arrives to the tower; tout[i]: from the tower to the way the next street sets off (0 after the last tower)
+  const tin: number[] = [], tout: number[] = [];
   {
-    const d = new Vector3(), want = new Vector3(), e = new Vector3(), side = new Vector3();
-    let prev = 0;
+    const A = new Vector3(), B = new Vector3(), Tw = new Vector3(), D = new Vector3();
+    const units = (ang: number) => clamp(walkCfg.turnSecQuarter * (ang / (Math.PI / 2)), walkCfg.turnMinSec, walkCfg.turnMaxSec) * walkCfg.rate;
+    const proj = (n: Vector3, d: Vector3, out: Vector3) => out.copy(n).addScaledVector(d, -n.dot(d)).normalize();
+    towers.forEach((t, i) => {
+      onChain(built[i], built[i].stop, D, tmp2); // where the walker holds (holdBack short of the stand cell)
+      proj(cells[t.cell].normal, D, Tw);
+      headingIn(i, A);
+      tin.push(units(Math.acos(clamp(A.dot(Tw), -1, 1))));
+      if (i + 1 < towers.length) {
+        onChain(built[i + 1], 0, tmp, B);
+        if (B.lengthSq() < 1e-12) B.copy(cells[towers[i + 1].cell].normal);
+        proj(B, D, B);
+        tout.push(units(Math.acos(clamp(Tw.dot(B), -1, 1))));
+      } else tout.push(0);
+    });
+  }
+
+  // ---- heading: face the street while walking, face the tower for the hold, turn on to the next street ----
+  // Two wanted headings run along the route: the street (its tangent while walking; during a hold, the tangent the NEXT street starts with) and the tower. A focus weight
+  // f blends from the one to the other by the shortest turn: it ramps up over the turn's duration (walkCfg.turnSecQuarter per 90 degrees, tin) at the end of the walk to a tower (finishing inside the hold when the street
+  // is short), stays 1 through the hold, and ramps down over the last turn (tout) of the hold, so the walker is turning to the next street while it sets off. The angle (about
+  // the local up, measured from a reference direction carried along the route) is unwrapped and given a light Gaussian, so a turn never snaps. Stateless: a table over u.
+  const wrapPi = (a: number) => a - Math.PI * 2 * Math.round(a / (Math.PI * 2));
+  const HEAD_N = 4096;
+  /** a gaussian over a table of HEAD_N + 1 samples along the route, `sigUnits` route units wide */
+  const gauss = (arr: number[], sigUnits: number) => {
+    const sig = Math.max(1e-3, (sigUnits / total) * HEAD_N), rad = Math.ceil(3 * sig);
+    const kern = Array.from({ length: 2 * rad + 1 }, (_, k) => Math.exp(-0.5 * ((k - rad) / sig) ** 2));
+    const ks = kern.reduce((x, y) => x + y, 0);
+    return arr.map((_, i) => { let v = 0; for (let k = -rad; k <= rad; k++) v += arr[clamp(i + k, 0, HEAD_N)] * kern[k + rad]; return v / ks; });
+  };
+  const headStop: number[] = [];
+  const headDir: Vector3[] = [], headRef: Vector3[] = [], headPsi: number[] = [], headFocus: number[] = [], headZoom: number[] = [];
+  {
+    const d = new Vector3(), wantS = new Vector3(), wantT = new Vector3(), e = new Vector3(), side = new Vector3();
+    const psiS: number[] = [], psiT: number[] = [];
+    let prevS = 0, prevT = 0, k = 0;
     for (let i = 0; i <= HEAD_N; i++) {
-      placeRaw(i / HEAD_N, d, want);
-      if (i === 0) e.copy(want); else e.addScaledVector(d, -e.dot(d));
-      if (e.lengthSq() < 1e-10) e.copy(want);
+      const S = (i / HEAD_N) * total;
+      placeRaw(i / HEAD_N, d, wantS); // the street tangent while walking, the tower while holding
+      while (k < segs.length - 1 && S > segs[k].s1) k++;
+      const sg = segs[k], ti = sg.i;
+      wantT.copy(cells[towers[ti].cell].normal).addScaledVector(d, -cells[towers[ti].cell].normal.dot(d));
+      if (wantT.lengthSq() < 1e-12) wantT.copy(wantS); else wantT.normalize();
+      let f: number;
+      const walkSeg = segs[2 * ti];
+      const ws = walkSeg.s1 - Math.min(tin[ti] * 0.5, walkSeg.s1 - walkSeg.s0); // the turn to the tower starts this far before the street ends
+      const fin = smooth(clamp((S - ws) / tin[ti], 0, 1));
+      if (sg.kind === 'walk') f = fin;
+      else {
+        const lastDwell = ti === towers.length - 1;
+        if (!lastDwell) { // during the hold the street is the next one: the tangent it starts with, or (a zero-length street) the next tower
+          onChain(built[ti + 1], 0, tmp, wantS);
+          if (wantS.lengthSq() < 1e-12) wantS.copy(cells[towers[ti + 1].cell].normal);
+          wantS.addScaledVector(d, -wantS.dot(d));
+          if (wantS.lengthSq() < 1e-12) wantS.copy(wantT); else wantS.normalize();
+        } else wantS.copy(wantT);
+        f = fin * (1 - (lastDwell ? 0 : smooth(clamp((S - (sg.s1 - tout[ti])) / tout[ti], 0, 1))));
+      }
+      if (i === 0) e.copy(wantS); else e.addScaledVector(d, -e.dot(d));
+      if (e.lengthSq() < 1e-10) e.copy(wantS);
       e.normalize();
       side.crossVectors(d, e);
-      let psi = Math.atan2(want.dot(side), want.dot(e));
-      if (i > 0) psi += Math.PI * 2 * Math.round((prev - psi) / (Math.PI * 2)); // unwrap: no 2 pi jumps
-      prev = psi;
-      headDir.push(d.clone()); headRef.push(e.clone()); headPsi.push(psi);
+      let a = Math.atan2(wantS.dot(side), wantS.dot(e)), b = Math.atan2(wantT.dot(side), wantT.dot(e));
+      if (i > 0) { a += Math.PI * 2 * Math.round((prevS - a) / (Math.PI * 2)); b += Math.PI * 2 * Math.round((prevT - b) / (Math.PI * 2)); } // unwrap: no 2 pi jumps
+      prevS = a; prevT = b;
+      psiS.push(a); psiT.push(b);
+      headDir.push(d.clone()); headRef.push(e.clone()); headFocus.push(f); headStop.push(ti);
     }
-    const sig = HEADING_SIGMA * HEAD_N, rad = Math.ceil(3 * sig);
-    const kern = Array.from({ length: 2 * rad + 1 }, (_, k) => Math.exp(-0.5 * ((k - rad) / sig) ** 2));
-    const ks = kern.reduce((a, b) => a + b, 0);
-    const sm = headPsi.map((_, i) => { let v = 0; for (let k = -rad; k <= rad; k++) v += headPsi[clamp(i + k, 0, HEAD_N)] * kern[k + rad]; return v / ks; });
-    for (let i = 0; i <= HEAD_N; i++) headPsi[i] = sm[i];
+    // the street heading is rounded (a street bends 60 degrees round a cell corner in a couple of route units: followed exactly the camera would whip); the turns to and from a tower are not
+    const sS = gauss(psiS, walkCfg.streetSec * walkCfg.rate);
+    let prev = 0;
+    const raw: number[] = [];
+    for (let i = 0; i <= HEAD_N; i++) {
+      let psi = sS[i] + headFocus[i] * wrapPi(psiT[i] - sS[i]);
+      if (i > 0) psi += Math.PI * 2 * Math.round((prev - psi) / (Math.PI * 2));
+      prev = psi; raw.push(psi);
+    }
+    const lead = Math.max(1, walkCfg.streetSec * 2 * walkCfg.rate); // the route sets off from rest: the heading eases in over the first stretch instead of already turning at the first step
+    const r0 = raw[0];
+    for (let i = 0; i <= HEAD_N; i++) raw[i] = r0 + (raw[i] - r0) * smooth(clamp(((i / HEAD_N) * total) / lead, 0, 1));
+    gauss(raw, HEADING_SIGMA * total).forEach((v, i) => (headPsi[i] = v));
+    gauss(headFocus, walkCfg.zoomSec * walkCfg.rate).forEach((v, i) => (headZoom[i] = v)); // the zoom and the tip-up lead and trail the turn a little, and ease in and out on their own
   }
+  const tabAt = (tab: number[], u: number) => {
+    const x = clamp(u, 0, 1) * HEAD_N, i = Math.min(HEAD_N - 1, Math.floor(x));
+    return tab[i] + (tab[i + 1] - tab[i]) * (x - i);
+  };
   const headAt = (u: number, dirNow: Vector3, out: Vector3): Vector3 => {
     const x = clamp(u, 0, 1) * HEAD_N, i = Math.min(HEAD_N - 1, Math.floor(x)), t = x - i;
     const psi = headPsi[i] + (headPsi[i + 1] - headPsi[i]) * t;
@@ -328,6 +406,25 @@ export function createWalkRoute(lattice: Lattice): WalkRoute {
     return env[i] + (env[i + 1] - env[i]) * (x - i);
   };
 
+  // ---- facing a tower: the angle the view tips to so the cap sits capY of the way up the frame, from the stand point at the middle of the hold ----
+  // Blended in with the (blurred) facing weight rather than looked up per sample, so there is no switch of target where one tower's hold hands over to the next.
+  const headAim: number[] = [];
+  {
+    const dv = new Vector3(), fw = new Vector3(), v = new Vector3();
+    const holdFov = Math.min(walkCfg.fov, walkCfg.holdFov);
+    const alpha = Math.atan(walkCfg.capY * Math.tan((holdFov * Math.PI) / 360));
+    const pitch0 = (walkCfg.pitchDeg * Math.PI) / 180;
+    const axis = towers.map((t, i) => {
+      const dw = segs[2 * i + 1], um = (dw.s0 + (dw.s1 - dw.s0) / 2) / total;
+      place(um, dv, fw);
+      const tc = cells[t.cell];
+      v.copy(tc.normal).multiplyScalar(R + tc.base + walkCfg.towerGrow).addScaledVector(dv, -(R + envAt(um) + walkCfg.eye));
+      const elev = Math.asin(clamp(v.dot(dv) / Math.max(1e-6, v.length()), -1, 1));
+      return clamp(elev - alpha, -pitch0, (walkCfg.capUpMax * Math.PI) / 180);
+    });
+    gauss(headFocus.map((f, i) => f * axis[headStop[i]]), walkCfg.zoomSec * walkCfg.rate).forEach((x, i) => (headAim[i] = x));
+  }
+
   const fresh = (): WalkPose => ({ position: new Vector3(), quaternion: new Quaternion(), fov: 50, up: new Vector3(), forward: new Vector3(), ground: 0, stop: 0 });
   const dir = new Vector3(), fwd = new Vector3();
 
@@ -351,9 +448,14 @@ export function createWalkRoute(lattice: Lattice): WalkRoute {
       right.crossVectors(fwd, dir).normalize();
       back.copy(fwd).negate();
       qBase.setFromRotationMatrix(m.makeBasis(right, dir, back));
-      qPitch.setFromAxisAngle(right, -(p.pitchDeg * Math.PI) / 180);
+      // facing a tower: zoom in and tip the view up (see headAim); never looking lower than the walking pitch
+      const zw = tabAt(headZoom, u);
+      const holdFov = Math.min(p.fov, walkCfg.holdFov);
+      const pitch = ((p.pitchDeg * Math.PI) / 180) * (1 - zw) - tabAt(headAim, u);
+      const fov = p.fov + (holdFov - p.fov) * zw;
+      qPitch.setFromAxisAngle(right, -pitch);
       out.quaternion.copy(qPitch).multiply(qBase);
-      out.fov = p.fov;
+      out.fov = fov;
       out.stop = stop;
       return out;
     },
@@ -383,11 +485,13 @@ export function visibleOverGlobe(cam: Vector3, point: Vector3, R: number): boole
 
 /**
  * Blend the spline camera into the walker with ONE weight `w` (the walk weight): direction by slerp about the globe centre and distance by lerp
- * (a straight lerp between the far spline pose and a pose on the ground would cut through the globe), orientation by quaternion slerp, FOV by lerp.
+ * (a straight lerp between the far spline pose and a pose on the ground would cut through the globe), FOV by lerp. The orientation is a look-at whose view
+ * direction runs from `targetA` (the spline's look-at target, seen from the blended position) to the walker's heading, with a roll reference that turns from
+ * the world's up to the walker's frame (`upB` = the walker's up); without them it falls back to a rotation blend about `base`.
  * Writes outPos and outQuat; returns the blended FOV. At w = 0 it returns the spline pose exactly, at w = 1 the walker's.
  */
 export function blendWalkPose(
-  posA: Vector3, quatA: Quaternion, fovA: number, posB: Vector3, quatB: Quaternion, fovB: number, base: Quaternion, w: number, outPos: Vector3, outQuat: Quaternion,
+  posA: Vector3, quatA: Quaternion, fovA: number, posB: Vector3, quatB: Quaternion, fovB: number, base: Quaternion, w: number, outPos: Vector3, outQuat: Quaternion, targetA?: Vector3, upB?: Vector3,
 ): number {
   const rA = posA.length(), rB = posB.length();
   const dA = posA.clone().divideScalar(rA), dB = posB.clone().divideScalar(rB);
@@ -395,11 +499,45 @@ export function blendWalkPose(
   if (sin < 1e-6) outPos.copy(dA);
   else outPos.copy(dA).multiplyScalar(Math.sin((1 - w) * ang) / sin).addScaledVector(dB, Math.sin(w * ang) / sin);
   outPos.normalize().multiplyScalar(rA + (rB - rA) * w);
-  blendOrientation(quatA, quatB, base, w, outQuat);
+  // The spline half of the orientation blend keeps looking at the spline's own target (a point on the globe) from where the camera now is, so the view stays on the globe as the
+  // camera descends instead of sweeping off into empty sky (the spline's orientation, from a position it has left, no longer points at it). The walker's half takes over late (smootherstep).
+  const sw = clamp((w - 0.6) / 0.38, 0, 1); // (the camera is about one globe radius up at w = 0.6 and a few units up at 0.95)
+  const s = sw * sw * sw * (sw * (sw * 6 - 15) + 10);
+  if (upB && targetA) {
+    // Not a blend of two orientations (a rotation blend passes through views that look away from the globe altogether, half way down; a slerp flips where the two are nearly opposite) but
+    // one look-at whose view DIRECTION turns from "towards the spline's target, from where the camera now is" to the walker's heading (a normalised lerp, late in the descent: smootherstep over
+    // its lower part) and whose roll reference moves from the world's up to the walker's own frame: the walker's heading while the view is steep (looking straight down the surface normal, which
+    // the dive passes close to, any radial up is degenerate), the walker's up once it is level. At w = 0 it is the spline's own look-at and at w = 1 exactly the walker's orientation.
+    _fA.copy(targetA).sub(outPos).normalize();
+    _fB.set(0, 0, -1).applyQuaternion(quatB);
+    _fS.copy(_fA).lerp(_fB, s);
+    if (_fS.lengthSq() > 1e-12) {
+      _fS.normalize();
+      // roll: the reference is the world's up at the start and the walker's frame at the end, and they can be nearly opposite (the walker's heading at the start of the route is almost straight
+      // down the world's Y), so the two are not mixed (the mix collapses to zero) but turned into one another about the view axis, always the same way round (the angle is taken in 0..2 pi,
+      // cut where the two coincide, which they never do while the roll is being turned)
+      _yp.copy(_up).addScaledVector(_fS, -_up.dot(_fS));
+      _upRef.copy(_fB).multiplyScalar(1 - s).addScaledVector(upB, s);
+      _upRef.addScaledVector(_fS, -_upRef.dot(_fS));
+      if (_yp.lengthSq() > 1e-10 && _upRef.lengthSq() > 1e-10) {
+        _yp.normalize(); _upRef.normalize();
+        let d = Math.atan2(_tmpV.crossVectors(_yp, _upRef).dot(_fS), _yp.dot(_upRef));
+        if (d < 0) d += Math.PI * 2;
+        const m = clamp((w - 0.3) / 0.3, 0, 1), roll = d * (m * m * (3 - 2 * m));
+        _upRef.copy(_yp).multiplyScalar(Math.cos(roll)).addScaledVector(_tmpV.crossVectors(_fS, _yp), Math.sin(roll));
+        _tmpV.copy(_fS).add(outPos);
+        _lookM.lookAt(outPos, _tmpV, _upRef);
+        outQuat.setFromRotationMatrix(_lookM);
+        return fovA + (fovB - fovA) * w;
+      }
+    }
+  }
+  blendOrientation(quatA, quatB, base, s, outQuat);
   return fovA + (fovB - fovA) * w;
 }
 
 const _lookM = new Matrix4(), _up = new Vector3(0, 1, 0);
+const _fA = new Vector3(), _fB = new Vector3(), _fS = new Vector3(), _upRef = new Vector3(), _yp = new Vector3(), _tmpV = new Vector3();
 const _bInv = new Quaternion(), _rA = new Quaternion(), _rB = new Quaternion(), _va = new Vector3(), _vb = new Vector3();
 /** rotation vector (axis x angle, angle in [0, pi]) of the rotation `q` relative to `base` */
 function rotVec(base: Quaternion, q: Quaternion, out: Vector3): Vector3 {
@@ -480,7 +618,7 @@ export function walkCameraPose(
   _lookM.lookAt(splinePos, splineTarget, _up); // the same orientation Object3D.lookAt gives a camera
   _qSpline.setFromRotationMatrix(_lookM);
   route.sample(walkUOf(chapterProgress), cfg, walker);
-  return blendWalkPose(splinePos, _qSpline, 40, walker.position, walker.quaternion, cfg.fov, base, w, outPos, outQuat);
+  return blendWalkPose(splinePos, _qSpline, 40, walker.position, walker.quaternion, walker.fov, base, w, outPos, outQuat, splineTarget, walker.up);
 }
 
 /** Handheld sway state: the smoothed ground speed and the step phase. Fresh per world. */

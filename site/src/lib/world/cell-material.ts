@@ -27,6 +27,8 @@ export interface CellUniforms {
   uDetail: IUniform<number>;
   uWalkRough: IUniform<number>;
   uWalkWall: IUniform<number>;
+  uWalkTower: IUniform<number>;
+  uWalkMatte: IUniform<number>;
   uCapEnv: IUniform<number>;
   uHover: IUniform<number>;
   uStoneBase: IUniform<Color>;
@@ -99,6 +101,8 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
     uDetail: { value: cfg.detail },
     uWalkRough: { value: 0 }, // the walker's rougher tile tops (look.walk.topRough x walk weight, set by the world)
     uWalkWall: { value: 0 }, // the walker's lighter column walls (look.walk.wallLift x walk weight)
+    uWalkMatte: { value: 0 }, // how far the column walls lose their metal under the walker (look.walk.wallMatte x walk weight): metal has no diffuse, so the lights only ever reflect off a wall
+    uWalkTower: { value: 0 }, // the walker's pale tower shafts (look.walk.towerWall x walk weight): 0 = every wall the same stone
     uRadial: { value: 0 }, // walk bench / story: radial wall extrusion, 0 = straight prisms (the default look)
     uCapEnv: { value: capEnvOf(cfg) },
     uHover: { value: cfg.hover },
@@ -175,7 +179,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         '#include <common>',
         `${defs}#include <common>
         uniform float uSheen, uSideDark, uGrain, uMottle, uTone, uAgentTone, uHover, uCapGloss, uCapEnv, uPillow, uHueDrift, uGrainBump, uEdge, uAO;
-        uniform float uRoughJitter, uTintJitter, uGradient, uDetail, uWalkRough, uWalkWall;
+        uniform float uRoughJitter, uTintJitter, uGradient, uDetail, uWalkRough, uWalkWall, uWalkTower, uWalkMatte;
         uniform vec3 uStoneBase, uStoneMid, uStoneLight, uStoneDark, uSheenColor;
         varying vec2 vCell;
         varying vec3 vStone;
@@ -259,6 +263,8 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
           col *= 1.0 + uTone * ( pt - 0.5 ) * 2.0;
           // agents are cut flat and polished: a paler cap, a small tone step per band
           vec3 ag = mix( uStoneMid, uStoneLight, min( 1.0, uAgentTone * 2.2 ) ) * ( 1.0 + bandStep );
+          // under the walker the whole tower is pale stone, with the wall's own striae and bands, so a pillar reads as a pillar and not only its cap
+          col = mix( col, ag * uWalkTower * ( 1.0 + 0.35 * striae + 0.22 * bands ), agent * wall * min( 1.0, uWalkTower * 4.0 ) );
           ag *= 1.0 + 0.5 * uPillow * ( 0.35 - 0.9 * smoothstep( 0.25, 1.0, rr ) );
           return mix( col, ag, agent * ( 1.0 - wall ) ) ;
         }`,
@@ -328,6 +334,8 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         }
         roughnessFactor = mix( roughnessFactor, roughnessFactor * ( 1.0 - uCapGloss ), gAgent * ( 1.0 - gWall ) ); // the cap is polished`,
       )
+      .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
+        metalnessFactor *= 1.0 - uWalkMatte * gWall;`)
       .replace(
         '#include <lights_fragment_maps>',
         `#include <lights_fragment_maps>
@@ -359,7 +367,7 @@ export function createCellMaterial(tier: Tier, palette: Palette, cfg: Look['cell
         #include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => `cell-${tier}-r13`;
+  material.customProgramCacheKey = () => `cell-${tier}-r14`;
 
   return {
     material,

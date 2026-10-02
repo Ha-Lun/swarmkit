@@ -91,7 +91,7 @@ for (const [label, arr] of [['camera position', P], ['look-at target', T]]) {
     let fov = 40, pos = splinePos.clone(), q = new Quaternion();
     if (w > 0.001) fov = walkCameraPose(route, base, splinePos, splineTgt, w, dp.chapterProgress, walkCfg, wpos, wq, walker), (pos = wpos.clone(), q = wq.clone());
     else { const m = new (splinePos.constructor)(); q = new Quaternion().setFromRotationMatrix(new (walker.quaternion.constructor === Quaternion ? (await import('three')).Matrix4 : null)().lookAt(splinePos, splineTgt, new Vector3(0, 1, 0))); }
-    poses.push({ S, w, pos, q, fov });
+    poses.push({ S, w, pos, q, fov, cp: dp.chapterProgress });
   }
   const n = poses.length;
   const d1p = [], d1a = [], d1f = [], d2p = [], d2a = [];
@@ -111,12 +111,22 @@ for (const [label, arr] of [['camera position', P], ['look-at target', T]]) {
   };
   console.log(`\nwalk: the blended story camera across Cells ${cellsAt}-${cellsEnd}vh (+-60vh), dive in, walk, rise out; ${n} samples every ${HW}vh:`);
   stat('position', d1p, d2p, 'L', 0.03);          // 0.03 L per 0.1vh = 0.3 L/vh, an order above the real peak (the eased legs)
-  stat('orientation', d1a, d2a, 'rad', 0.02);     // 0.02 rad per 0.1vh = 0.2 rad/vh (about 40 degrees per 100px of wheel at the 0.3 walk multiplier)
-  // FOV only moves with the weight: monotone up then down, no step
-  const fmax = Math.max(...d1f);
-  const fok = fmax < 0.2;
-  if (!fok) fails.push(`walk fov step ${fmax.toFixed(3)} deg`);
-  console.log(`  fov          max step ${fmax.toFixed(3)} deg/${HW}vh (limit 0.2)   ${fok ? 'PASS' : 'FAIL'}`);
+  // The route runs by itself at walkCfg.rate (autoplay), so inside it the limits are angular speeds in time, converted to per-0.1vh at that pace; the dive and the rise are scroll-driven
+  // (the wheel, or autoplay at its brisker pace) and keep the per-scroll limits: 0.02 rad per 0.1vh = 0.2 rad/vh (about 40 degrees per 100px of wheel at the 0.3 walk multiplier).
+  const routeSec = route.length / walkCfg.rate, vhPerSec = ((cellsEnd - cellsAt) * (walkCfg.uTo - walkCfg.uFrom)) / routeSec;
+  const per01vh = (perSec) => (perSec * HW) / vhPerSec;
+  const i0 = poses.findIndex((p) => p.cp >= walkCfg.uFrom && p.w > 0), i1 = poses.length - 1 - [...poses].reverse().findIndex((p) => p.cp <= walkCfg.uTo && p.w > 0);
+  const sliceMax = (name, a, b, d1, unit, max) => { if (b - a < 4) return; const m = Math.max(...d1.slice(a, b)), ok = m <= max; if (!ok) fails.push(`walk ${name}: step max ${m.toExponential(2)} (limit ${max})`); console.log(`  ${name.padEnd(12)} max step ${m.toExponential(2)} ${unit}/${HW}vh (limit ${max.toFixed(4)})   ${ok ? 'PASS' : 'FAIL'}`); };
+  if (i0 < 0 || i1 >= poses.length || i1 <= i0) { fails.push('walk: no samples on the route'); }
+  const degMax = 120, fovMax = 20;
+  console.log(`  (route: ${route.length.toFixed(0)} route units = ${routeSec.toFixed(0)} s at ${walkCfg.rate}/s, ${vhPerSec.toFixed(1)} vh/s; turns limited to ${degMax} deg/s = ${per01vh((degMax * Math.PI) / 180).toFixed(4)} rad/${HW}vh)`);
+  stat('orientation', d1a, d2a, 'rad', Infinity); // (the spike test over the whole journey; the step limits follow per part)
+  { const k = d2a.indexOf(Math.max(...d2a)) + 1, q = poses[k]; console.log(`    (largest orientation 2nd difference at ${q.S.toFixed(1)}vh, Cells progress ${q.cp.toFixed(4)}, walk weight ${q.w.toFixed(3)})`); }
+  sliceMax('orient dive', 0, i0, d1a, 'rad', 0.02);
+  sliceMax('orient route', i0, i1, d1a, 'rad', per01vh((degMax * Math.PI) / 180));
+  sliceMax('orient rise', i1, d1a.length, d1a, 'rad', 0.02);
+  const fovStat = (name, a, b, max) => { if (b - a < 4) return; const m = Math.max(...d1f.slice(a, b)), ok = m < max; if (!ok) fails.push(`walk fov ${name} step ${m.toFixed(3)} deg`); console.log(`  fov ${name.padEnd(8)} max step ${m.toFixed(3)} deg/${HW}vh (limit ${max.toFixed(3)})   ${ok ? 'PASS' : 'FAIL'}`); };
+  fovStat('dive', 0, i0, 0.2); fovStat('route', i0, i1, per01vh(fovMax)); fovStat('rise', i1, d1f.length, 0.2);
   // the weight is 0 at both ends of the sampled range, and the pose there is the plain spline (no residual offset)
   const wEnds = [poses[0].w, poses[n - 1].w];
   const wok = wEnds[0] === 0 && wEnds[1] === 0;
