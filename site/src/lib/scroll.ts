@@ -16,8 +16,9 @@ export interface ScrollState {
 
 export interface Scroll {
   state: ScrollState;
-  lock(): void;
-  unlock(): void;
+  /** Stop and start page scroll. Each caller locks under its own reason; the page scrolls again only when every reason has let go. */
+  lock(reason: string): void;
+  unlock(reason: string): void;
   dispose(): void;
 }
 
@@ -32,6 +33,7 @@ export function initScroll(): Scroll {
   const sections = [...document.querySelectorAll<HTMLElement>('main > section.chapter')];
   if (sections.length !== SEGMENTS.length) throw new Error(`scroll: ${sections.length} chapter sections, ${SEGMENTS.length} camera segments`);
 
+  const locks = new Set<string>();
   const state: ScrollState = { chapter: 0, chapterProgress: 0, globalProgress: 0 };
   // Every trigger starts where the previous one ends (same viewport line), so globalProgress is continuous (scrollToProgress hits
   // SEGMENTS[i].t0/t1 exactly at the boundaries).
@@ -59,10 +61,12 @@ export function initScroll(): Scroll {
   const cells = triggers[2];
   let held = false, paused = false, off = false, vel = 0, acc = 0;
   const inWalk = () => state.chapter === 2 && state.chapterProgress >= walkRamp.inFrom;
-  const offVirtual = lenis.on('virtual-scroll', ({ deltaY }) => { if (deltaY) off = deltaY < 0; });
-  const onDown = (e: PointerEvent) => { if (e.button === 0) held = true; };
+  const inPanel = (t: EventTarget | null) => t instanceof Element && !!t.closest('dialog'); // the Reference panel scrolls itself; its wheel and keys are not the page's
+  const offVirtual = lenis.on('virtual-scroll', ({ deltaY, event }) => { if (deltaY && !inPanel(event.target)) off = deltaY < 0; });
+  const onDown = (e: PointerEvent) => { if (e.button === 0 && !inPanel(e.target)) held = true; };
   const onUp = () => { held = false; };
   const onKey = (e: KeyboardEvent) => {
+    if (inPanel(e.target)) return;
     if (e.key === ' ' && !e.repeat && inWalk() && !(e.target instanceof Element && e.target.closest('a, button, input, select, textarea'))) { e.preventDefault(); paused = !paused; }
     else if (e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'Home') off = true;
     else if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === 'End') off = false;
@@ -87,8 +91,8 @@ export function initScroll(): Scroll {
 
   return {
     state,
-    lock: () => lenis.stop(),
-    unlock: () => lenis.start(),
+    lock(reason) { locks.add(reason); lenis.stop(); },
+    unlock(reason) { locks.delete(reason); if (!locks.size) lenis.start(); },
     dispose() {
       triggers.forEach((t) => t.kill());
       gsap.ticker.remove(raf);

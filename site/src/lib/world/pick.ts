@@ -39,7 +39,7 @@ export function createPick(ctx: WorldCtx, root: HTMLElement | null): Pick {
   root?.querySelectorAll<HTMLElement>('[data-agent]').forEach((b) => buttons.push(b));
   const size = new WeakMap<HTMLElement, [number, number]>();
 
-  const isControl = (t: EventTarget | null) => t instanceof Element && !!t.closest('a, button, input, select, [data-agent-list]');
+  const isControl = (t: EventTarget | null) => t instanceof Element && !!t.closest('a, button, input, select, dialog, [data-agent-list]');
   const onMove = (e: PointerEvent) => {
     if (isControl(e.target)) { onCanvas = false; dirty = true; return; }
     ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);

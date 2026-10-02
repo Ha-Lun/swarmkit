@@ -176,6 +176,19 @@ html[data-tier='fallback'] #world-root { display: none; }
   #world-root { transition: opacity 900ms ease-out; }
 }
 
+/* Reference panel (reference-panel.ts): a modal dialog sliding in from the right over the running world. Opacity and transform only. */
+.ref-dialog { position: fixed; inset: 0 0 0 auto; width: min(60rem, 100%); max-width: none; height: 100%; max-height: none; margin: 0; padding: 0; border: 0; border-left: 1px solid var(--wax-dim); background: var(--ink); color: var(--text); overflow-y: auto; overscroll-behavior: contain; opacity: 0; transform: translate3d(2rem, 0, 0); }
+.ref-dialog.is-in { opacity: 1; transform: none; }
+.ref-dialog::backdrop { background: rgb(8 11 16 / 0.6); }
+.ref-close { position: fixed; top: var(--space-4); right: var(--space-4); z-index: 5; }
+dialog.ref-dialog .ref { border-top: 0; padding-top: var(--space-16); } /* (the nav is behind the dialog, so the Reference needs no room for it) */
+@media (min-width: 1024px) { dialog.ref-dialog .ref .ref-rail { top: var(--space-4); } }
+@media (prefers-reduced-motion: no-preference) {
+  .ref-dialog { transition: opacity 240ms ease-out, transform 240ms ease-out; }
+  .ref-dialog::backdrop { animation: ref-fade 240ms ease-out; }
+  @keyframes ref-fade { from { opacity: 0; } to { opacity: 1; } }
+}
+
 /* Lenis */
 html.lenis, html.lenis body { height: auto; }
 .lenis.lenis-stopped { overflow: hidden; } /* the intro locks scroll; the gutter below keeps the layout from shifting */

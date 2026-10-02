@@ -3,6 +3,7 @@
 import { gsap } from 'gsap';
 import type { Agent } from '../agents';
 import { initScroll, type Scroll } from '../scroll';
+import { mountReferencePanel } from '../reference-panel';
 import type { RoutingNames } from './types';
 import { markTier, createFpsProbe, type PlayTier, type TierDecision } from './tiers';
 import { resetFx } from './scene-dom';
@@ -17,6 +18,7 @@ export function mountWorld(decision: TierDecision, agents: Agent[], routing: Rou
   let scroll: Scroll | null = null;
   let world: World | null = null;
   let running = true;
+  let disposePanel: (() => void) | null = null;
   const tick = (t: number) => world?.tick(t * 1000);
 
   function toFallback(reason: string) {
@@ -24,6 +26,8 @@ export function mountWorld(decision: TierDecision, agents: Agent[], routing: Rou
     running = false;
     gsap.ticker.remove(tick);
     world?.intro.skip();
+    disposePanel?.(); // the Reference goes back to being the last section
+    disposePanel = null;
     world?.dispose();
     scroll?.dispose(); // back to native scrolling
     root!.remove();
@@ -41,6 +45,7 @@ export function mountWorld(decision: TierDecision, agents: Agent[], routing: Rou
     toFallback('WebGL unavailable'); // no context, or a shader that will not compile
     return;
   }
+  disposePanel = mountReferencePanel(scroll);
   markTier(decision.tier, decision.reason);
   if (new URLSearchParams(location.search).has('debug')) (window as unknown as { __world: World }).__world = world; // inspection hook for QA
   world.warmup();

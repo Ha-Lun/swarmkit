@@ -123,7 +123,7 @@ export function createIntro(ctx: WorldCtx): IntroChapter {
     scramblers.forEach((s) => s.restore());
     scramblers = [];
     skipEvents.forEach((e) => window.removeEventListener(e, skip));
-    ctx.scroll.unlock();
+    ctx.scroll.unlock('intro');
     document.documentElement.dataset.world = 'ready';
     resolve?.();
     resolve = null;
@@ -144,7 +144,7 @@ export function createIntro(ctx: WorldCtx): IntroChapter {
       }
       running = true;
       document.documentElement.dataset.world = 'intro';
-      ctx.scroll.lock();
+      ctx.scroll.lock('intro');
       const title = mark; // the large wordmark scrambles in
       const tagline = document.querySelector<HTMLElement>('#top .motion-rise-late');
       if (title) scramblers.push(scrambler(title, motion.intro.titleStartMs, motion.intro.titleMs));
@@ -181,7 +181,7 @@ export function createIntro(ctx: WorldCtx): IntroChapter {
       if (mark) mark.style.transform = '';
       skipEvents.forEach((e) => window.removeEventListener(e, skip));
       scramblers.forEach((s) => s.restore());
-      ctx.scroll.unlock();
+      ctx.scroll.unlock('intro');
     },
   };
 }
