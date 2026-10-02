@@ -56,7 +56,6 @@ export interface WalkRoute {
   pathCells(): number[];
 }
 
-const BAND_ORDER = ['core', 't1', 'domain', 'gate'] as const;
 const HEADING_SIGMA = 0.004; // fraction of the route the heading is lightly rounded over (a couple of route units): the turns themselves are the ramps of walkCfg.turnSecQuarter
 const START_BACK = 0.6; // rad: the walk starts this far north (+Y) of the core cell
 const SPAN_SAMPLES = 20; // Catmull-Rom samples per cell-to-cell span
@@ -68,7 +67,11 @@ const smooth = (t: number) => t * t * (3 - 2 * t);
 type Seg = { kind: 'walk' | 'dwell'; i: number; s0: number; s1: number };
 interface Chain { pts: Vector3[]; cum: number[]; tan: Vector3[]; len: number; cells: number[]; /** arc length at which the walker stops, holdBack short of the end */ stop: number }
 
-export function createWalkRoute(lattice: Lattice): WalkRoute {
+/** A tower the route visits, by agent name, and how long the walker holds there (default walkCfg.dwellSec). */
+export interface WalkStopSpec { name: string; holdSec?: number }
+
+/** The route: a start on the street north of the core, then each `visit` tower in order, the first being the core. */
+export function createWalkRoute(lattice: Lattice, visit: WalkStopSpec[]): WalkRoute {
   const R = lattice.radius;
   const cells = lattice.cells;
   const globe = cells.filter((c) => !c.moon);
@@ -106,22 +109,14 @@ export function createWalkRoute(lattice: Lattice): WalkRoute {
     return best;
   };
 
-  // ---- tower order: bands in routing order; inside a band, nearest neighbour from the previous tower ----
-  const towers: { name: string; band: string; cell: number }[] = [];
+  // ---- the towers to visit, in the order given; every tower (stop or not) is an obstacle the street goes round ----
+  const towers: { name: string; band: string; cell: number; holdSec?: number }[] = [];
   const towerCell = new Set<number>();
-  let prevDir = new Vector3(0, 0, 1);
-  for (const band of BAND_ORDER) {
-    const pool = cells.map((c, i) => i).filter((i) => !cells[i].moon && cells[i].agent?.band === band);
-    // t1 keeps the stated routing order (explore, git-specialist, junior-dev = by name); larger bands go nearest-neighbour
-    if (band === 't1') pool.sort((a, b) => cells[a].agent!.name.localeCompare(cells[b].agent!.name));
-    while (pool.length) {
-      let best = 0;
-      if (band !== 't1') for (let k = 1; k < pool.length; k++) if (cells[pool[k]].normal.dot(prevDir) > cells[pool[best]].normal.dot(prevDir)) best = k;
-      const ci = pool.splice(best, 1)[0];
-      towers.push({ name: cells[ci].agent!.name, band, cell: ci });
-      towerCell.add(ci);
-      prevDir = cells[ci].normal;
-    }
+  cells.forEach((c, i) => { if (!c.moon && c.agent) towerCell.add(i); });
+  for (const sp of visit) {
+    const ci = cells.findIndex((c) => !c.moon && c.agent?.name === sp.name);
+    if (ci < 0) throw new Error(`walk: no tower for ${sp.name}`);
+    towers.push({ name: sp.name, band: cells[ci].agent!.band, cell: ci, holdSec: sp.holdSec });
   }
 
   // ---- Dijkstra over free (non-tower, non-moon) cells; cost = distance x (1 + FLAT_COST x height change) ----
@@ -217,8 +212,7 @@ export function createWalkRoute(lattice: Lattice): WalkRoute {
   towers.forEach((t, i) => {
     const len = Math.max(0.001, built[i].stop) * walkCfg.legStretch;
     segs.push({ kind: 'walk', i, s0: s, s1: s + len }); s += len;
-    const lastOfBand = i === towers.length - 1 || towers[i + 1].band !== t.band;
-    const dw = (lastOfBand ? walkCfg.dwellBandSec : walkCfg.dwellSec) * walkCfg.rate; // route units held at the tower (motion-config walkCfg)
+    const dw = (t.holdSec ?? walkCfg.dwellSec) * walkCfg.rate; // route units held at the tower (motion-config walkCfg)
     segs.push({ kind: 'dwell', i, s0: s, s1: s + dw }); s += dw;
   });
   const total = s;
@@ -513,16 +507,19 @@ export function blendWalkPose(
     _fS.copy(_fA).lerp(_fB, s);
     if (_fS.lengthSq() > 1e-12) {
       _fS.normalize();
-      // roll: the reference is the world's up at the start and the walker's frame at the end, and they can be nearly opposite (the walker's heading at the start of the route is almost straight
-      // down the world's Y), so the two are not mixed (the mix collapses to zero) but turned into one another about the view axis, always the same way round (the angle is taken in 0..2 pi,
-      // cut where the two coincide, which they never do while the roll is being turned)
+      // roll: the reference is the world's up at the start and the walker's frame at the end, and they can be nearly opposite, so the two are not mixed (the mix collapses to zero) but turned
+      // into one another about the view axis. The turn is a signed angle d about the view axis; its branch is centred on d1, the angle at the end of the descent (where the view is the
+      // walker's heading, known from the route alone), so d never crosses a branch cut on the way down however the route ends, and at w = 1 it is the shortest turn onto the walker's roll.
       _yp.copy(_up).addScaledVector(_fS, -_up.dot(_fS));
       _upRef.copy(_fB).multiplyScalar(1 - s).addScaledVector(upB, s);
       _upRef.addScaledVector(_fS, -_upRef.dot(_fS));
+      _y1.copy(_up).addScaledVector(_fB, -_up.dot(_fB));
+      _u1.copy(upB).addScaledVector(_fB, -upB.dot(_fB));
       if (_yp.lengthSq() > 1e-10 && _upRef.lengthSq() > 1e-10) {
         _yp.normalize(); _upRef.normalize();
-        let d = Math.atan2(_tmpV.crossVectors(_yp, _upRef).dot(_fS), _yp.dot(_upRef));
-        if (d < 0) d += Math.PI * 2;
+        const raw = Math.atan2(_tmpV.crossVectors(_yp, _upRef).dot(_fS), _yp.dot(_upRef));
+        const d1 = _y1.lengthSq() > 1e-10 && _u1.lengthSq() > 1e-10 ? Math.atan2(_tmpV.crossVectors(_y1.normalize(), _u1.normalize()).dot(_fB), _y1.dot(_u1)) : 0;
+        const d = d1 + (raw - d1) - Math.PI * 2 * Math.round((raw - d1) / (Math.PI * 2));
         const m = clamp((w - 0.3) / 0.3, 0, 1), roll = d * (m * m * (3 - 2 * m));
         _upRef.copy(_yp).multiplyScalar(Math.cos(roll)).addScaledVector(_tmpV.crossVectors(_fS, _yp), Math.sin(roll));
         _tmpV.copy(_fS).add(outPos);
@@ -537,7 +534,7 @@ export function blendWalkPose(
 }
 
 const _lookM = new Matrix4(), _up = new Vector3(0, 1, 0);
-const _fA = new Vector3(), _fB = new Vector3(), _fS = new Vector3(), _upRef = new Vector3(), _yp = new Vector3(), _tmpV = new Vector3();
+const _fA = new Vector3(), _fB = new Vector3(), _fS = new Vector3(), _upRef = new Vector3(), _yp = new Vector3(), _tmpV = new Vector3(), _y1 = new Vector3(), _u1 = new Vector3();
 const _bInv = new Quaternion(), _rA = new Quaternion(), _rB = new Quaternion(), _va = new Vector3(), _vb = new Vector3();
 /** rotation vector (axis x angle, angle in [0, pi]) of the rotation `q` relative to `base` */
 function rotVec(base: Quaternion, q: Quaternion, out: Vector3): Vector3 {

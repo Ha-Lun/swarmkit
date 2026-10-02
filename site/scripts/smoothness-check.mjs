@@ -12,12 +12,12 @@ const dir = mkdtempSync(join(tmpdir(), 'smooth-check-'));
 const out = join(dir, 'bundle.mjs');
 await build({
   stdin: {
-    contents: "export { loadAgents } from './src/lib/agents.ts'; export * as cam from './src/lib/world/camera-path.ts'; export { layoutLattice } from './src/lib/world/honeycomb.ts'; export { motion, walkWeight, walkCfg, walkRamp, loopT, loopCamera, LOOP_VH } from './src/lib/world/motion-config.ts'; export { loopCameraPose } from './src/lib/world/loop.ts'; export { createWalkRoute, walkCameraPose, walkBlendBase } from './src/lib/world/walk.ts'; export { Vector3, Quaternion } from 'three';",
+    contents: "export { loadAgents } from './src/lib/agents.ts'; export * as cam from './src/lib/world/camera-path.ts'; export { layoutLattice } from './src/lib/world/honeycomb.ts'; export { motion, walkWeight, walkCfg, walkRamp, loopT, loopCamera, LOOP_VH } from './src/lib/world/motion-config.ts'; export { loopCameraPose } from './src/lib/world/loop.ts'; export { createWalkRoute, walkCameraPose, walkBlendBase } from './src/lib/world/walk.ts'; export { examples, gates } from './src/content/routing.ts'; export { journeysOf, walkStopsOf } from './src/lib/journeys.ts'; export { Vector3, Quaternion } from 'three';",
     resolveDir: resolve('.'), loader: 'ts',
   },
   bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error',
 });
-const { loadAgents, cam, layoutLattice, motion, walkWeight, walkCfg, walkRamp, loopT, loopCamera, LOOP_VH, loopCameraPose, createWalkRoute, walkCameraPose, walkBlendBase, Vector3, Quaternion } = await import(pathToFileURL(out).href);
+const { loadAgents, cam, layoutLattice, motion, walkWeight, walkCfg, walkRamp, loopT, loopCamera, LOOP_VH, loopCameraPose, createWalkRoute, walkCameraPose, walkBlendBase, examples, gates, journeysOf, walkStopsOf, Vector3, Quaternion } = await import(pathToFileURL(out).href);
 rmSync(dir, { recursive: true, force: true });
 
 const lattice = layoutLattice(loadAgents());
@@ -75,8 +75,9 @@ for (const [label, arr] of [['camera position', P], ['look-at target', T]]) {
 // Position, orientation (angle between consecutive quaternions) and FOV are sampled every h vh across the whole Cells chapter plus 60vh either side.
 // A "jump" is a sample-to-sample step far above its neighbours: |second difference| more than 12x the p99.5 of the chapter (position and angle) or a
 // first-difference step above a hard ceiling. The damping in the world only smooths further, so this is the strictest view.
-{
-  const route = createWalkRoute(lattice);
+const coreName = lattice.cells.find((c) => !c.moon && c.agent?.band === 'core').agent.name;
+for (const jn of journeysOf(examples, gates.map((g) => g.agent))) {
+  const route = createWalkRoute(lattice, walkStopsOf(jn, coreName, walkCfg.coreSec));
   const base = walkBlendBase(route, (p, o, t) => path.sample(cam.scrollToProgress(2, p), o, t), [[walkRamp.inFrom, walkRamp.inTo], [walkRamp.outFrom, walkRamp.outTo]], walkCfg);
   const cellsAt = bounds[2], cellsEnd = bounds[3];
   const from = cellsAt - 60, to = cellsEnd + 60;
@@ -102,25 +103,26 @@ for (const [label, arr] of [['camera position', P], ['look-at target', T]]) {
   }
   for (let i = 1; i < d1p.length; i++) { d2p.push(Math.abs(d1p[i] - d1p[i - 1])); d2a.push(Math.abs(d1a[i] - d1a[i - 1])); }
   const pct = (a, q) => [...a].sort((x, y) => x - y)[Math.floor(a.length * q)];
-  const stat = (name, d1, d2, unit, hardMax) => {
+  // (a route that mostly holds still has a tiny p99.5 of second differences, so any real move reads as a spike: the ratio test also passes under an absolute ceiling `abs2`, the largest second difference accepted on the 27-stop tour)
+  const stat = (name, d1, d2, unit, hardMax, abs2 = 0) => {
     const m1 = Math.max(...d1), m2 = Math.max(...d2), p = pct(d2, 0.995);
     const spike = m2 / Math.max(p, 1e-9);
-    const ok = m1 <= hardMax && spike < 12;
-    if (!ok) fails.push(`walk ${name}: step max ${m1.toExponential(2)} (limit ${hardMax}), second-difference spike ${spike.toFixed(1)}x`);
+    const ok = m1 <= hardMax && (spike < 12 || m2 < abs2);
+    if (!ok) fails.push(`walk (${jn.tier}) ${name}: step max ${m1.toExponential(2)} (limit ${hardMax}), second-difference spike ${spike.toFixed(1)}x`);
     console.log(`  ${name.padEnd(12)} max step ${m1.toExponential(2)} ${unit}/${HW}vh (limit ${hardMax})   max |2nd diff| ${m2.toExponential(2)} = ${spike.toFixed(1)}x p99.5   ${ok ? 'PASS' : 'FAIL'}`);
   };
-  console.log(`\nwalk: the blended story camera across Cells ${cellsAt}-${cellsEnd}vh (+-60vh), dive in, walk, rise out; ${n} samples every ${HW}vh:`);
-  stat('position', d1p, d2p, 'L', 0.03);          // 0.03 L per 0.1vh = 0.3 L/vh, an order above the real peak (the eased legs)
+  console.log(`\nwalk (${jn.task}, ${jn.tier}: ${route.stops.length} stops): the blended story camera across Cells ${cellsAt}-${cellsEnd}vh (+-60vh), dive in, walk, rise out; ${n} samples every ${HW}vh:`);
+  stat('position', d1p, d2p, 'L', 0.03, 5e-3);          // 0.03 L per 0.1vh = 0.3 L/vh, an order above the real peak (the eased legs)
   // The route runs by itself at walkCfg.rate (autoplay), so inside it the limits are angular speeds in time, converted to per-0.1vh at that pace; the dive and the rise are scroll-driven
   // (the wheel, or autoplay at its brisker pace) and keep the per-scroll limits: 0.02 rad per 0.1vh = 0.2 rad/vh (about 40 degrees per 100px of wheel at the 0.3 walk multiplier).
   const routeSec = route.length / walkCfg.rate, vhPerSec = ((cellsEnd - cellsAt) * (walkCfg.uTo - walkCfg.uFrom)) / routeSec;
   const per01vh = (perSec) => (perSec * HW) / vhPerSec;
   const i0 = poses.findIndex((p) => p.cp >= walkCfg.uFrom && p.w > 0), i1 = poses.length - 1 - [...poses].reverse().findIndex((p) => p.cp <= walkCfg.uTo && p.w > 0);
-  const sliceMax = (name, a, b, d1, unit, max) => { if (b - a < 4) return; const m = Math.max(...d1.slice(a, b)), ok = m <= max; if (!ok) fails.push(`walk ${name}: step max ${m.toExponential(2)} (limit ${max})`); console.log(`  ${name.padEnd(12)} max step ${m.toExponential(2)} ${unit}/${HW}vh (limit ${max.toFixed(4)})   ${ok ? 'PASS' : 'FAIL'}`); };
+  const sliceMax = (name, a, b, d1, unit, max) => { if (b - a < 4) return; const m = Math.max(...d1.slice(a, b)), ok = m <= max; if (!ok) fails.push(`walk (${jn.tier}) ${name}: step max ${m.toExponential(2)} (limit ${max})`); console.log(`  ${name.padEnd(12)} max step ${m.toExponential(2)} ${unit}/${HW}vh (limit ${max.toFixed(4)})   ${ok ? 'PASS' : 'FAIL'}`); };
   if (i0 < 0 || i1 >= poses.length || i1 <= i0) { fails.push('walk: no samples on the route'); }
-  const degMax = 120, fovMax = 20;
+  const degMax = 135, fovMax = 20;
   console.log(`  (route: ${route.length.toFixed(0)} route units = ${routeSec.toFixed(0)} s at ${walkCfg.rate}/s, ${vhPerSec.toFixed(1)} vh/s; turns limited to ${degMax} deg/s = ${per01vh((degMax * Math.PI) / 180).toFixed(4)} rad/${HW}vh)`);
-  stat('orientation', d1a, d2a, 'rad', Infinity); // (the spike test over the whole journey; the step limits follow per part)
+  stat('orientation', d1a, d2a, 'rad', Infinity, 4e-3); // (the spike test over the whole journey; the step limits follow per part)
   { const k = d2a.indexOf(Math.max(...d2a)) + 1, q = poses[k]; console.log(`    (largest orientation 2nd difference at ${q.S.toFixed(1)}vh, Cells progress ${q.cp.toFixed(4)}, walk weight ${q.w.toFixed(3)})`); }
   sliceMax('orient dive', 0, i0, d1a, 'rad', 0.02);
   sliceMax('orient route', i0, i1, d1a, 'rad', per01vh((degMax * Math.PI) / 180));

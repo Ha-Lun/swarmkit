@@ -8,6 +8,7 @@ import {
 import type { Agent } from '../agents';
 import type { ScrollState } from '../scroll';
 import { createCameraPath, progressOfG, scrollToProgress, SEGMENTS } from './camera-path';
+import { walkStopsOf } from '../journeys';
 import { applyWalkLook, applyWalkSway, createWalkRoute, createWalkSway, horizonFog, walkBlendBase, walkCameraPose, type WalkPose, type WalkRoute } from './walk';
 import { range, sceneAlpha } from './scene-dom';
 import { accentCandidates, look, readPalette, type Palette } from './config';
@@ -132,7 +133,7 @@ export function createWorld(opts: WorldOptions): World {
   // ---- view + panel highlight ----
   const view: View = {
     growth: 1, dim: 0, dissolve: 0, canvasOpacity: 1, latticeVisible: true, swarmFade: 0, swarmAttract: 0,
-    focus: new Vector3(), focusWeight: 0, focusDrop: 0, overview: 0, loop: 0, camFloor: 0, walk: 0, walkStop: 0, lookYaw: 0, lookPitch: 0,
+    focus: new Vector3(), focusWeight: 0, focusDrop: 0, overview: 0, loop: 0, journey: routing.defaultJourney, camFloor: 0, walk: 0, walkStop: 0, lookYaw: 0, lookPitch: 0,
   };
   const hiTarget = new Map<number, number>();
   const hiCur = new Map<number, number>();
@@ -293,10 +294,23 @@ export function createWorld(opts: WorldOptions): World {
   let walkW = 0, walkCoreApplied = 1;
   let walkRoute: WalkRoute | null = null;
   const walkBase = new Quaternion(); // the orientation the dive and the rise are blended about (walkBlendBase)
+  // One route per task (the journey being told, view.journey): built the first time it is needed, kept after. The core holds the first stop and classifies every task.
+  const coreName = lattice.cells.find((c) => !c.moon && c.agent?.band === 'core')!.agent!.name;
+  const walks = new Map<number, { route: WalkRoute; base: Quaternion }>();
+  let walkJourney = -1;
   const buildWalk = () => {
-    walkRoute = createWalkRoute(lattice);
-    ctx.scroll.setWalkSec(walkRoute.length / walkCfg.rate); // autoplay runs the route at walkCfg.rate route units a second
-    walkBase.copy(walkBlendBase(walkRoute, (p, o, t) => path.sample(scrollToProgress(2, p), o, t), [[walkRamp.inFrom, walkRamp.inTo], [walkRamp.outFrom, walkRamp.outTo]], walkCfg));
+    const j = view.journey;
+    if (walkRoute && walkJourney === j) return;
+    let w = walks.get(j);
+    if (!w) {
+      const route = createWalkRoute(lattice, walkStopsOf(routing.journeys[j], coreName, walkCfg.coreSec));
+      w = { route, base: walkBlendBase(route, (p, o, t) => path.sample(scrollToProgress(2, p), o, t), [[walkRamp.inFrom, walkRamp.inTo], [walkRamp.outFrom, walkRamp.outTo]], walkCfg) };
+      walks.set(j, w);
+    }
+    walkJourney = j;
+    walkRoute = w.route;
+    walkBase.copy(w.base);
+    ctx.scroll.setWalkSec(w.route.length / walkCfg.rate); // autoplay runs the route at walkCfg.rate route units a second
   };
   const wpose: WalkPose = { position: new Vector3(), quaternion: new Quaternion(), fov: 40, up: new Vector3(), forward: new Vector3(), ground: 0, stop: 0 };
   const sway = createWalkSway();
@@ -337,7 +351,7 @@ export function createWorld(opts: WorldOptions): World {
     let fov = 40, near = 0.1;
     if (walkW > 0.001) {
       // the walk: blend the spline pose into the walker's pose with the one walk weight (position, orientation and FOV on the same curve)
-      if (!walkRoute) buildWalk();
+      buildWalk();
       fov = walkCameraPose(walkRoute!, walkBase, pos, target, walkW, walkCp, walkCfg, camera.position, camera.quaternion, wpose);
       // drag-to-look, faded in with the weight so the dive and the rise are never turned (walk-look.ts)
       const lf = Math.min(1, Math.max(0, (walkW - 0.6) / 0.4));
@@ -425,7 +439,7 @@ export function createWorld(opts: WorldOptions): World {
       dampProgress(dt);
 
       // lazy pieces, built ahead of the chapter that needs them
-      if (!walkRoute && ch >= 1) buildWalk(); // ahead of the Cells chapter (a few tens of ms, off the dive)
+      if (ch >= 1) buildWalk(); // ahead of the Cells chapter (a few tens of ms, off the dive); a no-op unless the task changed
       if (!swarm && !swarmBuilding && ch >= 2) void ensureSwarm();
       if (ch === 4 || ch <= 1) freeTargets(); // (the hex-dissolve targets are no longer allocated: the Cells -> Proof transition is a continuous pull-back, view.dissolve stays 0)
 

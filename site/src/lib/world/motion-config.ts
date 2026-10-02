@@ -114,9 +114,9 @@ export function walkWeight(chapter: number, p: number): number {
 export const walkCfg = {
   eye: 0.3, fov: 75, pitchDeg: 15, near: 0.03, uFrom: 0.2, uTo: 0.82, detail: 1, coreDim: 0.9, fogNear: 0.6, fogFar: 3,
   /** The tour's pace. The route parameter runs at `rate` route units per second under autoplay (scroll.ts is told the route's length and sets its speed from this), so every duration below is
-   *  in seconds: the walker holds at a tower for dwellSec (dwellBandSec at the last tower of a band), a street takes legStretch route units per world unit walked (so a street of 5.6 units takes
+   *  in seconds: the walker holds at a tower for dwellSec (coreSec at the core, where the task is classified and approved), a street takes legStretch route units per world unit walked (so a street of 5.6 units takes
    *  5.6 x 3 / 8 = 2.1 s), and a turn to face a tower or on to the next street takes turnSecQuarter seconds per 90 degrees (between turnMinSec and turnMaxSec). */
-  rate: 8, dwellSec: 4, dwellBandSec: 5, legStretch: 3, turnSecQuarter: 1.2, turnMinSec: 0.8, turnMaxSec: 2.8,
+  rate: 8, dwellSec: 4, coreSec: 6, legStretch: 3, turnSecQuarter: 1.2, turnMinSec: 0.8, turnMaxSec: 2.8,
   /** while it faces a tower the view zooms to holdFov and tips up so the cap sits capY of the way from the centre to the top edge of the frame (never above capUpMax degrees);
    *  zoomSec is how long that zoom and tip take to ease in and out (a gaussian over the facing weight, in seconds) */
   holdFov: 62, capY: 0.45, capUpMax: 40, zoomSec: 0.7,

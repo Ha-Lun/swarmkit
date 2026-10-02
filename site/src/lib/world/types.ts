@@ -5,6 +5,7 @@ import type { Honeycomb, Lattice } from './honeycomb';
 import type { Flow } from './routes';
 import type { RingFx } from './rings';
 import type { WalkRoute } from './walk';
+import type { Journey } from '../journeys';
 
 export interface RoutingNames {
   /** the three quality-gate agents */
@@ -13,6 +14,9 @@ export interface RoutingNames {
   specialist?: string;
   /** the routing tier the scrubbed hive route belongs to (the T2 example) */
   mainTier?: string;
+  /** the tasks the page can tell, one per routing example (journeys.ts), and the one it tells unless the viewer picks another (the T2 example) */
+  journeys: Journey[];
+  defaultJourney: number;
 }
 
 export type ActiveTier = 'high' | 'medium';
@@ -38,6 +42,7 @@ export interface View {
   lookPitch: number;
   walk: number; // 0..1 how far the camera is into the ground walk (world.ts writes it every frame; chapters read the last frame's value)
   walkStop: number; // index of the tower the walker is approaching or holding at (a route stop; world.ts writes it while walking)
+  journey: number; // index into routing.journeys of the task being told (the chooser writes it; the world builds that task's route when it changes)
 }
 
 export interface WorldCtx {

@@ -3,12 +3,14 @@
 // text stays the LCP element. Fallback tier: no canvas, no intro, the SVG backdrop instead.
 import { facts } from '../lib/facts';
 import { examples, gates } from '../content/routing';
+import { journeysOf } from '../lib/journeys';
 import LatticeBackdrop from './LatticeBackdrop.astro';
 
 const gateNames: string[] = gates.map((g) => g.agent);
 const specialist = examples.find((e) => e.tier === 'T2')?.route.find((r) => r.agent && r.agent !== 'explore' && !gateNames.includes(r.agent))?.agent;
 const mainTier = examples.find((e) => e.tier === 'T2')?.tier;
-const data = { agents: facts.agents, routing: { gates: gateNames, specialist, mainTier } };
+const journeys = journeysOf(examples, gateNames);
+const data = { agents: facts.agents, routing: { gates: gateNames, specialist, mainTier, journeys, defaultJourney: Math.max(0, journeys.findIndex((j) => j.tier === 'T2')) } };
 ---
 <LatticeBackdrop />
 <div id="world-root" aria-hidden="true"></div>
