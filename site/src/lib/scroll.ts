@@ -25,7 +25,7 @@ export interface Scroll {
 export function initScroll(): Scroll {
   gsap.registerPlugin(ScrollTrigger);
   gsap.ticker.lagSmoothing(0);
-  const lenis = new Lenis({ duration: 1.0, autoRaf: false, anchors: true });
+  const lenis = new Lenis({ duration: 1.0, autoRaf: false, anchors: true, infinite: true, syncTouch: true }); // the page loops: the finale ends on the intro's opening frame (finale.ts)
   lenis.on('scroll', ScrollTrigger.update);
   const raf = (t: number) => lenis.raf(t * 1000);
   gsap.ticker.add(raf);

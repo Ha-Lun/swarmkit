@@ -12,12 +12,12 @@ const dir = mkdtempSync(join(tmpdir(), 'smooth-check-'));
 const out = join(dir, 'bundle.mjs');
 await build({
   stdin: {
-    contents: "export { loadAgents } from './src/lib/agents.ts'; export * as cam from './src/lib/world/camera-path.ts'; export { layoutLattice } from './src/lib/world/honeycomb.ts'; export { motion, walkWeight, walkCfg, walkRamp } from './src/lib/world/motion-config.ts'; export { createWalkRoute, walkCameraPose, walkBlendBase } from './src/lib/world/walk.ts'; export { Vector3, Quaternion } from 'three';",
+    contents: "export { loadAgents } from './src/lib/agents.ts'; export * as cam from './src/lib/world/camera-path.ts'; export { layoutLattice } from './src/lib/world/honeycomb.ts'; export { motion, walkWeight, walkCfg, walkRamp, loopT, loopCamera, LOOP_VH } from './src/lib/world/motion-config.ts'; export { loopCameraPose } from './src/lib/world/loop.ts'; export { createWalkRoute, walkCameraPose, walkBlendBase } from './src/lib/world/walk.ts'; export { Vector3, Quaternion } from 'three';",
     resolveDir: resolve('.'), loader: 'ts',
   },
   bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error',
 });
-const { loadAgents, cam, layoutLattice, motion, walkWeight, walkCfg, walkRamp, createWalkRoute, walkCameraPose, walkBlendBase, Vector3, Quaternion } = await import(pathToFileURL(out).href);
+const { loadAgents, cam, layoutLattice, motion, walkWeight, walkCfg, walkRamp, loopT, loopCamera, LOOP_VH, loopCameraPose, createWalkRoute, walkCameraPose, walkBlendBase, Vector3, Quaternion } = await import(pathToFileURL(out).href);
 rmSync(dir, { recursive: true, force: true });
 
 const lattice = layoutLattice(loadAgents());
@@ -126,6 +126,38 @@ for (const [label, arr] of [['camera position', P], ['look-at target', T]]) {
   const onGround = poses.filter((p) => p.w === 1);
   const upErr = Math.max(...onGround.map((p) => { const up = new Vector3(0, 1, 0).applyQuaternion(p.q); return 1 - up.dot(p.pos.clone().normalize()); }));
   console.log(`  at full weight the camera's up matches the surface normal: max deviation from 1 = ${upErr.toFixed(3)} (a pitch of ${walkCfg.pitchDeg} deg tips the image up only slightly)`);
+}
+
+// ---- the loop: the finale's homecoming ends on the intro's rest pose, so the wrap of the scroll (end -> start) cannot be seen ----
+// The camera path sits at its end (g = 1) over the whole homecoming; the world blends it back to sample(SEGMENTS[0].t1), the pose the intro holds, with loopCamera(b) (world.ts pose()).
+{
+  const rest = new Vector3(), restT = new Vector3(), a = new Vector3(), aT = new Vector3();
+  path.sample(cam.SEGMENTS[0].t1, rest, restT);
+  const span = motion.runway.finale - 40, HL = 0.1; // the last trigger spans runway - 40vh
+  const n = Math.round(LOOP_VH / HL), poses = [];
+  for (let i = 0; i <= n; i++) {
+    const pf = 1 - (LOOP_VH - i * HL) / span; // finale chapterProgress
+    const g = cam.scrollToProgress(4, pf);
+    path.sample(g, a, aT);
+    const w = loopCamera(loopT(pf));
+    loopCameraPose(a, aT, rest, restT, w);
+    poses.push({ pos: a.clone().divideScalar(L), tgt: aT.clone().divideScalar(L), g, w });
+  }
+  const end = poses[n];
+  const seam = end.pos.distanceTo(rest.clone().divideScalar(L)) + end.tgt.distanceTo(restT.clone().divideScalar(L));
+  const steps = poses.slice(1).map((p, i) => p.pos.distanceTo(poses[i].pos));
+  const smax = Math.max(...steps), lastStep = steps[steps.length - 1];
+  const minR = Math.min(...poses.map((p) => p.pos.length()));
+  const gOk = poses.every((p) => Math.abs(p.g - 1) < 1e-9);
+  const checks = [
+    [`finale end pose = intro rest pose (distance ${seam.toExponential(1)} L)`, seam < 1e-9],
+    [`camera path holds its end over the homecoming (g = 1 throughout)`, gOk],
+    [`position max step ${smax.toExponential(2)} L/${HL}vh (limit 0.03)`, smax < 0.03],
+    [`flat at the seam: last step ${lastStep.toExponential(1)} L < 2% of the max`, lastStep < 0.02 * smax],
+    [`never closer to the globe than ${minR.toFixed(2)} L (> 3)`, minR > 3],
+  ];
+  console.log(`\nloop: the finale homecoming (${LOOP_VH}vh) back to the intro's rest pose, ${n + 1} samples:`);
+  for (const [label, ok] of checks) { if (!ok) fails.push(`loop: ${label}`); console.log(`  ${label}   ${ok ? 'PASS' : 'FAIL'}`); }
 }
 
 console.log(fails.length ? `\nFAIL: ${fails.join('; ')}` : '\nsmoothness OK: no acceleration spike at the four chapter boundaries (threshold 0.5 x p95 |accel|)');

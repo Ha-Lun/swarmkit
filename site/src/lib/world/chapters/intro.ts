@@ -13,6 +13,8 @@ export interface IntroChapter extends Chapter {
   /** starts the sequence (or skips it straight away); resolves when it has finished or been skipped */
   start(): Promise<void>;
   skip(): void;
+  /** The finale's homecoming (the page loops): the opening frame, the large wordmark, tagline and cue, faded in by v (0..1, and 0 hides the scene). At 1 it is the frame update(0) draws. */
+  preview(v: number): void;
 }
 
 const GLYPHS = '!<>-_/[]{}=+*^?#%&';
@@ -110,7 +112,7 @@ export function createIntro(ctx: WorldCtx): IntroChapter {
     mark.style.transform = `translate3d(${dx.toFixed(1)}px, ${dy.toFixed(1)}px, 0) scale(${(1 + t * (geo.scale - 1)).toFixed(4)})`;
     setOpacity(mark, 1 - range(t, 0.78, 1));
   }
-  let started = false, running = false, done = false, t0 = -1;
+  let started = false, running = false, done = false, t0 = -1, shown = -1;
   let resolve: (() => void) | null = null;
   let scramblers: Scrambler[] = [];
   const skipEvents = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const;
@@ -153,7 +155,15 @@ export function createIntro(ctx: WorldCtx): IntroChapter {
       return new Promise<void>((r) => (resolve = r));
     },
     skip,
-    enter() {},
+    preview(v) {
+      if (v === shown) return;
+      shown = v;
+      scene.fade(v); // opacity and inert, so the hidden cue link is out of the tab order until it shows
+      setOpacity(tagWrap, 1);
+      setOpacity(foot, 1);
+      applyMark(1 - v); // the wordmark grows out of the corner mark, the intro's own scroll move played backwards
+    },
+    enter() { shown = -1; },
     fade: (v) => scene.fade(v),
     update(p) {
       const lead = 1 - range(p, 0.1, 0.5);

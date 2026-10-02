@@ -31,6 +31,7 @@ export interface View {
   focusWeight: number;
   focusDrop: number; // lowers the look-at target (x camera distance) so the focus sits higher on screen, clear of the DOM panels
   overview: number; // 0..1 blend toward the wide hive view of the whole lattice
+  loop: number; // 0..1 through the finale's homecoming (the page loops; 0 anywhere else): the world blends the camera back to the intro's rest pose with it
   // persistent
   camFloor: number; // camera path never goes below this (intro sets it)
   lookYaw: number; // the walker's drag-to-look offsets (radians), written by the Cells chapter and applied by the world on the ground

@@ -129,6 +129,8 @@ export interface Swarm {
   setViewportHeight(px: number): void;
   /** re-sample target points (e.g. after a textWidth change) */
   retarget(textWidth: number): void;
+  /** back to the spawn ball at rest (a swarm that has been out of sight would otherwise come back already assembled) */
+  reset(): void;
   dispose(): void;
 }
 
@@ -139,13 +141,16 @@ export function createSwarm(renderer: WebGLRenderer, tier: Tier, cfg: Look['part
   const dtPos = gpu.createTexture();
   const dtVel = gpu.createTexture();
   const pa = dtPos.image.data as unknown as Float32Array;
-  for (let i = 0; i < size * size; i++) {
-    // uniform in a ball, standing in for the dissolved lattice
-    const v = [Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1];
-    const l = Math.hypot(v[0], v[1], v[2]) || 1;
-    const r = cfg.spawnRadius * Math.cbrt(Math.random());
-    pa.set([(v[0] / l) * r, (v[1] / l) * r, (v[2] / l) * r, 1], i * 4);
-  }
+  const spawn = () => {
+    for (let i = 0; i < size * size; i++) {
+      // uniform in a ball, standing in for the dissolved lattice
+      const v = [Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1];
+      const l = Math.hypot(v[0], v[1], v[2]) || 1;
+      const r = cfg.spawnRadius * Math.cbrt(Math.random());
+      pa.set([(v[0] / l) * r, (v[1] / l) * r, (v[2] / l) * r, 1], i * 4);
+    }
+  };
+  spawn();
 
   const targetTex = new DataTexture(rasterizeTargets(TARGET_TEXT, size * size, cfg.textWidth), size, size, RGBAFormat, FloatType);
   targetTex.minFilter = targetTex.magFilter = NearestFilter;
@@ -189,6 +194,12 @@ export function createSwarm(renderer: WebGLRenderer, tier: Tier, cfg: Look['part
     retarget(textWidth) {
       targetTex.image.data!.set(rasterizeTargets(TARGET_TEXT, size * size, textWidth));
       targetTex.needsUpdate = true;
+    },
+    reset() {
+      spawn();
+      dtPos.needsUpdate = true;
+      for (const rt of posVar.renderTargets) gpu.renderTexture(dtPos, rt);
+      for (const rt of velVar.renderTargets) gpu.renderTexture(dtVel, rt); // (dtVel was never written: zero velocity)
     },
     update(dt, t, c) {
       const step = Math.min(dt, 1 / 30);

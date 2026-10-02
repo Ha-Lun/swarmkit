@@ -5,7 +5,7 @@ export const SWARM_CAM = { fov: 40, z: 24 } as const;
 
 export const motion = {
   /** Scroll length of each chapter runway, in viewport heights. Every runway holds one fixed, viewport-tall scene that only fades. */
-  runway: { intro: 100, hive: 300, cells: 1500, proof: 150, finale: 400 },
+  runway: { intro: 100, hive: 300, cells: 1500, proof: 150, finale: 550 }, // finale: 400 for the swarm and the command, plus LOOP_VH of homecoming below
   /** The scroll lengths camera-path.ts solves its speed profile for (the lengths before the walk). The layout lengths above may differ (Cells is longer for the walk); the camera's
    *  scroll-to-position mapping is solved on THESE, so every chapter keeps exactly the camera it had, and a longer Cells only spreads its progress over more scroll. */
   mapRunway: { intro: 100, hive: 300, cells: 300, proof: 150, finale: 400 },
@@ -44,7 +44,7 @@ export const motion = {
    *  from `fromVh` scroll before it (the tail of Cells) to `toVh` after it (the head of Proof). camera-path.ts centres its slow-down on it. */
   proof: { fromVh: -25, toVh: 65, canvasOpacity: 0.5 },
   finale: {
-    // chapterProgress on a 400vh runway. The lattice breaks up while the scene is still sliding in, the swarm
+    // chapterProgress of the part before the homecoming (the first 360vh of the scroll, which is `q` in finale.ts). The lattice breaks up while the scene is still sliding in, the swarm
     // assembles by 0.5, then the assembled command holds (no fade back: nothing sits behind it any more).
     breakEnd: 0.16, // lattice fully gone
     swarmInStart: 0.02,
@@ -74,6 +74,17 @@ export const motion = {
 } as const;
 
 const smooth3 = (t: number) => t * t * (3 - 2 * t);
+/**
+ * The page loops: Lenis wraps the scroll (scroll.ts), so the last LOOP_VH of the finale is a homecoming that ends on exactly the frame the intro opens with. The swarm lets go
+ * and fades, the lattice regrows from the core, the camera swings back to the intro's rest pose and the intro's wordmark fades in. Finale chapterProgress runs 0..loopFrom
+ * on the old finale, loopFrom..1 on the homecoming. (The last trigger spans runway - 40vh: it ends at "bottom bottom".)
+ */
+export const LOOP_VH = 150;
+export const loopFrom = 1 - LOOP_VH / (motion.runway.finale - 40);
+/** progress through the homecoming, 0..1, for finale chapterProgress p */
+export const loopT = (p: number): number => Math.min(1, Math.max(0, (p - loopFrom) / (1 - loopFrom)));
+/** the camera's weight (0 = finale view, 1 = the intro's rest pose) for homecoming progress b; flat at both ends so the seam has no kink */
+export const loopCamera = (b: number): number => smooth3(Math.min(1, Math.max(0, (b - 0.08) / 0.92)));
 /** Spin weight 0..1 for chapter `chapter` at chapterProgress p: 1 = turning freely, 0 = parked at home.
  *  Intro: eases from 1 to 0 over the tail of its runway. Hive and Cells: 0. Cells tail -> Proof: rises with the dissolve window. Proof, finale: 1. */
 export function spinWeight(chapter: number, p: number): number {

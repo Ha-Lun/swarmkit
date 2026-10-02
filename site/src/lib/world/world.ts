@@ -9,10 +9,11 @@ import type { Agent } from '../agents';
 import type { ScrollState } from '../scroll';
 import { createCameraPath, progressOfG, scrollToProgress, SEGMENTS } from './camera-path';
 import { applyWalkLook, applyWalkSway, createWalkRoute, createWalkSway, horizonFog, walkBlendBase, walkCameraPose, type WalkPose, type WalkRoute } from './walk';
-import { sceneAlpha } from './scene-dom';
+import { range, sceneAlpha } from './scene-dom';
 import { accentCandidates, look, readPalette, type Palette } from './config';
 import { cellTopOf, createHoneycomb, layoutLattice, type Honeycomb } from './honeycomb';
-import { motion, spinWeight, SWARM_CAM, walkCfg, walkRamp, walkWeight } from './motion-config';
+import { loopCamera, motion, spinWeight, SWARM_CAM, walkCfg, walkRamp, walkWeight } from './motion-config';
+import { loopCameraPose } from './loop';
 import { createPost, type Post } from './post';
 import { createStudio, shadowExtentOf, type Studio } from './studio';
 import { createFlow, type Flow } from './routes';
@@ -130,7 +131,7 @@ export function createWorld(opts: WorldOptions): World {
   // ---- view + panel highlight ----
   const view: View = {
     growth: 1, dim: 0, dissolve: 0, canvasOpacity: 1, latticeVisible: true, swarmFade: 0, swarmAttract: 0,
-    focus: new Vector3(), focusWeight: 0, focusDrop: 0, overview: 0, camFloor: 0, walk: 0, walkStop: 0, lookYaw: 0, lookPitch: 0,
+    focus: new Vector3(), focusWeight: 0, focusDrop: 0, overview: 0, loop: 0, camFloor: 0, walk: 0, walkStop: 0, lookYaw: 0, lookPitch: 0,
   };
   const hiTarget = new Map<number, number>();
   const hiCur = new Map<number, number>();
@@ -155,7 +156,7 @@ export function createWorld(opts: WorldOptions): World {
 
   // ---- chapters ----
   const intro = createIntro(ctx);
-  const chapters: Chapter[] = [intro, createHive(ctx), createCells(ctx), createProof(ctx), createFinale(ctx)];
+  const chapters: Chapter[] = [intro, createHive(ctx), createCells(ctx), createProof(ctx), createFinale(ctx, intro)];
   if (chapters.length !== SEGMENTS.length) throw new Error('world: chapter modules must match camera segments');
   let active = -1;
   chapters.forEach((c, i) => c.fade(i === 0 ? 1 : 0)); // scenes start hidden (and inert) until their handover
@@ -168,6 +169,7 @@ export function createWorld(opts: WorldOptions): World {
   let rtC: WebGLRenderTarget | null = null; // the dissolve composite (high tier only: it feeds the post chain)
   let swarm: Swarm | null = null;
   let swarmBuilding = false;
+  let swarmLive = false; // the swarm has been simulated since its last reset
   const swarmScene = new Scene();
   const swarmCam = new PerspectiveCamera(SWARM_CAM.fov, 1, 0.1, 100);
   swarmCam.position.set(0, 0, SWARM_CAM.z);
@@ -262,11 +264,14 @@ export function createWorld(opts: WorldOptions): World {
 
   // ---- per-frame ----
   const pos = new Vector3(), target = new Vector3(), focusSm = new Vector3();
-  const posB = new Vector3(), targetB = new Vector3(), aim = new Vector3();
+  const posB = new Vector3(), targetB = new Vector3(), aim = new Vector3(), posL = new Vector3(), targetL = new Vector3();
   let focusW = 0, dropSm = 0, overviewSm = 0;
   // critically damped progress (smoothTime ~0.15 s): the camera never sees a raw wheel step
   const SMOOTH_TIME = 0.15;
   let gSm = state.globalProgress, gVel = 0;
+  // The page loops (Lenis wraps the scroll): the finale's last stretch is a homecoming that ends on the intro's opening frame (finale.ts), so the wrap itself is invisible, but the
+  // scroll state jumps from the end to the start. The damped progress and the homecoming weight are snapped to it, or the camera would sweep back through the whole path.
+  let prevG = state.globalProgress, loopSm = 0;
   function dampProgress(dt: number) {
     const w = 2 / SMOOTH_TIME, e = Math.exp(-w * dt);
     const change = gSm - state.globalProgress;
@@ -311,6 +316,10 @@ export function createWorld(opts: WorldOptions): World {
 
   function pose(g: number, dt: number) {
     path.sample(g, pos, target);
+    if (loopSm > 0.0001) { // the homecoming: from the finale's end view back to the intro's rest pose (what g = SEGMENTS[0].t1 samples, the floor the intro holds)
+      path.sample(SEGMENTS[0].t1, posL, targetL);
+      loopCameraPose(pos, target, posL, targetL, loopSm);
+    }
     if (overviewSm > 0.001) {
       path.sample(SEGMENTS[1].t1, posB, targetB); // end of the hive chapter: the whole globe and its moon in frame
       pos.lerp(posB, overviewSm);
@@ -398,13 +407,16 @@ export function createWorld(opts: WorldOptions): World {
       }
       // stateless per-frame outputs: chapters overwrite what they care about
       view.growth = 1; view.dim = 0; view.dissolve = 0; view.canvasOpacity = 1; view.latticeVisible = true;
-      view.swarmFade = 0; view.swarmAttract = 0; view.focusWeight = 0; view.focusDrop = 0; view.overview = 0;
+      view.swarmFade = 0; view.swarmAttract = 0; view.focusWeight = 0; view.focusDrop = 0; view.overview = 0; view.loop = 0;
       chapters[ch].update(state.chapterProgress);
       // fixed scenes only change opacity: this one fades in over the first 25vh of its runway and out over the last 25vh, so the
       // neighbours are always fully faded (and inert) while it is on screen
       chapters[ch].fade(sceneAlpha(ch, state.chapterProgress));
       if (ch + 1 < chapters.length) chapters[ch + 1].fade(0);
       if (ch > 0) chapters[ch - 1].fade(0);
+      if (Math.abs(state.globalProgress - prevG) > 0.5) { gSm = state.globalProgress; gVel = 0; loopSm = loopCamera(view.loop); } // the scroll wrapped
+      else loopSm += (loopCamera(view.loop) - loopSm) * (1 - Math.exp(-dt / SMOOTH_TIME));
+      prevG = state.globalProgress;
       dampProgress(dt);
 
       // lazy pieces, built ahead of the chapter that needs them
@@ -455,8 +467,10 @@ export function createWorld(opts: WorldOptions): World {
     else if (walkDprCap && walkW < 0.005) { walkDprCap = false; resize(true); }
     if (walkW > 0.001) { flows.forEach((f) => (f.packet.group.visible = false)); rings.mesh.visible = false; } // the walker does not see the comet
     flows.forEach((f) => (f.packet.aoGroup.visible = f.packet.group.visible));
-    const coreScale = 1 - walkCfg.coreDim * walkW; // the seam glow dims under the walk camera so bloom does not bleed through the seams
-    if (Math.abs(coreScale - walkCoreApplied) > 0.005 || (walkW === 0 && walkCoreApplied !== 1)) { comb.setCoreScale(coreScale); walkCoreApplied = coreScale; }
+    // the seam glow dims under the walk camera so bloom does not bleed through the seams, and on the homecoming it comes in with the regrowing lattice (a bare glowing ball is only the very first rings' worth)
+    const loopCore = view.loop > 0 ? range(view.growth, 0.45, 1) : 1;
+    const coreScale = (1 - walkCfg.coreDim * walkW) * loopCore;
+    if (Math.abs(coreScale - walkCoreApplied) > 0.005 || (coreScale === 1 && walkCoreApplied !== 1)) { comb.setCoreScale(coreScale); walkCoreApplied = coreScale; }
     comb.uniforms.uDetail.value = Math.max(look.cell.detail, walkCfg.detail * walkW); // the close-up richness of the metal fades in with the dive (the orbit views are untouched)
     comb.uniforms.uWalkWall.value = look.walk.wallLift * walkW;
     comb.uniforms.uWalkRough.value = look.walk.topRough * walkW; // rougher tile tops under the walker (the key's highlight spreads instead of glaring)
@@ -493,7 +507,9 @@ export function createWorld(opts: WorldOptions): World {
       renderer.render(scene, camera);
     }
 
+    if (swarm && view.swarmFade <= 0.002 && swarmLive) { swarm.reset(); swarmLive = false; } // out of sight: back to the spawn ball, so the next finale assembles from scratch
     if (swarm && view.swarmFade > 0.002) {
+      swarmLive = true;
       pcfg.attract = view.swarmAttract;
       pcfg.opacity = look.particles.opacity * view.swarmFade;
       swarm.update(dt, time, pcfg);
