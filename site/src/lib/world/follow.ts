@@ -35,7 +35,9 @@ export function createFollowRoute(lattice: Lattice, visit: WalkStopSpec[]): Walk
     t += v.holdSec ?? walkCfg.dwellSec;
     tD.push(t);
   });
-  const total = t;
+  // a short journey (a task with one stop) holds its last stop on: the autoplay speed of a very short route is far above the tail's and would sweep the rise past
+  tD[n - 1] = Math.max(tD[n - 1], walkCfg.minSec);
+  const total = tD[n - 1];
 
   // ---- the camera's viewpoints ----
   const tangentIn = (i: number, out: Vector3) => {

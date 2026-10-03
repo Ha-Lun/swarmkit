@@ -8,9 +8,10 @@ import { cellTopOf, type Lattice } from './honeycomb';
 // The comet: a glass orb (frosted, translucent, bright rim, a glowing core inside) trailing a tapered glass tube that lengthens with the speed
 // it is seen to move at, and a few short-lived sparks it sheds. Real meshes, studio-lit; alpha-blended (no additive blending, no soft sprite),
 // and it is the only thing on the site that uses the accent.
-const TAIL_POINTS = 40;
-const TAIL_SIDES = 8;
-const MAX_SPARKS = 20;
+const TAIL_POINTS = 48;
+const TAIL_SIDES = 16;
+const MAX_SPARKS = 28;
+const BREATH_SEC = 2.6; // one slow breath of the resting comet: the head, the core, the aura and the tail's length swell and settle
 
 /** Anything the comet can travel along: distance (world units) to a point. Routes clamp; loops wrap. */
 export interface PathSource {
@@ -74,7 +75,7 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
 
   // head: a glass sphere (unit radius, scaled per frame) with a small opaque glowing core inside, which keeps it readable on any background
   const glass = { transparent: true, depthWrite: false, roughness: 0.12, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.05, sheen: 1, sheenRoughness: 0.35, sheenColor: new Color(1, 1, 1), fog: false } as const;
-  const headGeo = new SphereGeometry(1, 32, 16);
+  const headGeo = new SphereGeometry(1, 64, 32);
   const headMat = new MeshPhysicalMaterial({ ...glass, color: colour.clone().lerp(new Color(1, 1, 1), 0.35), emissive: colour, opacity: cfg.glassOpacity });
   const coreMat = new MeshStandardMaterial({ color: colour, emissive: hot, roughness: 0.5, metalness: 0, fog: false });
   const head = new Mesh(headGeo, headMat);
@@ -82,6 +83,23 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
   core.scale.setScalar(0.5);
   core.castShadow = true;
   head.add(core);
+  // aura: a soft Fresnel shell round the head (alpha-blended, never additive): bright at the rim, clear in the middle, and it breathes
+  const auraMat = new ShaderMaterial({
+    uniforms: { uColor: { value: hot }, uAlpha: { value: 0 } },
+    vertexShader: /* glsl */ `varying vec3 vN; varying vec3 vV; void main() { vN = normalize( normalMatrix * normal ); vec4 mv = modelViewMatrix * vec4( position, 1.0 ); vV = normalize( -mv.xyz ); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor; uniform float uAlpha; varying vec3 vN; varying vec3 vV;
+      void main() {
+        float f = pow( 1.0 - abs( dot( normalize( vN ), normalize( vV ) ) ), 2.6 );
+        gl_FragColor = vec4( uColor, f * uAlpha );
+        #include <colorspace_fragment>
+      }`,
+    transparent: true, depthWrite: false, fog: false,
+  });
+  const aura = new Mesh(headGeo, auraMat);
+  aura.renderOrder = 3;
+  aura.frustumCulled = false;
+  head.add(aura);
   head.renderOrder = 2;
   head.frustumCulled = core.frustumCulled = false;
 
@@ -90,7 +108,7 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
   const tailGeo = new BufferGeometry();
   const pos = new Float32Array(N * S * 3);
   const nor = new Float32Array(N * S * 3);
-  const col = new Float32Array(N * S * 3);
+  const col = new Float32Array(N * S * 4); // rgba: the tail fades out along its length
   const index: number[] = [];
   for (let i = 0; i < N - 1; i++) {
     for (let j = 0; j < S; j++) {
@@ -100,7 +118,7 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
   }
   tailGeo.setAttribute('position', new BufferAttribute(pos, 3));
   tailGeo.setAttribute('normal', new BufferAttribute(nor, 3));
-  tailGeo.setAttribute('color', new BufferAttribute(col, 3));
+  tailGeo.setAttribute('color', new BufferAttribute(col, 4));
   tailGeo.setIndex(index);
   const tailMat = new MeshPhysicalMaterial({ ...glass, color: 0xffffff, vertexColors: true, emissive: colour, opacity: cfg.glassOpacity });
   const tail = new Mesh(tailGeo, tailMat);
@@ -140,7 +158,7 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
   const pts = Array.from({ length: N }, () => new Vector3());
   const tan = new Vector3(), up = new Vector3(), bv = new Vector3(), uv = new Vector3(), side = new Vector3(), tmp = new Vector3(), out = new Vector3();
   const dark = new Color(), lit = new Color(), tint = new Color();
-  let lastD = NaN, speed = 0, tailDir = 1, tailLen = look.packet.tailMin;
+  let lastD = NaN, speed = 0, tailDir = 1, tailLen = look.packet.tailMin, clock = 0;
 
   return {
     group,
@@ -165,13 +183,21 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
         if (Math.abs(v) > 0.05) tailDir += (Math.sign(v) - tailDir) * (1 - Math.exp(-dt * 9));
       }
       lastD = d;
-      const want = Math.min(c.tailMax, c.tailMin + c.tailGain * speed);
+      // the breath: a slow swell while it rests, easing off as it speeds up (it is then all motion)
+      clock += dt;
+      const rest = 1 - Math.min(1, speed / 2.2);
+      const ph = (clock * Math.PI * 2) / BREATH_SEC, br = Math.sin(ph), br2 = Math.sin(ph - 0.9); // (the core and the aura follow the head a little late)
+      const want = Math.min(c.tailMax, c.tailMin * (1 + 0.22 * rest * br2) + c.tailGain * speed);
       tailLen += (want - tailLen) * (1 - Math.exp(-dt * 10));
 
-      const R = c.headRadius * fade;
-      headMat.emissiveIntensity = c.headGlow * c.headBrightness * 0.3;
-      tailMat.emissiveIntensity = c.headGlow * c.headBrightness * 0.3;
-      coreMat.emissiveIntensity = c.headGlow * c.headBrightness * 2;
+      const R = c.headRadius * fade * (1 + 0.05 * rest * br);
+      const glow = c.headGlow * c.headBrightness;
+      headMat.emissiveIntensity = glow * 0.3 * (1 + 0.5 * rest * br2);
+      tailMat.emissiveIntensity = glow * 0.3;
+      coreMat.emissiveIntensity = glow * 2 * (1 + 0.35 * rest * br2);
+      core.scale.setScalar(0.5 * (1 + 0.1 * rest * br2));
+      aura.scale.setScalar(1.5 + 0.12 * rest * br2);
+      auraMat.uniforms.uAlpha.value = 0.34 * (0.7 + 0.3 * rest * (0.5 + 0.5 * br2)) * Math.min(1, fade);
       headMat.opacity = c.glassOpacity;
       tailMat.opacity = c.glassOpacity * 0.9;
       path.pointAt(d, out);
@@ -197,35 +223,45 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
         bv.normalize();
         uv.crossVectors(bv, tan);
         const u = i / (N - 1);
-        const r = R * c.tailRadius * Math.pow(1 - u, 0.9);
+        const taper = 1 - u * u * (3 - 2 * u); // smoothstep: full width at the head, easing to a point (no cone)
+        const r = R * c.tailRadius * Math.pow(taper, 1.1);
+        const alpha = Math.pow(1 - u, 1.4);
         tint.copy(dark).lerp(lit, Math.pow(1 - u, c.tailFade));
         const p = pts[i];
         for (let j = 0; j < S; j++) {
           const a = (j / S) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
-          const k = (i * S + j) * 3;
+          const k = (i * S + j) * 3, kc = (i * S + j) * 4;
           nor[k] = uv.x * ca + bv.x * sa; nor[k + 1] = uv.y * ca + bv.y * sa; nor[k + 2] = uv.z * ca + bv.z * sa;
           pos[k] = p.x + nor[k] * r; pos[k + 1] = p.y + nor[k + 1] * r; pos[k + 2] = p.z + nor[k + 2] * r;
-          col[k] = tint.r; col[k + 1] = tint.g; col[k + 2] = tint.b;
+          col[kc] = tint.r; col[kc + 1] = tint.g; col[kc + 2] = tint.b; col[kc + 3] = alpha;
         }
       }
       tailGeo.attributes.position.needsUpdate = true;
       tailGeo.attributes.normal.needsUpdate = true;
       tailGeo.attributes.color.needsUpdate = true;
 
-      // sparks: shed from the head while it moves fast, thrown back and a little outward, gone in half a second
-      emitAcc += dt * c.sparks * 11 * Math.min(1, Math.max(0, (speed - 0.8) / 2.6));
+      // sparks: shed from the head while it moves fast, thrown back and a little outward, gone in half a second; at rest a few motes drift off slowly, so it is never dead still
+      const moving = Math.min(1, Math.max(0, (speed - 0.8) / 2.6)), idle = 1 - Math.min(1, speed / 0.8);
+      emitAcc += dt * c.sparks * (11 * moving + 2.4 * idle) * Math.min(1, fade * 4);
       path.pointAt(d + 0.02, tmp).sub(out);
       tmp.normalize();
       while (emitAcc >= 1) {
         emitAcc -= 1;
         const s = life.findIndex((l) => l <= 0);
         if (s < 0) break;
-        span[s] = life[s] = 0.35 + rnd() * 0.35;
         const outward = out.clone().normalize();
-        vel[s].copy(tmp).multiplyScalar(-(0.5 + rnd()) * (0.6 + 0.3 * speed) * Math.sign(tailDir || 1))
-          .addScaledVector(outward, 0.5 + rnd() * 0.9)
-          .add(side.set(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).multiplyScalar(0.9));
-        sPos.set([out.x, out.y, out.z], s * 3);
+        if (rnd() < idle) { // a mote: slow, long-lived, drifting up and out from the rim of the head
+          span[s] = life[s] = 0.9 + rnd() * 0.8;
+          side.set(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize();
+          vel[s].copy(side).multiplyScalar(0.18 + rnd() * 0.22).addScaledVector(outward, 0.16 + rnd() * 0.2);
+          sPos.set([out.x + side.x * R, out.y + side.y * R, out.z + side.z * R], s * 3);
+        } else {
+          span[s] = life[s] = 0.35 + rnd() * 0.35;
+          vel[s].copy(tmp).multiplyScalar(-(0.5 + rnd()) * (0.6 + 0.3 * speed) * Math.sign(tailDir || 1))
+            .addScaledVector(outward, 0.5 + rnd() * 0.9)
+            .add(side.set(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).multiplyScalar(0.9));
+          sPos.set([out.x, out.y, out.z], s * 3);
+        }
       }
       for (let s = 0; s < MAX_SPARKS; s++) {
         if (life[s] > 0) {
@@ -240,7 +276,7 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
       sparkMat.uniforms.uPx.value = 1;
     },
     dispose() {
-      headGeo.dispose(); headMat.dispose(); coreMat.dispose(); tailGeo.dispose(); tailMat.dispose(); aoMat.dispose(); sparkGeo.dispose(); sparkMat.dispose();
+      headGeo.dispose(); headMat.dispose(); coreMat.dispose(); auraMat.dispose(); tailGeo.dispose(); tailMat.dispose(); aoMat.dispose(); sparkGeo.dispose(); sparkMat.dispose();
     },
   };
 }
