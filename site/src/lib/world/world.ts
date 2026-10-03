@@ -37,7 +37,7 @@ export interface WorldOptions {
   routing: RoutingNames;
   state: Readonly<ScrollState>;
   tier: ActiveTier;
-  scroll: { lock(reason: string): void; unlock(reason: string): void; setWalkSec(sec: number, tailSec: number): void; go(chapter: number, progress: number): void };
+  scroll: { lock(reason: string): void; unlock(reason: string): void; setWalkSec(sec: number, tailSec: number): void; start(): void };
 }
 
 export interface World {

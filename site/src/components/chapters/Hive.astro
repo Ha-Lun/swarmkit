@@ -1,7 +1,8 @@
 ---
-// The Hive scene: the task waits (the world draws its comet) and the task buttons choose which one is told. In the static page every caption shows, as a plain explanation.
+// The Hive scene: the task waits (the world draws its comet), named by its tag (chosen on the landing screen). In the static page every caption shows, as a plain explanation.
 // Names come from routing.ts (validated against ../core/agents at build time); nothing here is invented.
 import { examples, gates, tiers } from '../../content/routing';
+import { journeysOf } from '../../lib/journeys';
 import { motion } from '../../lib/world/motion-config';
 
 const gateNames: string[] = gates.map((g) => g.agent);
@@ -14,10 +15,12 @@ const steps = [
   'Quality gates run in parallel, only where relevant.',
 ];
 const chips = tiers.filter((t) => t.id !== 'T0');
+const journeys = journeysOf(examples, gateNames, tiers);
 ---
 <section id="hive" class="chapter" style={`--runway:${motion.runway.hive}`} aria-labelledby="hive-title">
   <div class="scene" data-scene>
     <h2 id="hive-title" class="sr-only">How it works</h2>
+    {journeys.map((j, ji) => <p class="task-tag world-only" data-task-tag data-j={ji} data-fx>Task: {j.task} · {j.tier}</p>)}
     <div class="scene-foot">
       <div class="captions">
         {steps.map((s) => <p class="caption" data-caption data-fx>{s}</p>)}
@@ -28,11 +31,6 @@ const chips = tiers.filter((t) => t.id !== 'T0');
             <li class="chip" data-chip={t.id} title={t.body}><i class="chip-ring" data-fx aria-hidden="true"></i>{t.id} {t.title}</li>
           ))}
         </ul>
-        <div class="replays world-only" role="group" aria-label="Send a task: the comet follows its route through the swarm">
-          {examples.map((e, i) => (
-            <button type="button" class="btn" data-pick={i} data-tier={e.tier}>{e.task}<span class="btn-tier">{e.tier}</span></button>
-          ))}
-        </div>
       </div>
     </div>
   </div>

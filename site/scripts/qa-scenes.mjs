@@ -174,15 +174,16 @@ for (let i = 0; i < 9; i++) {
     if (a.tagName.toLowerCase() === 'astro-dev-toolbar') return 'astro-dev-toolbar (dev only)';
     const cs = getComputedStyle(a);
     const r = a.getBoundingClientRect();
-    return `${a.tagName.toLowerCase()} ${a.dataset.pick ? `pick:${a.dataset.pick}` : a.getAttribute('href') ?? a.textContent.trim().slice(0, 24)}  outline=${cs.outlineStyle}/${cs.outlineWidth}  at y=${Math.round(r.top)}`;
+    return `${a.tagName.toLowerCase()} ${a.dataset.start ? `start:${a.dataset.start}` : a.getAttribute('href') ?? a.textContent.trim().slice(0, 24)}  outline=${cs.outlineStyle}/${cs.outlineWidth}  at y=${Math.round(r.top)}`;
   }));
 }
 say('tab order from the nav with the hive pinned:\n  ' + order.join('\n  '));
 await shot(page, 'hive-focus');
 
-// task pick: pressing a button starts that journey (the camera dives and the comet flies in)
-await goto(page, 'hive', 0.3, 1500);
-await page.locator('[data-pick]').nth(2).click();
+// task pick: a landing-screen button starts the story with that task
+await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(1500);
+await page.locator('[data-start]').nth(2).click();
+await page.waitForTimeout(16000);
 await page.waitForTimeout(4500);
 await shot(page, 'hive-pick-refactor');
 say(`pick: journey ${await page.evaluate(() => document.querySelector('[data-caption-step]') ? [...document.querySelectorAll('[data-caption-step]')].filter((e) => getComputedStyle(e).opacity > 0.5).map((e) => e.textContent.trim()).join(' | ') : 'no step captions')}`);

@@ -19,8 +19,8 @@ export interface Scroll {
   /** Stop and start page scroll. Each caller locks under its own reason; the page scrolls again only when every reason has let go. */
   lock(reason: string): void;
   unlock(reason: string): void;
-  /** Scroll to a point in a chapter (smoothly) and let autoplay run on from there. */
-  go(chapter: number, progress: number): void;
+  /** Start the story (the landing screen's task buttons): autoplay runs on from where the page is. */
+  start(): void;
   /** The seconds the tour's route takes under autoplay (the world knows the route's length once it is built; before that a default). */
   setWalkSec(sec: number, tailSec: number): void;
   dispose(): void;
@@ -63,7 +63,7 @@ export function initScroll(): Scroll {
 
   // The page plays by itself and cannot be scrolled by hand: the wheel, touch, keys, scrollbar and in-page links are all dead (html is overflow:hidden, Lenis ignores the user's input, and
   // anchor clicks are swallowed while it plays). From the landing screen it starts on the first downward scroll or key (Down, PageDown, End, Space), the "Scroll to start" cue, a nav dot or
-  // a task pick, then runs every chapter at its own pace through the same scroll state as a wheel would (camera, fades and pull-back untouched), and ends where the loop wraps back to the
+  // a task button on the landing screen, then runs every chapter at its own pace through the same scroll state as a wheel would (camera, fades and pull-back untouched), and ends where the loop wraps back to the
   // landing screen, which waits for the next start. The only control is Space: hold it to pause (release to carry on). The Reference panel pauses it too. Velocity eases, so start, pause and resume glide.
   let playing = false, paused = false, vel = 0, acc = 0, routeSec = 140, tailSec: number = motion.walkAuto.tailSec, lastChapter = 0;
   document.documentElement.classList.add('is-guided');
@@ -120,12 +120,8 @@ export function initScroll(): Scroll {
 
   return {
     state,
+    start() { play(); paused = false; },
     setWalkSec(sec, tail) { routeSec = sec; tailSec = tail; },
-    go(chapter, progress) {
-      const t = triggers[chapter];
-      play(); paused = false;
-      lenis.scrollTo(t.start + progress * (t.end - t.start), { duration: 1.6 });
-    },
     lock(reason) { locks.add(reason); lenis.stop(); },
     unlock(reason) { locks.delete(reason); if (!locks.size) lenis.start(); },
     dispose() {
