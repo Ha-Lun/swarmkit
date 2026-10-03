@@ -19,6 +19,8 @@ export interface Scroll {
   /** Stop and start page scroll. Each caller locks under its own reason; the page scrolls again only when every reason has let go. */
   lock(reason: string): void;
   unlock(reason: string): void;
+  /** Scroll to a point in a chapter (smoothly) and let autoplay run on from there. */
+  go(chapter: number, progress: number): void;
   /** The seconds the tour's route takes under autoplay (the world knows the route's length once it is built; before that a default). */
   setWalkSec(sec: number): void;
   dispose(): void;
@@ -98,6 +100,11 @@ export function initScroll(): Scroll {
   return {
     state,
     setWalkSec(sec) { routeSec = sec; },
+    go(chapter, progress) {
+      const t = triggers[chapter];
+      off = false; paused = false;
+      lenis.scrollTo(t.start + progress * (t.end - t.start), { duration: 1.6 });
+    },
     lock(reason) { locks.add(reason); lenis.stop(); },
     unlock(reason) { locks.delete(reason); if (!locks.size) lenis.start(); },
     dispose() {

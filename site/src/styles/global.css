@@ -128,7 +128,7 @@
 
 @media (prefers-reduced-motion: no-preference) and (scripting: enabled) {
   :root:not([data-tier='fallback']) {
-    .chapter { position: relative; height: calc(var(--runway, 100) * 1vh); scroll-margin-top: 0; border-top: 0; }
+    .chapter { position: relative; height: calc(var(--runway, 100) * 1vh); scroll-margin-top: 0; border-top: 0; pointer-events: none; } /* (a chapter is only scroll length: the next one must not cover the pinned scene's buttons) */
     .scene { position: fixed; top: 0; left: 0; right: 0; height: 100vh; max-width: none; margin: 0; padding: 72px var(--space-6) var(--space-6); display: flex; flex-direction: column; justify-content: flex-end; overflow: clip; pointer-events: none; }
     .scene :is(a, button) { pointer-events: auto; }
     .chapter:not(#top) .scene { opacity: 0; } /* fixed scenes stack: until the world drives them (inline opacity) only the intro shows */

@@ -6,6 +6,7 @@ import type { Flow } from './routes';
 import type { RingFx } from './rings';
 import type { WalkRoute } from './walk';
 import type { Journey } from '../journeys';
+import type { JourneyComet } from './journey-comet';
 
 export interface RoutingNames {
   /** the three quality-gate agents */
@@ -59,11 +60,13 @@ export interface WorldCtx {
   readonly rings: RingFx;
   /** agent names from content/routing.ts, resolved at build time */
   readonly routing: RoutingNames;
-  readonly scroll: { lock(reason: string): void; unlock(reason: string): void; setWalkSec(sec: number): void };
+  readonly scroll: { lock(reason: string): void; unlock(reason: string): void; setWalkSec(sec: number): void; go(chapter: number, progress: number): void };
   /** current honeycomb (globe + moon) (replaced on a tier change: never cache it) */
   readonly comb: Honeycomb;
   /** the walk route once it is built (a little before the Cells chapter), else null */
   readonly walkRoute: WalkRoute | null;
+  /** the task's comet (journey-comet.ts): the Hive shows it waiting at its entry point, the Cells chapter flies it; one object so it is the same comet throughout */
+  readonly comet: JourneyComet;
   time: number;
   dt: number;
   cellIndex(name: string): number;

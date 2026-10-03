@@ -9,9 +9,9 @@ import { clearRadius, easeLeg, entryPoint, raise, Route } from './routes';
 import type { Lattice } from './honeycomb';
 import type { WalkParams, WalkPose, WalkRoute, WalkStopSpec } from './walk';
 
-const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
-/** The route for the towers in `visit` (in order; the first is the core, where the comet is already waiting when the journey starts). */
+/** The route for the towers in `visit` (in order; the first is the core). The comet starts outside the globe at the entry point, where it waits until u = 0, flies in to the core
+ *  (the entry leg), and then from tower to tower. */
 export function createFollowRoute(lattice: Lattice, visit: WalkStopSpec[]): WalkRoute {
   const cells = lattice.cells;
   const P = motion.packet;
@@ -21,16 +21,19 @@ export function createFollowRoute(lattice: Lattice, visit: WalkStopSpec[]): Walk
     return c;
   });
   const n = picked.length;
+  const entry = entryPoint(lattice);
   const caps = picked.map((c) => raise(c.pos.clone().addScaledVector(c.normal, c.base))); // where the comet rests on each cap
   const clear = clearRadius(lattice);
-  // (a single stop has no leg: a degenerate route keeps the comet's path source valid)
-  const comet = new Route(n > 1 ? caps : [caps[0], caps[0]], clear);
+  // the comet's points: the entry, then each cap; leg k runs from point k to point k + 1 (leg 0 is the entry leg)
+  const comet = new Route([entry, ...caps], clear);
 
-  // ---- timeline, seconds: the comet lands at tL[i], holds, leaves at tD[i] ----
-  const tL: number[] = [], tD: number[] = [];
+  // ---- timeline, seconds: leg k departs at dep[k] and arrives at arr[k]; the comet then rests on stop k until dep[k + 1] ----
+  const dep: number[] = [], arr: number[] = [], tL: number[] = [], tD: number[] = [];
   let t = 0;
-  visit.forEach((v, i) => {
-    if (i > 0) t += Math.max(P.minLegSec, comet.legs[i - 1].len / P.meanSpeed);
+  visit.forEach((v, k) => {
+    dep.push(t);
+    t += k === 0 ? Math.max(walkCfg.entrySec, comet.legs[0].len / P.meanSpeed) : Math.max(P.minLegSec, comet.legs[k].len / P.meanSpeed);
+    arr.push(t);
     tL.push(t);
     t += v.holdSec ?? walkCfg.dwellSec;
     tD.push(t);
@@ -39,25 +42,32 @@ export function createFollowRoute(lattice: Lattice, visit: WalkStopSpec[]): Walk
   tD[n - 1] = Math.max(tD[n - 1], walkCfg.minSec);
   const total = tD[n - 1];
 
-  // ---- the camera's viewpoints ----
-  const tangentIn = (i: number, out: Vector3) => {
-    const nrm = picked[i].normal;
-    out.copy(caps[i]).sub(i > 0 ? caps[i - 1] : entryPoint(lattice));
-    out.addScaledVector(nrm, -out.dot(nrm));
-    return out.lengthSq() < 1e-8 ? out.set(0, 1, 0).addScaledVector(nrm, -nrm.y).normalize() : out.normalize();
-  };
-  const tmp = new Vector3();
-  const views = caps.map((cap, i) => cap.clone().addScaledVector(tangentIn(i, tmp), -walkCfg.back).addScaledVector(picked[i].normal, walkCfg.up));
-  const camRoute = new Route(n > 1 ? views : [views[0], views[0]], clear + walkCfg.clearMargin);
+  // ---- the camera's viewpoints: one behind and above the comet at the entry, then one per stop ----
+  const tmp = new Vector3(), tmp2 = new Vector3();
+  const views: Vector3[] = [];
+  {
+    // at the entry the camera sits behind the waiting comet, away from the globe, so it sees the comet ahead and the planet below it
+    tmp.copy(caps[0]).sub(entry).normalize();
+    views.push(entry.clone().addScaledVector(tmp, -walkCfg.entryBack).addScaledVector(tmp2.copy(entry).normalize(), walkCfg.entryUp));
+  }
+  picked.forEach((c, i) => {
+    const nrm = c.normal;
+    tmp.copy(caps[i]).sub(i > 0 ? caps[i - 1] : entry);
+    tmp.addScaledVector(nrm, -tmp.dot(nrm));
+    if (tmp.lengthSq() < 1e-8) tmp.set(0, 1, 0).addScaledVector(nrm, -nrm.y);
+    tmp.normalize();
+    views.push(caps[i].clone().addScaledVector(tmp, -walkCfg.back).addScaledVector(nrm, walkCfg.up));
+  });
+  const camRoute = new Route(views, clear + walkCfg.clearMargin);
 
-  /** distance along `route` at time `s` (seconds), the comet's legs eased inside their windows [tD[i-1], tL[i]] */
+  /** distance along `route` (one of the two, whose points are the entry and then the stops) at time `s`: each leg is eased inside its window [dep, arr] */
   const distAt = (route: Route, s: number): number => {
-    for (let i = 1; i < n; i++) {
-      if (s < tL[i]) return s <= tD[i - 1] ? route.stopAt[i - 1] : route.stopAt[i - 1] + (route.stopAt[i] - route.stopAt[i - 1]) * easeLeg((s - tD[i - 1]) / (tL[i] - tD[i - 1]));
+    for (let k = 0; k < n; k++) {
+      if (s < arr[k]) return s <= dep[k] ? route.stopAt[k] : route.stopAt[k] + (route.stopAt[k + 1] - route.stopAt[k]) * easeLeg((s - dep[k]) / (arr[k] - dep[k]));
     }
-    return route.stopAt[n - 1];
+    return route.stopAt[n];
   };
-  const cometDist = (u: number) => (n > 1 ? distAt(comet, u * total) : 0);
+  const cometDist = (u: number) => distAt(comet, u * total);
 
   const stops = picked.map((c, i) => ({ name: visit[i].name, band: c.agent!.band as string, u0: tL[i] / total, u1: tD[i] / total, tower: c.normal.clone() }));
   const fresh = (): WalkPose => ({ position: new Vector3(), quaternion: new Quaternion(), fov: 55, up: new Vector3(), forward: new Vector3(), ground: 0, stop: 0 });
@@ -69,9 +79,9 @@ export function createFollowRoute(lattice: Lattice, visit: WalkStopSpec[]): Walk
     cometRoute: comet,
     cometDist,
     sample(u, p: WalkParams, out: WalkPose = fresh()) {
-      const s = clamp01(u) * total;
-      camRoute.pointAt(n > 1 ? distAt(camRoute, s - walkCfg.lagSec) : 0, pos);
-      comet.pointAt(n > 1 ? distAt(comet, s) : 0, tgt);
+      const s = Math.min(1, u) * total; // (before the start, u < 0: the comet waits at the entry and the camera at the entry viewpoint)
+      camRoute.pointAt(distAt(camRoute, s - walkCfg.lagSec), pos);
+      comet.pointAt(distAt(comet, s), tgt);
       out.up.copy(pos).normalize();
       m.lookAt(pos, tgt, out.up);
       out.quaternion.setFromRotationMatrix(m);

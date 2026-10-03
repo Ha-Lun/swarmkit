@@ -10,6 +10,7 @@ import type { ScrollState } from '../scroll';
 import { createCameraPath, progressOfG, scrollToProgress, SEGMENTS } from './camera-path';
 import { walkStopsOf } from '../journeys';
 import { createFollowRoute } from './follow';
+import { createJourneyComet } from './journey-comet';
 import { applyWalkLook, horizonFog, walkBlendBase, walkCameraPose, type WalkPose, type WalkRoute } from './walk';
 import { range, sceneAlpha } from './scene-dom';
 import { accentCandidates, look, readPalette, type Palette } from './config';
@@ -36,7 +37,7 @@ export interface WorldOptions {
   routing: RoutingNames;
   state: Readonly<ScrollState>;
   tier: ActiveTier;
-  scroll: { lock(reason: string): void; unlock(reason: string): void; setWalkSec(sec: number): void };
+  scroll: { lock(reason: string): void; unlock(reason: string): void; setWalkSec(sec: number): void; go(chapter: number, progress: number): void };
 }
 
 export interface World {
@@ -143,6 +144,7 @@ export function createWorld(opts: WorldOptions): World {
     agents, routing, scene, camera, renderer, state, view, lattice, flows, rings, scroll,
     get comb() { return comb; },
     get walkRoute() { return walkRoute; },
+    get comet() { return comet; },
     time: 0,
     dt: 0,
     cellIndex: (name) => cellByName.get(name) ?? -1,
@@ -156,6 +158,8 @@ export function createWorld(opts: WorldOptions): World {
       if (i !== undefined) hiTarget.set(i, Math.max(hiTarget.get(i) ?? 0, amount));
     },
   };
+
+  const comet = createJourneyComet(ctx, flows[4], flows.slice(5, 8)); // the task's comet: waiting in the Hive, flying in the Cells chapter
 
   // ---- chapters ----
   const intro = createIntro(ctx);

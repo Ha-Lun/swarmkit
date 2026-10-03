@@ -1,7 +1,7 @@
 // The task's comet, drawn on the follow route's own path (follow.ts: a pure function of the route parameter u, so scrubbing, autoplay and the wheel stay exact, both ways). It waits on the
-// core cap when the dive begins, flies from cap to cap and rests on each for the hold. Rings and the arrival lift are drawn from the same u; after the last stop the gates this task
+// entry point (the Hive shows it waiting there), flies in to the core cap and then from cap to cap, resting on each for the hold. Rings and the arrival lift are drawn from the same u; after the last stop the gates this task
 // triggers receive their comets in parallel (timed in the Cells progress, once the camera has risen).
-import { aerial, motion, walkCfg, walkRamp } from './motion-config';
+import { aerial, motion, walkCfg } from './motion-config';
 import { clearRadius, easeLeg, raise, Route, type Flow } from './routes';
 import type { WalkRoute } from './walk';
 import type { WorldCtx } from './types';
@@ -23,7 +23,6 @@ export function createJourneyComet(ctx: WorldCtx, flow: Flow, gateFlows: Flow[])
   let builtFor: WalkRoute | null = null;
   let names: string[] = [];
   let land: number[] = []; // per stop: u at which the comet lands on it
-  let dive = 0; // u at which the dive starts (negative: before the journey)
   let endU = 1;
   let gateNames: string[] = [], gateRoutes: Route[] = [];
 
@@ -32,7 +31,6 @@ export function createJourneyComet(ctx: WorldCtx, flow: Flow, gateFlows: Flow[])
   function build(wr: WalkRoute) {
     builtFor = wr;
     names = wr.stops.map((s) => s.name);
-    dive = (walkRamp.inFrom - walkCfg.uFrom) / (walkCfg.uTo - walkCfg.uFrom); // the comet is already waiting at the core: it appears with the dive
     land = wr.stops.map((s) => s.u0);
     endU = wr.stops[wr.stops.length - 1].u1;
     flow.setRoute(wr.cometRoute);
@@ -52,11 +50,9 @@ export function createJourneyComet(ctx: WorldCtx, flow: Flow, gateFlows: Flow[])
       if (builtFor !== wr) build(wr);
       const L = wr.length;
       const sec = (s: number) => (s * walkCfg.rate) / L; // seconds -> route parameter
-      // visible from the start of the dive until the walker has risen away again (the weight falls with the rise)
-      const fadeIn = clamp01((u - dive) / sec(P.fadeSec));
       const fan = clamp01((cp - aerial.fanFrom) / (aerial.fanTo - aerial.fanFrom)); // 0 until the gates are sent, 1 once they have landed
       const fadeOut = u > endU ? smooth(clamp01(walk / 0.6)) : 1;
-      const fade = fadeIn * fadeOut * (gateNames.length && cp >= aerial.fanFrom ? 0 : 1); // (a task with gates hands its comet on to them)
+      const fade = fadeOut * (gateNames.length && cp >= aerial.fanFrom ? 0 : 1); // (a task with gates hands its comet on to them)
       flow.set(wr.cometDist(u), ctx.camera, fade, ctx.dt);
       // rings: the scan ring is engraved at the core while it holds; a ripple runs out where the comet lands on each later tower
       const R = ctx.rings;

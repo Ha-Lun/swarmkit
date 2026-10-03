@@ -5,10 +5,10 @@ export const SWARM_CAM = { fov: 40, z: 24 } as const;
 
 export const motion = {
   /** Scroll length of each chapter runway, in viewport heights. Every runway holds one fixed, viewport-tall scene that only fades. */
-  runway: { intro: 100, hive: 300, cells: 1000, proof: 150, finale: 550 }, // finale: 400 for the swarm and the command, plus LOOP_VH of homecoming below
+  runway: { intro: 100, hive: 150, cells: 1000, proof: 150, finale: 550 }, // finale: 400 for the swarm and the command, plus LOOP_VH of homecoming below
   /** The scroll lengths camera-path.ts solves its speed profile for (the lengths before the walk). The layout lengths above may differ (Cells is longer for the walk); the camera's
    *  scroll-to-position mapping is solved on THESE, so every chapter keeps exactly the camera it had, and a longer Cells only spreads its progress over more scroll. */
-  mapRunway: { intro: 100, hive: 300, cells: 300, proof: 150, finale: 400 },
+  mapRunway: { intro: 100, hive: 150, cells: 300, proof: 150, finale: 400 },
   /** The hive packet is scrubbed by scroll across the pinned window; these are the seconds of route time it spans. */
   hive: { holdSec: 1.6, captionBlend: 0.05 },
   hud: { stagger: 0.035 },
@@ -116,10 +116,12 @@ export const walkCfg = {
   fov: 55, near: 0.1, uFrom: 0.2, uTo: 0.78, detail: 1, coreDim: 0.9, fogNear: 0.6, fogFar: 3,
   /** The journey's pace. The route parameter runs at `rate` route units per second under autoplay (scroll.ts is told the route's length and sets its speed from this), so every duration is in
    *  seconds: the comet holds at a tower for dwellSec (coreSec at the core, where the task is classified and approved); its legs take as long as they take at the comet's own speed. */
-  rate: 8, dwellSec: 2, coreSec: 2.5, minSec: 6,
+  rate: 8, dwellSec: 2, coreSec: 2.5, minSec: 6, entrySec: 2.8,
   /** The camera's viewpoint at a stop: `back` world units behind the comet's arrival direction and `up` above the cap; the camera path stays `clearMargin` above the tallest column's reach
    *  and trails the comet by `lagSec` seconds. */
   back: 4, up: 2.2, clearMargin: 0.5, lagSec: 0.45,
+  /** ... and at the entry (the comet waiting outside the globe): `entryBack` world units behind it, away from the globe, and `entryUp` outward. `entrySec` is the shortest the entry leg may take. */
+  entryBack: 5, entryUp: 1.5,
 } as const;
 /**
  * The aerial (Cells chapter progress): once the walker has made its last stop the camera rises to the whole-globe view (the end of the Hive's camera path), the gates the task triggers

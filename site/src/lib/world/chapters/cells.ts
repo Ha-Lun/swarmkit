@@ -4,7 +4,6 @@
 import { Vector3 } from 'three';
 import { nearestTowerAhead, type TowerRef, type WalkRoute } from '../walk';
 import { createWalkLook } from '../walk-look';
-import { createJourneyComet } from '../journey-comet';
 import { aerial, motion, recedeMix, walkCfg, walkUOf } from '../motion-config';
 import { createPick } from '../pick';
 import { range, sceneOf, setOpacity } from '../scene-dom';
@@ -32,7 +31,6 @@ export function createCells(ctx: WorldCtx): Chapter {
     return m;
   };
   const look = createWalkLook(); // drag to look around while walking
-  const comet = createJourneyComet(ctx, ctx.flows[4], ctx.flows.slice(5, 8)); // the task's comet: it lands on each tower the journey visits
   const bandOf = new Map(ctx.agents.map((a) => [a.name, a.band as string]));
   const legend = new Map(scene.q('[data-legend]').map((e) => [e.dataset.legend!, e.querySelector<HTMLElement>('.chip-ring')!]));
 
@@ -63,7 +61,7 @@ export function createCells(ctx: WorldCtx): Chapter {
       }
       // the aerial: the camera rises to the whole-globe view for the gates and returns for the Proof pull-back
       view.overview = range(p, aerial.overviewIn[0], aerial.overviewIn[1]) * (1 - range(p, aerial.overviewOut[0], aerial.overviewOut[1]));
-      comet.update(route, (view.walkCp - walkCfg.uFrom) / (walkCfg.uTo - walkCfg.uFrom), view.walk, view.walkCp); // (unclamped: the comet comes down with the dive and stays until the rise)
+      ctx.comet.update(route, (view.walkCp - walkCfg.uFrom) / (walkCfg.uTo - walkCfg.uFrom), view.walk, view.walkCp); // (unclamped: the comet comes down with the dive and stays until the rise)
       const stop = route?.stops[view.walkStop];
       const dwelling = stop && u >= stop.u0 && u <= stop.u1 ? stop.name : null; // holding at this tower
       if (view.walk > 0.85) { // the card of the tower the comet is heading for (or resting on), once the camera is in the low orbit (not mid-dive), unless you have turned your head away from it
@@ -85,7 +83,7 @@ export function createCells(ctx: WorldCtx): Chapter {
       legend.forEach((ring, b) => setOpacity(ring, b === band ? 1 : 0));
     },
     exit() {
-      comet.clear();
+      ctx.comet.clear();
       pick.disable();
       look.disable();
       view.lookYaw = view.lookPitch = 0;
