@@ -5,7 +5,7 @@ export const SWARM_CAM = { fov: 40, z: 24 } as const;
 
 export const motion = {
   /** Scroll length of each chapter runway, in viewport heights. Every runway holds one fixed, viewport-tall scene that only fades. */
-  runway: { intro: 100, hive: 300, cells: 1500, proof: 150, finale: 550 }, // finale: 400 for the swarm and the command, plus LOOP_VH of homecoming below
+  runway: { intro: 100, hive: 300, cells: 1000, proof: 150, finale: 550 }, // finale: 400 for the swarm and the command, plus LOOP_VH of homecoming below
   /** The scroll lengths camera-path.ts solves its speed profile for (the lengths before the walk). The layout lengths above may differ (Cells is longer for the walk); the camera's
    *  scroll-to-position mapping is solved on THESE, so every chapter keeps exactly the camera it had, and a longer Cells only spreads its progress over more scroll. */
   mapRunway: { intro: 100, hive: 300, cells: 300, proof: 150, finale: 400 },
@@ -69,7 +69,7 @@ export const motion = {
   moon: {
     driftSec: 50, // seconds per lap of the drift ellipse
   },
-  walkAuto: { diveSec: 8, tailSec: 10, easeSec: 0.4 }, // the walk plays itself (scroll.ts): seconds for the dive in, for the rise out and the pull-back to the end of Cells (the route's own time is walkCfg.rate), and the ease of start/pause/resume
+  walkAuto: { diveSec: 6, tailSec: 14, easeSec: 0.4 }, // the walk plays itself (scroll.ts): seconds for the dive in, for the rise out and the pull-back to the end of Cells (the route's own time is walkCfg.rate), and the ease of start/pause/resume
   probe: { ms: 1000, warmupFrames: 10, minFrames: 6, stepDownBelow: 45, fallbackBelow: 30 },
 } as const;
 
@@ -100,8 +100,9 @@ export function dissolveMix(chapter: number, p: number): number {
 }
 
 /** The walk (Cells chapter): where the camera is on the ground. The ramp values are provisional (tuned in the story integration): it dives in over
- *  chapterProgress inFrom..inTo and rises out over outFrom..outTo, finishing before the Cells -> Proof dissolve window opens (p = 0.917). */
-export const walkRamp = { inFrom: 0.06, inTo: 0.2, outFrom: 0.8, outTo: 0.9 } as const;
+ *  chapterProgress inFrom..inTo and rises out over outFrom..outTo. The rise starts a little after the route's end (uTo): the autoplay speed of a short route is far above the tail's and eases
+ *  down over about a second (scroll.ts), and the rise must not be swept past in that time. */
+export const walkRamp = { inFrom: 0.06, inTo: 0.2, outFrom: 0.82, outTo: 0.915 } as const;
 /** Walk weight 0..1 for chapter `chapter` at chapterProgress p: 0 = on the spline fly-over path, 1 = walking. Modelled on spinWeight; the pistons park with it. */
 export function walkWeight(chapter: number, p: number): number {
   if (chapter !== 2) return 0;
@@ -112,7 +113,7 @@ export function walkWeight(chapter: number, p: number): number {
 /** The walker (provisional values, tuned in the Phase 4 review): eye height above the local ground, vertical FOV, pitch below the horizon, near plane,
  *  and where in the Cells chapter progress the route runs from its first stand point (uFrom) to its last (uTo). */
 export const walkCfg = {
-  eye: 0.3, fov: 75, pitchDeg: 15, near: 0.03, uFrom: 0.2, uTo: 0.82, detail: 1, coreDim: 0.9, fogNear: 0.6, fogFar: 3,
+  eye: 0.3, fov: 75, pitchDeg: 15, near: 0.03, uFrom: 0.2, uTo: 0.78, detail: 1, coreDim: 0.9, fogNear: 0.6, fogFar: 3,
   /** The tour's pace. The route parameter runs at `rate` route units per second under autoplay (scroll.ts is told the route's length and sets its speed from this), so every duration below is
    *  in seconds: the walker holds at a tower for dwellSec (coreSec at the core, where the task is classified and approved), a street takes legStretch route units per world unit walked (so a street of 5.6 units takes
    *  5.6 x 3 / 8 = 2.1 s), and a turn to face a tower or on to the next street takes turnSecQuarter seconds per 90 degrees (between turnMinSec and turnMaxSec). */
@@ -131,6 +132,13 @@ export const walkCfg = {
   /** handheld sway: vertical bob and side shift in world units, roll in degrees, steps per second at the mean autoplay leg speed (rate / legStretch world units per second) */
   sway: { bob: 0.008, side: 0.005, rollDeg: 0.4, hz: 1.8 },
 } as const;
+/**
+ * The aerial (Cells chapter progress): once the walker has made its last stop the camera rises to the whole-globe view (the end of the Hive's camera path), the gates the task triggers
+ * receive their comets in parallel (they leave the last stop together at `fanFrom` and land together at `fanTo`), and the camera comes back onto the spline for the Proof pull-back over
+ * `overviewOut`. The dim and the canvas recede (recedeMix) start only after the gates have landed, so they are seen undimmed.
+ */
+export const aerial = { overviewIn: [0.82, 0.915], overviewOut: [0.945, 1], fanFrom: 0.88, fanTo: 0.93, gateFadeOut: [0.955, 0.985], recedeFrom: 0.955 } as const;
+
 /** Route parameter 0..1 for Cells chapter progress p. */
 export const walkUOf = (p: number): number => Math.min(1, Math.max(0, (p - walkCfg.uFrom) / (walkCfg.uTo - walkCfg.uFrom)));
 
@@ -140,7 +148,7 @@ export const walkUOf = (p: number): number => Math.min(1, Math.max(0, (p - walkC
  * Chapter 2 (Cells) at progress p, chapter 3 (Proof); 0 before and 1 after.
  */
 export function recedeMix(chapter: number, p: number): number {
-  const from = walkRamp.outFrom * motion.runway.cells, to = motion.runway.cells + motion.proof.toVh;
+  const from = aerial.recedeFrom * motion.runway.cells, to = motion.runway.cells + motion.proof.toVh;
   const vh = chapter === 2 ? p * motion.runway.cells : chapter === 3 ? motion.runway.cells + p * motion.runway.proof : chapter < 2 ? -Infinity : Infinity;
   return smooth3(Math.min(1, Math.max(0, (vh - from) / (to - from))));
 }

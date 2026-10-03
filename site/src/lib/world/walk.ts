@@ -521,7 +521,7 @@ export function blendWalkPose(
   outPos.normalize().multiplyScalar(rA + (rB - rA) * w);
   // The spline half of the orientation blend keeps looking at the spline's own target (a point on the globe) from where the camera now is, so the view stays on the globe as the
   // camera descends instead of sweeping off into empty sky (the spline's orientation, from a position it has left, no longer points at it). The walker's half takes over late (smootherstep).
-  const sw = clamp((w - 0.6) / 0.38, 0, 1); // (the camera is about one globe radius up at w = 0.6 and a few units up at 0.95)
+  const sw = clamp((w - 0.5) / 0.48, 0, 1); // (the direction swing runs over the upper half of the descent; with a slerp it is safe that wide)
   const s = sw * sw * sw * (sw * (sw * 6 - 15) + 10);
   if (upB && targetA) {
     // Not a blend of two orientations (a rotation blend passes through views that look away from the globe altogether, half way down; a slerp flips where the two are nearly opposite) but
@@ -530,7 +530,10 @@ export function blendWalkPose(
     // the dive passes close to, any radial up is degenerate), the walker's up once it is level. At w = 0 it is the spline's own look-at and at w = 1 exactly the walker's orientation.
     _fA.copy(targetA).sub(outPos).normalize();
     _fB.set(0, 0, -1).applyQuaternion(quatB);
-    _fS.copy(_fA).lerp(_fB, s);
+    // the direction turns from fA to fB by a fraction s of the swing (a rotation about their common perpendicular: a normalised lerp collapses where the two are nearly opposite)
+    _qSwing.setFromUnitVectors(_fA, _fB);
+    _qFrac.identity().slerp(_qSwing, s);
+    _fS.copy(_fA).applyQuaternion(_qFrac);
     if (_fS.lengthSq() > 1e-12) {
       _fS.normalize();
       // roll: the reference is the world's up at the start and the walker's frame at the end, and they can be nearly opposite, so the two are not mixed (the mix collapses to zero) but turned
@@ -546,7 +549,7 @@ export function blendWalkPose(
         const raw = Math.atan2(_tmpV.crossVectors(_yp, _upRef).dot(_fS), _yp.dot(_upRef));
         const d1 = _y1.lengthSq() > 1e-10 && _u1.lengthSq() > 1e-10 ? Math.atan2(_tmpV.crossVectors(_y1.normalize(), _u1.normalize()).dot(_fB), _y1.dot(_u1)) : 0;
         const d = d1 + (raw - d1) - Math.PI * 2 * Math.round((raw - d1) / (Math.PI * 2));
-        const m = clamp((w - 0.3) / 0.3, 0, 1), roll = d * (m * m * (3 - 2 * m));
+        const m = clamp((w - 0.1) / 0.75, 0, 1), roll = d * (m * m * (3 - 2 * m));
         _upRef.copy(_yp).multiplyScalar(Math.cos(roll)).addScaledVector(_tmpV.crossVectors(_fS, _yp), Math.sin(roll));
         _tmpV.copy(_fS).add(outPos);
         _lookM.lookAt(outPos, _tmpV, _upRef);
@@ -559,7 +562,7 @@ export function blendWalkPose(
   return fovA + (fovB - fovA) * w;
 }
 
-const _lookM = new Matrix4(), _up = new Vector3(0, 1, 0);
+const _lookM = new Matrix4(), _up = new Vector3(0, 1, 0), _qSwing = new Quaternion(), _qFrac = new Quaternion();
 const _fA = new Vector3(), _fB = new Vector3(), _fS = new Vector3(), _upRef = new Vector3(), _yp = new Vector3(), _tmpV = new Vector3(), _y1 = new Vector3(), _u1 = new Vector3();
 const _bInv = new Quaternion(), _rA = new Quaternion(), _rB = new Quaternion(), _va = new Vector3(), _vb = new Vector3();
 /** rotation vector (axis x angle, angle in [0, pi]) of the rotation `q` relative to `base` */

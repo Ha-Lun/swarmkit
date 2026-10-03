@@ -121,7 +121,7 @@ export function createWorld(opts: WorldOptions): World {
   const path = createCameraPath(lattice);
 
   const accent = readAccent();
-  const flows: Flow[] = Array.from({ length: 5 }, () => createFlow(accent)); // 0-3: the Hive's comets (the task, then the three gates); 4: the task's comet on the ground (journey-comet.ts)
+  const flows: Flow[] = Array.from({ length: 8 }, () => createFlow(accent)); // 0-3: the Hive's comets (the task, then the three gates); 4: the task's comet on the ground, 5-7: the gate comets of the journey's fan-out (journey-comet.ts)
   // GTAO's G-buffer content: the panels' twin plus the comets' (so the AO of the stone behind a comet is not multiplied onto it)
   const aoGroupsOf = (h: Honeycomb) => [...(h.aoGroup ? [h.aoGroup] : []), ...flows.map((f) => f.packet.aoGroup)];
   flows.forEach((f) => globe.add(f.packet.group));
