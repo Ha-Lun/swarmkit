@@ -29,7 +29,9 @@ export interface Scroll {
 export function initScroll(): Scroll {
   gsap.registerPlugin(ScrollTrigger);
   gsap.ticker.lagSmoothing(0);
-  const lenis = new Lenis({ duration: 1.0, autoRaf: false, anchors: true, infinite: true, syncTouch: true }); // the page loops: the finale ends on the intro's opening frame (finale.ts)
+  // the page loops (the finale ends on the intro's opening frame, finale.ts); the user's wheel and touch never scroll it: a downward one only starts the story (see autoplay below)
+  const lenis = new Lenis({ duration: 1.0, autoRaf: false, anchors: true, infinite: true, syncTouch: true,
+    virtualScroll: ({ deltaY, event }) => { if (deltaY > 0 && !playing && !inPanel(event.target)) play(); return false; } });
   lenis.on('scroll', ScrollTrigger.update);
   const raf = (t: number) => lenis.raf(t * 1000);
   gsap.ticker.add(raf);
@@ -59,41 +61,32 @@ export function initScroll(): Scroll {
   });
   document.fonts?.ready.then(() => ScrollTrigger.refresh());
 
-  // The page plays by itself once started: from the landing screen to the end of the loop the page scrolls at a steady rate per chapter (through the same scroll state as a wheel, so
-  // the camera, fades and pull-back are untouched). It starts on the first downward scroll, key press or click at the landing screen (or the "Scroll to start" cue, a nav jump, a task
-  // pick) and ends where the loop wraps back to the landing screen, which waits for the next start. Holding the primary pointer or pressing Space pauses it; your own scrolling always
-  // wins and, once you scroll up, autoplay stays off until you scroll down again. Velocity eases, so start, pause and resume glide.
-  let playing = false, held = false, paused = false, off = false, vel = 0, acc = 0, routeSec = 140, lastChapter = 0;
-  const play = () => { playing = true; off = false; };
+  // The page plays by itself and cannot be scrolled by hand: the wheel, touch, keys, scrollbar and in-page links are all dead (html is overflow:hidden, Lenis ignores the user's input, and
+  // anchor clicks are swallowed while it plays). From the landing screen it starts on the first downward scroll or key (Down, PageDown, End, Space), the "Scroll to start" cue, a nav dot or
+  // a task pick, then runs every chapter at its own pace through the same scroll state as a wheel would (camera, fades and pull-back untouched), and ends where the loop wraps back to the
+  // landing screen, which waits for the next start. The only control is Space: hold it to pause (release to carry on). The Reference panel pauses it too. Velocity eases, so start, pause and resume glide.
+  let playing = false, paused = false, vel = 0, acc = 0, routeSec = 140, lastChapter = 0;
+  document.documentElement.classList.add('is-guided');
+  const play = () => { playing = true; };
   const inPanel = (t: EventTarget | null) => t instanceof Element && !!t.closest('dialog'); // the Reference panel scrolls itself; its wheel and keys are not the page's
-  const offVirtual = lenis.on('virtual-scroll', ({ deltaY, event }) => {
-    if (!deltaY || inPanel(event.target)) return;
-    if (deltaY > 0 && state.chapter === 0 && !playing) play(); // the first scroll down at the landing screen starts the story
-    else off = deltaY < 0;
-  });
-  const onDown = (e: PointerEvent) => { if (e.button === 0 && !inPanel(e.target)) held = true; };
-  const onUp = () => { held = false; };
-  const inControl = (t: EventTarget | null) => t instanceof Element && !!t.closest('a, button, input, select, textarea');
+  const typing = (t: EventTarget | null) => t instanceof Element && !!t.closest('input, textarea, select');
   const onKey = (e: KeyboardEvent) => {
-    if (inPanel(e.target)) return;
-    const down = e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === 'End';
-    if (!playing && state.chapter === 0 && (down || (e.key === ' ' && !inControl(e.target)))) { if (e.key === ' ') e.preventDefault(); play(); }
-    else if (e.key === ' ' && !e.repeat && playing && !inControl(e.target)) { e.preventDefault(); paused = !paused; }
-    else if (e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'Home') off = true;
-    else if (down) off = false;
+    if (inPanel(e.target) || typing(e.target)) return;
+    if (e.key === ' ') { e.preventDefault(); if (playing) paused = e.type === 'keydown'; else if (e.type === 'keydown') play(); } // (on keyup too: a focused button must not fire on release)
+    else if (e.type === 'keydown' && !playing && (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === 'End')) play();
   };
-  // an in-page link into the story (the cue, a nav dot) starts it too; the wordmark (back to the top) and the Reference do not
+  const onBlur = () => { paused = false; };
+  // an in-page link into the story (the cue, a nav dot) starts it; while it plays they are dead. The wordmark (back to the top) and the Reference never start it, and the Reference always works.
   const onClick = (e: MouseEvent) => {
     const a = e.target instanceof Element ? e.target.closest<HTMLAnchorElement>('a[href^="#"]') : null;
     const h = a?.getAttribute('href');
-    if (a && h && h !== '#top' && !h.startsWith('#ref') && !inPanel(a)) play();
+    if (!a || !h || h.startsWith('#ref') || inPanel(a)) return;
+    if (playing) { e.preventDefault(); e.stopPropagation(); } else if (h !== '#top') play();
   };
-  window.addEventListener('pointerdown', onDown);
-  window.addEventListener('pointerup', onUp);
-  window.addEventListener('pointercancel', onUp);
-  window.addEventListener('blur', onUp);
+  window.addEventListener('blur', onBlur);
   window.addEventListener('keydown', onKey);
-  document.addEventListener('click', onClick);
+  window.addEventListener('keyup', onKey);
+  window.addEventListener('click', onClick, true);
   const ap = motion.autoplay;
   const loopFrom = 1 - LOOP_VH / (motion.runway.finale - 40);
   /** progress per second of the chapter under autoplay at chapter progress p */
@@ -114,7 +107,7 @@ export function initScroll(): Scroll {
     }
     lastChapter = state.chapter;
     // (not `!lenis.isScrolling`: our own scrollTo raises 'native' for a few frames after every step, which held autoplay off four frames in five; only the wheel's and touch's own inertia, 'smooth', is the user scrolling)
-    const go = playing && !held && !paused && !off && lenis.isScrolling !== 'smooth' && !lenis.isStopped;
+    const go = playing && !paused && lenis.isScrolling !== 'smooth' && !lenis.isStopped;
     const ch = state.chapter, tr = triggers[ch];
     const pxPerSec = (tr.end - tr.start) * perSecAt(ch, state.chapterProgress);
     vel += ((go ? pxPerSec : 0) - vel) * (1 - Math.exp(-dt / ap.easeSec));
@@ -139,13 +132,11 @@ export function initScroll(): Scroll {
       triggers.forEach((t) => t.kill());
       gsap.ticker.remove(raf);
       gsap.ticker.remove(auto);
-      offVirtual();
-      window.removeEventListener('pointerdown', onDown);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
-      window.removeEventListener('blur', onUp);
+      window.removeEventListener('blur', onBlur);
       window.removeEventListener('keydown', onKey);
-      document.removeEventListener('click', onClick);
+      window.removeEventListener('keyup', onKey);
+      window.removeEventListener('click', onClick, true);
+      document.documentElement.classList.remove('is-guided');
       lenis.destroy();
     },
   };

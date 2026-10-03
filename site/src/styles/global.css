@@ -203,6 +203,6 @@ dialog.ref-dialog .ref { border-top: 0; padding-top: var(--space-16); } /* (the 
 
 /* Lenis */
 html.lenis, html.lenis body { height: auto; }
-.lenis.lenis-stopped { overflow: hidden; } /* the intro locks scroll; the gutter below keeps the layout from shifting */
+.lenis.lenis-stopped, html.is-guided { overflow: hidden; } /* the intro locks scroll, and the page never scrolls by hand (scroll.ts: it plays itself; autoplay still moves it); the gutter below keeps the layout from shifting */
 html.lenis { scroll-behavior: auto !important; } /* the native smooth-scroll above must not fight Lenis */
 .lenis.lenis-smooth [data-lenis-prevent] { overscroll-behavior: contain; }
