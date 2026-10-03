@@ -58,7 +58,9 @@ export const motion = {
   moon: {
     driftSec: 50, // seconds per lap of the drift ellipse
   },
-  walkAuto: { diveSec: 4, tailSec: 9, easeSec: 0.4 }, // the walk plays itself (scroll.ts): seconds for the dive in, for the rise out and the pull-back to the end of Cells (the route's own time is walkCfg.rate), and the ease of start/pause/resume
+  /** The page plays itself once started (scroll.ts): seconds each chapter takes under autoplay (Cells has its own pacing below: the dive, the journey in seconds, the tail), and the ease of start/pause/resume. */
+  autoplay: { introSec: 3, hiveSec: 8, proofSec: 9, finaleSec: 14, loopSec: 5, easeSec: 0.4 },
+  walkAuto: { diveSec: 4, tailSec: 9 }, // the walk plays itself (scroll.ts): seconds for the dive in, for the rise out and the pull-back to the end of Cells (the route's own time is walkCfg.rate), and the ease of start/pause/resume
   probe: { ms: 1000, warmupFrames: 10, minFrames: 6, stepDownBelow: 45, fallbackBelow: 30 },
 } as const;
 

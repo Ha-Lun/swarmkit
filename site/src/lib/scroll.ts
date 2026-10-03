@@ -6,7 +6,7 @@ import Lenis from 'lenis';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { scrollToProgress, SEGMENTS } from './world/camera-path';
-import { motion, walkCfg, walkRamp } from './world/motion-config';
+import { LOOP_VH, motion, walkCfg, walkRamp } from './world/motion-config';
 
 export interface ScrollState {
   chapter: number;
@@ -59,39 +59,67 @@ export function initScroll(): Scroll {
   });
   document.fonts?.ready.then(() => ScrollTrigger.refresh());
 
-  // The walk plays by itself: from the dive to the end of Cells the page scrolls at a steady rate (through the same scroll state as a wheel, so the
-  // camera, fades and pull-back are untouched). Holding the primary pointer or pressing Space pauses it; your own scrolling always wins and, once you
-  // scroll up, autoplay stays off until you scroll down again. Velocity eases, so start, pause and resume glide.
-  const cells = triggers[2];
-  let held = false, paused = false, off = false, vel = 0, acc = 0, routeSec = 140;
-  const inWalk = () => state.chapter === 2 && state.chapterProgress >= walkRamp.inFrom;
+  // The page plays by itself once started: from the landing screen to the end of the loop the page scrolls at a steady rate per chapter (through the same scroll state as a wheel, so
+  // the camera, fades and pull-back are untouched). It starts on the first downward scroll, key press or click at the landing screen (or the "Scroll to start" cue, a nav jump, a task
+  // pick) and ends where the loop wraps back to the landing screen, which waits for the next start. Holding the primary pointer or pressing Space pauses it; your own scrolling always
+  // wins and, once you scroll up, autoplay stays off until you scroll down again. Velocity eases, so start, pause and resume glide.
+  let playing = false, held = false, paused = false, off = false, vel = 0, acc = 0, routeSec = 140, lastChapter = 0;
+  const play = () => { playing = true; off = false; };
   const inPanel = (t: EventTarget | null) => t instanceof Element && !!t.closest('dialog'); // the Reference panel scrolls itself; its wheel and keys are not the page's
-  const offVirtual = lenis.on('virtual-scroll', ({ deltaY, event }) => { if (deltaY && !inPanel(event.target)) off = deltaY < 0; });
+  const offVirtual = lenis.on('virtual-scroll', ({ deltaY, event }) => {
+    if (!deltaY || inPanel(event.target)) return;
+    if (deltaY > 0 && state.chapter === 0 && !playing) play(); // the first scroll down at the landing screen starts the story
+    else off = deltaY < 0;
+  });
   const onDown = (e: PointerEvent) => { if (e.button === 0 && !inPanel(e.target)) held = true; };
   const onUp = () => { held = false; };
+  const inControl = (t: EventTarget | null) => t instanceof Element && !!t.closest('a, button, input, select, textarea');
   const onKey = (e: KeyboardEvent) => {
     if (inPanel(e.target)) return;
-    if (e.key === ' ' && !e.repeat && inWalk() && !(e.target instanceof Element && e.target.closest('a, button, input, select, textarea'))) { e.preventDefault(); paused = !paused; }
+    const down = e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === 'End';
+    if (!playing && state.chapter === 0 && (down || (e.key === ' ' && !inControl(e.target)))) { if (e.key === ' ') e.preventDefault(); play(); }
+    else if (e.key === ' ' && !e.repeat && playing && !inControl(e.target)) { e.preventDefault(); paused = !paused; }
     else if (e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'Home') off = true;
-    else if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === 'End') off = false;
+    else if (down) off = false;
+  };
+  // an in-page link into the story (the cue, a nav dot) starts it too; the wordmark (back to the top) and the Reference do not
+  const onClick = (e: MouseEvent) => {
+    const a = e.target instanceof Element ? e.target.closest<HTMLAnchorElement>('a[href^="#"]') : null;
+    const h = a?.getAttribute('href');
+    if (a && h && h !== '#top' && !h.startsWith('#ref') && !inPanel(a)) play();
   };
   window.addEventListener('pointerdown', onDown);
   window.addEventListener('pointerup', onUp);
   window.addEventListener('pointercancel', onUp);
   window.addEventListener('blur', onUp);
   window.addEventListener('keydown', onKey);
+  document.addEventListener('click', onClick);
+  const ap = motion.autoplay;
+  const loopFrom = 1 - LOOP_VH / (motion.runway.finale - 40);
+  /** progress per second of the chapter under autoplay at chapter progress p */
+  const perSecAt = (ch: number, p: number): number => {
+    if (ch === 0) return 1 / ap.introSec;
+    if (ch === 1) return 1 / ap.hiveSec;
+    if (ch === 3) return 1 / ap.proofSec;
+    if (ch === 4) return p < loopFrom ? loopFrom / ap.finaleSec : (1 - loopFrom) / ap.loopSec;
+    // Cells: the dive, the route and the rise each have their own pace; the route runs at walkCfg.rate (so its holds and turns are in seconds)
+    const w = motion.walkAuto;
+    return p < walkCfg.uFrom ? (walkCfg.uFrom - walkRamp.inFrom) / w.diveSec : p < walkCfg.uTo ? (walkCfg.uTo - walkCfg.uFrom) / routeSec : (1 - walkCfg.uTo) / w.tailSec;
+  };
   const auto = (_t: number, dtMs: number) => {
     const dt = Math.min(dtMs, 100) / 1000;
-    if (state.chapter !== 2) paused = false; // a new visit to the walk plays again
+    if (lastChapter === sections.length - 1 && state.chapter === 0) { // the loop wrapped: back to the exact opening frame, and the landing screen waits for the next start
+      playing = false; vel = 0; acc = 0;
+      lenis.scrollTo(0, { immediate: true, force: true });
+    }
+    lastChapter = state.chapter;
     // (not `!lenis.isScrolling`: our own scrollTo raises 'native' for a few frames after every step, which held autoplay off four frames in five; only the wheel's and touch's own inertia, 'smooth', is the user scrolling)
-    const go = inWalk() && !held && !paused && !off && lenis.isScrolling !== 'smooth' && !lenis.isStopped;
-    // the dive, the route and the rise each have their own pace: the route runs at walkCfg.rate (so its holds and turns are in seconds), the dive and the rise are brisk
-    const w = motion.walkAuto, p = state.chapterProgress;
-    const perSec = p < walkCfg.uFrom ? (walkCfg.uFrom - walkRamp.inFrom) / w.diveSec : p < walkCfg.uTo ? (walkCfg.uTo - walkCfg.uFrom) / routeSec : (1 - walkCfg.uTo) / w.tailSec;
-    const pxPerSec = (cells.end - cells.start) * perSec;
-    vel += ((go ? pxPerSec : 0) - vel) * (1 - Math.exp(-dt / motion.walkAuto.easeSec));
+    const go = playing && !held && !paused && !off && lenis.isScrolling !== 'smooth' && !lenis.isStopped;
+    const ch = state.chapter, tr = triggers[ch];
+    const pxPerSec = (tr.end - tr.start) * perSecAt(ch, state.chapterProgress);
+    vel += ((go ? pxPerSec : 0) - vel) * (1 - Math.exp(-dt / ap.easeSec));
     if (Math.abs(lenis.scroll - acc) > 2) acc = lenis.scroll; // moved by something else (scrollbar, wheel, anchor): follow it
-    if (vel < 0.5 || !inWalk()) return;
+    if (vel < 0.5) return;
     acc += vel * dt; // own float accumulator: a sub-pixel step per frame would otherwise round away
     lenis.scrollTo(acc, { immediate: true });
   };
@@ -102,7 +130,7 @@ export function initScroll(): Scroll {
     setWalkSec(sec) { routeSec = sec; },
     go(chapter, progress) {
       const t = triggers[chapter];
-      off = false; paused = false;
+      play(); paused = false;
       lenis.scrollTo(t.start + progress * (t.end - t.start), { duration: 1.6 });
     },
     lock(reason) { locks.add(reason); lenis.stop(); },
@@ -117,6 +145,7 @@ export function initScroll(): Scroll {
       window.removeEventListener('pointercancel', onUp);
       window.removeEventListener('blur', onUp);
       window.removeEventListener('keydown', onKey);
+      document.removeEventListener('click', onClick);
       lenis.destroy();
     },
   };
