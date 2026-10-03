@@ -60,7 +60,7 @@ export const motion = {
   },
   /** The page plays itself once started (scroll.ts): seconds each chapter takes under autoplay (Cells has its own pacing below: the dive, the journey in seconds, the tail), and the ease of start/pause/resume. */
   autoplay: { introSec: 3, hiveSec: 8, proofSec: 9, finaleSec: 14, loopSec: 5, easeSec: 0.4 },
-  walkAuto: { diveSec: 4, tailSec: 9 }, // the walk plays itself (scroll.ts): seconds for the dive in, for the rise out and the pull-back to the end of Cells (the route's own time is walkCfg.rate), and the ease of start/pause/resume
+  walkAuto: { diveSec: 4, tailSec: 11 }, // the walk plays itself (scroll.ts): seconds for the dive in, for the rise out and the pull-back to the end of Cells (the route's own time is walkCfg.rate), and the ease of start/pause/resume
   probe: { ms: 1000, warmupFrames: 10, minFrames: 6, stepDownBelow: 45, fallbackBelow: 30 },
 } as const;
 
@@ -107,7 +107,7 @@ export const walkCfg = {
   fov: 55, near: 0.1, uFrom: 0.2, uTo: 0.78, detail: 1, coreDim: 0.9, fogNear: 0.6, fogFar: 3,
   /** The journey's pace. The route parameter runs at `rate` route units per second under autoplay (scroll.ts is told the route's length and sets its speed from this), so every duration is in
    *  seconds: the comet holds at a tower for dwellSec (coreSec at the core, where the task is classified and approved); its legs take as long as they take at the comet's own speed. */
-  rate: 8, dwellSec: 2, coreSec: 2.5, beatSec: 1.5, minSec: 6, entrySec: 2.8,
+  rate: 8, dwellSec: 2, coreSec: 2.5, beatSec: 2.6, minSec: 6, entrySec: 2.8,
   /** The camera's viewpoint at a stop: `back` world units behind the comet's arrival direction and `up` above the cap; the camera path stays `clearMargin` above the tallest column's reach
    *  and trails the comet by `lagSec` seconds. */
   back: 4, up: 2.2, clearMargin: 0.5, lagSec: 0.45,
@@ -119,7 +119,7 @@ export const walkCfg = {
  * receive their comets in parallel (they leave the last stop together at `fanFrom` and land together at `fanTo`), and the camera comes back onto the spline for the Proof pull-back over
  * `overviewOut`. The dim and the canvas recede (recedeMix) start only after the gates have landed, so they are seen undimmed.
  */
-export const aerial = { overviewIn: [0.82, 0.915], overviewOut: [0.945, 1], fanFrom: 0.88, fanTo: 0.93, gateFadeOut: [0.955, 0.985], recedeFrom: 0.955 } as const;
+export const aerial = { overviewIn: [0.82, 0.915], overviewOut: [0.945, 1], captionFrom: 0.84, doneFrom: 0.94, fanFrom: 0.88, fanTo: 0.93, gateFadeOut: [0.955, 0.985], recedeFrom: 0.955 } as const;
 
 /** Route parameter 0..1 for Cells chapter progress p. */
 export const walkUOf = (p: number): number => Math.min(1, Math.max(0, (p - walkCfg.uFrom) / (walkCfg.uTo - walkCfg.uFrom)));

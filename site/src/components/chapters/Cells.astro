@@ -1,5 +1,5 @@
 ---
-// The Cells scene: the task's journey. The step captions and chips of every journey are pre-rendered from the routing data (journeys.ts) and the chapter only writes their opacity: the current
+// The Cells scene: the task's journey. The task tag, step captions (the status line and why), closing line and chips of every journey are pre-rendered from the routing data (journeys.ts) and the chapter only writes their opacity: the current
 // step's caption shows and its chip lights. The hidden agent list and the label cards are pre-rendered from the agent data; the full roster is in Reference. The band legend is the static
 // page's (the world shows the steps instead).
 import { facts } from '../../lib/facts';
@@ -16,7 +16,6 @@ const bands = bandOrder
   .filter((b) => b.count > 0);
 const ordered = bandOrder.flatMap((b) => agents.filter((a) => a.band === b));
 const journeys = journeysOf(examples, gates.map((g) => g.agent), tiers);
-const captionOf = (b: { label: string; agent?: string }) => (b.agent ? `${b.label}: ${b.agent}` : b.label);
 ---
 <section id="cells" class="chapter" style={`--runway:${motion.runway.cells}`} aria-labelledby="cells-title">
   <div class="scene" data-scene>
@@ -38,17 +37,20 @@ const captionOf = (b: { label: string; agent?: string }) => (b.agent ? `${b.labe
       ))}
     </div>
 
+    {journeys.map((j, ji) => <p class="task-tag world-only" data-task-tag data-j={ji} data-fx>Task: {j.task} · {j.tier}</p>)}
+
     <div class="scene-foot">
       <div class="captions">
         <p class="caption static-only">{agents.length} agents, one cell each.</p>
         {journeys.map((j, ji) => (
           <>
-            {j.beats.map((b, bi) => b.stop >= 0 && <p class="caption world-only" data-caption-step data-j={ji} data-b={bi} data-fx>{captionOf(b)}</p>)}
-            {j.gates.length > 0 && (
-              <p class="caption world-only" data-caption-step data-j={ji} data-gates data-fx>
-                In parallel: {j.beats.filter((b) => b.stop < 0).map((b) => `${b.agent} (${b.label})`).join(', ')}
-              </p>
+            {j.beats.map((b, bi) => b.stop >= 0 && (
+              <p class="caption world-only" data-caption-step data-j={ji} data-b={bi} data-fx><span class="caption-status">{b.status}</span><span class="caption-why">{b.why}</span></p>
+            ))}
+            {j.gate && (
+              <p class="caption world-only" data-caption-step data-j={ji} data-gates data-fx><span class="caption-status">{j.gate.status}</span><span class="caption-why">{j.gate.why}</span></p>
             )}
+            <p class="caption world-only" data-caption-done data-j={ji} data-fx><span class="caption-status">{j.task}: done</span><span class="caption-why">{j.done}</span></p>
           </>
         ))}
       </div>

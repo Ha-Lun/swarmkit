@@ -90,11 +90,14 @@
 .chip-fill { position: absolute; left: -1px; right: -1px; bottom: -1px; height: 2px; background: var(--wax); transform: scaleX(0); transform-origin: left; pointer-events: none; display: none; } /* the journey's progress through a step: the world drives the scale (Cells only) */
 :root[data-tier='high'] .chip-fill, :root[data-tier='medium'] .chip-fill { display: block; }
 .replays { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
-.chip-stack { display: grid; justify-items: end; }
+.chip-stack { display: grid; justify-items: end; align-items: end; }
 .chip-stack > * { grid-area: 1 / 1; }
 .chip-stack .chips { justify-content: flex-end; }
 .chip-stack .chip-ring { border-width: 2px; border-color: var(--text); background: rgb(217 222 229 / 0.1); } /* the current step */
-.caption[data-caption-step] { font-size: var(--text-lg); font-weight: 700; letter-spacing: -0.005em; text-shadow: 0 0 14px var(--ink), 0 0 3px var(--ink); } /* the current step, called out */
+.caption[data-caption-step], .caption[data-caption-done] { text-shadow: 0 0 14px var(--ink), 0 0 3px var(--ink); } /* the current step, called out: the status line, then why */
+.caption-status { display: block; font-family: var(--font-mono); font-size: var(--text-base); font-weight: 500; text-shadow: 0 0 8px var(--ink), 0 0 14px var(--ink), 0 0 3px var(--ink); }
+.caption-why { display: block; margin-top: var(--space-1); font-size: var(--text-lg); font-weight: 700; letter-spacing: -0.005em; }
+.task-tag { position: absolute; top: 72px; left: var(--space-6); margin: 0; font-family: var(--font-mono); font-size: var(--text-base); color: var(--text); text-shadow: 0 0 14px var(--ink), 0 0 3px var(--ink); } /* the task the comet is (Cells only; one per journey, stacked) */
 .btn { display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); background: var(--ink); border: 1px solid var(--wax-dim); font-family: var(--font-mono); font-size: var(--text-base); line-height: 1.3; color: var(--text); cursor: pointer; }
 .btn:hover { border-color: var(--wax); }
 .btn-tier { color: var(--text); opacity: 0.7; }
@@ -141,6 +144,8 @@
     .captions > * { grid-area: 1 / 1; }
     .captions > :not(:first-child) { opacity: 0; } /* before the world mounts, only the first caption shows; the chapter drives the rest */
     .scene-foot { flex-wrap: nowrap; }
+    .scene-foot > .captions { flex: 1 1 0; min-width: 0; } /* (the status line and why get the room the step chips, which wrap at the right, leave) */
+    .scene-foot > .chip-stack { flex: 0 1 50%; }
     .intro-lede { position: absolute; left: max(var(--space-6), 4.5vw); top: 24vh; padding: 0; }
     .nav-mark { opacity: 0; } /* the wordmark travels here from the intro (intro.ts drives the opacity) */
     .install-cmd { margin: 0; }
@@ -149,7 +154,7 @@
     .finale-foot { justify-content: center; }
     .chip-ring { opacity: 0; }
     .static-only { display: none; } /* (the band legend of the static page: the world shows the steps) */
-    .chip-stack > .chips { opacity: 0; }
+    .chip-stack > .chips, .task-tag { opacity: 0; }
   }
   :root[data-tier='high'], :root[data-tier='medium'] {
     .install-cmd { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } /* the swarm is the visible command */

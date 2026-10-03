@@ -21,6 +21,8 @@ export function createCells(ctx: WorldCtx): Chapter {
   let ahead: string | null = null;
   // the steps: every journey's captions and chips are in the page; the active journey's current one is shown
   const captions = scene.q('[data-caption-step]').map((el) => ({ el, j: Number(el.dataset.j), b: el.dataset.b === undefined ? -1 : Number(el.dataset.b) }));
+  const doneCaptions = scene.q('[data-caption-done]').map((el) => ({ el, j: Number(el.dataset.j) })); // the closing line, once the gates have passed
+  const taskTags = scene.q('[data-task-tag]').map((el) => ({ el, j: Number(el.dataset.j) })); // the task's name, on screen for the whole walk
   const chipLists = scene.q('[data-steps]').map((el) => ({
     el, j: Number(el.dataset.steps),
     chips: [...el.querySelectorAll<HTMLElement>('[data-step]')].map((c) => ({ ring: c.querySelector<HTMLElement>('.chip-ring')!, fill: c.querySelector<HTMLElement>('.chip-fill')!, b: Number(c.dataset.b), last: -1 })),
@@ -51,7 +53,7 @@ export function createCells(ctx: WorldCtx): Chapter {
       const stops = route?.stops;
       const windowOf = (bi: number): [number, number] => { // [start, end] in route parameter, or in Cells progress for a gate
         const b = jr.beats[bi];
-        if (b.stop < 0) return [aerial.fanFrom - 0.02, aerial.gateFadeOut[1]];
+        if (b.stop < 0) return [aerial.captionFrom, aerial.doneFrom];
         const s = stops![b.stop], slot = (s.u1 - s.u0) / b.of, w0 = s.u0 + slot * b.k;
         return [bi === 0 ? -1 : w0, w0 + slot];
       };
@@ -60,6 +62,9 @@ export function createCells(ctx: WorldCtx): Chapter {
       if (stops && jr) {
         const gateBeat = jr.beats.findIndex((b) => b.stop < 0);
         captions.forEach((c) => setOpacity(c.el, c.j !== view.journey ? 0 : weightOf(c.b >= 0 ? c.b : gateBeat)));
+        const doneFrom = jr.gates.length ? aerial.doneFrom : walkCfg.uTo + EPS; // (a task with no gate has nothing to say between its last step and the end)
+        doneCaptions.forEach((c) => setOpacity(c.el, c.j !== view.journey ? 0 : range(p, doneFrom - EPS, doneFrom + EPS)));
+        taskTags.forEach((t) => setOpacity(t.el, t.j === view.journey ? 1 : 0));
         chipLists.forEach((l) => {
           setOpacity(l.el, l.j === view.journey ? 1 : 0);
           if (l.j !== view.journey) return;
@@ -98,6 +103,8 @@ export function createCells(ctx: WorldCtx): Chapter {
       look.disable();
       view.lookYaw = view.lookPitch = 0;
       captions.forEach((c) => setOpacity(c.el, 0));
+      doneCaptions.forEach((c) => setOpacity(c.el, 0));
+      taskTags.forEach((t) => setOpacity(t.el, 0));
       chipLists.forEach((l) => setOpacity(l.el, 0));
       scene.fade(0);
     },
