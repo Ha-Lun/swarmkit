@@ -4,7 +4,7 @@
 import { Vector3 } from 'three';
 import { nearestTowerAhead, type TowerRef } from '../walk';
 import { createWalkLook } from '../walk-look';
-import { aerial, motion, recedeMix, walkCfg, walkUOf } from '../motion-config';
+import { aerial, motion, recedeMix, walkCfg } from '../motion-config';
 import { createPick } from '../pick';
 import { range, sceneOf, setOpacity } from '../scene-dom';
 import type { Chapter, WorldCtx } from '../types';
@@ -45,7 +45,7 @@ export function createCells(ctx: WorldCtx): Chapter {
       view.lookPitch = look.pitch;
       const walking = view.walk > 0.05;
       const route = ctx.walkRoute;
-      const u = walkUOf(p);
+      const uNow = (view.walkCp - walkCfg.uFrom) / (walkCfg.uTo - walkCfg.uFrom); // the route parameter of the camera (the damped progress), unclamped: negative before the launch
       // the steps: where each step's window is in the journey (a stop's hold is shared by the steps shown at it; the gates run together once the camera has risen)
       const jr = routing.journeys[view.journey];
       const stops = route?.stops;
@@ -55,7 +55,6 @@ export function createCells(ctx: WorldCtx): Chapter {
         const s = stops![b.stop], slot = (s.u1 - s.u0) / b.of, w0 = s.u0 + slot * b.k;
         return [bi === 0 ? -1 : w0, w0 + slot];
       };
-      const uNow = (view.walkCp - walkCfg.uFrom) / (walkCfg.uTo - walkCfg.uFrom); // (unclamped: the classification step shows from the launch)
       const posOf = (bi: number) => (jr.beats[bi].stop < 0 ? p : uNow);
       const weightOf = (bi: number) => { const [a, b] = windowOf(bi); return win(posOf(bi), a, b); };
       if (stops && jr) {
@@ -74,9 +73,9 @@ export function createCells(ctx: WorldCtx): Chapter {
       }
       // the aerial: the camera rises to the whole-globe view for the gates and returns for the Proof pull-back
       view.overview = range(p, aerial.overviewIn[0], aerial.overviewIn[1]) * (1 - range(p, aerial.overviewOut[0], aerial.overviewOut[1]));
-      ctx.comet.update(route, (view.walkCp - walkCfg.uFrom) / (walkCfg.uTo - walkCfg.uFrom), view.walk, view.walkCp); // (unclamped: the comet comes down with the dive and stays until the rise)
+      ctx.comet.update(route, uNow, view.walk, view.walkCp);
       const stop = route?.stops[view.walkStop];
-      const dwelling = stop && u >= stop.u0 && u <= stop.u1 ? stop.name : null; // holding at this tower
+      const dwelling = stop && uNow >= stop.u0 && uNow <= stop.u1 ? stop.name : null; // holding at this tower
       if (view.walk > 0.85) { // the card of the tower the comet is heading for (or resting on), once the camera is in the low orbit (not mid-dive), unless you have turned your head away from it
         const lookedAway = Math.abs(look.yaw) > 0.35 || Math.abs(look.pitch) > 0.35;
         const stopTower = stop && !lookedAway ? towerByName.get(stop.name) : undefined;

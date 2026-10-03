@@ -174,22 +174,18 @@ for (let i = 0; i < 9; i++) {
     if (a.tagName.toLowerCase() === 'astro-dev-toolbar') return 'astro-dev-toolbar (dev only)';
     const cs = getComputedStyle(a);
     const r = a.getBoundingClientRect();
-    return `${a.tagName.toLowerCase()} ${a.dataset.replay ? `replay:${a.dataset.replay}` : a.getAttribute('href') ?? a.textContent.trim().slice(0, 24)}  outline=${cs.outlineStyle}/${cs.outlineWidth}  at y=${Math.round(r.top)}`;
+    return `${a.tagName.toLowerCase()} ${a.dataset.pick ? `pick:${a.dataset.pick}` : a.getAttribute('href') ?? a.textContent.trim().slice(0, 24)}  outline=${cs.outlineStyle}/${cs.outlineWidth}  at y=${Math.round(r.top)}`;
   }));
 }
 say('tab order from the nav with the hive pinned:\n  ' + order.join('\n  '));
 await shot(page, 'hive-focus');
 
-// replay button
-await goto(page, 'hive', 0.5, 1500);
-await page.locator('[data-replay]').first().click();
-await page.waitForTimeout(1800);
-await shot(page, 'hive-replay-typo');
-const rep = await page.evaluate(() => [...document.querySelectorAll('[data-caption-example]')].map((e) => `${e.dataset.captionExample}:${getComputedStyle(e).opacity}`));
-say(`replay captions: ${rep.join(' ')}`);
-await page.locator('[data-replay]').nth(2).click();
-await page.waitForTimeout(3500);
-await shot(page, 'hive-replay-refactor');
+// task pick: pressing a button starts that journey (the camera dives and the comet flies in)
+await goto(page, 'hive', 0.3, 1500);
+await page.locator('[data-pick]').nth(2).click();
+await page.waitForTimeout(4500);
+await shot(page, 'hive-pick-refactor');
+say(`pick: journey ${await page.evaluate(() => document.querySelector('[data-caption-step]') ? [...document.querySelectorAll('[data-caption-step]')].filter((e) => getComputedStyle(e).opacity > 0.5).map((e) => e.textContent.trim()).join(' | ') : 'no step captions')}`);
 
 // canvas and accent
 say(`canvas count: ${await page.locator('canvas').count()}`);

@@ -9,8 +9,6 @@ export const motion = {
   /** The scroll lengths camera-path.ts solves its speed profile for (the lengths before the walk). The layout lengths above may differ (Cells is longer for the walk); the camera's
    *  scroll-to-position mapping is solved on THESE, so every chapter keeps exactly the camera it had, and a longer Cells only spreads its progress over more scroll. */
   mapRunway: { intro: 100, hive: 150, cells: 300, proof: 150, finale: 400 },
-  /** The hive packet is scrubbed by scroll across the pinned window; these are the seconds of route time it spans. */
-  hive: { holdSec: 1.6, captionBlend: 0.05 },
   hud: { stagger: 0.035 },
   intro: {
     durationMs: 3600,
@@ -22,12 +20,7 @@ export const motion = {
   packet: {
     meanSpeed: 5.5, // world units per second averaged over a leg (a leg eases in and out, so its peak is 1.875x this)
     minLegSec: 0.7, // shortest a leg may last
-    coreHoldSec: 1.1, // "classified": the comet holds at the core while the scanning ring is engraved
-    holdSec: 0.4, // hold at each stop on a card route
-    specHoldSec: 0.35, // hold at the specialist before the fan-out
-    fadeSec: 0.6,
-    entryHold: 0.15, // scroll-scrubbed route: seconds of stillness before the comet starts
-    hiveHoldSec: 1.2, // the gates hold at the end of the scrubbed route
+    holdSec: 0.4, // how long a comet's landing lifts the tower (the pulse)
     ripple: { speed: 2.4, sec: 0.9, width: 0.055 }, // arrival ripple: world units/s across the surface, lifetime, line width
     scan: { radius: 0.62, width: 0.06, fade: 0.4 }, // the scanning ring: fraction of the panel half-width, line width, fade-out seconds
   },
@@ -35,10 +28,6 @@ export const motion = {
   camera: {
     focusRatePerSec: 4,
     hoverBias: 0.3, // keyboard focus only: how far the look-at target moves toward the focused cell (pointer hover never moves the camera)
-    routeBias: 0.5, // ... toward a replaying comet
-    hiveBias: 0.22, // the hive look-at leans this far toward the comet head while it is on screen
-    routeOverview: 0.9, // a replaying route pulls the camera out to the full-lattice view
-    routeDrop: 0.2,
   },
   /** The Cells -> Proof dissolve, dim and canvas recede are ONE smoothstep over a window that straddles the chapter boundary:
    *  from `fromVh` scroll before it (the tail of Cells) to `toVh` after it (the head of Proof). camera-path.ts centres its slow-down on it. */
@@ -99,7 +88,7 @@ export function dissolveMix(chapter: number, p: number): number {
   return smooth3(Math.min(1, Math.max(0, (vh - fromVh) / (toVh - fromVh))));
 }
 
-/** The walk (Cells chapter): where the camera is on the ground. The ramp values are provisional (tuned in the story integration): it dives in over
+/** The low orbit (Cells chapter): where the camera follows the comet. The ramp values are provisional (tuned in the story integration): it dives in over
  *  chapterProgress inFrom..inTo and rises out over outFrom..outTo. The rise starts a little after the route's end (uTo): the autoplay speed of a short route is far above the tail's and eases
  *  down over about a second (scroll.ts), and the rise must not be swept past in that time. */
 export const walkRamp = { inFrom: 0.06, inTo: 0.2, outFrom: 0.82, outTo: 0.915 } as const;

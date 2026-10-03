@@ -3,6 +3,7 @@
 // triggers receive their comets in parallel (timed in the Cells progress, once the camera has risen).
 import { aerial, motion, walkCfg } from './motion-config';
 import { clearRadius, easeLeg, raise, Route, type Flow } from './routes';
+import { RING_SLOTS } from './rings';
 import type { WalkRoute } from './walk';
 import type { WorldCtx } from './types';
 
@@ -42,7 +43,13 @@ export function createJourneyComet(ctx: WorldCtx, flow: Flow, gateFlows: Flow[])
     gateFlows.slice(gateNames.length).forEach((f) => f.hide());
   }
 
-  const pulse = (u: number, at: number, dur: number) => clamp01((u - at) / 0.02) * (1 - clamp01((u - at - 0.02) / dur)); // (a quick rise, then a fade over `dur` in u)
+  const pulse = (u: number, at: number, dur: number) => clamp01((u - at) / RIPPLE_P) * (1 - clamp01((u - at - RIPPLE_P) / dur)); // (a quick rise, then a fade over `dur`)
+  /** a ripple ring on the cap of tower `name`, `k` (0..1) of the way through its life; the ring shell is one radius for every ring: the last one set wins, which is the tower being arrived at */
+  const ripple = (slot: number, name: string, k: number) => {
+    const c = ctx.lattice.cells[ctx.cellIndex(name)];
+    ctx.rings.setShell(ctx.lattice.radius + c.height + 0.045);
+    ctx.rings.set(slot, c.normal, c.half * (0.3 + 0.62 * k), P.ripple.width, 1 - smooth(clamp01((k - 0.5) / 0.5)));
+  };
 
   return {
     update(wr, u, walk, cp) {
@@ -68,12 +75,10 @@ export function createJourneyComet(ctx: WorldCtx, flow: Flow, gateFlows: Flow[])
         }
       }
       names.forEach((n, i) => {
-        if (i === 0 || i + 1 >= 8) return;
+        if (i === 0 || i + 1 >= RING_SLOTS) return;
         const k = (u - land[i]) / sec(P.ripple.sec);
         if (k <= 0 || k >= 1) return;
-        const c = ctx.lattice.cells[ctx.cellIndex(n)];
-        R.setShell(ctx.lattice.radius + c.height + 0.045); // (the shell is one radius for every ring: the last one set wins, which is the tower being arrived at)
-        R.set(i + 1, c.normal, c.half * (0.3 + 0.62 * k), P.ripple.width, 1 - smooth(clamp01((k - 0.5) / 0.5)));
+        ripple(i + 1, n, k);
       });
       names.forEach((n, i) => ctx.hilite(n, pulse(u, land[i], sec(P.holdSec)) * fade * motion.hilite.strike));
       // the fan-out: the gates' comets leave the last stop together, fly in parallel and land together; a ripple runs out where each lands, and they shrink away before the Proof pull-back
@@ -84,14 +89,14 @@ export function createJourneyComet(ctx: WorldCtx, flow: Flow, gateFlows: Flow[])
         gf.set(r.length * easeLeg(fan), ctx.camera, gateFade, ctx.dt);
         if (fan >= 1) {
           const k = (cp - aerial.fanTo) / RIPPLE_P;
-          const c = ctx.lattice.cells[ctx.cellIndex(gateNames[i])];
-          if (k > 0 && k < 1) { R.setShell(ctx.lattice.radius + c.height + 0.045); R.set(4 + i, c.normal, c.half * (0.3 + 0.62 * k), P.ripple.width, 1 - smooth(clamp01((k - 0.5) / 0.5))); }
+          if (k > 0 && k < 1) ripple(4 + i, gateNames[i], k);
         }
         ctx.hilite(gateNames[i], pulse(cp, aerial.fanTo, RIPPLE_P) * gateFade * motion.hilite.strike);
       });
     },
     clear() {
       flow.hide();
+      gateFlows.forEach((f) => f.hide());
       ctx.rings.clearAll();
     },
   };

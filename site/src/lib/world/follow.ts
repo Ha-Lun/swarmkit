@@ -27,14 +27,13 @@ export function createFollowRoute(lattice: Lattice, visit: WalkStopSpec[]): Walk
   // the comet's points: the entry, then each cap; leg k runs from point k to point k + 1 (leg 0 is the entry leg)
   const comet = new Route([entry, ...caps], clear);
 
-  // ---- timeline, seconds: leg k departs at dep[k] and arrives at arr[k]; the comet then rests on stop k until dep[k + 1] ----
-  const dep: number[] = [], arr: number[] = [], tL: number[] = [], tD: number[] = [];
+  // ---- timeline, seconds: leg k departs at dep[k] and arrives at arr[k] (the comet lands on stop k); it rests there until tD[k] = dep[k + 1] ----
+  const dep: number[] = [], arr: number[] = [], tD: number[] = [];
   let t = 0;
   visit.forEach((v, k) => {
     dep.push(t);
     t += k === 0 ? Math.max(walkCfg.entrySec, comet.legs[0].len / P.meanSpeed) : Math.max(P.minLegSec, comet.legs[k].len / P.meanSpeed);
     arr.push(t);
-    tL.push(t);
     t += v.holdSec ?? walkCfg.dwellSec;
     tD.push(t);
   });
@@ -69,8 +68,8 @@ export function createFollowRoute(lattice: Lattice, visit: WalkStopSpec[]): Walk
   };
   const cometDist = (u: number) => distAt(comet, u * total);
 
-  const stops = picked.map((c, i) => ({ name: visit[i].name, band: c.agent!.band as string, u0: tL[i] / total, u1: tD[i] / total, tower: c.normal.clone() }));
-  const fresh = (): WalkPose => ({ position: new Vector3(), quaternion: new Quaternion(), fov: 55, up: new Vector3(), forward: new Vector3(), ground: 0, stop: 0 });
+  const stops = picked.map((c, i) => ({ name: visit[i].name, band: c.agent!.band as string, u0: arr[i] / total, u1: tD[i] / total }));
+  const fresh = (): WalkPose => ({ position: new Vector3(), quaternion: new Quaternion(), fov: 55, up: new Vector3(), forward: new Vector3(), stop: 0 });
   const m = new Matrix4(), pos = new Vector3(), tgt = new Vector3(), f = new Vector3();
 
   return {
@@ -89,8 +88,7 @@ export function createFollowRoute(lattice: Lattice, visit: WalkStopSpec[]): Walk
       f.copy(tgt).sub(pos);
       out.forward.copy(f.addScaledVector(out.up, -f.dot(out.up)).normalize());
       out.fov = p.fov;
-      out.ground = 0;
-      let i = 0;
+          let i = 0;
       while (i < n - 1 && s > tD[i]) i++;
       out.stop = i;
       return out;

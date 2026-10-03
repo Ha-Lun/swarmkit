@@ -160,7 +160,7 @@ const favicon =
       };
       function num2(k: string, d: number) { return q.has(k) && !isNaN(Number(q.get(k))) ? Number(q.get(k)) : d; }
       const walk = {
-        cards: q.get('cards') !== '0', eye: num('eye', 0.3), fov: num('fov', 60), pitch: num('pitch', 20), near: num('near', 0.03), env: q.get('ground') !== 'smooth', path: num('path', 0.55), speed: num('speed', 0), u: num('u', 0),
+        cards: q.get('cards') !== '0', fov: num('fov', 55), near: num('near', 0.1), speed: num('speed', 0), u: num('u', 0),
         fogNear: num('fogNear', 6), fogFar: num('fogFar', 40), park: q.get('park') === '1',
       };
       let dissolveProgress = Number(q.get('progress') ?? 0.5), dissolveAuto = q.get('auto') === '1';
@@ -266,16 +266,8 @@ const favicon =
         cardEl.classList.add('is-on');
       }
       const route = createFollowRoute(lat, walkStopsOf(benchJourney, lat.cells.find((c) => c.agent?.band === 'core')!.agent!.name, walkCfg));
-      const walkPose: WalkPose = { position: cam.position.clone(), quaternion: cam.quaternion.clone(), fov: 50, up: cam.position.clone(), forward: cam.position.clone(), ground: 0, stop: 0 };
+      const walkPose: WalkPose = { position: cam.position.clone(), quaternion: cam.quaternion.clone(), fov: 50, up: cam.position.clone(), forward: cam.position.clone(), stop: 0 };
       let walkInfo = '';
-      // the path to follow: the tiles the route crosses are brightened with the existing panel-tone state (palette only, no accent, no glow)
-      const pathIdx: number[] = []; // (the follow camera has no street: nothing to light up)
-      let pathShown = false;
-      function applyPath() {
-        const on = panel === 'cell' && cellView === 'walk' && walk.path > 0;
-        if (on) { pathIdx.forEach((i) => comb.setCellState(i, walk.path, 0)); pathShown = true; }
-        else if (pathShown) { pathIdx.forEach((i) => comb.setCellState(i, 0, 0)); pathShown = false; applyCellState(); }
-      }
       (window as unknown as { __bench: unknown }).__bench = { route, walk }; // inspection hook for QA shots
       // the walk camera: placed and oriented from the route's quaternion, never lookAt; fog from the sliders
       const walkLook = createWalkLook(); // drag the canvas to turn your head (double click: look forward)
@@ -291,7 +283,7 @@ const favicon =
         if (fx.fog) { const hf = horizonFog(R, cam.position.length(), fx.fogNear, fx.fogFar); (scene.fog as Fog).near = hf.near; (scene.fog as Fog).far = hf.far; }
         else { (scene.fog as Fog).near = walk.fogNear; (scene.fog as Fog).far = walk.fogFar; }
         const st = route.stops[walkPose.stop];
-        walkInfo = `walk u ${walk.u.toFixed(3)}  horizon ${horizonDistance(R, cam.position.length()).toFixed(1)}u  toward ${st.name} (${st.band}, ${walkPose.stop + 1}/${route.stops.length})  ground ${walkPose.ground.toFixed(2)}  altitude ${(cam.position.length() - R).toFixed(2)}  horizon dip ${((Math.acos(R / cam.position.length()) * 180) / Math.PI).toFixed(1)} deg  route ${route.length.toFixed(0)} units`;
+        walkInfo = `walk u ${walk.u.toFixed(3)}  horizon ${horizonDistance(R, cam.position.length()).toFixed(1)}u  toward ${st.name} (${st.band}, ${walkPose.stop + 1}/${route.stops.length})  altitude ${(cam.position.length() - R).toFixed(2)}  horizon dip ${((Math.acos(R / cam.position.length()) * 180) / Math.PI).toFixed(1)} deg  route ${route.length.toFixed(0)} units`;
       }
       // the gradient is a baked CanvasTexture (world.ts's createBgTexture), so the bg.gradient slider must rebuild it by hand
       function applyBg() {
@@ -349,7 +341,6 @@ const favicon =
         studio = createStudio(scene, tier, palette, shadowExtentOf(comb.lattice));
         applyShadows();
         applyCellState();
-        pathShown = false; applyPath();
         fxRadial = fxCore = fxShadowExt = -1; // the honeycomb and studio were rebuilt: re-apply the fixes
         post?.dispose();
         post = tier === 'high' ? createPost(renderer, scene, cam, look.post, [...(comb.aoGroup ? [comb.aoGroup] : []), ...packets.map((k) => k.aoGroup)]) : null;
@@ -404,18 +395,14 @@ const favicon =
           const views = document.createElement('div'); views.className = 'row'; ex.append(views);
           for (const v of ['cell', 'wide', 'fly', 'top', 'moon', 'walk']) button(views, `view ${v}`, () => { cellView = v; buildPanel(); }, cellView === v);
           if (cellView === 'walk') {
-            const wr = (k: string) => ({ eye: [0.1, 3, 0.05], near: [0.01, 0.1, 0.005], path: [0, 1, 0.01], fov: [40, 70, 1], pitch: [0, 45, 0.5], speed: [0, 12, 0.1], fogNear: [0, 40, 0.5], fogFar: [5, 150, 1] } as Record<string, [number, number, number]>)[k];
-            slider(ex, 'eye height above the local column top', () => walk.eye, (v) => (walk.eye = v), wr('eye'));
+            const wr = (k: string) => ({ near: [0.01, 0.5, 0.005], fov: [40, 70, 1], speed: [0, 12, 0.1], fogNear: [0, 40, 0.5], fogFar: [5, 150, 1] } as Record<string, [number, number, number]>)[k];
             slider(ex, 'near plane (walk cam only)', () => walk.near, (v) => (walk.near = v), wr('near'));
             slider(ex, 'vertical FOV (deg)', () => walk.fov, (v) => (walk.fov = v), wr('fov'));
-            slider(ex, 'pitch below the horizon (deg)', () => walk.pitch, (v) => (walk.pitch = v), wr('pitch'));
             slider(ex, 'walk speed (units/s, 0 = scrub)', () => walk.speed, (v) => (walk.speed = v), wr('speed'));
             slider(ex, 'fog near', () => walk.fogNear, (v) => (walk.fogNear = v), wr('fogNear'));
             slider(ex, 'fog far', () => walk.fogFar, (v) => (walk.fogFar = v), wr('fogFar'));
             slider(ex, 'scrub along the route (0..1)', () => walk.u, (v) => (walk.u = v), [0, 1, 0.0005]);
             if (tier === 'high') button(ex, 'post (GTAO, bloom)', () => { postOn = !postOn; buildPanel(); }, postOn);
-            slider(ex, 'path tiles: brightness of the tiles the route crosses', () => walk.path, (v) => { walk.path = v; applyPath(); }, wr('path'));
-            button(ex, 'ground: envelope (never clips columns)', () => { walk.env = !walk.env; buildPanel(); }, walk.env);
             button(ex, 'tower cards (what each subagent does)', () => { walk.cards = !walk.cards; buildPanel(); }, walk.cards);
             const h = document.createElement('h3'); h.textContent = 'close-up fixes (each off by default)'; ex.append(h);
             const tog = (label: string, key: 'pistons' | 'radial' | 'core' | 'fog' | 'light' | 'shadow' | 'comet') => button(ex, label, () => { fx[key] = !fx[key]; fxRadial = fxCore = fxShadowExt = -1; buildPanel(); }, fx[key]);
@@ -464,7 +451,6 @@ const favicon =
           const r = (ranges as Record<string, Record<string, [number, number, number]>>)[g];
           for (const k of Object.keys(r)) slider(sl, `${g}.${k}`, () => L[g][k], (v) => (L[g][k] = v), r[k], g === 'particles' && k === 'textWidth' ? () => swarm?.retarget(L.particles.textWidth) : g === 'bg' && k === 'gradient' ? applyBg : undefined);
         }
-        applyPath();
         if (panel === 'particles' && !swarm) buildSwarm();
         if (panel !== 'particles' && swarm) { swarm.dispose(); swarm = null; swarmScene.clear(); }
       }

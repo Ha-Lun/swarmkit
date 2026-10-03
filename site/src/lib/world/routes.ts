@@ -1,6 +1,5 @@
 // Comet routes and their velocity profile. A route is a chain of great-circle legs that hug the globe at one constant lift
-// (no horizon zigzag), except the entry leg, which descends onto the first stop. A timeline turns a route into distance over
-// time: every leg eases in and out (accelerate out of the stop, decelerate into the next), and stops can hold.
+// (no horizon zigzag), except the entry leg, which descends onto the first stop. Every leg eases in and out (easeLeg, below); the timing is the caller's (follow.ts).
 import { Vector3 } from 'three';
 import { look } from './config';
 import { createPacket, type PathSource, type Packet } from './packet';
@@ -82,54 +81,11 @@ export class Route implements PathSource {
   }
 }
 
-export interface Beat { kind: 'leg' | 'hold'; t0: number; t1: number; d0: number; d1: number }
-
-/** Distance over time along a route: ease-in-out legs, holds at stops. */
-export class Timeline {
-  readonly beats: Beat[] = [];
-  total = 0;
-  /** seconds at which the comet arrives at each stop after the first (arrivals[0] = first stop after the entry) */
-  readonly arrivals: number[] = [];
-  /** seconds at which it leaves each of those stops (arrival + hold) */
-  readonly leaves: number[] = [];
-
-  /**
-   * holds[i] = seconds held at stop i+1 (after the entry). `legSec` fixes a leg's duration (used to make fan-out legs of
-   * different lengths leave together and land together); otherwise a leg lasts length / meanSpeed, at least minLeg.
-   */
-  constructor(route: Route, meanSpeed: number, holds: number[] = [], minLeg = 0.6, legSec?: number) {
-    let t = 0;
-    route.legs.forEach((l, i) => {
-      const T = legSec ?? Math.max(minLeg, l.len / meanSpeed);
-      this.beats.push({ kind: 'leg', t0: t, t1: t + T, d0: l.d0, d1: l.d0 + l.len });
-      t += T;
-      this.arrivals.push(t);
-      const h = holds[i] ?? 0;
-      if (h > 0) { this.beats.push({ kind: 'hold', t0: t, t1: t + h, d0: l.d0 + l.len, d1: l.d0 + l.len }); t += h; }
-      this.leaves.push(t);
-    });
-    this.total = t;
-  }
-
-  /** distance along the route at time t (0 before the start, the route end after it) */
-  distAt(t: number): number {
-    const b = this.beats;
-    if (!b.length || t <= 0) return 0;
-    for (const k of b) {
-      if (t <= k.t1) return k.kind === 'hold' ? k.d0 : k.d0 + (k.d1 - k.d0) * easeLeg((t - k.t0) / (k.t1 - k.t0));
-    }
-    return b[b.length - 1].d1;
-  }
-}
-
 export interface Flow {
   packet: Packet;
-  route: Route | null;
   setRoute(route: Route): void;
   /** draw the comet at distance d along its route, fade 0..1 (size, not alpha) */
   set(d: number, camera: import('three').Camera, fade: number, dt: number): void;
-  /** head position (world) at distance d */
-  headAt(d: number, out: Vector3): Vector3;
   hide(): void;
   dispose(): void;
 }
@@ -141,7 +97,6 @@ export function createFlow(accent: string): Flow {
   let route: Route | null = null;
   const flow: Flow = {
     packet,
-    get route() { return route; },
     setRoute(r) {
       route = r;
       packet.reset();
@@ -152,7 +107,6 @@ export function createFlow(accent: string): Flow {
       if (packet.group.visible) packet.update(route, d, camera, look.packet, fade, dt);
       else packet.reset();
     },
-    headAt: (d, out) => (route ? route.pointAt(d, out) : out.set(0, 0, 0)),
     hide() {
       packet.group.visible = false;
       packet.reset();

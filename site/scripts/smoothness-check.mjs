@@ -12,12 +12,12 @@ const dir = mkdtempSync(join(tmpdir(), 'smooth-check-'));
 const out = join(dir, 'bundle.mjs');
 await build({
   stdin: {
-    contents: "export { loadAgents } from './src/lib/agents.ts'; export * as cam from './src/lib/world/camera-path.ts'; export { layoutLattice } from './src/lib/world/honeycomb.ts'; export { motion, walkWeight, walkCfg, walkRamp, loopT, loopCamera, LOOP_VH } from './src/lib/world/motion-config.ts'; export { loopCameraPose } from './src/lib/world/loop.ts'; export { walkCameraPose, walkBlendBase } from './src/lib/world/walk.ts'; export { examples, gates, tiers } from './src/content/routing.ts'; export { createFollowRoute } from './src/lib/world/follow.ts'; export { journeysOf, walkStopsOf } from './src/lib/journeys.ts'; export { Vector3, Quaternion } from 'three';",
+    contents: "export { loadAgents } from './src/lib/agents.ts'; export * as cam from './src/lib/world/camera-path.ts'; export { layoutLattice } from './src/lib/world/honeycomb.ts'; export { motion, walkWeight, walkCfg, walkRamp, loopT, loopCamera, LOOP_VH } from './src/lib/world/motion-config.ts'; export { loopCameraPose } from './src/lib/world/loop.ts'; export { walkCameraPose, walkBlendBase } from './src/lib/world/walk.ts'; export { examples, gates, tiers } from './src/content/routing.ts'; export { createFollowRoute } from './src/lib/world/follow.ts'; export { journeysOf, walkStopsOf } from './src/lib/journeys.ts'; export { Vector3, Quaternion, Matrix4 } from 'three';",
     resolveDir: resolve('.'), loader: 'ts',
   },
   bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error',
 });
-const { loadAgents, cam, layoutLattice, motion, walkWeight, walkCfg, walkRamp, loopT, loopCamera, LOOP_VH, loopCameraPose, createFollowRoute, walkCameraPose, walkBlendBase, examples, gates, tiers, journeysOf, walkStopsOf, Vector3, Quaternion } = await import(pathToFileURL(out).href);
+const { loadAgents, cam, layoutLattice, motion, walkWeight, walkCfg, walkRamp, loopT, loopCamera, LOOP_VH, loopCameraPose, createFollowRoute, walkCameraPose, walkBlendBase, examples, gates, tiers, journeysOf, walkStopsOf, Vector3, Quaternion, Matrix4 } = await import(pathToFileURL(out).href);
 rmSync(dir, { recursive: true, force: true });
 
 const lattice = layoutLattice(loadAgents());
@@ -81,7 +81,7 @@ for (const jn of journeysOf(examples, gates.map((g) => g.agent), tiers)) {
   const base = walkBlendBase(route, (p, o, t) => path.sample(cam.scrollToProgress(2, p), o, t), [[walkRamp.inFrom, walkRamp.inTo], [walkRamp.outFrom, walkRamp.outTo]], walkCfg);
   const cellsAt = bounds[2], cellsEnd = bounds[3];
   const from = cellsAt - 60, to = cellsEnd + 60;
-  const wpos = new Vector3(), wq = new Quaternion(), splinePos = new Vector3(), splineTgt = new Vector3(), walker = { position: new Vector3(), quaternion: new Quaternion(), fov: 0, up: new Vector3(), forward: new Vector3(), ground: 0, stop: 0 };
+  const wpos = new Vector3(), wq = new Quaternion(), splinePos = new Vector3(), splineTgt = new Vector3(), walker = { position: new Vector3(), quaternion: new Quaternion(), fov: 0, up: new Vector3(), forward: new Vector3(), stop: 0 };
   const poses = [];
   const HW = 0.1; // vh
   for (let S = from; S <= to; S += HW) {
@@ -91,7 +91,7 @@ for (const jn of journeysOf(examples, gates.map((g) => g.agent), tiers)) {
     const w = walkWeight(dp.chapter, dp.chapterProgress);
     let fov = 40, pos = splinePos.clone(), q = new Quaternion();
     if (w > 0.001) fov = walkCameraPose(route, base, splinePos, splineTgt, w, dp.chapterProgress, walkCfg, wpos, wq, walker), (pos = wpos.clone(), q = wq.clone());
-    else { const m = new (splinePos.constructor)(); q = new Quaternion().setFromRotationMatrix(new (walker.quaternion.constructor === Quaternion ? (await import('three')).Matrix4 : null)().lookAt(splinePos, splineTgt, new Vector3(0, 1, 0))); }
+    else q = new Quaternion().setFromRotationMatrix(new Matrix4().lookAt(splinePos, splineTgt, new Vector3(0, 1, 0)));
     poses.push({ S, w, pos, q, fov, cp: dp.chapterProgress });
   }
   const n = poses.length;

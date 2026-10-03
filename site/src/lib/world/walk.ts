@@ -15,8 +15,6 @@ export interface WalkStop {
   /** route parameter range (0..1): the comet lands on this tower at u0 and leaves at u1 (the hold) */
   u0: number;
   u1: number;
-  /** unit normal of the tower cell (the landmark) */
-  tower: Vector3;
 }
 
 export interface WalkPose {
@@ -26,8 +24,6 @@ export interface WalkPose {
   up: Vector3;
   /** unit heading in the tangent plane */
   forward: Vector3;
-  /** unused by the follow camera (0) */
-  ground: number;
   /** index of the tower the comet is heading for (or resting on) */
   stop: number;
 }
@@ -161,7 +157,7 @@ export function blendOrientation(quatA: Quaternion, quatB: Quaternion, base: Qua
 export function walkBlendBase(
   route: WalkRoute, sampleSpline: (p: number, pos: Vector3, target: Vector3) => void, ranges: readonly (readonly [number, number])[], cfg: WalkParams,
 ): Quaternion {
-  const qs: Quaternion[] = [], pos = new Vector3(), tgt = new Vector3(), wk: WalkPose = { position: new Vector3(), quaternion: new Quaternion(), fov: 0, up: new Vector3(), forward: new Vector3(), ground: 0, stop: 0 };
+  const qs: Quaternion[] = [], pos = new Vector3(), tgt = new Vector3(), wk: WalkPose = { position: new Vector3(), quaternion: new Quaternion(), fov: 0, up: new Vector3(), forward: new Vector3(), stop: 0 };
   for (const [a, b] of ranges) for (let k = 0; k <= 24; k++) {
     const p = a + ((b - a) * k) / 24;
     sampleSpline(p, pos, tgt);
@@ -195,7 +191,7 @@ export function nearestTowerAhead(towers: TowerRef[], camPos: Vector3, camFwd: V
 }
 
 const _qSpline = new Quaternion();
-const _walkScratch: WalkPose = { position: new Vector3(), quaternion: new Quaternion(), fov: 40, up: new Vector3(), forward: new Vector3(), ground: 0, stop: 0 };
+const _walkScratch: WalkPose = { position: new Vector3(), quaternion: new Quaternion(), fov: 40, up: new Vector3(), forward: new Vector3(), stop: 0 };
 
 /**
  * The story camera while the walk weight `w` is above zero: the spline pose (position `splinePos`, looking at `splineTarget`, FOV 40) blended into the

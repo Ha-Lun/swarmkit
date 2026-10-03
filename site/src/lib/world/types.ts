@@ -9,12 +9,6 @@ import type { Journey } from '../journeys';
 import type { JourneyComet } from './journey-comet';
 
 export interface RoutingNames {
-  /** the three quality-gate agents */
-  gates: string[];
-  /** the specialist the hive story routes to (first non-gate, non-explore agent of the T2 example) */
-  specialist?: string;
-  /** the routing tier the scrubbed hive route belongs to (the T2 example) */
-  mainTier?: string;
   /** the tasks the page can tell, one per routing example (journeys.ts), and the one it tells unless the viewer picks another (the T2 example) */
   journeys: Journey[];
   defaultJourney: number;
@@ -55,7 +49,6 @@ export interface WorldCtx {
   readonly state: Readonly<ScrollState>; // read-only view of the scroll state
   readonly view: View;
   readonly lattice: Lattice;
-  readonly flows: Flow[];
   /** the comet's crisp ring effects on the globe surface (scan ring, arrival ripples) */
   readonly rings: RingFx;
   /** agent names from content/routing.ts, resolved at build time */

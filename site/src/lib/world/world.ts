@@ -95,7 +95,7 @@ export function createWorld(opts: WorldOptions): World {
   const bgTex = createBgTexture(palette, look.bg.gradient);
   scene.background = bgTex;
   scene.fog = new Fog(palette.ink, 20, 120);
-  const sky = createSky(palette); // the walker's horizon (sky.ts): drawn only while the camera is on the ground
+  const sky = createSky(palette); // the low orbit's horizon (sky.ts): drawn only while the camera follows the comet
   scene.add(sky.mesh);
   const inkColor = new Color(palette.ink);
   const camera = new PerspectiveCamera(40, 1, 0.1, 400);
@@ -123,7 +123,7 @@ export function createWorld(opts: WorldOptions): World {
   const path = createCameraPath(lattice);
 
   const accent = readAccent();
-  const flows: Flow[] = Array.from({ length: 8 }, () => createFlow(accent)); // 0-3: the Hive's comets (the task, then the three gates); 4: the task's comet on the ground, 5-7: the gate comets of the journey's fan-out (journey-comet.ts)
+  const flows: Flow[] = Array.from({ length: 4 }, () => createFlow(accent)); // 0: the task's comet, 1-3: the gate comets of the journey's fan-out (journey-comet.ts)
   // GTAO's G-buffer content: the panels' twin plus the comets' (so the AO of the stone behind a comet is not multiplied onto it)
   const aoGroupsOf = (h: Honeycomb) => [...(h.aoGroup ? [h.aoGroup] : []), ...flows.map((f) => f.packet.aoGroup)];
   flows.forEach((f) => globe.add(f.packet.group));
@@ -141,7 +141,7 @@ export function createWorld(opts: WorldOptions): World {
   const hiCur = new Map<number, number>();
 
   const ctx: WorldCtx = {
-    agents, routing, scene, camera, renderer, state, view, lattice, flows, rings, scroll,
+    agents, routing, scene, camera, renderer, state, view, lattice, rings, scroll,
     get comb() { return comb; },
     get walkRoute() { return walkRoute; },
     get comet() { return comet; },
@@ -159,7 +159,7 @@ export function createWorld(opts: WorldOptions): World {
     },
   };
 
-  const comet = createJourneyComet(ctx, flows[4], flows.slice(5, 8)); // the task's comet: waiting in the Hive, flying in the Cells chapter
+  const comet = createJourneyComet(ctx, flows[0], flows.slice(1)); // the task's comet: waiting in the Hive, flying in the Cells chapter
 
   // ---- chapters ----
   const intro = createIntro(ctx);
@@ -294,8 +294,8 @@ export function createWorld(opts: WorldOptions): World {
   // exactly home, so the framing, routes and fly-over match the un-spun ones. Parked, `free` is re-anchored to home so the next spin starts from rest.
   const TAU = Math.PI * 2;
   let spinFree = 0, spinHome = 0, spinWPrev = 1, spinW = 1; // spinW also parks the moon's own motion (honeycomb.ts)
-  // The walk (Cells): one weight (walkWeight of the DAMPED progress) blends the spline camera into a walker on the ground and drives everything that
-  // changes with it: the pistons hold at rest, the lights follow the walker's frame, the fog comes from the horizon, the seam glow dims, the comet hides.
+  // The low orbit (Cells): one weight (walkWeight of the DAMPED progress) blends the spline camera into the follow camera and drives everything that
+  // changes with it: the pistons hold at rest, the lights follow the camera's frame, the fog comes from the horizon, the seam glow dims.
   let walkW = 0, walkCoreApplied = 1;
   let walkRoute: WalkRoute | null = null;
   const walkBase = new Quaternion(); // the orientation the dive and the rise are blended about (walkBlendBase)
@@ -305,7 +305,7 @@ export function createWorld(opts: WorldOptions): World {
   let walkJourney = -1;
   const buildWalk = () => {
     const j = view.journey;
-    if (walkRoute && walkJourney === j) return;
+    if (walkJourney === j) return;
     let w = walks.get(j);
     if (!w) {
       const route = createFollowRoute(lattice, walkStopsOf(routing.journeys[j], coreName, walkCfg));
@@ -317,7 +317,7 @@ export function createWorld(opts: WorldOptions): World {
     walkBase.copy(w.base);
     ctx.scroll.setWalkSec(w.route.length / walkCfg.rate); // autoplay runs the route at walkCfg.rate route units a second
   };
-  const wpose: WalkPose = { position: new Vector3(), quaternion: new Quaternion(), fov: 40, up: new Vector3(), forward: new Vector3(), ground: 0, stop: 0 };
+  const wpose: WalkPose = { position: new Vector3(), quaternion: new Quaternion(), fov: 40, up: new Vector3(), forward: new Vector3(), stop: 0 };
   let walkCp = 0; // Cells chapter progress read back from the damped camera parameter
   function stepSpin(dt: number) {
     const w = spinW = spinWeight(state.chapter, state.chapterProgress);

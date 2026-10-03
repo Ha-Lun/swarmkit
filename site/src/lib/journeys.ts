@@ -9,18 +9,14 @@ export interface Tier { id: string; title: string; body: string }
 export interface Beat { label: string; agent?: string; stop: number; k: number; of: number }
 
 export interface Journey {
-  slug: string;
   task: string;
   tier: string;
-  steps: JourneyStep[];
   /** agents visited one after another (everything on the route that is not a gate, in route order) */
   stops: string[];
   /** quality gates the route reaches: they run in parallel */
   gates: string[];
   beats: Beat[];
 }
-
-export const slugOf = (task: string) => task.toLowerCase().replace(/\s+/g, '-');
 
 export function journeysOf(examples: { task: string; tier: string; route: JourneyStep[] }[], gateNames: readonly string[], tiers: readonly Tier[]): Journey[] {
   return examples.map((e) => {
@@ -39,7 +35,7 @@ export function journeysOf(examples: { task: string; tier: string; route: Journe
       const same = raw.filter((x) => x.stop === b.stop);
       return { ...b, k: same.indexOf(b), of: same.length };
     });
-    return { slug: slugOf(e.task), task: e.task, tier: e.tier, steps: e.route, stops, gates, beats };
+    return { task: e.task, tier: e.tier, stops, gates, beats };
   });
 }
 

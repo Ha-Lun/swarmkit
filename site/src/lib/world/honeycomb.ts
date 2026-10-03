@@ -636,10 +636,10 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
   };
   const whiteBase = material.color.clone();
   let coreScale = 1, coreGlow = 1, coreDim = 0; // the floor's glow: walk/altitude scale, how much of the lattice is up (growth), the proof-chapter dim
-  const coreTmp = new Color();
+  const coreTmp = new Color(), inkColor = new Color(palette.ink);
   // The floor is only meant to be seen through the seams. With the tiles missing (the intro's first rings, the finale's break-up, the homecoming) it would be a flat bright disc, so its glow
   // follows the lattice's growth: dark ink until most of the tiles are up.
-  const applyCore = () => coreMat.color.copy(coreTmp.copy(new Color(palette.ink)).lerp(coreColorOf(look.core), coreGlow).multiplyScalar((1 - 0.65 * coreDim) * coreScale));
+  const applyCore = () => coreMat.color.copy(coreTmp.copy(inkColor).lerp(coreColorOf(look.core), coreGlow).multiplyScalar((1 - 0.65 * coreDim) * coreScale));
 
   return {
     object,
