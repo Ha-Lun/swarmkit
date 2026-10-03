@@ -1,6 +1,6 @@
 import {
   BufferAttribute, BufferGeometry, CatmullRomCurve3, Color, Group, Mesh, MeshNormalMaterial, MeshPhysicalMaterial, MeshStandardMaterial, Points, ShaderMaterial,
-  SphereGeometry, Vector3, type Camera,
+  SphereGeometry, TorusGeometry, MeshBasicMaterial, Vector3, type Camera,
 } from 'three';
 import { look, type Look } from './config';
 import { cellTopOf, type Lattice } from './honeycomb';
@@ -100,6 +100,27 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
   aura.renderOrder = 3;
   aura.frustumCulled = false;
   head.add(aura);
+  // rings: three thin rings tilted differently and slowly precessing round the head, each with a small bead running along it (they spin faster as the comet speeds up). They are children of the
+  // head, so they scale with it; the head's radius is 1, so the radii below are in head radii (the comet's hover height clears the largest).
+  const ringMats: MeshBasicMaterial[] = [];
+  const ringSets = [
+    { r: 1.45, tube: 0.016, tilt: [0.25, 0.0], rate: [0.32, 0.21], bead: 0.07, beadRate: 1.9 },
+    { r: 1.75, tube: 0.013, tilt: [1.25, 0.9], rate: [-0.24, 0.3], bead: 0.055, beadRate: -1.5 },
+    { r: 2.05, tube: 0.011, tilt: [0.75, 2.1], rate: [0.18, -0.26], bead: 0.045, beadRate: 1.15 },
+  ].map((c) => {
+    const mat = new MeshBasicMaterial({ color: hot, transparent: true, opacity: 0.8, fog: false, depthWrite: false });
+    ringMats.push(mat);
+    const group = new Group(), spinner = new Group();
+    const torus = new Mesh(new TorusGeometry(c.r, c.tube, 8, 128), mat);
+    const bead = new Mesh(new SphereGeometry(c.bead, 16, 8), new MeshBasicMaterial({ color: 0xffffff, fog: false }));
+    bead.position.set(c.r, 0, 0);
+    spinner.add(bead);
+    group.add(torus, spinner);
+    group.renderOrder = 3;
+    torus.frustumCulled = bead.frustumCulled = false;
+    head.add(group);
+    return { group, spinner, c, a: [c.tilt[0], c.tilt[1]], s: 0 };
+  });
   head.renderOrder = 2;
   head.frustumCulled = core.frustumCulled = false;
 
@@ -197,7 +218,16 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
       coreMat.emissiveIntensity = glow * 2 * (1 + 0.35 * rest * br2);
       core.scale.setScalar(0.5 * (1 + 0.1 * rest * br2));
       aura.scale.setScalar(1.5 + 0.12 * rest * br2);
-      auraMat.uniforms.uAlpha.value = 0.34 * (0.7 + 0.3 * rest * (0.5 + 0.5 * br2)) * Math.min(1, fade);
+      auraMat.uniforms.uAlpha.value = 0.24 * (0.7 + 0.3 * rest * (0.5 + 0.5 * br2)) * Math.min(1, fade);
+      // the rings turn (faster when the comet moves), breathe with the head and brighten a little at the top of the breath
+      const spin = 1 + 0.5 * Math.min(speed, 4);
+      for (const r of ringSets) {
+        r.a[0] += r.c.rate[0] * spin * dt; r.a[1] += r.c.rate[1] * spin * dt; r.s += r.c.beadRate * spin * dt;
+        r.group.rotation.set(r.a[0], r.a[1], 0);
+        r.spinner.rotation.z = r.s;
+        r.group.scale.setScalar(1 + 0.04 * rest * br2);
+      }
+      ringMats.forEach((m) => (m.opacity = (0.62 + 0.2 * rest * (0.5 + 0.5 * br2)) * Math.min(1, fade)));
       headMat.opacity = c.glassOpacity;
       tailMat.opacity = c.glassOpacity * 0.9;
       path.pointAt(d, out);
@@ -276,6 +306,7 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
       sparkMat.uniforms.uPx.value = 1;
     },
     dispose() {
+      ringSets.forEach((r) => r.group.traverse((o) => { const m = o as Mesh; if (m.isMesh) { m.geometry.dispose(); (m.material as MeshBasicMaterial).dispose(); } }));
       headGeo.dispose(); headMat.dispose(); coreMat.dispose(); auraMat.dispose(); tailGeo.dispose(); tailMat.dispose(); aoMat.dispose(); sparkGeo.dispose(); sparkMat.dispose();
     },
   };

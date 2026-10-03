@@ -126,7 +126,7 @@ export const look = {
     tailRadius: 0.85, // tail radius at the head, as a fraction of headRadius
     tailFade: 1.5, // darkening exponent toward the tail end
     sparks: 1.2, // emission strength (0 = none)
-    height: 0.36, // constant lift above the panel tops (clears the head sphere and a struck panel's lift)
+    height: 0.62, // constant lift above the panel tops (clears the head, the rings round it and a struck panel's lift)
   },
   dissolve: {
     hexScale: 1.0, // multiplier on the on-screen lattice cell size (1 = native)
