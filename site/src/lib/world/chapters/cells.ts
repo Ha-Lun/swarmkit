@@ -1,8 +1,8 @@
-// Chapter 2. The camera flies along the lattice (camera-path.ts). Hovering a cell, or focusing its entry in the
-// hidden agent list, lifts and brightens it and shows its label card (pick.ts). No roster panels: the roster lives in
-// the Reference section. The tier legend chip of the active agent's band lights (opacity only).
+// Chapter 2. The task's journey: the camera follows the comet in and from tower to tower (follow.ts), and the steps are called out while the comet is at them: the current step's caption shows and
+// its chip lights and fills (all pre-rendered from the routing data, only opacity and a scale are written). Hovering a cell, or focusing its entry in the hidden agent list, lifts and
+// brightens it and shows its label card (pick.ts). No roster panels: the roster lives in the Reference section.
 import { Vector3 } from 'three';
-import { nearestTowerAhead, type TowerRef, type WalkRoute } from '../walk';
+import { nearestTowerAhead, type TowerRef } from '../walk';
 import { createWalkLook } from '../walk-look';
 import { aerial, motion, recedeMix, walkCfg, walkUOf } from '../motion-config';
 import { createPick } from '../pick';
@@ -10,7 +10,7 @@ import { range, sceneOf, setOpacity } from '../scene-dom';
 import type { Chapter, WorldCtx } from '../types';
 
 export function createCells(ctx: WorldCtx): Chapter {
-  const { view } = ctx;
+  const { view, routing } = ctx;
   const scene = sceneOf('cells');
   const pick = createPick(ctx, scene.root);
   const tmp = new Vector3();
@@ -19,20 +19,15 @@ export function createCells(ctx: WorldCtx): Chapter {
   const towerByName = new Map(towers.map((t) => [t.name, t]));
   const fwd = new Vector3();
   let ahead: string | null = null;
-  // the band chips fill as the walk passes through their towers: a band runs from the end of the previous band's last stop to the end of its own (route data, nothing hardcoded)
-  const fills = scene.q('[data-fill]').map((el) => ({ el, band: el.dataset.fill!, last: -1 }));
-  let bandRange: Map<string, [number, number]> | null = null, bandRoute: WalkRoute | null = null;
-  const rangesOf = (route: WalkRoute) => {
-    const m = new Map<string, [number, number]>();
-    let start = 0;
-    route.stops.forEach((s, i) => {
-      if (i === route.stops.length - 1 || route.stops[i + 1].band !== s.band) { m.set(s.band, [start, s.u1]); start = s.u1; }
-    });
-    return m;
-  };
+  // the steps: every journey's captions and chips are in the page; the active journey's current one is shown
+  const captions = scene.q('[data-caption-step]').map((el) => ({ el, j: Number(el.dataset.j), b: el.dataset.b === undefined ? -1 : Number(el.dataset.b) }));
+  const chipLists = scene.q('[data-steps]').map((el) => ({
+    el, j: Number(el.dataset.steps),
+    chips: [...el.querySelectorAll<HTMLElement>('[data-step]')].map((c) => ({ ring: c.querySelector<HTMLElement>('.chip-ring')!, fill: c.querySelector<HTMLElement>('.chip-fill')!, b: Number(c.dataset.b), last: -1 })),
+  }));
+  const EPS = 0.012; // the crossfade between two steps, in route parameter (and in Cells progress for the gates)
+  const win = (x: number, a: number, b: number) => range(x, a - EPS, a + EPS) * (1 - range(x, b - EPS, b + EPS));
   const look = createWalkLook(); // drag to look around while walking
-  const bandOf = new Map(ctx.agents.map((a) => [a.name, a.band as string]));
-  const legend = new Map(scene.q('[data-legend]').map((e) => [e.dataset.legend!, e.querySelector<HTMLElement>('.chip-ring')!]));
 
   return {
     enter() {
@@ -51,13 +46,31 @@ export function createCells(ctx: WorldCtx): Chapter {
       const walking = view.walk > 0.05;
       const route = ctx.walkRoute;
       const u = walkUOf(p);
-      if (route) {
-        if (bandRoute !== route) { bandRange = rangesOf(route); bandRoute = route; } // (rebuilt if the world ever builds a new route)
-        for (const f of fills) {
-          const r = bandRange!.get(f.band);
-          const v = r ? Math.round(Math.min(1, Math.max(0, (u - r[0]) / (r[1] - r[0]))) * 500) / 500 : 0;
-          if (v !== f.last) { f.last = v; f.el.style.transform = `scaleX(${v})`; }
-        }
+      // the steps: where each step's window is in the journey (a stop's hold is shared by the steps shown at it; the gates run together once the camera has risen)
+      const jr = routing.journeys[view.journey];
+      const stops = route?.stops;
+      const windowOf = (bi: number): [number, number] => { // [start, end] in route parameter, or in Cells progress for a gate
+        const b = jr.beats[bi];
+        if (b.stop < 0) return [aerial.fanFrom - 0.02, aerial.gateFadeOut[1]];
+        const s = stops![b.stop], slot = (s.u1 - s.u0) / b.of, w0 = s.u0 + slot * b.k;
+        return [bi === 0 ? -1 : w0, w0 + slot];
+      };
+      const uNow = (view.walkCp - walkCfg.uFrom) / (walkCfg.uTo - walkCfg.uFrom); // (unclamped: the classification step shows from the launch)
+      const posOf = (bi: number) => (jr.beats[bi].stop < 0 ? p : uNow);
+      const weightOf = (bi: number) => { const [a, b] = windowOf(bi); return win(posOf(bi), a, b); };
+      if (stops && jr) {
+        const gateBeat = jr.beats.findIndex((b) => b.stop < 0);
+        captions.forEach((c) => setOpacity(c.el, c.j !== view.journey ? 0 : weightOf(c.b >= 0 ? c.b : gateBeat)));
+        chipLists.forEach((l) => {
+          setOpacity(l.el, l.j === view.journey ? 1 : 0);
+          if (l.j !== view.journey) return;
+          l.chips.forEach((c) => {
+            const [a, b] = windowOf(c.b), xv = posOf(c.b);
+            setOpacity(c.ring, win(xv, a, b));
+            const v = Math.round(Math.min(1, Math.max(0, (xv - Math.max(a, 0)) / (b - Math.max(a, 0)))) * 500) / 500;
+            if (v !== c.last) { c.last = v; c.fill.style.transform = `scaleX(${v})`; }
+          });
+        });
       }
       // the aerial: the camera rises to the whole-globe view for the gates and returns for the Proof pull-back
       view.overview = range(p, aerial.overviewIn[0], aerial.overviewIn[1]) * (1 - range(p, aerial.overviewOut[0], aerial.overviewOut[1]));
@@ -79,15 +92,14 @@ export function createCells(ctx: WorldCtx): Chapter {
           view.focusWeight = motion.camera.hoverBias;
         }
       }
-      const band = name ? bandOf.get(name) : null;
-      legend.forEach((ring, b) => setOpacity(ring, b === band ? 1 : 0));
     },
     exit() {
       ctx.comet.clear();
       pick.disable();
       look.disable();
       view.lookYaw = view.lookPitch = 0;
-      legend.forEach((ring) => setOpacity(ring, 0));
+      captions.forEach((c) => setOpacity(c.el, 0));
+      chipLists.forEach((l) => setOpacity(l.el, 0));
       scene.fade(0);
     },
     dispose() {

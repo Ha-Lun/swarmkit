@@ -2,10 +2,10 @@
 // Look-dev bench (PLAN §9). Round 1: proposed values, nothing locked. Not linked, noindex.
 import '../styles/tokens.css';
 import { loadAgents } from '../lib/agents';
-import { examples, gates } from '../content/routing';
+import { examples, gates, tiers } from '../content/routing';
 import { journeysOf } from '../lib/journeys';
 const agents = loadAgents();
-const journeys = journeysOf(examples, gates.map((g) => g.agent));
+const journeys = journeysOf(examples, gates.map((g) => g.agent), tiers);
 const typeScale = ['3xl', '2xl', 'xl', 'lg', 'base', 'sm', 'xs'];
 const spacing = ['1', '2', '3', '4', '6', '8', '12', '16', '24'];
 const favicon =
@@ -265,7 +265,7 @@ const favicon =
         cardEl.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -100%)`;
         cardEl.classList.add('is-on');
       }
-      const route = createFollowRoute(lat, walkStopsOf(benchJourney, lat.cells.find((c) => c.agent?.band === 'core')!.agent!.name, walkCfg.coreSec));
+      const route = createFollowRoute(lat, walkStopsOf(benchJourney, lat.cells.find((c) => c.agent?.band === 'core')!.agent!.name, walkCfg));
       const walkPose: WalkPose = { position: cam.position.clone(), quaternion: cam.quaternion.clone(), fov: 50, up: cam.position.clone(), forward: cam.position.clone(), ground: 0, stop: 0 };
       let walkInfo = '';
       // the path to follow: the tiles the route crosses are brightened with the existing panel-tone state (palette only, no accent, no glow)

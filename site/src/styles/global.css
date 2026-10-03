@@ -90,6 +90,11 @@
 .chip-fill { position: absolute; left: -1px; right: -1px; bottom: -1px; height: 2px; background: var(--wax); transform: scaleX(0); transform-origin: left; pointer-events: none; display: none; } /* the walk's progress through a band: the world drives the scale (Cells only) */
 :root[data-tier='high'] .chip-fill, :root[data-tier='medium'] .chip-fill { display: block; }
 .replays { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
+.chip-stack { display: grid; justify-items: end; }
+.chip-stack > * { grid-area: 1 / 1; }
+.chip-stack .chips { justify-content: flex-end; }
+.chip-stack .chip-ring { border-width: 2px; border-color: var(--text); background: rgb(217 222 229 / 0.1); } /* the current step */
+.caption[data-caption-step] { font-size: var(--text-lg); font-weight: 700; letter-spacing: -0.005em; text-shadow: 0 0 14px var(--ink), 0 0 3px var(--ink); } /* the current step, called out */
 .btn { display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); background: var(--ink); border: 1px solid var(--wax-dim); font-family: var(--font-mono); font-size: var(--text-base); line-height: 1.3; color: var(--text); cursor: pointer; }
 .btn:hover { border-color: var(--wax); }
 .btn-tier { color: var(--text); opacity: 0.7; }
@@ -143,6 +148,8 @@
     .finale-copy { position: absolute; top: 50%; left: calc(50% + var(--cmd-half, 46vh) + var(--space-4)); margin: 0; transform: translateY(-50%); pointer-events: auto; }
     .finale-foot { justify-content: center; }
     .chip-ring { opacity: 0; }
+    .static-only { display: none; } /* (the band legend of the static page: the world shows the steps) */
+    .chip-stack > .chips { opacity: 0; }
   }
   :root[data-tier='high'], :root[data-tier='medium'] {
     .install-cmd { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } /* the swarm is the visible command */

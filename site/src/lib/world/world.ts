@@ -308,7 +308,7 @@ export function createWorld(opts: WorldOptions): World {
     if (walkRoute && walkJourney === j) return;
     let w = walks.get(j);
     if (!w) {
-      const route = createFollowRoute(lattice, walkStopsOf(routing.journeys[j], coreName, walkCfg.coreSec));
+      const route = createFollowRoute(lattice, walkStopsOf(routing.journeys[j], coreName, walkCfg));
       w = { route, base: walkBlendBase(route, (p, o, t) => path.sample(scrollToProgress(2, p), o, t), [[walkRamp.inFrom, walkRamp.inTo], [walkRamp.outFrom, walkRamp.outTo]], walkCfg) };
       walks.set(j, w);
     }

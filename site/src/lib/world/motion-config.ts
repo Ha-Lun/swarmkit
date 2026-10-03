@@ -116,7 +116,7 @@ export const walkCfg = {
   fov: 55, near: 0.1, uFrom: 0.2, uTo: 0.78, detail: 1, coreDim: 0.9, fogNear: 0.6, fogFar: 3,
   /** The journey's pace. The route parameter runs at `rate` route units per second under autoplay (scroll.ts is told the route's length and sets its speed from this), so every duration is in
    *  seconds: the comet holds at a tower for dwellSec (coreSec at the core, where the task is classified and approved); its legs take as long as they take at the comet's own speed. */
-  rate: 8, dwellSec: 2, coreSec: 2.5, minSec: 6, entrySec: 2.8,
+  rate: 8, dwellSec: 2, coreSec: 2.5, beatSec: 1.5, minSec: 6, entrySec: 2.8,
   /** The camera's viewpoint at a stop: `back` world units behind the comet's arrival direction and `up` above the cap; the camera path stays `clearMargin` above the tallest column's reach
    *  and trails the comet by `lagSec` seconds. */
   back: 4, up: 2.2, clearMargin: 0.5, lagSec: 0.45,
