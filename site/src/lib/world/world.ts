@@ -9,7 +9,8 @@ import type { Agent } from '../agents';
 import type { ScrollState } from '../scroll';
 import { createCameraPath, progressOfG, scrollToProgress, SEGMENTS } from './camera-path';
 import { walkStopsOf } from '../journeys';
-import { applyWalkLook, applyWalkSway, createWalkRoute, createWalkSway, horizonFog, walkBlendBase, walkCameraPose, type WalkAim, type WalkPose, type WalkRoute } from './walk';
+import { createFollowRoute } from './follow';
+import { applyWalkLook, horizonFog, walkBlendBase, walkCameraPose, type WalkPose, type WalkRoute } from './walk';
 import { range, sceneAlpha } from './scene-dom';
 import { accentCandidates, look, readPalette, type Palette } from './config';
 import { cellTopOf, createHoneycomb, layoutLattice, type Honeycomb } from './honeycomb';
@@ -133,7 +134,7 @@ export function createWorld(opts: WorldOptions): World {
   // ---- view + panel highlight ----
   const view: View = {
     growth: 1, dim: 0, dissolve: 0, canvasOpacity: 1, latticeVisible: true, swarmFade: 0, swarmAttract: 0,
-    focus: new Vector3(), focusWeight: 0, focusDrop: 0, overview: 0, loop: 0, journey: routing.defaultJourney, camFloor: 0, walk: 0, cometHead: new Vector3(), cometGaze: 0, walkCp: 0, walkStop: 0, lookYaw: 0, lookPitch: 0,
+    focus: new Vector3(), focusWeight: 0, focusDrop: 0, overview: 0, loop: 0, journey: routing.defaultJourney, camFloor: 0, walk: 0, walkCp: 0, walkStop: 0, lookYaw: 0, lookPitch: 0,
   };
   const hiTarget = new Map<number, number>();
   const hiCur = new Map<number, number>();
@@ -303,7 +304,7 @@ export function createWorld(opts: WorldOptions): World {
     if (walkRoute && walkJourney === j) return;
     let w = walks.get(j);
     if (!w) {
-      const route = createWalkRoute(lattice, walkStopsOf(routing.journeys[j], coreName, walkCfg.coreSec));
+      const route = createFollowRoute(lattice, walkStopsOf(routing.journeys[j], coreName, walkCfg.coreSec));
       w = { route, base: walkBlendBase(route, (p, o, t) => path.sample(scrollToProgress(2, p), o, t), [[walkRamp.inFrom, walkRamp.inTo], [walkRamp.outFrom, walkRamp.outTo]], walkCfg) };
       walks.set(j, w);
     }
@@ -313,10 +314,6 @@ export function createWorld(opts: WorldOptions): World {
     ctx.scroll.setWalkSec(w.route.length / walkCfg.rate); // autoplay runs the route at walkCfg.rate route units a second
   };
   const wpose: WalkPose = { position: new Vector3(), quaternion: new Quaternion(), fov: 40, up: new Vector3(), forward: new Vector3(), ground: 0, stop: 0 };
-  const sway = createWalkSway();
-  const wAim: WalkAim = { pos: view.cometHead, w: 0 }; // the walker's gaze follows the task's comet (journey-comet.ts)
-  // the mean leg speed under autoplay, world units per second: the walker takes walkCfg.sway.hz steps a second at it
-  const swayRef = () => walkCfg.rate / walkCfg.legStretch; // (a street is walked at 1 / legStretch world units per route unit)
   let walkCp = 0; // Cells chapter progress read back from the damped camera parameter
   function stepSpin(dt: number) {
     const w = spinW = spinWeight(state.chapter, state.chapterProgress);
@@ -331,7 +328,7 @@ export function createWorld(opts: WorldOptions): World {
     flows.forEach((f) => (f.packet.aoGroup.rotation.y = globe.rotation.y));
   }
 
-  function pose(g: number, dt: number) {
+  function pose(g: number) {
     path.sample(g, pos, target);
     if (loopSm > 0.0001) { // the homecoming: from the finale's end view back to the intro's rest pose (what g = SEGMENTS[0].t1 samples, the floor the intro holds)
       path.sample(SEGMENTS[0].t1, posL, targetL);
@@ -351,17 +348,15 @@ export function createWorld(opts: WorldOptions): World {
     camera.lookAt(target);
     let fov = 40, near = 0.1;
     if (walkW > 0.001) {
-      // the walk: blend the spline pose into the walker's pose with the one walk weight (position, orientation and FOV on the same curve)
+      // the low orbit: blend the spline pose into the follow camera's pose with the one walk weight (position, orientation and FOV on the same curve)
       buildWalk();
-      wAim.pos = view.cometHead; wAim.w = view.cometGaze;
-      fov = walkCameraPose(walkRoute!, walkBase, pos, target, walkW, walkCp, walkCfg, camera.position, camera.quaternion, wpose, wAim);
+      fov = walkCameraPose(walkRoute!, walkBase, pos, target, walkW, walkCp, walkCfg, camera.position, camera.quaternion, wpose);
       // drag-to-look, faded in with the weight so the dive and the rise are never turned (walk-look.ts)
       const lf = Math.min(1, Math.max(0, (walkW - 0.6) / 0.4));
       applyWalkLook(camera.quaternion, wpose.up, view.lookYaw, view.lookPitch, lf * lf * (3 - 2 * lf), camera.quaternion);
-      applyWalkSway(sway, camera.position, camera.quaternion, wpose.up, wpose.forward, dt, walkW, walkCfg.sway, swayRef()); // handheld bob, only while actually walking
       view.walkStop = wpose.stop;
       near = 0.1 + (walkCfg.near - 0.1) * walkW;
-    } else sway.has = false;
+    }
     if (camera.fov !== fov || camera.near !== near) { camera.fov = fov; camera.near = near; camera.updateProjectionMatrix(); }
     // the key sweeps round the globe as the camera orbits (studio.ts), with a soft kicker from behind; while walking it follows the walker's own frame
     studio.update(camera, { timeSec: time, frame: walkW > 0.001 ? { up: wpose.up, forward: wpose.forward, weight: walkW } : undefined });
@@ -515,7 +510,7 @@ export function createWorld(opts: WorldOptions): World {
     comb.uniforms.uWalkRough.value = look.walk.topRough * walkW; // rougher tile tops under the walker (the key's highlight spreads instead of glaring)
     comb.update(view.growth, view.dim, time, spinW, walkW);
     comb.object.visible = view.latticeVisible;
-    pose(g, dt);
+    pose(g);
     // the key moved in pose(): refresh its shadow map once, on the first render of this frame (the dissolve draws two halves)
     if (renderer.shadowMap.enabled && view.latticeVisible) renderer.shadowMap.needsUpdate = true;
 

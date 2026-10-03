@@ -1,9 +1,8 @@
-// The task's comet on the ground. It is a pure function of the walk's route parameter u (so scrubbing, autoplay and the wheel stay exact, both ways): it comes in from outside the globe
-// during the dive, lands on the core, and then leaves each tower a moment before the walker does and lands on the next one's cap a moment before the walker stops, where it rests for the
-// hold. The path is a great-circle leg between the caps (raised over the columns, routes.ts), eased like every other comet leg. Rings and the arrival lift are drawn from the same u.
-import { Vector3 } from 'three';
+// The task's comet, drawn on the follow route's own path (follow.ts: a pure function of the route parameter u, so scrubbing, autoplay and the wheel stay exact, both ways). It waits on the
+// core cap when the dive begins, flies from cap to cap and rests on each for the hold. Rings and the arrival lift are drawn from the same u; after the last stop the gates this task
+// triggers receive their comets in parallel (timed in the Cells progress, once the camera has risen).
 import { aerial, motion, walkCfg, walkRamp } from './motion-config';
-import { clearRadius, easeLeg, entryPoint, raise, Route, type Flow } from './routes';
+import { clearRadius, easeLeg, raise, Route, type Flow } from './routes';
 import type { WalkRoute } from './walk';
 import type { WorldCtx } from './types';
 
@@ -22,51 +21,27 @@ export interface JourneyComet {
 export function createJourneyComet(ctx: WorldCtx, flow: Flow, gateFlows: Flow[]): JourneyComet {
   const P = motion.packet;
   let builtFor: WalkRoute | null = null;
-  let route: Route | null = null;
   let names: string[] = [];
-  /** per stop: u at which the comet starts its leg to it, u at which it lands */
-  let start: number[] = [], land: number[] = [];
+  let land: number[] = []; // per stop: u at which the comet lands on it
+  let dive = 0; // u at which the dive starts (negative: before the journey)
   let endU = 1;
-  const head = new Vector3();
   let gateNames: string[] = [], gateRoutes: Route[] = [];
-  const gateTop = (name: string) => { const c = ctx.lattice.cells[ctx.cellIndex(name)]; return raise(c.pos.clone().addScaledVector(c.normal, c.base)); }; // (the walk has let the towers back down by the time a gate is reached)
 
-  const capTop = (name: string) => {
-    const c = ctx.lattice.cells[ctx.cellIndex(name)];
-    // The walker looks UP at the cap from the street, so anything resting on it is behind the tower's own near edge: the comet hovers cometHover above the cap's centre instead.
-    return c.pos.clone().addScaledVector(c.normal, c.base + walkCfg.towerGrow + walkCfg.cometHover); // (the walk lifts the towers by towerGrow)
-  };
+  const capTop = (name: string) => { const c = ctx.lattice.cells[ctx.cellIndex(name)]; return raise(c.pos.clone().addScaledVector(c.normal, c.base)); };
 
   function build(wr: WalkRoute) {
     builtFor = wr;
     names = wr.stops.map((s) => s.name);
-    const L = wr.length;
-    const leadU = (walkCfg.cometLeadSec * walkCfg.rate) / L, arriveU = (walkCfg.cometArriveSec * walkCfg.rate) / L;
-    const dive = (walkRamp.inFrom - walkCfg.uFrom) / (walkCfg.uTo - walkCfg.uFrom); // the comet comes down with the dive
-    start = []; land = [];
-    wr.stops.forEach((s, i) => {
-      const a = i === 0 ? dive : wr.stops[i - 1].u1 - leadU;
-      const b = Math.max(a + 0.01, s.u0 - arriveU);
-      start.push(a); land.push(b);
-    });
+    dive = (walkRamp.inFrom - walkCfg.uFrom) / (walkCfg.uTo - walkCfg.uFrom); // the comet is already waiting at the core: it appears with the dive
+    land = wr.stops.map((s) => s.u0);
     endU = wr.stops[wr.stops.length - 1].u1;
-    route = new Route([entryPoint(ctx.lattice), ...names.map(capTop)], clearRadius(ctx.lattice) + walkCfg.towerGrow);
-    flow.setRoute(route);
+    flow.setRoute(wr.cometRoute);
     // the gates this task triggers (journeys.ts): one comet each, from the last stop, leaving together and landing together
     gateNames = ctx.routing.journeys[ctx.view.journey]?.gates.filter((g) => ctx.cellIndex(g) >= 0).slice(0, gateFlows.length) ?? [];
     const from = capTop(names[names.length - 1]);
-    gateRoutes = gateNames.map((g) => new Route([from, gateTop(g)], clearRadius(ctx.lattice)));
+    gateRoutes = gateNames.map((g) => new Route([from, capTop(g)], clearRadius(ctx.lattice)));
     gateRoutes.forEach((r, i) => gateFlows[i].setRoute(r));
     gateFlows.slice(gateNames.length).forEach((f) => f.hide());
-  }
-
-  /** distance along the comet's route at u */
-  function distAt(u: number): number {
-    const r = route!;
-    for (let i = 0; i < start.length; i++) {
-      if (u <= land[i]) return u <= start[i] ? r.stopAt[i] : r.stopAt[i] + (r.stopAt[i + 1] - r.stopAt[i]) * easeLeg((u - start[i]) / (land[i] - start[i]));
-    }
-    return r.length;
   }
 
   const pulse = (u: number, at: number, dur: number) => clamp01((u - at) / 0.02) * (1 - clamp01((u - at - 0.02) / dur)); // (a quick rise, then a fade over `dur` in u)
@@ -78,14 +53,11 @@ export function createJourneyComet(ctx: WorldCtx, flow: Flow, gateFlows: Flow[])
       const L = wr.length;
       const sec = (s: number) => (s * walkCfg.rate) / L; // seconds -> route parameter
       // visible from the start of the dive until the walker has risen away again (the weight falls with the rise)
-      const fadeIn = clamp01((u - start[0]) / sec(P.fadeSec));
+      const fadeIn = clamp01((u - dive) / sec(P.fadeSec));
       const fan = clamp01((cp - aerial.fanFrom) / (aerial.fanTo - aerial.fanFrom)); // 0 until the gates are sent, 1 once they have landed
       const fadeOut = u > endU ? smooth(clamp01(walk / 0.6)) : 1;
       const fade = fadeIn * fadeOut * (gateNames.length && cp >= aerial.fanFrom ? 0 : 1); // (a task with gates hands its comet on to them)
-      flow.set(distAt(u), ctx.camera, fade, ctx.dt);
-      flow.headAt(distAt(u), head);
-      ctx.view.cometHead.copy(head);
-      ctx.view.cometGaze = fade * smooth(clamp01((u - (land[0] - sec(2))) / sec(1))); // (eased in over the second before the core's landing: until then the comet is still coming down the sky)
+      flow.set(wr.cometDist(u), ctx.camera, fade, ctx.dt);
       // rings: the scan ring is engraved at the core while it holds; a ripple runs out where the comet lands on each later tower
       const R = ctx.rings;
       R.clearAll();
@@ -123,7 +95,6 @@ export function createJourneyComet(ctx: WorldCtx, flow: Flow, gateFlows: Flow[])
       });
     },
     clear() {
-      ctx.view.cometGaze = 0;
       flow.hide();
       ctx.rings.clearAll();
     },

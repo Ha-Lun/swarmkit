@@ -110,27 +110,16 @@ export function walkWeight(chapter: number, p: number): number {
   return r(walkRamp.inFrom, walkRamp.inTo) * (1 - r(walkRamp.outFrom, walkRamp.outTo));
 }
 
-/** The walker (provisional values, tuned in the Phase 4 review): eye height above the local ground, vertical FOV, pitch below the horizon, near plane,
- *  and where in the Cells chapter progress the route runs from its first stand point (uFrom) to its last (uTo). */
+/** The follow camera (provisional values): the low orbit that follows the task's comet (follow.ts). `fov`, `near`; the Cells chapter progress the journey runs over, from its first moment (uFrom) to its
+ *  last (uTo); and the look of the view (detail, core glow dim, horizon fog as multiples of the horizon distance). */
 export const walkCfg = {
-  eye: 0.3, fov: 75, pitchDeg: 15, near: 0.03, uFrom: 0.2, uTo: 0.78, detail: 1, coreDim: 0.9, fogNear: 0.6, fogFar: 3,
-  /** The tour's pace. The route parameter runs at `rate` route units per second under autoplay (scroll.ts is told the route's length and sets its speed from this), so every duration below is
-   *  in seconds: the walker holds at a tower for dwellSec (coreSec at the core, where the task is classified and approved), a street takes legStretch route units per world unit walked (so a street of 5.6 units takes
-   *  5.6 x 3 / 8 = 2.1 s), and a turn to face a tower or on to the next street takes turnSecQuarter seconds per 90 degrees (between turnMinSec and turnMaxSec). */
-  rate: 8, dwellSec: 4, coreSec: 6, legStretch: 3, turnSecQuarter: 1.2, turnMinSec: 0.8, turnMaxSec: 2.8,
-  /** while it faces a tower the view zooms to holdFov and tips up so the cap sits capY of the way from the centre to the top edge of the frame (never above capUpMax degrees);
-   *  zoomSec is how long that zoom and tip take to ease in and out (a gaussian over the facing weight, in seconds) */
-  /** the task's comet (journey-comet.ts): it leaves a tower this long before the walker's hold ends and lands on the next cap this long before the walker stops */
-  cometLeadSec: 1, cometArriveSec: 1, cometHover: 2.4, gazeYawDeg: 40, // (hover: world units above the cap's centre while it holds; the walker looks up at the cap, so lower is hidden behind the tower's near edge)
-  holdFov: 62, capY: 0.3, capUpMax: 60, zoomSec: 0.7,
-  /** the walker stops this many world units short of the cell next to a tower, so the whole pillar is in frame (walk.ts) */
-  holdBack: 2.2,
-  /** seconds over which the street heading is rounded (the camera does not whip round cell corners) */
-  streetSec: 1.4,
-  /** how much taller the agent towers stand under the walker (world units, eased in with the walk weight; honeycomb.ts) */
-  towerGrow: 0.6,
-  /** handheld sway: vertical bob and side shift in world units, roll in degrees, steps per second at the mean autoplay leg speed (rate / legStretch world units per second) */
-  sway: { bob: 0.008, side: 0.005, rollDeg: 0.4, hz: 1.8 },
+  fov: 55, near: 0.1, uFrom: 0.2, uTo: 0.78, detail: 1, coreDim: 0.9, fogNear: 0.6, fogFar: 3,
+  /** The journey's pace. The route parameter runs at `rate` route units per second under autoplay (scroll.ts is told the route's length and sets its speed from this), so every duration is in
+   *  seconds: the comet holds at a tower for dwellSec (coreSec at the core, where the task is classified and approved); its legs take as long as they take at the comet's own speed. */
+  rate: 8, dwellSec: 3.5, coreSec: 4,
+  /** The camera's viewpoint at a stop: `back` world units behind the comet's arrival direction and `up` above the cap; the camera path stays `clearMargin` above the tallest column's reach
+   *  and trails the comet by `lagSec` seconds. */
+  back: 4, up: 2.2, clearMargin: 0.5, lagSec: 0.6,
 } as const;
 /**
  * The aerial (Cells chapter progress): once the walker has made its last stop the camera rises to the whole-globe view (the end of the Hive's camera path), the gates the task triggers

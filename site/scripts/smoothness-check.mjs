@@ -12,12 +12,12 @@ const dir = mkdtempSync(join(tmpdir(), 'smooth-check-'));
 const out = join(dir, 'bundle.mjs');
 await build({
   stdin: {
-    contents: "export { loadAgents } from './src/lib/agents.ts'; export * as cam from './src/lib/world/camera-path.ts'; export { layoutLattice } from './src/lib/world/honeycomb.ts'; export { motion, walkWeight, walkCfg, walkRamp, loopT, loopCamera, LOOP_VH } from './src/lib/world/motion-config.ts'; export { loopCameraPose } from './src/lib/world/loop.ts'; export { createWalkRoute, walkCameraPose, walkBlendBase } from './src/lib/world/walk.ts'; export { examples, gates } from './src/content/routing.ts'; export { journeysOf, walkStopsOf } from './src/lib/journeys.ts'; export { Vector3, Quaternion } from 'three';",
+    contents: "export { loadAgents } from './src/lib/agents.ts'; export * as cam from './src/lib/world/camera-path.ts'; export { layoutLattice } from './src/lib/world/honeycomb.ts'; export { motion, walkWeight, walkCfg, walkRamp, loopT, loopCamera, LOOP_VH } from './src/lib/world/motion-config.ts'; export { loopCameraPose } from './src/lib/world/loop.ts'; export { walkCameraPose, walkBlendBase } from './src/lib/world/walk.ts'; export { examples, gates } from './src/content/routing.ts'; export { createFollowRoute } from './src/lib/world/follow.ts'; export { journeysOf, walkStopsOf } from './src/lib/journeys.ts'; export { Vector3, Quaternion } from 'three';",
     resolveDir: resolve('.'), loader: 'ts',
   },
   bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error',
 });
-const { loadAgents, cam, layoutLattice, motion, walkWeight, walkCfg, walkRamp, loopT, loopCamera, LOOP_VH, loopCameraPose, createWalkRoute, walkCameraPose, walkBlendBase, examples, gates, journeysOf, walkStopsOf, Vector3, Quaternion } = await import(pathToFileURL(out).href);
+const { loadAgents, cam, layoutLattice, motion, walkWeight, walkCfg, walkRamp, loopT, loopCamera, LOOP_VH, loopCameraPose, createFollowRoute, walkCameraPose, walkBlendBase, examples, gates, journeysOf, walkStopsOf, Vector3, Quaternion } = await import(pathToFileURL(out).href);
 rmSync(dir, { recursive: true, force: true });
 
 const lattice = layoutLattice(loadAgents());
@@ -77,7 +77,7 @@ for (const [label, arr] of [['camera position', P], ['look-at target', T]]) {
 // first-difference step above a hard ceiling. The damping in the world only smooths further, so this is the strictest view.
 const coreName = lattice.cells.find((c) => !c.moon && c.agent?.band === 'core').agent.name;
 for (const jn of journeysOf(examples, gates.map((g) => g.agent))) {
-  const route = createWalkRoute(lattice, walkStopsOf(jn, coreName, walkCfg.coreSec));
+  const route = createFollowRoute(lattice, walkStopsOf(jn, coreName, walkCfg.coreSec));
   const base = walkBlendBase(route, (p, o, t) => path.sample(cam.scrollToProgress(2, p), o, t), [[walkRamp.inFrom, walkRamp.inTo], [walkRamp.outFrom, walkRamp.outTo]], walkCfg);
   const cellsAt = bounds[2], cellsEnd = bounds[3];
   const from = cellsAt - 60, to = cellsEnd + 60;

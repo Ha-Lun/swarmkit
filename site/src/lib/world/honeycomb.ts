@@ -3,7 +3,7 @@ import {
   Mesh, MeshBasicMaterial, MeshNormalMaterial, MeshPhysicalMaterial, Quaternion, SphereGeometry, Vector3, type WebGLRenderer,
 } from 'three';
 import { CELL_RADIUS, look, readPalette, SINK, type Look, type Tier } from './config';
-import { motion, walkCfg } from './motion-config';
+import { motion } from './motion-config';
 import { createCellMaterial, createStudioEnv, type CellUniforms } from './cell-material';
 import { createCellDepthMaterial } from './cell-depth';
 import { createCellNormalMaterial } from './cell-normal';
@@ -685,7 +685,7 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
             const c = lattice.cells[ci];
             // agents: towers, breathing on the globe and steady on the moon; fillers: pistons, the moon's at moonStroke of the globe's throw
             if (time === undefined || (c.moon && c.agent)) c.height = c.base;
-            else if (c.agent) c.height = c.base + (1 - walk) * AGENT_BREATH * Math.sin(time * 0.55 + pistons[ci].agentPhase) + walk * walkCfg.towerGrow; // under the walker the towers stand taller (walkCfg.towerGrow), so they read as pillars
+            else if (c.agent) c.height = c.base + (1 - walk) * AGENT_BREATH * Math.sin(time * 0.55 + pistons[ci].agentPhase);
             else c.height = c.base + (1 - walk) * look.cell.stroke * (c.moon ? look.cell.moonStroke : 1) * stroke(ci, pistons[ci], time); // walk 0..1 parks the rods at rest
             const s = ease((growth - startOf(c)) / 0.28);
             // flush growth: the panel rises out of the seam floor, ring by ring, widening as it comes up; no scale on the height

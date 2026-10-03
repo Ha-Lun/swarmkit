@@ -41,8 +41,6 @@ export interface View {
   lookYaw: number; // the walker's drag-to-look offsets (radians), written by the Cells chapter and applied by the world on the ground
   lookPitch: number;
   walk: number; // 0..1 how far the camera is into the ground walk (world.ts writes it every frame; chapters read the last frame's value)
-  cometHead: Vector3; // where the task's comet is (journey-comet.ts writes it) and how much the walker's gaze follows it (0..1)
-  cometGaze: number;
   walkCp: number; // the Cells progress the camera is at (the damped one; world.ts writes it every frame, chapters read the last frame's value)
   walkStop: number; // index of the tower the walker is approaching or holding at (a route stop; world.ts writes it while walking)
   journey: number; // index into routing.journeys of the task being told (the chooser writes it; the world builds that task's route when it changes)

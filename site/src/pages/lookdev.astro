@@ -107,7 +107,8 @@ const favicon =
       import { createHexDissolve, hexPixelSize } from '../lib/world/transitions';
       import { createPost, type Post } from '../lib/world/post';
       import { createStudio, shadowExtentOf, type Studio } from '../lib/world/studio';
-      import { createWalkRoute, horizonDistance, horizonFog, nearestTowerAhead, type WalkPose } from '../lib/world/walk';
+      import { createFollowRoute } from '../lib/world/follow';
+      import { horizonDistance, horizonFog, nearestTowerAhead, type WalkPose } from '../lib/world/walk';
       import { walkCfg, walkWeight } from '../lib/world/motion-config';
       import { walkStopsOf, type Journey } from '../lib/journeys';
       import { bandLabels } from '../content/tiers';
@@ -264,11 +265,11 @@ const favicon =
         cardEl.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -100%)`;
         cardEl.classList.add('is-on');
       }
-      const route = createWalkRoute(lat, walkStopsOf(benchJourney, lat.cells.find((c) => c.agent?.band === 'core')!.agent!.name, walkCfg.coreSec));
+      const route = createFollowRoute(lat, walkStopsOf(benchJourney, lat.cells.find((c) => c.agent?.band === 'core')!.agent!.name, walkCfg.coreSec));
       const walkPose: WalkPose = { position: cam.position.clone(), quaternion: cam.quaternion.clone(), fov: 50, up: cam.position.clone(), forward: cam.position.clone(), ground: 0, stop: 0 };
       let walkInfo = '';
       // the path to follow: the tiles the route crosses are brightened with the existing panel-tone state (palette only, no accent, no glow)
-      const pathIdx = route.pathCells();
+      const pathIdx: number[] = []; // (the follow camera has no street: nothing to light up)
       let pathShown = false;
       function applyPath() {
         const on = panel === 'cell' && cellView === 'walk' && walk.path > 0;
@@ -280,7 +281,7 @@ const favicon =
       const walkLook = createWalkLook(); // drag the canvas to turn your head (double click: look forward)
       function walkCam(dt: number) {
         if (walk.speed > 0) walk.u = (walk.u + (walk.speed * dt) / route.length) % 1;
-        route.sample(walk.u, { eye: walk.eye, fov: walk.fov, pitchDeg: walk.pitch, ground: walk.env ? 'env' : 'smooth' }, walkPose);
+        route.sample(walk.u, { fov: walk.fov }, walkPose);
         if (cam.near !== walk.near) { cam.near = walk.near; cam.updateProjectionMatrix(); }
         cam.position.copy(walkPose.position);
         walkLook.enable();

@@ -66,14 +66,12 @@ export function createCells(ctx: WorldCtx): Chapter {
       comet.update(route, (view.walkCp - walkCfg.uFrom) / (walkCfg.uTo - walkCfg.uFrom), view.walk, view.walkCp); // (unclamped: the comet comes down with the dive and stays until the rise)
       const stop = route?.stops[view.walkStop];
       const dwelling = stop && u >= stop.u0 && u <= stop.u1 ? stop.name : null; // holding at this tower
-      if (view.walk > 0.85) { // cards only once the camera is on the ground (not mid-dive)
-        towers.forEach((t) => ctx.cellTop(t.name, t.top));
-        fwd.set(0, 0, -1).applyQuaternion(ctx.camera.quaternion);
-        // the tour: the tower the route is heading for (or holding at) owns the card, unless you have turned your head away from it; otherwise the nearest one ahead
+      if (view.walk > 0.85) { // the card of the tower the comet is heading for (or resting on), once the camera is in the low orbit (not mid-dive), unless you have turned your head away from it
         const lookedAway = Math.abs(look.yaw) > 0.35 || Math.abs(look.pitch) > 0.35;
         const stopTower = stop && !lookedAway ? towerByName.get(stop.name) : undefined;
-        ahead = (stopTower ? nearestTowerAhead([stopTower], ctx.camera.position, fwd, ctx.lattice.radius, ahead) : null)
-          ?? nearestTowerAhead(towers, ctx.camera.position, fwd, ctx.lattice.radius, ahead);
+        if (stopTower) ctx.cellTop(stopTower.name, stopTower.top);
+        fwd.set(0, 0, -1).applyQuaternion(ctx.camera.quaternion);
+        ahead = stopTower ? nearestTowerAhead([stopTower], ctx.camera.position, fwd, ctx.lattice.radius, ahead) : null;
       } else ahead = null;
       const { name, byKeyboard, byWalk } = pick.update({ strict: walking, forced: ahead });
       if (name && ctx.cellTop(name, tmp)) {
