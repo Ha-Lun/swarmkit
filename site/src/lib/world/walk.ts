@@ -2,7 +2,7 @@
 // follow camera (blendWalkPose, walkBlendBase, walkCameraPose), the horizon helpers (fog, visibility over the globe), the tower card choice and drag-to-look. Pure: three maths only.
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import { walkUOf } from './motion-config';
-import type { Route } from './routes';
+import type { Chain } from './routes';
 
 export interface WalkParams {
   /** vertical FOV, degrees (passed through to the pose) */
@@ -34,7 +34,7 @@ export interface WalkRoute {
   stops: WalkStop[];
   sample(u: number, p: WalkParams, out?: WalkPose): WalkPose;
   /** the comet's path (cap to cap) and the distance along it at route parameter u */
-  cometRoute: Route;
+  cometRoute: Chain;
   cometDist(u: number): number;
 }
 

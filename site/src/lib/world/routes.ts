@@ -1,4 +1,4 @@
-// Comet routes and their velocity profile. A route is a chain of great-circle legs that hug the globe at one constant lift
+// Comet routes and their velocity profile. A route is a chain of great-circle legs that hug a body (the globe, or the moon about its own centre) at one constant lift
 // (no horizon zigzag), except the entry leg, which descends onto the first stop. Every leg eases in and out (easeLeg, below); the timing is the caller's (follow.ts).
 import { Vector3 } from 'three';
 import { look } from './config';
@@ -24,11 +24,11 @@ export class Route implements PathSource {
   readonly stopAt: number[] = [0];
 
   /** Stops are world points; each leg keeps the radius of its two ends (a leg from far out to the surface decays onto it).
-   *  `clear` (a radius, see clearRadius) is the least radius a leg may fly at between its two ends, so it arcs over tall columns. */
-  constructor(stops: Vector3[], private readonly clear = 0) {
+   *  `clear` (a radius, see clearRadius) is the least radius a leg may fly at between its two ends, so it arcs over tall columns. Radii are about `origin`, the body's centre. */
+  constructor(stops: Vector3[], private readonly clear = 0, private readonly origin = new Vector3()) {
     let d = 0;
     for (let i = 1; i < stops.length; i++) {
-      const A = stops[i - 1], B = stops[i];
+      const A = stops[i - 1].clone().sub(origin), B = stops[i].clone().sub(origin);
       const ra = A.length(), rb = B.length();
       const a = A.clone().divideScalar(ra), b = B.clone().divideScalar(rb);
       const ang = Math.acos(Math.min(1, Math.max(-1, a.dot(b))));
@@ -77,13 +77,57 @@ export class Route implements PathSource {
     while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (l.table[mid] <= local) lo = mid; else hi = mid; }
     const span = l.table[hi] - l.table[lo];
     const t = (lo + (span > 1e-9 ? (local - l.table[lo]) / span : 0)) / TABLE;
-    return this.legPoint(l, t, out);
+    return this.legPoint(l, t, out).add(this.origin);
+  }
+}
+
+/** A leg from one body to another: a cubic Bezier that leaves the first point along `nA` (its surface normal) and settles onto the second along `nB`, so it lifts off one body and lands on
+ *  the other from above, never through either. `lift` is how far out (world units) the two inner control points stand. */
+export class Transfer implements PathSource {
+  length = 0;
+  private readonly p: Vector3[];
+  private readonly table = new Float32Array(TABLE + 1);
+  constructor(a: Vector3, nA: Vector3, b: Vector3, nB: Vector3, lift: number) {
+    this.p = [a.clone(), a.clone().addScaledVector(nA, lift), b.clone().addScaledVector(nB, lift), b.clone()];
+    const p = new Vector3(), q = new Vector3();
+    this.at(0, p);
+    for (let k = 1; k <= TABLE; k++) { this.at(k / TABLE, q); this.length += q.distanceTo(p); this.table[k] = this.length; p.copy(q); }
+  }
+  private at(t: number, out: Vector3) {
+    const [a, b, c, d] = this.p, s = 1 - t;
+    return out.copy(a).multiplyScalar(s * s * s).addScaledVector(b, 3 * s * s * t).addScaledVector(c, 3 * s * t * t).addScaledVector(d, t * t * t);
+  }
+  pointAt(d: number, out: Vector3): Vector3 {
+    const x = Math.min(this.length, Math.max(0, d));
+    let lo = 0, hi = TABLE;
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (this.table[mid] <= x) lo = mid; else hi = mid; }
+    const span = this.table[hi] - this.table[lo];
+    return this.at((lo + (span > 1e-9 ? (x - this.table[lo]) / span : 0)) / TABLE, out);
+  }
+}
+
+/** Legs end to end (each a one-leg Route or a Transfer): one path the comet and the camera travel, with the distance at which each stop sits. */
+export class Chain implements PathSource {
+  readonly length: number;
+  /** distance along the chain at which each stop sits (stopAt[0] = 0, stopAt[k + 1] = the end of leg k) */
+  readonly stopAt: number[] = [0];
+  constructor(readonly legs: PathSource[]) {
+    let d = 0;
+    for (const l of legs) { d += l.length; this.stopAt.push(d); }
+    this.length = d;
+  }
+  pointAt(d: number, out: Vector3): Vector3 {
+    const n = this.legs.length;
+    if (!n) return out.set(0, 0, 0);
+    let k = 0;
+    while (k < n - 1 && d > this.stopAt[k + 1]) k++;
+    return this.legs[k].pointAt(d - this.stopAt[k], out);
   }
 }
 
 export interface Flow {
   packet: Packet;
-  setRoute(route: Route): void;
+  setRoute(route: PathSource): void;
   /** draw the comet at distance d along its route, fade 0..1 (size, not alpha) */
   set(d: number, camera: import('three').Camera, fade: number, dt: number): void;
   hide(): void;
@@ -94,7 +138,7 @@ export function createFlow(accent: string): Flow {
   const cfg = { ...look.packet };
   const packet = createPacket(accent, cfg);
   packet.group.visible = false;
-  let route: Route | null = null;
+  let route: PathSource | null = null;
   const flow: Flow = {
     packet,
     setRoute(r) {

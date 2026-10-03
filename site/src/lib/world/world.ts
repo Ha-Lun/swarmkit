@@ -37,7 +37,7 @@ export interface WorldOptions {
   routing: RoutingNames;
   state: Readonly<ScrollState>;
   tier: ActiveTier;
-  scroll: { lock(reason: string): void; unlock(reason: string): void; setWalkSec(sec: number): void; go(chapter: number, progress: number): void };
+  scroll: { lock(reason: string): void; unlock(reason: string): void; setWalkSec(sec: number, tailSec: number): void; go(chapter: number, progress: number): void };
 }
 
 export interface World {
@@ -319,7 +319,7 @@ export function createWorld(opts: WorldOptions): World {
     walkRoute = w.route;
     walkBase.copy(w.base);
     walkGate = w.gate;
-    ctx.scroll.setWalkSec(w.route.length / walkCfg.rate); // autoplay runs the route at walkCfg.rate route units a second
+    ctx.scroll.setWalkSec(w.route.length / walkCfg.rate, w.gate ? motion.walkAuto.tailSec : motion.walkAuto.tailSecBare); // autoplay runs the route at walkCfg.rate route units a second
   };
   const wpose: WalkPose = { position: new Vector3(), quaternion: new Quaternion(), fov: 40, up: new Vector3(), forward: new Vector3(), stop: 0 };
   let walkCp = 0; // Cells chapter progress read back from the damped camera parameter
@@ -439,7 +439,10 @@ export function createWorld(opts: WorldOptions): World {
       chapters[ch].fade(sceneAlpha(ch, state.chapterProgress));
       if (ch + 1 < chapters.length) chapters[ch + 1].fade(0);
       if (ch > 0) chapters[ch - 1].fade(0);
-      if (Math.abs(state.globalProgress - prevG) > 0.5) { gSm = state.globalProgress; gVel = 0; loopSm = loopCamera(view.loop); } // the scroll wrapped
+      if (Math.abs(state.globalProgress - prevG) > 0.5) { // the scroll wrapped
+        gSm = state.globalProgress; gVel = 0; loopSm = loopCamera(view.loop);
+        if (prevG > state.globalProgress && routing.order.length) view.journey = routing.order[(routing.order.indexOf(view.journey) + 1) % routing.order.length]; // the next loop tells the next task
+      }
       else loopSm += (loopCamera(view.loop) - loopSm) * (1 - Math.exp(-dt / SMOOTH_TIME));
       prevG = state.globalProgress;
       dampProgress(dt);

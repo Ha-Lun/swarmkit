@@ -47,8 +47,9 @@ export function createJourneyComet(ctx: WorldCtx, flow: Flow, gateFlows: Flow[])
   /** a ripple ring on the cap of tower `name`, `k` (0..1) of the way through its life; the ring shell is one radius for every ring: the last one set wins, which is the tower being arrived at */
   const ripple = (slot: number, name: string, k: number) => {
     const c = ctx.lattice.cells[ctx.cellIndex(name)];
-    ctx.rings.setShell(ctx.lattice.radius + c.height + 0.045);
-    ctx.rings.set(slot, c.normal, c.half * (0.3 + 0.62 * k), P.ripple.width, 1 - smooth(clamp01((k - 0.5) / 0.5)));
+    if (c.moon) ctx.rings.setShell(c.bodyRadius + c.height + 0.045, ctx.lattice.moon.pos); // (a tower on the moon: the shell about the moon's centre)
+    else ctx.rings.setShell(ctx.lattice.radius + c.height + 0.045);
+    ctx.rings.set(slot, c.normal, c.half * (0.3 + 0.62 * k), P.ripple.width * (c.moon ? 0.7 : 1), 1 - smooth(clamp01((k - 0.5) / 0.5)));
   };
 
   return {

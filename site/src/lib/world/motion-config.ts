@@ -60,7 +60,7 @@ export const motion = {
   },
   /** The page plays itself once started (scroll.ts): seconds each chapter takes under autoplay (Cells has its own pacing below: the dive, the journey in seconds, the tail), and the ease of start/pause/resume. */
   autoplay: { introSec: 2.5, hiveSec: 6, proofSec: 7, finaleSec: 11, loopSec: 4, easeSec: 0.4 },
-  walkAuto: { diveSec: 3.1, tailSec: 9.5 }, // the walk plays itself (scroll.ts): seconds for the dive in, for the rise out and the pull-back to the end of Cells (the route's own time is walkCfg.rate), and the ease of start/pause/resume
+  walkAuto: { diveSec: 3.1, tailSec: 9.5, tailSecBare: 6.5 }, // the walk plays itself (scroll.ts): seconds for the dive in, for the rise out and the pull-back to the end of Cells (tailSecBare for a task with no gate: nothing to show there), the route's own time is walkCfg.rate
   probe: { ms: 1000, warmupFrames: 10, minFrames: 6, stepDownBelow: 45, fallbackBelow: 30 },
 } as const;
 
@@ -113,6 +113,9 @@ export const walkCfg = {
   back: 4, up: 2.2, clearMargin: 0.5, lagSec: 0.45,
   /** ... and at the entry (the comet waiting outside the globe): `entryBack` world units behind it, away from the globe, and `entryUp` outward. `entrySec` is the shortest the entry leg may take. */
   entryBack: 5, entryUp: 1.5,
+  /** On the moon the camera orbits it `moonOrbit` moon radii from its centre, leaning `moonFace` towards the moon's face, aiming `moonAim` of the way from the comet to the moon's centre; a hop
+   *  on the moon takes at least `moonLegSec` (they are short, and the orbit turns with them); the leg across lifts `transferLift` world units off each body and takes at least `transferSec`. */
+  moonOrbit: 3.4, moonFace: 1.6, moonLegSec: 1.4, moonAim: 0.6, transferLift: 4, transferSec: 2.6,
 } as const;
 /**
  * The aerial (Cells chapter progress): once the walker has made its last stop the camera rises to the whole-globe view (the end of the Hive's camera path), the gates the task triggers

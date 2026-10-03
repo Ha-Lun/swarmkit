@@ -15,7 +15,7 @@ export function createCells(ctx: WorldCtx): Chapter {
   const pick = createPick(ctx, scene.root);
   const tmp = new Vector3();
   // the walk: the tower the walker is heading for shows its card (pointer hover and keyboard focus still win)
-  const towers: TowerRef[] = ctx.lattice.cells.filter((c) => c.agent && !c.moon).map((c) => ({ name: c.agent!.name, top: new Vector3() }));
+  const towers: TowerRef[] = ctx.lattice.cells.filter((c) => c.agent).map((c) => ({ name: c.agent!.name, top: new Vector3() }));
   const towerByName = new Map(towers.map((t) => [t.name, t]));
   const fwd = new Vector3();
   let ahead: string | null = null;
@@ -55,8 +55,8 @@ export function createCells(ctx: WorldCtx): Chapter {
       const windowOf = (bi: number): [number, number] => { // [start, end] in route parameter, or in Cells progress for a gate
         const b = jr.beats[bi];
         if (b.stop < 0) return [aerial.captionFrom, aerial.doneFrom];
-        const s = stops![b.stop], slot = (s.u1 - s.u0) / b.of, w0 = s.u0 + slot * b.k;
-        return [bi === 0 ? -1 : w0, w0 + slot];
+        const s = stops![b.stop], slot = (s.u1 - s.u0) / b.of, w0 = b.k === 0 && b.stop > 0 ? stops![b.stop - 1].u1 : s.u0 + slot * b.k; // (a stop's first step shows from the moment the comet leaves for it: the flight says where it is going)
+        return [bi === 0 ? -1 : w0, s.u0 + slot * (b.k + 1)];
       };
       const posOf = (bi: number) => (jr.beats[bi].stop < 0 ? p : uNow);
       const weightOf = (bi: number) => { const [a, b] = windowOf(bi); return win(posOf(bi), a, b); };

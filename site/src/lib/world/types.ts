@@ -12,6 +12,8 @@ export interface RoutingNames {
   /** the tasks the page can tell, one per routing example (journeys.ts), and the one it tells unless the viewer picks another (the T2 example) */
   journeys: Journey[];
   defaultJourney: number;
+  /** the order the tasks are told in, loop after loop, when nobody picks (indices into journeys; routing.ts tellingOrder) */
+  order: number[];
 }
 
 export type ActiveTier = 'high' | 'medium';
@@ -53,7 +55,7 @@ export interface WorldCtx {
   readonly rings: RingFx;
   /** agent names from content/routing.ts, resolved at build time */
   readonly routing: RoutingNames;
-  readonly scroll: { lock(reason: string): void; unlock(reason: string): void; setWalkSec(sec: number): void; go(chapter: number, progress: number): void };
+  readonly scroll: { lock(reason: string): void; unlock(reason: string): void; setWalkSec(sec: number, tailSec: number): void; go(chapter: number, progress: number): void };
   /** current honeycomb (globe + moon) (replaced on a tier change: never cache it) */
   readonly comb: Honeycomb;
   /** the walk route once it is built (a little before the Cells chapter), else null */

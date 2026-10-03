@@ -53,7 +53,23 @@ export const examples: ExampleTask[] = [
     ],
     outcome: 'Mapped, planned, built, checked. Back to you.',
   },
+  {
+    task: 'Build a product page',
+    tier: 'T2',
+    route: [
+      { label: 'Plan and approval', why: 'Nothing is built until you approve the plan.' },
+      { label: 'Hand off to Showroom', agent: 'showroom', why: 'Product pages have a swarm of their own on the moon: a pipeline with your approval at each gate.' },
+      { label: 'Brief (G1)', agent: 'showroom-intake', why: 'One batch of questions about the product, then it waits for your answers.' },
+      { label: 'Tokens and assets (G2, G3)', agent: 'showroom-art-director', why: 'Design tokens and an asset request pack, each approved by you.' },
+      { label: 'Sections (G4)', agent: 'showroom-frontend-builder', why: 'The page is built section by section in Astro and Tailwind.' },
+      { label: 'Scroll motion', agent: 'showroom-motion-engineer', why: 'GSAP and Lenis motion, with a reduced-motion path.' },
+    ],
+    outcome: 'Briefed, designed, built, animated. Back to you.',
+  },
 ];
+
+/** The order the page tells the tasks in when nobody picks one: the first loop flies to the moon, each loop after it tells the next (world.ts, at the wrap). */
+export const tellingOrder = ['Build a product page', 'Add an API route', 'Refactor auth', 'Fix a typo'];
 
 const names = new Set(facts.agents.map((a) => a.name));
 for (const n of ['explore', ...gates.map((g) => g.agent), ...examples.flatMap((e) => e.route.flatMap((r) => (r.agent ? [r.agent] : [])))]) {
