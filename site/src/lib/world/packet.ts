@@ -37,7 +37,7 @@ export interface Packet {
 /** Test curve: a closed spline through agent cell tops on the globe, derived from the lattice (never hardcoded). */
 export function createTestCurve(lattice: Lattice, count = 8): CatmullRomCurve3 {
   const agents = lattice.cells.filter((c) => c.agent && c.agent.band !== 'satellite');
-  const core = agents.find((c) => c.agent!.band === 'core');
+  const core = agents.find((c) => c.agent!.band === 'main');
   const ring = agents.filter((c) => c !== core).sort((a, b) => Math.atan2(a.pos.y, a.pos.x) - Math.atan2(b.pos.y, b.pos.x));
   const pick = Array.from({ length: Math.min(count, ring.length) }, (_, i) => ring[Math.floor((i * ring.length) / count)]);
   if (core) pick.splice(Math.ceil(pick.length / 2), 0, core);

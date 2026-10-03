@@ -193,7 +193,7 @@ const favicon =
       const loop = loopPath(curve);
       const packets: Packet[] = accentCandidates.map((c) => createPacket(c.hex, look.packet));
       packets.forEach((p) => scene.add(p.group));
-      const leadIdx = comb.lattice.cells.findIndex((c) => c.agent?.band === 'core');
+      const leadIdx = comb.lattice.cells.findIndex((c) => c.agent?.band === 'main');
       const t1Idx = comb.lattice.cells.findIndex((c) => c.agent?.band === 't1');
 
       const R = lat.radius;
@@ -265,7 +265,7 @@ const favicon =
         cardEl.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -100%)`;
         cardEl.classList.add('is-on');
       }
-      const route = createFollowRoute(lat, walkStopsOf(benchJourney, lat.cells.find((c) => c.agent?.band === 'core')!.agent!.name, walkCfg));
+      const route = createFollowRoute(lat, walkStopsOf(benchJourney, lat.cells.find((c) => c.agent?.band === 'main')!.agent!.name, walkCfg));
       const walkPose: WalkPose = { position: cam.position.clone(), quaternion: cam.quaternion.clone(), fov: 50, up: cam.position.clone(), forward: cam.position.clone(), stop: 0 };
       let walkInfo = '';
       (window as unknown as { __bench: unknown }).__bench = { route, walk }; // inspection hook for QA shots

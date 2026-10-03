@@ -75,7 +75,7 @@ for (const [label, arr] of [['camera position', P], ['look-at target', T]]) {
 // Position, orientation (angle between consecutive quaternions) and FOV are sampled every h vh across the whole Cells chapter plus 60vh either side.
 // A "jump" is a sample-to-sample step far above its neighbours: |second difference| more than 12x the p99.5 of the chapter (position and angle) or a
 // first-difference step above a hard ceiling. The damping in the world only smooths further, so this is the strictest view.
-const coreName = lattice.cells.find((c) => !c.moon && c.agent?.band === 'core').agent.name;
+const coreName = lattice.cells.find((c) => !c.moon && c.agent?.band === 'main').agent.name;
 for (const jn of journeysOf(examples, gates.map((g) => g.agent), tiers)) {
   const route = createFollowRoute(lattice, walkStopsOf(jn, coreName, walkCfg));
   const base = walkBlendBase(route, (p, o, t) => path.sample(cam.scrollToProgress(2, p), o, t), [[walkRamp.inFrom, walkRamp.inTo], [walkRamp.outFrom, walkRamp.outTo]], walkCfg);

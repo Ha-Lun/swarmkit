@@ -10,7 +10,7 @@ import { createCellNormalMaterial } from './cell-normal';
 import { buildSphere, type Sphere } from './sphere';
 import { terrainField } from './terrain';
 import type { Agent } from '../agents';
-import type { Band } from '../../content/tiers';
+import { MAIN_AGENT, type Band } from '../../content/tiers';
 
 // The lattice is two Goldberg spheres (sphere.ts): the globe GP(5,0) and a small moon GP(2,0), both built the same way.
 // Every cell is a flush stone panel: its footprint is the cell's own spherical-Voronoi polygon inset by half the seam, so
@@ -28,8 +28,8 @@ const SEAM_DEFAULT = 0.085;
 
 // Agent panels are towers with a polished pale cap, standing fixed above every rod. Bands read apart by height (a tier step each: core tallest,
 // then t1, domain, gate) and by a small tone step (a fraction of the stone tone, brightest at the core): no colour, no inlay, no ring.
-const TOWER_RANK: Record<Band, number> = { core: 3, t1: 2, domain: 1, gate: 0, satellite: 0 };
-const BAND_STEP: Record<Band, number> = { core: 0.1, t1: 0.075, domain: 0.05, gate: 0.025, satellite: 0 };
+const TOWER_RANK: Record<Band, number> = { main: 3, core: 3, t1: 2, domain: 1, gate: 0, satellite: 0 };
+const BAND_STEP: Record<Band, number> = { main: 0.1, core: 0.1, t1: 0.075, domain: 0.05, gate: 0.025, satellite: 0 };
 
 export interface Cell {
   /** base surface point of the panel (on its sphere) */
@@ -184,8 +184,10 @@ export function layoutLattice(agents: Agent[]): Lattice {
 
   const slotOwner = new Map<number, Agent>();
   let nextRing = 0;
-  for (const band of ['core', 't1', 'domain', 'gate'] as Band[]) {
-    const members = agents.filter((a) => a.band === band).sort((a, b) => a.name.localeCompare(b.name));
+  // the main agent (your session, not an agent file) holds the core cell; the optional orchestrator shares the first ring with the fast-work agents
+  const all = [MAIN_AGENT, ...agents.filter((a) => a.name !== MAIN_AGENT.name)];
+  for (const group of [['main'], ['core', 't1'], ['domain'], ['gate']] as Band[][]) {
+    const members = all.filter((a) => group.includes(a.band)).sort((a, b) => group.indexOf(a.band) - group.indexOf(b.band) || a.name.localeCompare(b.name));
     if (!members.length) continue;
     const rings: number[] = [];
     let cap = 0;

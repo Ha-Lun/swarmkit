@@ -300,7 +300,7 @@ export function createWorld(opts: WorldOptions): World {
   let walkRoute: WalkRoute | null = null;
   const walkBase = new Quaternion(); // the orientation the dive and the rise are blended about (walkBlendBase)
   // One route per task (the journey being told, view.journey): built the first time it is needed, kept after. The core holds the first stop and classifies every task.
-  const coreName = lattice.cells.find((c) => !c.moon && c.agent?.band === 'core')!.agent!.name;
+  const coreName = lattice.cells.find((c) => !c.moon && c.agent?.band === 'main')!.agent!.name; // the main agent: every task lands there first
   const walks = new Map<number, { route: WalkRoute; base: Quaternion; gate: { pos: Vector3; target: Vector3 } | null }>();
   let walkGate: { pos: Vector3; target: Vector3 } | null = null; // the camera pose for the gate split of this journey (null: a task with no gate keeps the whole-globe overview)
   let walkJourney = -1;

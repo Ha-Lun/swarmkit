@@ -5,7 +5,7 @@
 import { facts } from '../../lib/facts';
 import { roleLine } from '../../lib/agents';
 import { blurb } from '../../lib/blurb';
-import { bandLabels, bandOrder } from '../../content/tiers';
+import { bandLabels, bandOrder, MAIN_AGENT } from '../../content/tiers';
 import { examples, gates, tiers } from '../../content/routing';
 import { journeysOf } from '../../lib/journeys';
 import { motion } from '../../lib/world/motion-config';
@@ -14,7 +14,7 @@ const agents = facts.agents;
 const bands = bandOrder
   .map((band) => ({ band, ...bandLabels[band], count: agents.filter((a) => a.band === band).length }))
   .filter((b) => b.count > 0);
-const ordered = bandOrder.flatMap((b) => agents.filter((a) => a.band === b));
+const ordered = [MAIN_AGENT, ...bandOrder.flatMap((b) => agents.filter((a) => a.band === b))]; // (the main agent, your session, has a cell and a card but is not counted among the agents)
 const journeys = journeysOf(examples, gates.map((g) => g.agent), tiers);
 ---
 <section id="cells" class="chapter" style={`--runway:${motion.runway.cells}`} aria-labelledby="cells-title">

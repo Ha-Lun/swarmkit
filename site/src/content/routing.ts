@@ -24,7 +24,7 @@ export const examples: ExampleTask[] = [
     task: 'Fix a typo',
     tier: 'T1',
     route: [
-      { label: 'Edit directly', why: 'A trivial edit is made on the spot.' },
+      { label: 'Edit directly', why: 'The main agent makes the edit itself.' },
       { label: 'No plan, no gate', why: 'There is no plan to approve and no check to pass.' },
     ],
     outcome: 'Done, nothing else needed. Back to you.',
