@@ -22,6 +22,7 @@ export function createCells(ctx: WorldCtx): Chapter {
   // the steps: every journey's captions and chips are in the page; the active journey's current one is shown
   const captions = scene.q('[data-caption-step]').map((el) => ({ el, j: Number(el.dataset.j), b: el.dataset.b === undefined ? -1 : Number(el.dataset.b) }));
   const doneCaptions = scene.q('[data-caption-done]').map((el) => ({ el, j: Number(el.dataset.j) })); // the closing line, once the gates have passed
+  const gateTags = scene.q('[data-gate-tag]').map((el) => ({ el, j: Number(el.dataset.j), name: el.dataset.gateTag!, x: NaN, y: NaN })); // the gates' name tags, over their towers while their comets land
   const taskTags = scene.q('[data-task-tag]').map((el) => ({ el, j: Number(el.dataset.j) })); // the task's name, on screen for the whole walk
   const chipLists = scene.q('[data-steps]').map((el) => ({
     el, j: Number(el.dataset.steps),
@@ -65,6 +66,15 @@ export function createCells(ctx: WorldCtx): Chapter {
         const doneFrom = jr.gates.length ? aerial.doneFrom : walkCfg.uTo + EPS; // (a task with no gate has nothing to say between its last step and the end)
         doneCaptions.forEach((c) => setOpacity(c.el, c.j !== view.journey ? 0 : range(p, doneFrom - EPS, doneFrom + EPS)));
         taskTags.forEach((t) => setOpacity(t.el, t.j === view.journey ? 1 : 0));
+        const tagIn = range(p, aerial.fanFrom - EPS, aerial.fanFrom + EPS) * (1 - range(p, aerial.doneFrom - EPS, aerial.doneFrom)); // (from the moment the comets leave, until the closing line)
+        gateTags.forEach((t) => {
+          const on = t.j === view.journey ? tagIn : 0;
+          setOpacity(t.el, on);
+          if (on <= 0.01 || !ctx.cellTop(t.name, tmp)) return;
+          tmp.project(ctx.camera);
+          const x = Math.round(((tmp.x + 1) / 2) * window.innerWidth * 2) / 2, y = Math.round(((1 - tmp.y) / 2) * window.innerHeight * 2) / 2;
+          if (x !== t.x || y !== t.y) { t.x = x; t.y = y; t.el.style.transform = y < 150 ? `translate3d(${x}px, ${y + 40}px, 0) translate(-50%, 0)` : `translate3d(${x}px, ${y - 48}px, 0) translate(-50%, -100%)`; } // (over the tower, or under it when there is no room below the nav)
+        });
         chipLists.forEach((l) => {
           setOpacity(l.el, l.j === view.journey ? 1 : 0);
           if (l.j !== view.journey) return;
@@ -105,6 +115,7 @@ export function createCells(ctx: WorldCtx): Chapter {
       captions.forEach((c) => setOpacity(c.el, 0));
       doneCaptions.forEach((c) => setOpacity(c.el, 0));
       taskTags.forEach((t) => setOpacity(t.el, 0));
+      gateTags.forEach((t) => setOpacity(t.el, 0));
       chipLists.forEach((l) => setOpacity(l.el, 0));
       scene.fade(0);
     },

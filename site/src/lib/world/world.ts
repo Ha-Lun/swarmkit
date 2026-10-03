@@ -9,7 +9,7 @@ import type { Agent } from '../agents';
 import type { ScrollState } from '../scroll';
 import { createCameraPath, progressOfG, scrollToProgress, SEGMENTS } from './camera-path';
 import { walkStopsOf } from '../journeys';
-import { createFollowRoute } from './follow';
+import { createFollowRoute, gateViewOf } from './follow';
 import { createJourneyComet } from './journey-comet';
 import { applyWalkLook, horizonFog, walkBlendBase, walkCameraPose, type WalkPose, type WalkRoute } from './walk';
 import { range, sceneAlpha } from './scene-dom';
@@ -301,20 +301,24 @@ export function createWorld(opts: WorldOptions): World {
   const walkBase = new Quaternion(); // the orientation the dive and the rise are blended about (walkBlendBase)
   // One route per task (the journey being told, view.journey): built the first time it is needed, kept after. The core holds the first stop and classifies every task.
   const coreName = lattice.cells.find((c) => !c.moon && c.agent?.band === 'core')!.agent!.name;
-  const walks = new Map<number, { route: WalkRoute; base: Quaternion }>();
+  const walks = new Map<number, { route: WalkRoute; base: Quaternion; gate: { pos: Vector3; target: Vector3 } | null }>();
+  let walkGate: { pos: Vector3; target: Vector3 } | null = null; // the camera pose for the gate split of this journey (null: a task with no gate keeps the whole-globe overview)
   let walkJourney = -1;
   const buildWalk = () => {
     const j = view.journey;
     if (walkJourney === j) return;
     let w = walks.get(j);
     if (!w) {
-      const route = createFollowRoute(lattice, walkStopsOf(routing.journeys[j], coreName, walkCfg));
-      w = { route, base: walkBlendBase(route, (p, o, t) => path.sample(scrollToProgress(2, p), o, t), [[walkRamp.inFrom, walkRamp.inTo], [walkRamp.outFrom, walkRamp.outTo]], walkCfg) };
+      const jr = routing.journeys[j];
+      const route = createFollowRoute(lattice, walkStopsOf(jr, coreName, walkCfg));
+      const lastStop = jr.stops[jr.stops.length - 1] ?? coreName;
+      w = { route, base: walkBlendBase(route, (p, o, t) => path.sample(scrollToProgress(2, p), o, t), [[walkRamp.inFrom, walkRamp.inTo], [walkRamp.outFrom, walkRamp.outTo]], walkCfg), gate: jr.gates.length ? gateViewOf(lattice, [lastStop, ...jr.gates]) : null };
       walks.set(j, w);
     }
     walkJourney = j;
     walkRoute = w.route;
     walkBase.copy(w.base);
+    walkGate = w.gate;
     ctx.scroll.setWalkSec(w.route.length / walkCfg.rate); // autoplay runs the route at walkCfg.rate route units a second
   };
   const wpose: WalkPose = { position: new Vector3(), quaternion: new Quaternion(), fov: 40, up: new Vector3(), forward: new Vector3(), stop: 0 };
@@ -339,7 +343,8 @@ export function createWorld(opts: WorldOptions): World {
       loopCameraPose(pos, target, posL, targetL, loopSm);
     }
     if (overviewSm > 0.001) {
-      path.sample(SEGMENTS[1].t1, posB, targetB); // end of the hive chapter: the whole globe and its moon in frame
+      if (walkGate) { posB.copy(walkGate.pos); targetB.copy(walkGate.target); } // the gate split: the last stop and the gates, facing the camera
+      else path.sample(SEGMENTS[1].t1, posB, targetB); // end of the hive chapter: the whole globe and its moon in frame
       pos.lerp(posB, overviewSm);
       target.lerp(targetB, overviewSm);
     }

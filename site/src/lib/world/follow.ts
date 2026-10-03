@@ -4,7 +4,7 @@
 // after it, so it trails). The camera always looks at the comet, with up = the radial at the camera, so the horizon stays level whatever side of the globe it is on.
 // The route parameter u (0..1) runs over the journey in seconds (length = seconds x walkCfg.rate); everything here is a pure function of it.
 import { Matrix4, Quaternion, Vector3 } from 'three';
-import { motion, walkCfg } from './motion-config';
+import { aerial, motion, walkCfg } from './motion-config';
 import { clearRadius, easeLeg, entryPoint, raise, Route } from './routes';
 import type { Lattice } from './honeycomb';
 import type { WalkParams, WalkPose, WalkRoute, WalkStopSpec } from './walk';
@@ -94,4 +94,19 @@ export function createFollowRoute(lattice: Lattice, visit: WalkStopSpec[]): Walk
       return out;
     },
   };
+}
+
+/** The camera pose for the gate split: it looks at the middle of the towers named in `names` (the last stop and the gates) from the side they face, far enough out to hold them all in frame.
+ *  The globe is parked during the walk, so the tower positions are the layout's own. Returns null if a name has no tower. */
+export function gateViewOf(lattice: Lattice, names: string[]): { pos: Vector3; target: Vector3 } | null {
+  const cs = names.map((n) => lattice.cells.find((c) => !c.moon && c.agent?.name === n));
+  if (cs.some((c) => !c)) return null;
+  const R = lattice.radius, dir = new Vector3(), target = new Vector3();
+  cs.forEach((c) => { dir.add(c!.normal); target.add(c!.pos); });
+  dir.normalize();
+  target.divideScalar(cs.length);
+  let span = 0;
+  cs.forEach((a) => cs.forEach((b) => (span = Math.max(span, a!.pos.distanceTo(b!.pos)))));
+  const v = aerial.view, above = Math.min(v.max, Math.max(v.min, (span / R) * v.fit));
+  return { pos: dir.multiplyScalar(R * (1 + above)), target };
 }

@@ -50,7 +50,7 @@ export function journeysOf(examples: { task: string; tier: string; route: Journe
     });
     // the gates run side by side: one caption names them and gives the conditions that triggered them (the steps' labels, "If auth changed" -> "auth changed")
     const because = beats.filter((b) => b.stop < 0).map((b) => b.label.replace(/^If /i, ''));
-    const gate = gates.length ? { status: status(gates.join(', ')), why: `${gates.length > 1 ? 'Side by side, because' : 'Because'} ${because.join(' and ')}.` } : undefined;
+    const gate = gates.length ? { status: status(gates.join(', ')), why: `Built. Now ${gates.length > 1 ? `${['', 'one', 'two', 'three', 'four'][gates.length] ?? gates.length} quality gates run side by side` : 'one quality gate runs'}, because ${because.join(' and ')}.` } : undefined;
     return { task: e.task, tier: e.tier, stops, gates, beats, gate, done: e.outcome };
   });
 }

@@ -119,7 +119,11 @@ export const walkCfg = {
  * receive their comets in parallel (they leave the last stop together at `fanFrom` and land together at `fanTo`), and the camera comes back onto the spline for the Proof pull-back over
  * `overviewOut`. The dim and the canvas recede (recedeMix) start only after the gates have landed, so they are seen undimmed.
  */
-export const aerial = { overviewIn: [0.82, 0.915], overviewOut: [0.945, 1], captionFrom: 0.84, doneFrom: 0.94, fanFrom: 0.88, fanTo: 0.93, gateFadeOut: [0.955, 0.985], recedeFrom: 0.955 } as const;
+export const aerial = { overviewIn: [0.82, 0.915], overviewOut: [0.945, 1], captionFrom: 0.84, doneFrom: 0.94, fanFrom: 0.88, fanTo: 0.93, handOff: 0.012, gateIn: 0.008,
+  /** the gate view: the camera frames the last stop and the gate towers together, from the side they face, `fit` x their spread away (between `min` and `max` globe radii above the surface) */
+  view: { fit: 2.7, min: 2.2, max: 4 },
+  /** the comets are drawn this much larger, at most, at the whole-globe distance of the split (so they read as comets and not dots) */
+  boost: 2.5, gateFadeOut: [0.955, 0.985], recedeFrom: 0.955 } as const;
 
 /** Route parameter 0..1 for Cells chapter progress p. */
 export const walkUOf = (p: number): number => Math.min(1, Math.max(0, (p - walkCfg.uFrom) / (walkCfg.uTo - walkCfg.uFrom)));

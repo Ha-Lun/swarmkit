@@ -58,9 +58,12 @@ export function createJourneyComet(ctx: WorldCtx, flow: Flow, gateFlows: Flow[])
       const L = wr.length;
       const sec = (s: number) => (s * walkCfg.rate) / L; // seconds -> route parameter
       const fan = clamp01((cp - aerial.fanFrom) / (aerial.fanTo - aerial.fanFrom)); // 0 until the gates are sent, 1 once they have landed
-      const fadeOut = u > endU ? smooth(clamp01(walk / 0.6)) : 1;
-      const fade = fadeOut * (gateNames.length && cp >= aerial.fanFrom ? 0 : 1); // (a task with gates hands its comet on to them)
-      flow.set(wr.cometDist(u), ctx.camera, fade, ctx.dt);
+      // a task with gates keeps its comet on the last stop through the rise and divides it: the gates' comets leave from it at fanFrom and it fades as they part; one without shrinks away with the walk
+      const sent = gateNames.length > 0;
+      const fadeOut = !sent && u > endU ? smooth(clamp01(walk / 0.6)) : 1;
+      const fade = fadeOut * (sent ? 1 - smooth(clamp01((cp - aerial.fanFrom) / aerial.handOff)) : 1);
+      const big = 1 + (aerial.boost - 1) * ctx.view.overview; // (larger at the distance of the split)
+      flow.set(wr.cometDist(u), ctx.camera, fade * big, ctx.dt);
       // rings: the scan ring is engraved at the core while it holds; a ripple runs out where the comet lands on each later tower
       const R = ctx.rings;
       R.clearAll();
@@ -82,11 +85,11 @@ export function createJourneyComet(ctx: WorldCtx, flow: Flow, gateFlows: Flow[])
       });
       names.forEach((n, i) => ctx.hilite(n, pulse(u, land[i], sec(P.holdSec)) * fade * motion.hilite.strike));
       // the fan-out: the gates' comets leave the last stop together, fly in parallel and land together; a ripple runs out where each lands, and they shrink away before the Proof pull-back
-      const gateFade = cp >= aerial.fanFrom ? 1 - smooth(clamp01((cp - aerial.gateFadeOut[0]) / (aerial.gateFadeOut[1] - aerial.gateFadeOut[0]))) : 0;
+      const gateFade = cp >= aerial.fanFrom ? smooth(clamp01((cp - aerial.fanFrom) / aerial.gateIn)) * (1 - smooth(clamp01((cp - aerial.gateFadeOut[0]) / (aerial.gateFadeOut[1] - aerial.gateFadeOut[0])))) : 0;
       gateFlows.forEach((gf, i) => {
         if (i >= gateRoutes.length || gateFade <= 0) { gf.hide(); return; }
         const r = gateRoutes[i];
-        gf.set(r.length * easeLeg(fan), ctx.camera, gateFade, ctx.dt);
+        gf.set(r.length * easeLeg(fan), ctx.camera, gateFade * big, ctx.dt);
         if (fan >= 1) {
           const k = (cp - aerial.fanTo) / RIPPLE_P;
           if (k > 0 && k < 1) ripple(4 + i, gateNames[i], k);

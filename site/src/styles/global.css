@@ -97,6 +97,8 @@
 .caption[data-caption-step], .caption[data-caption-done] { text-shadow: 0 0 14px var(--ink), 0 0 3px var(--ink); } /* the current step, called out: the status line, then why */
 .caption-status { display: block; font-family: var(--font-mono); font-size: var(--text-base); font-weight: 500; text-shadow: 0 0 8px var(--ink), 0 0 14px var(--ink), 0 0 3px var(--ink); }
 .caption-why { display: block; margin-top: var(--space-1); font-size: var(--text-lg); font-weight: 700; letter-spacing: -0.005em; }
+.gate-tag { position: fixed; top: 0; left: 0; z-index: 30; display: grid; gap: var(--space-1); width: max-content; margin: 0; padding: var(--space-2) var(--space-3); background: var(--ink); border: 1px solid var(--wax-dim); font-family: var(--font-mono); font-size: var(--text-base); line-height: 1.3; color: var(--text); opacity: 0; pointer-events: none; will-change: transform; } /* a gate's name and the condition that triggered it, over its tower while its comet lands (Cells only) */
+.gate-why { font-size: var(--text-xs); color: var(--wax); }
 .task-tag { position: absolute; top: 72px; left: var(--space-6); margin: 0; font-family: var(--font-mono); font-size: var(--text-base); color: var(--text); text-shadow: 0 0 14px var(--ink), 0 0 3px var(--ink); } /* the task the comet is (Cells only; one per journey, stacked) */
 .btn { display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); background: var(--ink); border: 1px solid var(--wax-dim); font-family: var(--font-mono); font-size: var(--text-base); line-height: 1.3; color: var(--text); cursor: pointer; }
 .btn:hover { border-color: var(--wax); }
@@ -154,7 +156,7 @@
     .finale-foot { justify-content: center; }
     .chip-ring { opacity: 0; }
     .static-only { display: none; } /* (the band legend of the static page: the world shows the steps) */
-    .chip-stack > .chips, .task-tag { opacity: 0; }
+    .chip-stack > .chips, .task-tag, .gate-tag { opacity: 0; }
   }
   :root[data-tier='high'], :root[data-tier='medium'] {
     .install-cmd { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } /* the swarm is the visible command */

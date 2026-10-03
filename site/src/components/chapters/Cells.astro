@@ -38,6 +38,9 @@ const journeys = journeysOf(examples, gates.map((g) => g.agent), tiers);
     </div>
 
     {journeys.map((j, ji) => <p class="task-tag world-only" data-task-tag data-j={ji} data-fx>Task: {j.task} · {j.tier}</p>)}
+    {journeys.map((j, ji) => j.beats.filter((b) => b.stop < 0).map((b) => (
+      <p class="gate-tag world-only" data-gate-tag={b.agent} data-j={ji} data-fx><span>{b.agent}</span><span class="gate-why">{b.label.replace(/^If /i, '')}</span></p>
+    )))}
 
     <div class="scene-foot">
       <div class="captions">
