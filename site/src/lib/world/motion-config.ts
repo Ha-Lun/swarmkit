@@ -18,7 +18,7 @@ export const motion = {
     taglineMs: 1900,
   },
   packet: {
-    meanSpeed: 5.5, // world units per second averaged over a leg (a leg eases in and out, so its peak is 1.875x this)
+    meanSpeed: 7, // world units per second averaged over a leg (a leg eases in and out, so its peak is 1.875x this)
     minLegSec: 0.7, // shortest a leg may last
     holdSec: 0.4, // how long a comet's landing lifts the tower (the pulse)
     ripple: { speed: 2.4, sec: 0.9, width: 0.055 }, // arrival ripple: world units/s across the surface, lifetime, line width
@@ -59,8 +59,8 @@ export const motion = {
     driftSec: 50, // seconds per lap of the drift ellipse
   },
   /** The page plays itself once started (scroll.ts): seconds each chapter takes under autoplay (Cells has its own pacing below: the dive, the journey in seconds, the tail), and the ease of start/pause/resume. */
-  autoplay: { introSec: 3, hiveSec: 8, proofSec: 9, finaleSec: 14, loopSec: 5, easeSec: 0.4 },
-  walkAuto: { diveSec: 4, tailSec: 11 }, // the walk plays itself (scroll.ts): seconds for the dive in, for the rise out and the pull-back to the end of Cells (the route's own time is walkCfg.rate), and the ease of start/pause/resume
+  autoplay: { introSec: 2.5, hiveSec: 6, proofSec: 7, finaleSec: 11, loopSec: 4, easeSec: 0.4 },
+  walkAuto: { diveSec: 3.1, tailSec: 9.5 }, // the walk plays itself (scroll.ts): seconds for the dive in, for the rise out and the pull-back to the end of Cells (the route's own time is walkCfg.rate), and the ease of start/pause/resume
   probe: { ms: 1000, warmupFrames: 10, minFrames: 6, stepDownBelow: 45, fallbackBelow: 30 },
 } as const;
 
@@ -93,7 +93,7 @@ export function dissolveMix(chapter: number, p: number): number {
 /** The low orbit (Cells chapter): where the camera follows the comet. The ramp values are provisional (tuned in the story integration): it dives in over
  *  chapterProgress inFrom..inTo and rises out over outFrom..outTo. The rise starts a little after the route's end (uTo): the autoplay speed of a short route is far above the tail's and eases
  *  down over about a second (scroll.ts), and the rise must not be swept past in that time. */
-export const walkRamp = { inFrom: 0.06, inTo: 0.2, outFrom: 0.82, outTo: 0.915 } as const;
+export const walkRamp = { inFrom: 0.03, inTo: 0.2, outFrom: 0.82, outTo: 0.915 } as const;
 /** Walk weight 0..1 for chapter `chapter` at chapterProgress p: 0 = on the spline fly-over path, 1 = walking. Modelled on spinWeight; the pistons park with it. */
 export function walkWeight(chapter: number, p: number): number {
   if (chapter !== 2) return 0;
@@ -104,10 +104,10 @@ export function walkWeight(chapter: number, p: number): number {
 /** The follow camera (provisional values): the low orbit that follows the task's comet (follow.ts). `fov`, `near`; the Cells chapter progress the journey runs over, from its first moment (uFrom) to its
  *  last (uTo); and the look of the view (detail, core glow dim, horizon fog as multiples of the horizon distance). */
 export const walkCfg = {
-  fov: 55, near: 0.1, uFrom: 0.2, uTo: 0.78, detail: 1, coreDim: 0.9, fogNear: 0.6, fogFar: 3,
+  fov: 55, near: 0.1, uFrom: 0.14, uTo: 0.78, detail: 1, coreDim: 0.9, fogNear: 0.6, fogFar: 3,
   /** The journey's pace. The route parameter runs at `rate` route units per second under autoplay (scroll.ts is told the route's length and sets its speed from this), so every duration is in
    *  seconds: the comet holds at a tower for dwellSec (coreSec at the core, where the task is classified and approved); its legs take as long as they take at the comet's own speed. */
-  rate: 8, dwellSec: 2, coreSec: 2.5, beatSec: 2.6, minSec: 6, entrySec: 2.8,
+  rate: 8, dwellSec: 1.8, coreSec: 2.2, beatSec: 2.2, minSec: 6, entrySec: 2.3,
   /** The camera's viewpoint at a stop: `back` world units behind the comet's arrival direction and `up` above the cap; the camera path stays `clearMargin` above the tallest column's reach
    *  and trails the comet by `lagSec` seconds. */
   back: 4, up: 2.2, clearMargin: 0.5, lagSec: 0.45,

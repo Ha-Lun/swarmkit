@@ -82,8 +82,8 @@ export function blendWalkPose(
   outPos.normalize().multiplyScalar(rA + (rB - rA) * w);
   // The spline half of the orientation blend keeps looking at the spline's own target (a point on the globe) from where the camera now is, so the view stays on the globe as the
   // camera descends instead of sweeping off into empty sky (the spline's orientation, from a position it has left, no longer points at it). The walker's half takes over late (smootherstep).
-  const sw = clamp((w - 0.5) / 0.48, 0, 1); // (the direction swing runs over the upper half of the descent; with a slerp it is safe that wide)
-  const s = sw * sw * sw * (sw * (sw * 6 - 15) + 10);
+  const sw = clamp((w - 0.12) / 0.86, 0, 1); // (the direction swing runs over nearly the whole descent, and with a plain smoothstep: the descent weight is itself eased, so a smootherstep on top of it doubles the ease and the turn bunches into a short, fast stretch in the middle)
+  const s = sw * sw * (3 - 2 * sw);
   if (upB && targetA) {
     // Not a blend of two orientations (a rotation blend passes through views that look away from the globe altogether, half way down; a slerp flips where the two are nearly opposite) but
     // one look-at whose view DIRECTION turns from "towards the spline's target, from where the camera now is" to the walker's heading (a normalised lerp, late in the descent: smootherstep over
@@ -110,7 +110,7 @@ export function blendWalkPose(
         const raw = Math.atan2(_tmpV.crossVectors(_yp, _upRef).dot(_fS), _yp.dot(_upRef));
         const d1 = _y1.lengthSq() > 1e-10 && _u1.lengthSq() > 1e-10 ? Math.atan2(_tmpV.crossVectors(_y1.normalize(), _u1.normalize()).dot(_fB), _y1.dot(_u1)) : 0;
         const d = d1 + (raw - d1) - Math.PI * 2 * Math.round((raw - d1) / (Math.PI * 2));
-        const m = clamp((w - 0.1) / 0.75, 0, 1), roll = d * (m * m * (3 - 2 * m));
+        const m = clamp((w - 0.04) / 0.92, 0, 1), roll = d * m; // (linear in w: w itself is eased in time, so the roll starts and ends at rest without a second ease bunching it up)
         _upRef.copy(_yp).multiplyScalar(Math.cos(roll)).addScaledVector(_tmpV.crossVectors(_fS, _yp), Math.sin(roll));
         _tmpV.copy(_fS).add(outPos);
         _lookM.lookAt(outPos, _tmpV, _upRef);
