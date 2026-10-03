@@ -2,7 +2,7 @@
 // opacity (plus `inert` on a scene that is fully faded), never layout, and never a node insert or remove.
 // Everything a chapter drives carries data-fx, so resetFx() can hand the page back to the static layout.
 
-import { motion } from './motion-config';
+import { motion, LOOP_VH } from './motion-config';
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 const smooth = (t: number) => t * t * (3 - 2 * t);
@@ -45,7 +45,8 @@ export function pinWindow(vh: number, lastChapter = false): [number, number] {
 export function sceneAlpha(chapter: number, p: number): number {
   if (chapter === 0) return 1;
   const s = p * spanVh(chapter), span = spanVh(chapter);
-  return range(s, 0, FADE_VH) * (1 - range(s, span - FADE_VH, span));
+  const outFrom = chapter === RUNWAYS.length - 1 ? span - LOOP_VH : span - FADE_VH; // the finale leaves as the homecoming starts, so the intro's text comes in on a clear screen
+  return range(s, 0, FADE_VH) * (1 - range(s, outFrom, outFrom + FADE_VH));
 }
 
 export interface Scene {

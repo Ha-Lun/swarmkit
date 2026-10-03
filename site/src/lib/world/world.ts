@@ -8,15 +8,20 @@ import {
 import type { Agent } from '../agents';
 import type { ScrollState } from '../scroll';
 import { createCameraPath, progressOfG, scrollToProgress, SEGMENTS } from './camera-path';
-import { applyWalkLook, createWalkRoute, horizonFog, walkBlendBase, walkCameraPose, type WalkPose, type WalkRoute } from './walk';
-import { sceneAlpha } from './scene-dom';
+import { walkStopsOf } from '../journeys';
+import { createFollowRoute, gateViewOf } from './follow';
+import { createJourneyComet } from './journey-comet';
+import { applyWalkLook, horizonFog, walkBlendBase, walkCameraPose, type WalkPose, type WalkRoute } from './walk';
+import { range, sceneAlpha } from './scene-dom';
 import { accentCandidates, look, readPalette, type Palette } from './config';
 import { cellTopOf, createHoneycomb, layoutLattice, type Honeycomb } from './honeycomb';
-import { motion, spinWeight, SWARM_CAM, walkCfg, walkRamp, walkWeight } from './motion-config';
+import { loopCamera, motion, spinWeight, SWARM_CAM, walkCfg, walkRamp, walkWeight } from './motion-config';
+import { loopCameraPose } from './loop';
 import { createPost, type Post } from './post';
 import { createStudio, shadowExtentOf, type Studio } from './studio';
 import { createFlow, type Flow } from './routes';
 import { createRingFx } from './rings';
+import { createSky } from './sky';
 import { createSwarm, type Swarm } from './swarm-particles';
 import { createHexDissolve, hexPixelSize, type HexDissolve } from './transitions';
 import type { ActiveTier, Chapter, RoutingNames, View, WorldCtx } from './types';
@@ -32,7 +37,7 @@ export interface WorldOptions {
   routing: RoutingNames;
   state: Readonly<ScrollState>;
   tier: ActiveTier;
-  scroll: { lock(): void; unlock(): void };
+  scroll: { lock(reason: string): void; unlock(reason: string): void; setWalkSec(sec: number, tailSec: number): void; start(): void; seek(chapter: number, progress: number): void };
 }
 
 export interface World {
@@ -48,10 +53,8 @@ export interface World {
   dispose(): void;
 }
 
-const MAX_DPR: Record<ActiveTier, number> = { high: 2, medium: 1.5 };
-/** The walk fills the screen with close-up metal, which costs far more fragment work than the orbit views: on a 2015 laptop GPU the high tier fell to 30-40 fps at a
- *  pixel ratio of 2 and held 60 at 1.5. So the ratio is capped here while the camera is on the ground (switched once, with hysteresis, at the start of the dive and after the rise). */
-const WALK_DPR = 1.5;
+/** The pixel ratio cap: the walk's close-up metal costs far more fragment work than the orbit views (a 2015 laptop GPU held 60 fps at 1.5 and fell to 30-40 at 2), so both tiers stop at 1.5 throughout, with no resize at the dive and the rise. */
+const MAX_DPR = 1.5;
 
 /** Radial gradient background (round 11): ink-2 centre fading to ink at the edge, strength look.bg.gradient. Procedural,
  *  sRGB (matches the palette tokens' own space), small (256px: it only ever shows through as a soft blend). Shared with
@@ -81,7 +84,6 @@ function readAccent(): string {
 export function createWorld(opts: WorldOptions): World {
   const { canvas, agents, routing, state, scroll } = opts;
   let tier = opts.tier;
-  let walkDprCap = false; // true while the walk is on screen (WALK_DPR); declared here because resize() runs during setup
   const palette = readPalette();
 
   const renderer = new WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -93,6 +95,9 @@ export function createWorld(opts: WorldOptions): World {
   const bgTex = createBgTexture(palette, look.bg.gradient);
   scene.background = bgTex;
   scene.fog = new Fog(palette.ink, 20, 120);
+  const sky = createSky(palette); // the low orbit's horizon (sky.ts): drawn only while the camera follows the comet
+  scene.add(sky.mesh);
+  const inkColor = new Color(palette.ink);
   const camera = new PerspectiveCamera(40, 1, 0.1, 400);
 
   const lattice = layoutLattice(agents); // identical for every tier: cell indices stay valid across a rebuild
@@ -118,7 +123,9 @@ export function createWorld(opts: WorldOptions): World {
   const path = createCameraPath(lattice);
 
   const accent = readAccent();
-  const flows: Flow[] = Array.from({ length: 4 }, () => createFlow(accent));
+  const flows: Flow[] = Array.from({ length: 4 }, () => createFlow(accent)); // 0: the task's comet, 1-3: the gate comets of the journey's fan-out (journey-comet.ts)
+  // GTAO's G-buffer content: the panels' twin plus the comets' (so the AO of the stone behind a comet is not multiplied onto it)
+  const aoGroupsOf = (h: Honeycomb) => [...(h.aoGroup ? [h.aoGroup] : []), ...flows.map((f) => f.packet.aoGroup)];
   flows.forEach((f) => globe.add(f.packet.group));
   // the comet's crisp scan ring and arrival ripples sit just above the tower cap they mark (hive.ts moves the shell to it)
   const agentTop = Math.max(...lattice.cells.filter((c) => c.agent && !c.moon).map((c) => c.reach));
@@ -128,14 +135,16 @@ export function createWorld(opts: WorldOptions): World {
   // ---- view + panel highlight ----
   const view: View = {
     growth: 1, dim: 0, dissolve: 0, canvasOpacity: 1, latticeVisible: true, swarmFade: 0, swarmAttract: 0,
-    focus: new Vector3(), focusWeight: 0, focusDrop: 0, overview: 0, camFloor: 0, walk: 0, lookYaw: 0, lookPitch: 0,
+    focus: new Vector3(), focusWeight: 0, focusDrop: 0, overview: 0, loop: 0, journey: routing.order[0] ?? 0, camFloor: 0, walk: 0, walkCp: 0, walkStop: 0, lookYaw: 0, lookPitch: 0,
   };
   const hiTarget = new Map<number, number>();
   const hiCur = new Map<number, number>();
 
   const ctx: WorldCtx = {
-    agents, routing, scene, camera, renderer, state, view, lattice, flows, rings, scroll,
+    agents, routing, scene, camera, renderer, state, view, lattice, rings, scroll,
     get comb() { return comb; },
+    get walkRoute() { return walkRoute; },
+    get comet() { return comet; },
     time: 0,
     dt: 0,
     cellIndex: (name) => cellByName.get(name) ?? -1,
@@ -150,9 +159,11 @@ export function createWorld(opts: WorldOptions): World {
     },
   };
 
+  const comet = createJourneyComet(ctx, flows[0], flows.slice(1)); // the task's comet: waiting in the Hive, flying in the Cells chapter
+
   // ---- chapters ----
   const intro = createIntro(ctx);
-  const chapters: Chapter[] = [intro, createHive(ctx), createCells(ctx), createProof(ctx), createFinale(ctx)];
+  const chapters: Chapter[] = [intro, createHive(ctx), createCells(ctx), createProof(ctx), createFinale(ctx, intro)];
   if (chapters.length !== SEGMENTS.length) throw new Error('world: chapter modules must match camera segments');
   let active = -1;
   chapters.forEach((c, i) => c.fade(i === 0 ? 1 : 0)); // scenes start hidden (and inert) until their handover
@@ -165,6 +176,7 @@ export function createWorld(opts: WorldOptions): World {
   let rtC: WebGLRenderTarget | null = null; // the dissolve composite (high tier only: it feeds the post chain)
   let swarm: Swarm | null = null;
   let swarmBuilding = false;
+  let swarmLive = false; // the swarm has been simulated since its last reset
   const swarmScene = new Scene();
   const swarmCam = new PerspectiveCamera(SWARM_CAM.fov, 1, 0.1, 100);
   swarmCam.position.set(0, 0, SWARM_CAM.z);
@@ -216,7 +228,7 @@ export function createWorld(opts: WorldOptions): World {
     applyShadows();
     hiCur.clear();
     post?.dispose();
-    post = tier === 'high' ? createPost(renderer, scene, camera, look.post, comb.aoGroup) : null;
+    post = tier === 'high' ? createPost(renderer, scene, camera, look.post, aoGroupsOf(comb)) : null;
     freeTargets();
     if (swarm) {
       swarmScene.remove(swarm.points);
@@ -233,7 +245,7 @@ export function createWorld(opts: WorldOptions): World {
     // mobile URL-bar collapse changes innerHeight by a few dozen px on scroll: not worth reallocating every target
     if (!force && w === lw && Math.abs(h - lh) < 120) return;
     lw = w; lh = h;
-    const pr = Math.min(window.devicePixelRatio || 1, MAX_DPR[tier], walkDprCap ? WALK_DPR : Infinity);
+    const pr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
     renderer.setPixelRatio(pr);
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
@@ -259,11 +271,14 @@ export function createWorld(opts: WorldOptions): World {
 
   // ---- per-frame ----
   const pos = new Vector3(), target = new Vector3(), focusSm = new Vector3();
-  const posB = new Vector3(), targetB = new Vector3(), aim = new Vector3();
+  const posB = new Vector3(), targetB = new Vector3(), aim = new Vector3(), posL = new Vector3(), targetL = new Vector3();
   let focusW = 0, dropSm = 0, overviewSm = 0;
   // critically damped progress (smoothTime ~0.15 s): the camera never sees a raw wheel step
   const SMOOTH_TIME = 0.15;
   let gSm = state.globalProgress, gVel = 0;
+  // The page loops (Lenis wraps the scroll): the finale's last stretch is a homecoming that ends on the intro's opening frame (finale.ts), so the wrap itself is invisible, but the
+  // scroll state jumps from the end to the start. The damped progress and the homecoming weight are snapped to it, or the camera would sweep back through the whole path.
+  let prevG = state.globalProgress, loopSm = 0;
   function dampProgress(dt: number) {
     const w = 2 / SMOOTH_TIME, e = Math.exp(-w * dt);
     const change = gSm - state.globalProgress;
@@ -279,16 +294,34 @@ export function createWorld(opts: WorldOptions): World {
   // exactly home, so the framing, routes and fly-over match the un-spun ones. Parked, `free` is re-anchored to home so the next spin starts from rest.
   const TAU = Math.PI * 2;
   let spinFree = 0, spinHome = 0, spinWPrev = 1, spinW = 1; // spinW also parks the moon's own motion (honeycomb.ts)
-  // The walk (Cells): one weight (walkWeight of the DAMPED progress) blends the spline camera into a walker on the ground and drives everything that
-  // changes with it: the pistons hold at rest, the lights follow the walker's frame, the fog comes from the horizon, the seam glow dims, the comet hides.
+  // The low orbit (Cells): one weight (walkWeight of the DAMPED progress) blends the spline camera into the follow camera and drives everything that
+  // changes with it: the pistons hold at rest, the lights follow the camera's frame, the fog comes from the horizon, the seam glow dims.
   let walkW = 0, walkCoreApplied = 1;
   let walkRoute: WalkRoute | null = null;
   const walkBase = new Quaternion(); // the orientation the dive and the rise are blended about (walkBlendBase)
+  // One route per task (the journey being told, view.journey): built the first time it is needed, kept after. The core holds the first stop and classifies every task.
+  const coreName = lattice.cells.find((c) => !c.moon && c.agent?.band === 'main')!.agent!.name; // the main agent: every task lands there first
+  const walks = new Map<number, { route: WalkRoute; base: Quaternion; gate: { pos: Vector3; target: Vector3 } | null }>();
+  let walkGate: { pos: Vector3; target: Vector3 } | null = null; // the camera pose for the gate split of this journey (null: a task with no gate keeps the whole-globe overview)
+  let walkJourney = -1;
   const buildWalk = () => {
-    walkRoute = createWalkRoute(lattice);
-    walkBase.copy(walkBlendBase(walkRoute, (p, o, t) => path.sample(scrollToProgress(2, p), o, t), [[walkRamp.inFrom, walkRamp.inTo], [walkRamp.outFrom, walkRamp.outTo]], walkCfg));
+    const j = view.journey;
+    if (walkJourney === j) return;
+    let w = walks.get(j);
+    if (!w) {
+      const jr = routing.journeys[j];
+      const route = createFollowRoute(lattice, walkStopsOf(jr, coreName, walkCfg));
+      const lastStop = jr.stops[jr.stops.length - 1] ?? coreName;
+      w = { route, base: walkBlendBase(route, (p, o, t) => path.sample(scrollToProgress(2, p), o, t), [[walkRamp.inFrom, walkRamp.inTo], [walkRamp.outFrom, walkRamp.outTo]], walkCfg), gate: jr.gates.length ? gateViewOf(lattice, [lastStop, ...jr.gates]) : null };
+      walks.set(j, w);
+    }
+    walkJourney = j;
+    walkRoute = w.route;
+    walkBase.copy(w.base);
+    walkGate = w.gate;
+    ctx.scroll.setWalkSec(w.route.length / walkCfg.rate, w.gate ? motion.walkAuto.tailSec : motion.walkAuto.tailSecBare); // autoplay runs the route at walkCfg.rate route units a second
   };
-  const wpose: WalkPose = { position: new Vector3(), quaternion: new Quaternion(), fov: 40, up: new Vector3(), forward: new Vector3(), ground: 0, stop: 0 };
+  const wpose: WalkPose = { position: new Vector3(), quaternion: new Quaternion(), fov: 40, up: new Vector3(), forward: new Vector3(), stop: 0 };
   let walkCp = 0; // Cells chapter progress read back from the damped camera parameter
   function stepSpin(dt: number) {
     const w = spinW = spinWeight(state.chapter, state.chapterProgress);
@@ -300,12 +333,18 @@ export function createWorld(opts: WorldOptions): World {
     globe.updateMatrixWorld(true);
     // the G-buffer twin (post.ts) is unparented (its own private scene, so nothing else can corrupt it): keep its spin in sync by hand
     if (comb.aoGroup) comb.aoGroup.rotation.y = globe.rotation.y;
+    flows.forEach((f) => (f.packet.aoGroup.rotation.y = globe.rotation.y));
   }
 
   function pose(g: number) {
     path.sample(g, pos, target);
+    if (loopSm > 0.0001) { // the homecoming: from the finale's end view back to the intro's rest pose (what g = SEGMENTS[0].t1 samples, the floor the intro holds)
+      path.sample(SEGMENTS[0].t1, posL, targetL);
+      loopCameraPose(pos, target, posL, targetL, loopSm);
+    }
     if (overviewSm > 0.001) {
-      path.sample(SEGMENTS[1].t1, posB, targetB); // end of the hive chapter: the whole globe and its moon in frame
+      if (walkGate) { posB.copy(walkGate.pos); targetB.copy(walkGate.target); } // the gate split: the last stop and the gates, facing the camera
+      else path.sample(SEGMENTS[1].t1, posB, targetB); // end of the hive chapter: the whole globe and its moon in frame
       pos.lerp(posB, overviewSm);
       target.lerp(targetB, overviewSm);
     }
@@ -318,12 +357,13 @@ export function createWorld(opts: WorldOptions): World {
     camera.lookAt(target);
     let fov = 40, near = 0.1;
     if (walkW > 0.001) {
-      // the walk: blend the spline pose into the walker's pose with the one walk weight (position, orientation and FOV on the same curve)
-      if (!walkRoute) buildWalk();
+      // the low orbit: blend the spline pose into the follow camera's pose with the one walk weight (position, orientation and FOV on the same curve)
+      buildWalk();
       fov = walkCameraPose(walkRoute!, walkBase, pos, target, walkW, walkCp, walkCfg, camera.position, camera.quaternion, wpose);
       // drag-to-look, faded in with the weight so the dive and the rise are never turned (walk-look.ts)
       const lf = Math.min(1, Math.max(0, (walkW - 0.6) / 0.4));
       applyWalkLook(camera.quaternion, wpose.up, view.lookYaw, view.lookPitch, lf * lf * (3 - 2 * lf), camera.quaternion);
+      view.walkStop = wpose.stop;
       near = 0.1 + (walkCfg.near - 0.1) * walkW;
     }
     if (camera.fov !== fov || camera.near !== near) { camera.fov = fov; camera.near = near; camera.updateProjectionMatrix(); }
@@ -338,6 +378,9 @@ export function createWorld(opts: WorldOptions): World {
     }
     (scene.fog as Fog).near = fogNear;
     (scene.fog as Fog).far = fogFar;
+    // the horizon: the haze along the limb, and the fog fades to its colour (so the far pillars stand against it)
+    sky.update(camera.position, wpose.up, Math.acos(Math.min(1, lattice.radius / Math.max(lattice.radius, d))), walkW, look.walk.haze, look.walk.stars);
+    (scene.fog as Fog).color.copy(inkColor).lerp(sky.hazeColor, Math.min(1, walkW * look.walk.haze * 0.8));
   }
 
   function stepHilite(dt: number) {
@@ -389,17 +432,23 @@ export function createWorld(opts: WorldOptions): World {
       }
       // stateless per-frame outputs: chapters overwrite what they care about
       view.growth = 1; view.dim = 0; view.dissolve = 0; view.canvasOpacity = 1; view.latticeVisible = true;
-      view.swarmFade = 0; view.swarmAttract = 0; view.focusWeight = 0; view.focusDrop = 0; view.overview = 0;
+      view.swarmFade = 0; view.swarmAttract = 0; view.focusWeight = 0; view.focusDrop = 0; view.overview = 0; view.loop = 0;
       chapters[ch].update(state.chapterProgress);
       // fixed scenes only change opacity: this one fades in over the first 25vh of its runway and out over the last 25vh, so the
       // neighbours are always fully faded (and inert) while it is on screen
       chapters[ch].fade(sceneAlpha(ch, state.chapterProgress));
       if (ch + 1 < chapters.length) chapters[ch + 1].fade(0);
       if (ch > 0) chapters[ch - 1].fade(0);
+      if (Math.abs(state.globalProgress - prevG) > 0.5) { // the scroll wrapped
+        gSm = state.globalProgress; gVel = 0; loopSm = loopCamera(view.loop);
+        if (prevG > 0.9 && state.globalProgress < 0.1) view.journey = routing.order[(routing.order.indexOf(view.journey) + 1) % routing.order.length]; // the next loop tells the next task
+      }
+      else loopSm += (loopCamera(view.loop) - loopSm) * (1 - Math.exp(-dt / SMOOTH_TIME));
+      prevG = state.globalProgress;
       dampProgress(dt);
 
       // lazy pieces, built ahead of the chapter that needs them
-      if (!walkRoute && ch >= 1) buildWalk(); // ahead of the Cells chapter (a few tens of ms, off the dive)
+      if (ch >= 1) buildWalk(); // ahead of the Cells chapter (a few tens of ms, off the dive); a no-op unless the task changed
       if (!swarm && !swarmBuilding && ch >= 2) void ensureSwarm();
       if (ch === 4 || ch <= 1) freeTargets(); // (the hex-dissolve targets are no longer allocated: the Cells -> Proof transition is a continuous pull-back, view.dissolve stays 0)
 
@@ -427,6 +476,7 @@ export function createWorld(opts: WorldOptions): World {
       freeTargets();
       post?.dispose();
       swarm?.dispose();
+      sky.dispose();
       comb.dispose();
       studio.dispose();
       scene.clear();
@@ -436,18 +486,40 @@ export function createWorld(opts: WorldOptions): World {
     },
   };
 
+  // the post settings for this frame: GTAO is cut back under the walker (look.walk.ao), the rest is the look
+  const postWalk = { ...look.post };
+  let nearGround = 0; // 0..1: how close the camera is to the surface (the walk weight, or its altitude on the dive and the rise)
+  function syncPost() {
+    if (!post) return;
+    if (nearGround > 0.001) { // (nearGround is at least the walk weight)
+      Object.assign(postWalk, look.post);
+      postWalk.aoIntensity = look.post.aoIntensity * (1 - (1 - look.walk.ao) * walkW);
+      // bloom: close to the surface (the walk, and the dive and the rise that pass it) big lit tile tops sit above the threshold and wash the frame white
+      postWalk.bloomStrength = look.post.bloomStrength * (1 - (1 - look.walk.bloom) * nearGround);
+      postWalk.bloomThreshold = look.post.bloomThreshold + look.walk.bloomLift * nearGround;
+      post.sync(postWalk);
+    }
+    else post.sync(look.post);
+  }
   function render(dt: number) {
     const g = Math.max(gSm, view.camFloor);
     const dp = progressOfG(g);
     walkW = walkWeight(dp.chapter, dp.chapterProgress);
     walkCp = dp.chapterProgress;
+    view.walkCp = dp.chapter < 2 ? 0 : dp.chapter > 2 ? 1 : dp.chapterProgress;
     view.walk = walkW;
-    if (!walkDprCap && walkW > 0.05) { walkDprCap = true; resize(true); } // (hysteresis: back to full resolution only once the rise is over)
-    else if (walkDprCap && walkW < 0.005) { walkDprCap = false; resize(true); }
-    if (walkW > 0.001) { flows.forEach((f) => (f.packet.group.visible = false)); rings.mesh.visible = false; } // the walker does not see the comet
-    const coreScale = 1 - walkCfg.coreDim * walkW; // the seam glow dims under the walk camera so bloom does not bleed through the seams
-    if (Math.abs(coreScale - walkCoreApplied) > 0.005 || (walkW === 0 && walkCoreApplied !== 1)) { comb.setCoreScale(coreScale); walkCoreApplied = coreScale; }
+    flows.forEach((f) => (f.packet.aoGroup.visible = f.packet.group.visible));
+    // the seam glow dims under the walk camera so bloom does not bleed through the seams (honeycomb.ts also keeps it dark until the tiles are up)
+    // ... and it follows the camera's altitude too: on the dive and the rise the camera passes close to the surface (and the core region), where full glow plus bloom washes the frame white
+    const alt = dp.chapter === 2 ? range(lattice.radius * 2.9 - camera.position.length(), 0, lattice.radius * 1.4) : 0; // Cells only (the intro's first frames are untouched): 1 at 1.5 radii from the centre, 0 from 2.9 out (the fly-over never comes closer)
+    nearGround = Math.max(walkW, alt);
+    const coreScale = (1 - walkCfg.coreDim * nearGround);
+    if (Math.abs(coreScale - walkCoreApplied) > 0.005 || (coreScale === 1 && walkCoreApplied !== 1)) { comb.setCoreScale(coreScale); walkCoreApplied = coreScale; }
     comb.uniforms.uDetail.value = Math.max(look.cell.detail, walkCfg.detail * walkW); // the close-up richness of the metal fades in with the dive (the orbit views are untouched)
+    comb.uniforms.uWalkWall.value = look.walk.wallLift * walkW;
+    comb.uniforms.uWalkTower.value = look.walk.towerWall * walkW;
+    comb.uniforms.uWalkMatte.value = look.walk.wallMatte * walkW;
+    comb.uniforms.uWalkRough.value = look.walk.topRough * walkW; // rougher tile tops under the walker (the key's highlight spreads instead of glaring)
     comb.update(view.growth, view.dim, time, spinW, walkW);
     comb.object.visible = view.latticeVisible;
     pose(g);
@@ -459,7 +531,7 @@ export function createWorld(opts: WorldOptions): World {
       // outgoing = the lattice undimmed, incoming = the lattice as dimmed by the same ease that drives the dissolve. On the high
       // tier each half already carries GTAO and bloom (post.renderScene), so neither pops in or out of the transition; the
       // composite then goes through the same output stage (ACES, aberration, grain, vignette) as every other frame.
-      if (post) post.sync(look.post);
+      if (post) syncPost();
       comb.update(view.growth, 0, time, spinW, walkW);
       if (post) post.renderScene(rtA, dt); else { renderer.setRenderTarget(rtA); renderer.render(scene, camera); }
       comb.update(view.growth, view.dim, time, spinW, walkW);
@@ -474,14 +546,16 @@ export function createWorld(opts: WorldOptions): World {
         dissolve.render(renderer, rtA.texture, rtB.texture, view.dissolve, hexPx, look.dissolve);
       }
     } else if (post) {
-      post.sync(look.post);
+      syncPost();
       post.render(dt, time);
     } else {
       renderer.setRenderTarget(null);
       renderer.render(scene, camera);
     }
 
+    if (swarm && view.swarmFade <= 0.002 && swarmLive) { swarm.reset(); swarmLive = false; } // out of sight: back to the spawn ball, so the next finale assembles from scratch
     if (swarm && view.swarmFade > 0.002) {
+      swarmLive = true;
       pcfg.attract = view.swarmAttract;
       pcfg.opacity = look.particles.opacity * view.swarmFade;
       swarm.update(dt, time, pcfg);
@@ -493,7 +567,7 @@ export function createWorld(opts: WorldOptions): World {
     }
   }
 
-  post = tier === 'high' ? createPost(renderer, scene, camera, look.post, comb.aoGroup) : null;
+  post = tier === 'high' ? createPost(renderer, scene, camera, look.post, aoGroupsOf(comb)) : null;
   resize(true);
   return world;
 }

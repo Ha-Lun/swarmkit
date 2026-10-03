@@ -91,6 +91,21 @@ export const look = {
     sweep: 0.6, // 0 = key rides with the camera, 1 = fixed in the world; between, highlights travel as the camera orbits
     keyElevation: 30, // degrees: a low, raking key
   },
+  walk: {
+    // the ground view (round 14), all scaled by the walk weight so the orbit views are untouched
+    lantern: 8, // a small point light just behind and above the walker's eye (intensity, decay 2): lifts the near walls and tower shafts out of black
+    lanternRange: 6, // world units it reaches
+    fillBoost: 12, // hemisphere and ambient light are multiplied by (1 + fillBoost x weight), so the far walls are not pure black
+    wallLift: 1.2, // the column walls' albedo is multiplied by (1 + wallLift x weight): their stone is near ink, and metalness leaves almost no diffuse to light
+    ao: 0.35, // the fraction of the GTAO strength kept under the walker (x the walk weight): in the tight streets full strength crushed every wall to black on the high tier
+    bloom: 0.3, // the fraction of the bloom strength kept near the surface: close-up tile tops throw big glare
+    bloomLift: 0.6, // ... and the bloom threshold is raised by this much there
+    haze: 1, // the cool glow along the globe's limb in the walker's sky (sky.ts), and the colour the ground fog fades to
+    stars: 1, // brightness of the small stars above it
+    wallMatte: 0.7, // the column walls' metalness is multiplied by (1 - wallMatte x weight): plain stone takes the light, polished metal only mirrors the dark env
+    towerWall: 0.5, // the tower shafts' stone as a fraction of the cap's pale tone (x the walk weight): the whole pillar reads, not only its cap
+    topRough: 1.2, // extra roughness on the tile tops (not the caps): the key's highlight spreads instead of mirroring into the lens
+  },
   core: {
     color: 0.5, // 0..1 mix toward the pale tone (a cool iron-blue floor stays in at every value; never the comet accent)
     intensity: 2.5, // HDR multiplier on the globe's seam floor: values above 1 bloom through the seams. The moon's floor stays dark ink.
@@ -100,16 +115,18 @@ export const look = {
     fog: 1.0, // scales the fog distances set in world.ts/lookdev.astro: > 1 = lighter (farther) fog
   },
   packet: {
-    // the comet: small hard head, tapering tail that grows with speed, a few shed sparks. Nothing additive.
-    headSize: 13, // px at 1080p
+    // the comet (round 16: real 3D): a glass orb head (frosted, translucent, glowing core) and a tapered glass tube tail that grows with speed, shed sparks. Lit by the studio, casts a shadow. Nothing additive, no bloom.
+    headRadius: 0.24, // world units
+    headGlow: 0.55, // emissive strength: keeps the shadow side readable
+    glassOpacity: 0.5, // 0..1: how much the glass body hides what is behind it (the core inside always shows)
     headBrightness: 1.0,
-    tailMin: 0.5, // world units of tail at rest
-    tailGain: 0.55, // extra tail per (unit/s) of visible speed
-    tailMax: 3.4,
-    tailWidth: 0.17, // world units at the head
+    tailMin: 1.0, // world units of tail at rest
+    tailGain: 0.9, // extra tail per (unit/s) of visible speed
+    tailMax: 6,
+    tailRadius: 0.85, // tail radius at the head, as a fraction of headRadius
     tailFade: 1.5, // darkening exponent toward the tail end
-    sparks: 0.8, // emission strength (0 = none)
-    height: 0.16, // low constant lift above the panel tops
+    sparks: 1.2, // emission strength (0 = none)
+    height: 0.62, // constant lift above the panel tops (clears the head, the rings round it and a struck panel's lift)
   },
   dissolve: {
     hexScale: 1.0, // multiplier on the on-screen lattice cell size (1 = native)
@@ -161,11 +178,12 @@ export const ranges: { [G in keyof Look]?: { [K in keyof Look[G]]?: [number, num
     moonTurnSec: [8, 120, 1], moonDrift: [0, 0.6, 0.01], moonStroke: [0, 1, 0.01],
   },
   light: { key: [0, 4, 0.05], hemi: [0, 2, 0.02], ambient: [0, 1, 0.01], fill: [0, 2, 0.02], kicker: [0, 3, 0.05], sweep: [0, 1, 0.01], keyElevation: [5, 80, 1] },
+  walk: { lantern: [0, 16, 0.05], lanternRange: [1, 12, 0.1], fillBoost: [0, 24, 0.1], wallLift: [0, 20, 0.1], wallMatte: [0, 1, 0.01], towerWall: [0, 1, 0.01], topRough: [0, 2, 0.01] },
   core: { color: [0, 1, 0.01], intensity: [0, 6, 0.05] },
   bg: { gradient: [0, 1, 0.01], fog: [0.3, 2, 0.01] },
   packet: {
-    headSize: [3, 24, 0.5], headBrightness: [0.2, 2, 0.01], tailMin: [0, 2, 0.02], tailGain: [0, 2, 0.01], tailMax: [0.5, 8, 0.05],
-    tailWidth: [0.02, 0.4, 0.005], tailFade: [0.3, 4, 0.05], sparks: [0, 2, 0.05], height: [0.05, 0.8, 0.01],
+    headRadius: [0.03, 0.4, 0.005], headGlow: [0, 2, 0.01], glassOpacity: [0.1, 1, 0.01], headBrightness: [0.2, 2, 0.01], tailMin: [0, 2, 0.02], tailGain: [0, 2, 0.01], tailMax: [0.5, 12, 0.05],
+    tailRadius: [0.1, 1.5, 0.01], tailFade: [0.3, 4, 0.05], sparks: [0, 2, 0.05], height: [0.05, 0.8, 0.01],
   },
   dissolve: { hexScale: [0.4, 4, 0.05], spread: [0.05, 0.9, 0.01], noise: [0, 1, 0.01], edge: [0.5, 6, 0.05] },
   particles: {

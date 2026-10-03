@@ -1,6 +1,5 @@
-// Comet routes and their velocity profile. A route is a chain of great-circle legs that hug the globe at one constant lift
-// (no horizon zigzag), except the entry leg, which descends onto the first stop. A timeline turns a route into distance over
-// time: every leg eases in and out (accelerate out of the stop, decelerate into the next), and stops can hold.
+// Comet routes and their velocity profile. A route is a chain of legs: great-circle legs that hug a body (the globe, or the moon about its own centre) at one constant lift
+// (no horizon zigzag), except the entry leg, which descends onto the first stop. Every leg eases in and out (easeLeg, below); the timing is the caller's (follow.ts).
 import { Vector3 } from 'three';
 import { look } from './config';
 import { createPacket, type PathSource, type Packet } from './packet';
@@ -10,126 +9,97 @@ const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 /** smootherstep: zero velocity and acceleration at both ends, peak speed 1.875x the mean */
 export const easeLeg = (t: number) => { const x = clamp01(t); return x * x * x * (x * (x * 6 - 15) + 10); };
 
-interface Leg {
-  a: Vector3; b: Vector3; // unit directions
-  ang: number; ra: number; rb: number;
-  d0: number; len: number;
-  table: Float32Array; // cumulative length at TABLE evenly spaced parameter values
-}
 const TABLE = 48;
+/** the curve parameter (0..1) at arc length x, from a table of cumulative length at TABLE evenly spaced parameter values (piecewise linear) */
+function paramAt(table: Float32Array, x: number): number {
+  let lo = 0, hi = TABLE;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (table[mid] <= x) lo = mid; else hi = mid; }
+  const span = table[hi] - table[lo];
+  return (lo + (span > 1e-9 ? (x - table[lo]) / span : 0)) / TABLE;
+}
 
+/** One leg that hugs a body: a great-circle arc about `origin` (the body's centre) between two world points, keeping the radius of its two ends (a leg from far out to the surface
+ *  decays onto it). `clear` (a radius, see clearRadius) is the least radius it may fly at between its ends, so it arcs over tall columns. */
 export class Route implements PathSource {
-  readonly legs: Leg[] = [];
   length = 0;
-  /** distance along the route at which each stop sits (stops[0] = 0) */
-  readonly stopAt: number[] = [0];
+  private readonly a: Vector3; private readonly b: Vector3; // unit directions from the origin
+  private readonly ang: number; private readonly ra: number; private readonly rb: number;
+  private readonly table = new Float32Array(TABLE + 1);
 
-  /** Stops are world points; each leg keeps the radius of its two ends (a leg from far out to the surface decays onto it).
-   *  `clear` (a radius, see clearRadius) is the least radius a leg may fly at between its two ends, so it arcs over tall columns. */
-  constructor(stops: Vector3[], private readonly clear = 0) {
-    let d = 0;
-    for (let i = 1; i < stops.length; i++) {
-      const A = stops[i - 1], B = stops[i];
-      const ra = A.length(), rb = B.length();
-      const a = A.clone().divideScalar(ra), b = B.clone().divideScalar(rb);
-      const ang = Math.acos(Math.min(1, Math.max(-1, a.dot(b))));
-      const leg: Leg = { a, b, ang, ra, rb, d0: d, len: 0, table: new Float32Array(TABLE + 1) };
-      const p = new Vector3(), q = new Vector3();
-      let acc = 0;
-      this.legPoint(leg, 0, p);
-      for (let k = 1; k <= TABLE; k++) {
-        this.legPoint(leg, k / TABLE, q);
-        acc += q.distanceTo(p);
-        leg.table[k] = acc;
-        p.copy(q);
-      }
-      leg.len = acc;
-      d += acc;
-      this.legs.push(leg);
-      this.stopAt.push(d);
-    }
-    this.length = d;
+  constructor(from: Vector3, to: Vector3, private readonly clear = 0, private readonly origin = new Vector3()) {
+    const A = from.clone().sub(origin), B = to.clone().sub(origin);
+    this.ra = A.length(); this.rb = B.length();
+    this.a = A.divideScalar(this.ra); this.b = B.divideScalar(this.rb);
+    this.ang = Math.acos(Math.min(1, Math.max(-1, this.a.dot(this.b))));
+    const p = new Vector3(), q = new Vector3();
+    this.at(0, p);
+    for (let k = 1; k <= TABLE; k++) { this.at(k / TABLE, q); this.length += q.distanceTo(p); this.table[k] = this.length; p.copy(q); }
   }
 
-  private legPoint(l: Leg, t: number, out: Vector3) {
-    const s = Math.sin(l.ang);
-    if (s < 1e-5) out.copy(l.a);
-    else out.copy(l.a).multiplyScalar(Math.sin((1 - t) * l.ang) / s).addScaledVector(l.b, Math.sin(t * l.ang) / s);
+  private at(t: number, out: Vector3) {
+    const s = Math.sin(this.ang);
+    if (s < 1e-5) out.copy(this.a);
+    else out.copy(this.a).multiplyScalar(Math.sin((1 - t) * this.ang) / s).addScaledVector(this.b, Math.sin(t * this.ang) / s);
     // constant lift between equal radii; a descent (ra > rb) decays onto the surface, a climb rises off it
-    let r = l.ra >= l.rb ? l.rb + (l.ra - l.rb) * (1 - t) * (1 - t) : l.ra + (l.rb - l.ra) * t * t;
+    const { ra, rb } = this;
+    let r = ra >= rb ? rb + (ra - rb) * (1 - t) * (1 - t) : ra + (rb - ra) * t * t;
     if (this.clear > 0) { // rise over the terrain within the first and last stretch of the leg, so the comet never clips a neighbour
       const k = Math.min(1, t / 0.15) * Math.min(1, (1 - t) / 0.15);
-      r += Math.max(0, this.clear - Math.max(l.ra, l.rb)) * k * k * (3 - 2 * k);
+      r += Math.max(0, this.clear - Math.max(ra, rb)) * k * k * (3 - 2 * k);
     }
     return out.normalize().multiplyScalar(r);
   }
 
-  /** point at distance d along the route (clamped) */
+  /** point at distance d along the leg (clamped) */
   pointAt(d: number, out: Vector3): Vector3 {
-    const legs = this.legs;
-    if (!legs.length) return out.set(0, 0, 0);
-    const x = Math.min(this.length, Math.max(0, d));
-    let i = 0;
-    while (i < legs.length - 1 && x > legs[i].d0 + legs[i].len) i++;
-    const l = legs[i];
-    const local = Math.min(l.len, Math.max(0, x - l.d0));
-    // invert the table (piecewise linear in the parameter)
-    let lo = 0, hi = TABLE;
-    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (l.table[mid] <= local) lo = mid; else hi = mid; }
-    const span = l.table[hi] - l.table[lo];
-    const t = (lo + (span > 1e-9 ? (local - l.table[lo]) / span : 0)) / TABLE;
-    return this.legPoint(l, t, out);
+    return this.at(paramAt(this.table, Math.min(this.length, Math.max(0, d))), out).add(this.origin);
   }
 }
 
-export interface Beat { kind: 'leg' | 'hold'; t0: number; t1: number; d0: number; d1: number }
-
-/** Distance over time along a route: ease-in-out legs, holds at stops. */
-export class Timeline {
-  readonly beats: Beat[] = [];
-  total = 0;
-  /** seconds at which the comet arrives at each stop after the first (arrivals[0] = first stop after the entry) */
-  readonly arrivals: number[] = [];
-  /** seconds at which it leaves each of those stops (arrival + hold) */
-  readonly leaves: number[] = [];
-
-  /**
-   * holds[i] = seconds held at stop i+1 (after the entry). `legSec` fixes a leg's duration (used to make fan-out legs of
-   * different lengths leave together and land together); otherwise a leg lasts length / meanSpeed, at least minLeg.
-   */
-  constructor(route: Route, meanSpeed: number, holds: number[] = [], minLeg = 0.6, legSec?: number) {
-    let t = 0;
-    route.legs.forEach((l, i) => {
-      const T = legSec ?? Math.max(minLeg, l.len / meanSpeed);
-      this.beats.push({ kind: 'leg', t0: t, t1: t + T, d0: l.d0, d1: l.d0 + l.len });
-      t += T;
-      this.arrivals.push(t);
-      const h = holds[i] ?? 0;
-      if (h > 0) { this.beats.push({ kind: 'hold', t0: t, t1: t + h, d0: l.d0 + l.len, d1: l.d0 + l.len }); t += h; }
-      this.leaves.push(t);
-    });
-    this.total = t;
+/** A leg from one body to another: a cubic Bezier that leaves the first point along `nA` (its surface normal) and settles onto the second along `nB`, so it lifts off one body and lands on
+ *  the other from above, never through either. `lift` is how far out (world units) the two inner control points stand. */
+export class Transfer implements PathSource {
+  length = 0;
+  private readonly p: Vector3[];
+  private readonly table = new Float32Array(TABLE + 1);
+  constructor(a: Vector3, nA: Vector3, b: Vector3, nB: Vector3, lift: number) {
+    this.p = [a.clone(), a.clone().addScaledVector(nA, lift), b.clone().addScaledVector(nB, lift), b.clone()];
+    const p = new Vector3(), q = new Vector3();
+    this.at(0, p);
+    for (let k = 1; k <= TABLE; k++) { this.at(k / TABLE, q); this.length += q.distanceTo(p); this.table[k] = this.length; p.copy(q); }
   }
+  private at(t: number, out: Vector3) {
+    const [a, b, c, d] = this.p, s = 1 - t;
+    return out.copy(a).multiplyScalar(s * s * s).addScaledVector(b, 3 * s * s * t).addScaledVector(c, 3 * s * t * t).addScaledVector(d, t * t * t);
+  }
+  pointAt(d: number, out: Vector3): Vector3 {
+    return this.at(paramAt(this.table, Math.min(this.length, Math.max(0, d))), out);
+  }
+}
 
-  /** distance along the route at time t (0 before the start, the route end after it) */
-  distAt(t: number): number {
-    const b = this.beats;
-    if (!b.length || t <= 0) return 0;
-    for (const k of b) {
-      if (t <= k.t1) return k.kind === 'hold' ? k.d0 : k.d0 + (k.d1 - k.d0) * easeLeg((t - k.t0) / (k.t1 - k.t0));
-    }
-    return b[b.length - 1].d1;
+/** Legs end to end (each a one-leg Route or a Transfer): one path the comet and the camera travel, with the distance at which each stop sits. */
+export class Chain implements PathSource {
+  readonly length: number;
+  /** distance along the chain at which each stop sits (stopAt[0] = 0, stopAt[k + 1] = the end of leg k) */
+  readonly stopAt: number[] = [0];
+  constructor(readonly legs: PathSource[]) {
+    let d = 0;
+    for (const l of legs) { d += l.length; this.stopAt.push(d); }
+    this.length = d;
+  }
+  pointAt(d: number, out: Vector3): Vector3 {
+    const n = this.legs.length;
+    let k = 0;
+    while (k < n - 1 && d > this.stopAt[k + 1]) k++;
+    return this.legs[k].pointAt(d - this.stopAt[k], out);
   }
 }
 
 export interface Flow {
   packet: Packet;
-  route: Route | null;
-  setRoute(route: Route): void;
+  setRoute(route: PathSource): void;
   /** draw the comet at distance d along its route, fade 0..1 (size, not alpha) */
   set(d: number, camera: import('three').Camera, fade: number, dt: number): void;
-  /** head position (world) at distance d */
-  headAt(d: number, out: Vector3): Vector3;
   hide(): void;
   dispose(): void;
 }
@@ -138,10 +108,9 @@ export function createFlow(accent: string): Flow {
   const cfg = { ...look.packet };
   const packet = createPacket(accent, cfg);
   packet.group.visible = false;
-  let route: Route | null = null;
+  let route: PathSource | null = null;
   const flow: Flow = {
     packet,
-    get route() { return route; },
     setRoute(r) {
       route = r;
       packet.reset();
@@ -152,7 +121,6 @@ export function createFlow(accent: string): Flow {
       if (packet.group.visible) packet.update(route, d, camera, look.packet, fade, dt);
       else packet.reset();
     },
-    headAt: (d, out) => (route ? route.pointAt(d, out) : out.set(0, 0, 0)),
     hide() {
       packet.group.visible = false;
       packet.reset();

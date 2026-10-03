@@ -1,8 +1,8 @@
 ---
-// The Hive scene: one caption at a time, stacked and crossfaded by opacity while the packet is scrubbed by scroll.
+// The Hive scene: the task waits (the world draws its comet), named by its tag (chosen on the landing screen). In the static page every caption shows, as a plain explanation.
 // Names come from routing.ts (validated against ../core/agents at build time); nothing here is invented.
 import { examples, gates, tiers } from '../../content/routing';
-import { facts } from '../../lib/facts';
+import { journeysOf } from '../../lib/journeys';
 import { motion } from '../../lib/world/motion-config';
 
 const gateNames: string[] = gates.map((g) => g.agent);
@@ -14,21 +14,16 @@ const steps = [
   `Routed to the specialist that owns the work${specialist ? `: ${specialist}` : ''}.`,
   'Quality gates run in parallel, only where relevant.',
 ];
-const slug = (t: string) => t.toLowerCase().replace(/\s+/g, '-');
-const agentNames = new Set(facts.agents.map((a) => a.name));
-const exampleCaption = (e: (typeof examples)[number]) => {
-  const named = e.route.flatMap((r) => (r.agent ? [r.agent] : []));
-  return `${e.task}, ${e.tier}: ${named.length ? named.join(', ') : e.route.map((r) => r.label).join('; ')}.`;
-};
 const chips = tiers.filter((t) => t.id !== 'T0');
+const journeys = journeysOf(examples, gateNames, tiers);
 ---
 <section id="hive" class="chapter" style={`--runway:${motion.runway.hive}`} aria-labelledby="hive-title">
   <div class="scene" data-scene>
     <h2 id="hive-title" class="sr-only">How it works</h2>
+    {journeys.map((j, ji) => <p class="task-tag world-only" data-task-tag data-j={ji} data-fx>Task: {j.task} · {j.tier}</p>)}
     <div class="scene-foot">
       <div class="captions">
         {steps.map((s) => <p class="caption" data-caption data-fx>{s}</p>)}
-        {examples.map((e) => <p class="caption world-only" data-caption-example={slug(e.task)} data-fx>{exampleCaption(e)}</p>)}
       </div>
       <div class="tools">
         <ul class="chips" aria-label="Routing tiers">
@@ -36,17 +31,6 @@ const chips = tiers.filter((t) => t.id !== 'T0');
             <li class="chip" data-chip={t.id} title={t.body}><i class="chip-ring" data-fx aria-hidden="true"></i>{t.id} {t.title}</li>
           ))}
         </ul>
-        <div class="replays world-only" role="group" aria-label="Replay an example route">
-          {examples.map((e) => (
-            <button
-              type="button"
-              class="btn"
-              data-replay={slug(e.task)}
-              data-tier={e.tier}
-              data-route={e.route.flatMap((r) => (r.agent && agentNames.has(r.agent) ? [r.agent] : [])).join(',')}
-            >{e.task}<span class="btn-tier">{e.tier}</span></button>
-          ))}
-        </div>
       </div>
     </div>
   </div>

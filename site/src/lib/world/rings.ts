@@ -12,8 +12,8 @@ export interface RingFx {
   set(slot: number, centre: Vector3, radius: number, width: number, sweep: number): void;
   clear(slot: number): void;
   clearAll(): void;
-  /** radius of the shell the rings are drawn on (the comet's rings sit just above the panel they mark) */
-  setShell(radius: number): void;
+  /** radius of the shell the rings are drawn on (the comet's rings sit just above the panel they mark), and its centre (the globe's by default; the moon's for a ring on the moon) */
+  setShell(radius: number, centre?: Vector3): void;
   dispose(): void;
 }
 
@@ -70,7 +70,7 @@ export function createRingFx(shellRadius: number, accent: string): RingFx {
     },
     clear(slot) { b[slot].z = 0; refresh(); },
     clearAll() { b.forEach((s) => (s.z = 0)); mesh.visible = false; },
-    setShell(radius) { mesh.scale.setScalar(radius / shellRadius); },
+    setShell(radius, centre) { mesh.scale.setScalar(radius / shellRadius); if (centre) mesh.position.copy(centre); else mesh.position.set(0, 0, 0); },
     dispose() { geo.dispose(); mat.dispose(); },
   };
 }

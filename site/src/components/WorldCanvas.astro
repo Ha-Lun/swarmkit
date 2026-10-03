@@ -2,13 +2,14 @@
 // The one fixed canvas island. The canvas element itself is created by mount.ts after first paint, so the DOM
 // text stays the LCP element. Fallback tier: no canvas, no intro, the SVG backdrop instead.
 import { facts } from '../lib/facts';
-import { examples, gates } from '../content/routing';
+import { examples, gates, tellingOrder, tiers } from '../content/routing';
+import { journeysOf } from '../lib/journeys';
 import LatticeBackdrop from './LatticeBackdrop.astro';
 
 const gateNames: string[] = gates.map((g) => g.agent);
-const specialist = examples.find((e) => e.tier === 'T2')?.route.find((r) => r.agent && r.agent !== 'explore' && !gateNames.includes(r.agent))?.agent;
-const mainTier = examples.find((e) => e.tier === 'T2')?.tier;
-const data = { agents: facts.agents, routing: { gates: gateNames, specialist, mainTier } };
+const journeys = journeysOf(examples, gateNames, tiers);
+const order = tellingOrder.map((t) => journeys.findIndex((j) => j.task === t));
+const data = { agents: facts.agents, routing: { journeys, order } };
 ---
 <LatticeBackdrop />
 <div id="world-root" aria-hidden="true"></div>

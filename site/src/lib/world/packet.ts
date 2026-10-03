@@ -1,14 +1,17 @@
 import {
-  BufferAttribute, BufferGeometry, CatmullRomCurve3, Color, DoubleSide, Group, Mesh, Points, ShaderMaterial, Vector3, type Camera,
+  BufferAttribute, BufferGeometry, CatmullRomCurve3, Color, Group, Mesh, MeshNormalMaterial, MeshPhysicalMaterial, Points, ShaderMaterial,
+  SphereGeometry, TorusGeometry, MeshBasicMaterial, Vector3, type Camera,
 } from 'three';
 import { look, type Look } from './config';
 import { cellTopOf, type Lattice } from './honeycomb';
 
-// The comet: a small hard bright head, a camera-facing tail that tapers to a point and lengthens with the speed it is seen
-// to move at, and a few short-lived sparks it sheds. Everything is opaque with crisp edges (no additive blending, no soft
-// sprite), and it is the only thing on the site that uses the accent.
-const TAIL_POINTS = 40;
-const MAX_SPARKS = 14;
+// The comet: a glass orb (frosted, translucent, bright rim, a glowing core inside) trailing a tapered glass tube that lengthens with the speed
+// it is seen to move at, and a few short-lived sparks it sheds. Real meshes, studio-lit; alpha-blended (no additive blending, no soft sprite),
+// and it is the only thing on the site that uses the accent.
+const TAIL_POINTS = 48;
+const TAIL_SIDES = 16;
+const MAX_SPARKS = 28;
+const BREATH_SEC = 2.6; // one slow breath of the resting comet: the head, the core, the aura and the tail's length swell and settle
 
 /** Anything the comet can travel along: distance (world units) to a point. Routes clamp; loops wrap. */
 export interface PathSource {
@@ -18,6 +21,9 @@ export interface PathSource {
 
 export interface Packet {
   group: Group;
+  /** GTAO G-buffer twin of the head and tail (post.ts renders it): without it the AO of the panels behind the comet darkens the comet. The owner
+   *  mirrors the globe's spin onto it (like the honeycomb's aoGroup) and its visibility onto `group`'s. */
+  aoGroup: Group;
   /** draw the comet with its head at distance d along the path; dt (s) drives the observed speed and the sparks */
   update(path: PathSource, d: number, camera: Camera, cfg: Look['packet'], fade: number, dt: number): void;
   /** forget the observed speed and clear the sparks (after a route change or a jump) */
@@ -31,7 +37,7 @@ export interface Packet {
 /** Test curve: a closed spline through agent cell tops on the globe, derived from the lattice (never hardcoded). */
 export function createTestCurve(lattice: Lattice, count = 8): CatmullRomCurve3 {
   const agents = lattice.cells.filter((c) => c.agent && c.agent.band !== 'satellite');
-  const core = agents.find((c) => c.agent!.band === 'core');
+  const core = agents.find((c) => c.agent!.band === 'main');
   const ring = agents.filter((c) => c !== core).sort((a, b) => Math.atan2(a.pos.y, a.pos.x) - Math.atan2(b.pos.y, b.pos.x));
   const pick = Array.from({ length: Math.min(count, ring.length) }, (_, i) => ring[Math.floor((i * ring.length) / count)]);
   if (core) pick.splice(Math.ceil(pick.length / 2), 0, core);
@@ -46,43 +52,60 @@ export function createTestCurve(lattice: Lattice, count = 8): CatmullRomCurve3 {
   return new CatmullRomCurve3(loop, true, 'centripetal');
 }
 
-const headVert = /* glsl */ `
-  uniform float uSize;
+// the core: a small contained star. Two-octave-warped value noise in the core's own space, drifting slowly, coloured from the accent through its hot tint to white at the
+// filaments, brighter where it faces the camera (so it reads as a ball of plasma, not a flat disc); uGlow carries the breath and the head's glow (HDR: the hot parts bloom)
+const plasmaVert = /* glsl */ `
+  varying vec3 vP; varying vec3 vN; varying vec3 vV;
   void main() {
-    gl_PointSize = uSize;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+    vP = position;
+    vN = normalize( normalMatrix * normal );
+    vec4 mv = modelViewMatrix * vec4( position, 1.0 );
+    vV = normalize( -mv.xyz );
+    gl_Position = projectionMatrix * mv;
   }`;
-// a hard disc: a bright core and a crisp accent rim, one pixel of edge anti-aliasing and nothing outside it
-const headFrag = /* glsl */ `
-  uniform vec3 uColor;
-  uniform vec3 uHot;
-  uniform float uBright;
-  uniform float uSize;
+const plasmaFrag = /* glsl */ `
+  uniform vec3 uCol; uniform vec3 uHot; uniform float uTime; uniform float uGlow;
+  varying vec3 vP; varying vec3 vN; varying vec3 vV;
+  float hash( vec3 p ) { p = fract( p * 0.3183099 + 0.1 ); p *= 17.0; return fract( p.x * p.y * p.z * ( p.x + p.y + p.z ) ); }
+  float noise( vec3 x ) {
+    vec3 i = floor( x ), f = fract( x ); f = f * f * ( 3.0 - 2.0 * f );
+    return mix( mix( mix( hash( i ), hash( i + vec3( 1, 0, 0 ) ), f.x ), mix( hash( i + vec3( 0, 1, 0 ) ), hash( i + vec3( 1, 1, 0 ) ), f.x ), f.y ),
+                mix( mix( hash( i + vec3( 0, 0, 1 ) ), hash( i + vec3( 1, 0, 1 ) ), f.x ), mix( hash( i + vec3( 0, 1, 1 ) ), hash( i + vec3( 1, 1, 1 ) ), f.x ), f.y ), f.z );
+  }
+  float fbm( vec3 p ) { float a = 0.5, s = 0.0; for ( int k = 0; k < 4; k++ ) { s += a * noise( p ); p = p * 2.03 + 11.7; a *= 0.5; } return s; }
   void main() {
-    float d = length( gl_PointCoord - 0.5 ) * 2.0;
-    float px = 2.0 / max( uSize, 2.0 );
-    if ( d > 1.0 ) discard;
-    vec3 c = mix( uHot, uColor, smoothstep( 0.5 - px, 0.5 + px, d ) ) * uBright;
-    gl_FragColor = vec4( c, 1.0 );
+    vec3 p = vP * 1.5;
+    float t = uTime * 0.35;
+    vec3 q = vec3( fbm( p + vec3( 0.0, t, 0.0 ) ), fbm( p + vec3( 5.2, -t, 1.3 ) ), fbm( p + vec3( 1.7, 9.2, t ) ) );
+    float n = fbm( p * 1.4 + q * 1.8 + vec3( 0.0, 0.0, -t ) );
+    float facing = max( dot( normalize( vN ), normalize( vV ) ), 0.0 );
+    vec3 col = mix( uCol * 0.3, uHot * 1.3, smoothstep( 0.35, 0.68, n ) );
+    col += vec3( 1.0 ) * ( 1.0 - smoothstep( 0.0, 0.045, abs( n - 0.5 ) ) ) * 0.9; // filaments
+    col = mix( col, vec3( 1.0 ), pow( facing, 6.0 ) * 0.35 );                    // a hot heart where it faces you
+    col *= 0.35 + 0.65 * facing;                                                   // and a darker limb: it is round
+    gl_FragColor = vec4( col * uGlow, 1.0 );
+    #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }`;
-const tailVert = /* glsl */ `
-  attribute float aFade;
-  varying float vFade;
+// the glass: a thin shell over the head that makes it read thick and polished, a sharp studio highlight and a softer second one (in view space, so they stay put as the comet
+// turns), a bright thin rim, and a faint caustic gathering on the lower inside, where light through a glass ball would pool
+const shineFrag = /* glsl */ `
+  uniform vec3 uHot; uniform float uAlpha;
+  varying vec3 vP; varying vec3 vN; varying vec3 vV;
   void main() {
-    vFade = aFade;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-  }`;
-const tailFrag = /* glsl */ `
-  uniform vec3 uColor;
-  uniform vec3 uHot;
-  uniform float uBright;
-  varying float vFade;
-  void main() {
-    // solid colour, darker toward the tail end; the taper is geometry, so the edges stay crisp
-    gl_FragColor = vec4( mix( uColor * 0.35, mix( uColor, uHot, 0.35 ), vFade ) * uBright, 1.0 );
+    vec3 n = normalize( vN ), v = normalize( vV );
+    float nv = max( dot( n, v ), 0.0 );
+    vec3 r = reflect( -v, n );
+    float key = pow( max( dot( r, normalize( vec3( -0.45, 0.6, 0.66 ) ) ), 0.0 ), 70.0 ) * 1.4;
+    float fill = pow( max( dot( r, normalize( vec3( 0.55, -0.35, 0.76 ) ) ), 0.0 ), 24.0 ) * 0.4;
+    float rim = pow( 1.0 - nv, 5.0 );
+    float caustic = smoothstep( 0.1, 0.9, -n.y ) * pow( 1.0 - nv, 1.6 ) * 0.22;
+    float a = clamp( key + fill + rim * 0.85 + caustic, 0.0, 1.0 );
+    vec3 col = mix( uHot, vec3( 1.0 ), clamp( key + fill + rim, 0.0, 1.0 ) );
+    gl_FragColor = vec4( col, a * uAlpha );
     #include <colorspace_fragment>
   }`;
+
 const sparkVert = /* glsl */ `
   attribute float aSize;
   uniform float uPx;
@@ -104,33 +127,92 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
   const colour = new Color(color);
   const hot = colour.clone().lerp(new Color(1, 1, 1), 0.5);
 
-  const headGeo = new BufferGeometry();
-  headGeo.setAttribute('position', new BufferAttribute(new Float32Array(3), 3));
-  const headMat = new ShaderMaterial({
-    uniforms: { uColor: { value: colour }, uHot: { value: hot }, uBright: { value: cfg.headBrightness }, uSize: { value: cfg.headSize } },
-    vertexShader: headVert, fragmentShader: headFrag, fog: false,
+  // head: a glass sphere (unit radius, scaled per frame) with a small opaque glowing core inside, which keeps it readable on any background
+  const glass = { transparent: true, depthWrite: false, roughness: 0.12, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.05, sheen: 1, sheenRoughness: 0.35, sheenColor: new Color(1, 1, 1), fog: false } as const;
+  const headGeo = new SphereGeometry(1, 64, 32);
+  const headMat = new MeshPhysicalMaterial({ ...glass, color: colour.clone().lerp(new Color(1, 1, 1), 0.35), emissive: colour, opacity: cfg.glassOpacity });
+  const coreMat = new ShaderMaterial({ uniforms: { uCol: { value: colour }, uHot: { value: hot }, uTime: { value: 0 }, uGlow: { value: 1 } }, vertexShader: plasmaVert, fragmentShader: plasmaFrag, fog: false });
+  const head = new Mesh(headGeo, headMat);
+  const core = new Mesh(headGeo, coreMat);
+  core.scale.setScalar(0.5);
+  core.castShadow = true;
+  head.add(core);
+  const shineMat = new ShaderMaterial({ uniforms: { uHot: { value: hot }, uAlpha: { value: 1 } }, vertexShader: plasmaVert, fragmentShader: shineFrag, transparent: true, depthWrite: false, fog: false });
+  const shine = new Mesh(headGeo, shineMat);
+  shine.scale.setScalar(1.004);
+  shine.renderOrder = 3;
+  shine.frustumCulled = false;
+  head.add(shine);
+  // aura: a soft Fresnel shell round the head (alpha-blended, never additive): bright at the rim, clear in the middle, and it breathes
+  const auraMat = new ShaderMaterial({
+    uniforms: { uColor: { value: hot }, uAlpha: { value: 0 } },
+    vertexShader: /* glsl */ `varying vec3 vN; varying vec3 vV; void main() { vN = normalize( normalMatrix * normal ); vec4 mv = modelViewMatrix * vec4( position, 1.0 ); vV = normalize( -mv.xyz ); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor; uniform float uAlpha; varying vec3 vN; varying vec3 vV;
+      void main() {
+        float f = pow( 1.0 - abs( dot( normalize( vN ), normalize( vV ) ) ), 2.6 );
+        gl_FragColor = vec4( uColor, f * uAlpha );
+        #include <colorspace_fragment>
+      }`,
+    transparent: true, depthWrite: false, fog: false,
   });
-  const head = new Points(headGeo, headMat);
-  head.frustumCulled = false;
+  const aura = new Mesh(headGeo, auraMat);
+  aura.renderOrder = 3;
+  aura.frustumCulled = false;
+  head.add(aura);
+  // rings: three thin rings tilted differently and slowly precessing round the head, each with a small bead running along it (they spin faster as the comet speeds up). They are children of the
+  // head, so they scale with it; the head's radius is 1, so the radii below are in head radii (the comet's hover height clears the largest).
+  const ringMats: MeshBasicMaterial[] = [];
+  const ringSets = [
+    { r: 1.45, tube: 0.016, tilt: [0.25, 0.0], rate: [0.32, 0.21], bead: 0.07, beadRate: 1.9 },
+    { r: 1.75, tube: 0.013, tilt: [1.25, 0.9], rate: [-0.24, 0.3], bead: 0.055, beadRate: -1.5 },
+    { r: 2.05, tube: 0.011, tilt: [0.75, 2.1], rate: [0.18, -0.26], bead: 0.045, beadRate: 1.15 },
+  ].map((c) => {
+    const mat = new MeshBasicMaterial({ color: hot, transparent: true, opacity: 0.8, fog: false, depthWrite: false });
+    ringMats.push(mat);
+    const group = new Group(), spinner = new Group();
+    const torus = new Mesh(new TorusGeometry(c.r, c.tube, 8, 128), mat);
+    const bead = new Mesh(new SphereGeometry(c.bead, 16, 8), new MeshBasicMaterial({ color: 0xffffff, fog: false }));
+    bead.position.set(c.r, 0, 0);
+    spinner.add(bead);
+    group.add(torus, spinner);
+    group.renderOrder = 3;
+    torus.frustumCulled = bead.frustumCulled = false;
+    head.add(group);
+    return { group, spinner, c, a: [c.tilt[0], c.tilt[1]], s: 0 };
+  });
+  head.renderOrder = 2;
+  head.frustumCulled = core.frustumCulled = false;
 
-  const N = TAIL_POINTS;
+  // tail: a tube of TAIL_SIDES per ring, rebuilt every frame in globe space; normals are the radial direction of each ring
+  const N = TAIL_POINTS, S = TAIL_SIDES;
   const tailGeo = new BufferGeometry();
-  const pos = new Float32Array(N * 2 * 3);
-  const fadeA = new Float32Array(N * 2);
+  const pos = new Float32Array(N * S * 3);
+  const nor = new Float32Array(N * S * 3);
+  const col = new Float32Array(N * S * 4); // rgba: the tail fades out along its length
   const index: number[] = [];
   for (let i = 0; i < N - 1; i++) {
-    const a = i * 2;
-    index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    for (let j = 0; j < S; j++) {
+      const a = i * S + j, b = i * S + ((j + 1) % S), c = (i + 1) * S + j, d = (i + 1) * S + ((j + 1) % S);
+      index.push(a, c, b, b, c, d);
+    }
   }
   tailGeo.setAttribute('position', new BufferAttribute(pos, 3));
-  tailGeo.setAttribute('aFade', new BufferAttribute(fadeA, 1));
+  tailGeo.setAttribute('normal', new BufferAttribute(nor, 3));
+  tailGeo.setAttribute('color', new BufferAttribute(col, 4));
   tailGeo.setIndex(index);
-  const tailMat = new ShaderMaterial({
-    uniforms: { uColor: { value: colour }, uHot: { value: hot }, uBright: { value: cfg.headBrightness } },
-    vertexShader: tailVert, fragmentShader: tailFrag, side: DoubleSide, fog: false,
-  });
+  const tailMat = new MeshPhysicalMaterial({ ...glass, color: 0xffffff, vertexColors: true, emissive: colour, opacity: cfg.glassOpacity });
   const tail = new Mesh(tailGeo, tailMat);
+  tail.renderOrder = 1;
   tail.frustumCulled = false;
+
+  // the GTAO twin: shares both geometries, normal material only (see Packet.aoGroup)
+  const aoGroup = new Group();
+  const aoMat = new MeshNormalMaterial();
+  const aoHead = new Mesh(headGeo, aoMat);
+  const aoTail = new Mesh(tailGeo, aoMat);
+  aoHead.frustumCulled = aoTail.frustumCulled = false;
+  aoGroup.add(aoHead, aoTail);
 
   // sparks: a small pool, CPU-simulated, hard dots that shrink to nothing over their life
   const sparkGeo = new BufferGeometry();
@@ -155,12 +237,17 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
 
   let viewportScale = 1;
   const pts = Array.from({ length: N }, () => new Vector3());
-  const tan = new Vector3(), view = new Vector3(), side = new Vector3(), tmp = new Vector3(), out = new Vector3();
-  let lastD = NaN, speed = 0, tailDir = 1, tailLen = look.packet.tailMin;
+  const tan = new Vector3(), up = new Vector3(), bv = new Vector3(), uv = new Vector3(), side = new Vector3(), tmp = new Vector3(), out = new Vector3();
+  const dark = new Color(), lit = new Color(), tint = new Color();
+  let lastD = NaN, speed = 0, tailDir = 1, tailLen = look.packet.tailMin, clock = 0;
 
   return {
     group,
-    setColor(hex) { colour.set(hex); hot.copy(colour).lerp(new Color(1, 1, 1), 0.5); },
+    aoGroup,
+    setColor(hex) {
+      colour.set(hex); hot.copy(colour).lerp(new Color(1, 1, 1), 0.5);
+      headMat.color.copy(colour).lerp(new Color(1, 1, 1), 0.35); headMat.emissive.copy(colour); tailMat.emissive.copy(colour); // (the core and the shine read colour and hot as uniforms)
+    },
     setViewportHeight: (px) => (viewportScale = px / 1080),
     reset() {
       lastD = NaN; speed = 0; tailLen = look.packet.tailMin;
@@ -177,45 +264,96 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
         if (Math.abs(v) > 0.05) tailDir += (Math.sign(v) - tailDir) * (1 - Math.exp(-dt * 9));
       }
       lastD = d;
-      const want = Math.min(c.tailMax, c.tailMin + c.tailGain * speed);
+      // the breath: a slow swell while it rests, easing off as it speeds up (it is then all motion)
+      clock += dt;
+      const rest = 1 - Math.min(1, speed / 2.2);
+      const ph = (clock * Math.PI * 2) / BREATH_SEC, br = Math.sin(ph), br2 = Math.sin(ph - 0.9); // (the core and the aura follow the head a little late)
+      const want = Math.min(c.tailMax, c.tailMin * (1 + 0.22 * rest * br2) + c.tailGain * speed);
       tailLen += (want - tailLen) * (1 - Math.exp(-dt * 10));
 
-      headMat.uniforms.uBright.value = tailMat.uniforms.uBright.value = c.headBrightness;
-      headMat.uniforms.uSize.value = Math.max(2, c.headSize * viewportScale * fade);
+      const R = c.headRadius * fade * (1 + 0.05 * rest * br);
+      const glow = c.headGlow * c.headBrightness;
+      headMat.emissiveIntensity = glow * 0.3 * (1 + 0.5 * rest * br2);
+      tailMat.emissiveIntensity = glow * 0.3;
+      coreMat.uniforms.uGlow.value = glow * 2 * (1 + 0.35 * rest * br2);
+      coreMat.uniforms.uTime.value = clock * (1 + 0.6 * Math.min(speed, 4)); // (the plasma churns faster in flight)
+      shineMat.uniforms.uAlpha.value = Math.min(1, fade);
+      core.scale.setScalar(0.5 * (1 + 0.1 * rest * br2));
+      aura.scale.setScalar(1.5 + 0.12 * rest * br2);
+      auraMat.uniforms.uAlpha.value = 0.24 * (0.7 + 0.3 * rest * (0.5 + 0.5 * br2)) * Math.min(1, fade);
+      // the rings turn (faster when the comet moves), breathe with the head and brighten a little at the top of the breath
+      const spin = 1 + 0.5 * Math.min(speed, 4);
+      for (const r of ringSets) {
+        r.a[0] += r.c.rate[0] * spin * dt; r.a[1] += r.c.rate[1] * spin * dt; r.s += r.c.beadRate * spin * dt;
+        r.group.rotation.set(r.a[0], r.a[1], 0);
+        r.spinner.rotation.z = r.s;
+        r.group.scale.setScalar(1 + 0.04 * rest * br2);
+      }
+      ringMats.forEach((m) => (m.opacity = (0.62 + 0.2 * rest * (0.5 + 0.5 * br2)) * Math.min(1, fade)));
+      headMat.opacity = c.glassOpacity;
+      tailMat.opacity = c.glassOpacity * 0.9;
       path.pointAt(d, out);
-      headGeo.attributes.position.setXYZ(0, out.x, out.y, out.z);
-      headGeo.attributes.position.needsUpdate = true;
+      head.position.copy(out);
+      head.scale.setScalar(Math.max(R, 1e-4));
+      head.visible = aoHead.visible = R > 1e-3;
+      aoHead.position.copy(out);
+      aoHead.scale.copy(head.scale);
+      aoTail.visible = tail.visible = head.visible;
 
       for (let i = 0; i < N; i++) path.pointAt(d - tailDir * (i / (N - 1)) * tailLen, pts[i]);
+      dark.copy(colour).multiplyScalar(0.35);
+      lit.copy(colour).lerp(hot, 0.35);
       for (let i = 0; i < N; i++) {
         const prev = pts[Math.max(0, i - 1)], next = pts[Math.min(N - 1, i + 1)];
         tan.subVectors(prev, next);
         if (tan.lengthSq() < 1e-10) tan.set(1, 0, 0);
         tan.normalize();
-        view.subVectors(camera.position, pts[i]);
+        // ring frame: b is across the path along the surface, uv is the globe's radial direction made perpendicular to the path
+        up.copy(pts[i]).normalize();
+        bv.crossVectors(tan, up);
+        if (bv.lengthSq() < 1e-8) bv.set(0, 0, 1).cross(tan);
+        bv.normalize();
+        uv.crossVectors(bv, tan);
         const u = i / (N - 1);
-        side.crossVectors(tan, view).normalize().multiplyScalar(c.tailWidth * 0.5 * fade * Math.pow(1 - u, 0.9));
+        const taper = 1 - u * u * (3 - 2 * u); // smoothstep: full width at the head, easing to a point (no cone)
+        const r = R * c.tailRadius * Math.pow(taper, 1.1);
+        const alpha = Math.pow(1 - u, 1.4);
+        tint.copy(dark).lerp(lit, Math.pow(1 - u, c.tailFade));
         const p = pts[i];
-        pos.set([p.x + side.x, p.y + side.y, p.z + side.z, p.x - side.x, p.y - side.y, p.z - side.z], i * 6);
-        fadeA[i * 2] = fadeA[i * 2 + 1] = Math.pow(1 - u, c.tailFade);
+        for (let j = 0; j < S; j++) {
+          const a = (j / S) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+          const k = (i * S + j) * 3, kc = (i * S + j) * 4;
+          nor[k] = uv.x * ca + bv.x * sa; nor[k + 1] = uv.y * ca + bv.y * sa; nor[k + 2] = uv.z * ca + bv.z * sa;
+          pos[k] = p.x + nor[k] * r; pos[k + 1] = p.y + nor[k + 1] * r; pos[k + 2] = p.z + nor[k + 2] * r;
+          col[kc] = tint.r; col[kc + 1] = tint.g; col[kc + 2] = tint.b; col[kc + 3] = alpha;
+        }
       }
       tailGeo.attributes.position.needsUpdate = true;
-      tailGeo.attributes.aFade.needsUpdate = true;
+      tailGeo.attributes.normal.needsUpdate = true;
+      tailGeo.attributes.color.needsUpdate = true;
 
-      // sparks: shed from the head while it moves fast, thrown back and a little outward, gone in half a second
-      emitAcc += dt * c.sparks * 11 * Math.min(1, Math.max(0, (speed - 0.8) / 2.6));
+      // sparks: shed from the head while it moves fast, thrown back and a little outward, gone in half a second; at rest a few motes drift off slowly, so it is never dead still
+      const moving = Math.min(1, Math.max(0, (speed - 0.8) / 2.6)), idle = 1 - Math.min(1, speed / 0.8);
+      emitAcc += dt * c.sparks * (11 * moving + 2.4 * idle) * Math.min(1, fade * 4);
       path.pointAt(d + 0.02, tmp).sub(out);
       tmp.normalize();
       while (emitAcc >= 1) {
         emitAcc -= 1;
         const s = life.findIndex((l) => l <= 0);
         if (s < 0) break;
-        span[s] = life[s] = 0.35 + rnd() * 0.35;
         const outward = out.clone().normalize();
-        vel[s].copy(tmp).multiplyScalar(-(0.5 + rnd()) * (0.6 + 0.3 * speed) * Math.sign(tailDir || 1))
-          .addScaledVector(outward, 0.5 + rnd() * 0.9)
-          .add(side.set(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).multiplyScalar(0.9));
-        sPos.set([out.x, out.y, out.z], s * 3);
+        if (rnd() < idle) { // a mote: slow, long-lived, drifting up and out from the rim of the head
+          span[s] = life[s] = 0.9 + rnd() * 0.8;
+          side.set(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize();
+          vel[s].copy(side).multiplyScalar(0.18 + rnd() * 0.22).addScaledVector(outward, 0.16 + rnd() * 0.2);
+          sPos.set([out.x + side.x * R, out.y + side.y * R, out.z + side.z * R], s * 3);
+        } else {
+          span[s] = life[s] = 0.35 + rnd() * 0.35;
+          vel[s].copy(tmp).multiplyScalar(-(0.5 + rnd()) * (0.6 + 0.3 * speed) * Math.sign(tailDir || 1))
+            .addScaledVector(outward, 0.5 + rnd() * 0.9)
+            .add(side.set(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).multiplyScalar(0.9));
+          sPos.set([out.x, out.y, out.z], s * 3);
+        }
       }
       for (let s = 0; s < MAX_SPARKS; s++) {
         if (life[s] > 0) {
@@ -223,14 +361,15 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
           vel[s].multiplyScalar(Math.exp(-dt * 2.2));
           sPos[s * 3] += vel[s].x * dt; sPos[s * 3 + 1] += vel[s].y * dt; sPos[s * 3 + 2] += vel[s].z * dt;
         }
-        sSize[s] = life[s] > 0 ? Math.max(0, 4.5 * (life[s] / span[s])) * viewportScale * fade : 0;
+        sSize[s] = life[s] > 0 ? Math.max(0, 8 * (life[s] / span[s])) * viewportScale * fade : 0;
       }
       sparkGeo.attributes.position.needsUpdate = true;
       sparkGeo.attributes.aSize.needsUpdate = true;
       sparkMat.uniforms.uPx.value = 1;
     },
     dispose() {
-      headGeo.dispose(); headMat.dispose(); tailGeo.dispose(); tailMat.dispose(); sparkGeo.dispose(); sparkMat.dispose();
+      ringSets.forEach((r) => r.group.traverse((o) => { const m = o as Mesh; if (m.isMesh) { m.geometry.dispose(); (m.material as MeshBasicMaterial).dispose(); } }));
+      headGeo.dispose(); headMat.dispose(); coreMat.dispose(); shineMat.dispose(); auraMat.dispose(); tailGeo.dispose(); tailMat.dispose(); aoMat.dispose(); sparkGeo.dispose(); sparkMat.dispose();
     },
   };
 }

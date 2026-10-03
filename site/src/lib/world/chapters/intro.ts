@@ -13,6 +13,8 @@ export interface IntroChapter extends Chapter {
   /** starts the sequence (or skips it straight away); resolves when it has finished or been skipped */
   start(): Promise<void>;
   skip(): void;
+  /** The finale's homecoming (the page loops): the opening frame, the large wordmark, tagline and cue, faded in by v (0..1, and 0 hides the scene). At 1 it is the frame update(0) draws. */
+  preview(v: number): void;
 }
 
 const GLYPHS = '!<>-_/[]{}=+*^?#%&';
@@ -84,6 +86,17 @@ export function createIntro(ctx: WorldCtx): IntroChapter {
   const cornerText = document.getElementById('nav-mark-text');
   const tagWrap = scene.q('.intro-tagwrap')[0];
   const foot = scene.q('.scene-foot')[0];
+  // the task picker: a button starts the story with its task; the suggested one (the task the page would tell) is lit
+  const rings = scene.q('[data-start]').map((b) => ({ ring: b.querySelector<HTMLElement>('.btn-ring')!, j: Number(b.dataset.start) }));
+  const lightSuggested = () => rings.forEach((r) => setOpacity(r.ring, r.j === view.journey ? 1 : 0));
+  const onPick = (e: MouseEvent) => {
+    const btn = e.target instanceof Element ? e.target.closest<HTMLElement>('[data-start]') : null;
+    if (!btn) return;
+    view.journey = Number(btn.dataset.start);
+    lightSuggested();
+    ctx.scroll.start();
+  };
+  scene.root?.addEventListener('click', onPick);
   // untransformed geometry of the large mark (viewport coordinates: the scene is fixed) and the corner target (viewport), measured on demand
   let geo: { left: number; top: number; w: number; h: number; scale: number; tx: number; ty: number } | null = null;
 
@@ -110,7 +123,7 @@ export function createIntro(ctx: WorldCtx): IntroChapter {
     mark.style.transform = `translate3d(${dx.toFixed(1)}px, ${dy.toFixed(1)}px, 0) scale(${(1 + t * (geo.scale - 1)).toFixed(4)})`;
     setOpacity(mark, 1 - range(t, 0.78, 1));
   }
-  let started = false, running = false, done = false, t0 = -1;
+  let started = false, running = false, done = false, t0 = -1, shown = -1;
   let resolve: (() => void) | null = null;
   let scramblers: Scrambler[] = [];
   const skipEvents = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const;
@@ -123,7 +136,7 @@ export function createIntro(ctx: WorldCtx): IntroChapter {
     scramblers.forEach((s) => s.restore());
     scramblers = [];
     skipEvents.forEach((e) => window.removeEventListener(e, skip));
-    ctx.scroll.unlock();
+    ctx.scroll.unlock('intro');
     document.documentElement.dataset.world = 'ready';
     resolve?.();
     resolve = null;
@@ -144,7 +157,7 @@ export function createIntro(ctx: WorldCtx): IntroChapter {
       }
       running = true;
       document.documentElement.dataset.world = 'intro';
-      ctx.scroll.lock();
+      ctx.scroll.lock('intro');
       const title = mark; // the large wordmark scrambles in
       const tagline = document.querySelector<HTMLElement>('#top .motion-rise-late');
       if (title) scramblers.push(scrambler(title, motion.intro.titleStartMs, motion.intro.titleMs));
@@ -153,12 +166,22 @@ export function createIntro(ctx: WorldCtx): IntroChapter {
       return new Promise<void>((r) => (resolve = r));
     },
     skip,
-    enter() {},
+    preview(v) {
+      if (v === shown) return;
+      shown = v;
+      scene.fade(v); // opacity and inert, so the hidden cue link is out of the tab order until it shows
+      setOpacity(tagWrap, 1);
+      setOpacity(foot, 1);
+      lightSuggested();
+      applyMark(1 - v); // the wordmark grows out of the corner mark, the intro's own scroll move played backwards
+    },
+    enter() { shown = -1; },
     fade: (v) => scene.fade(v),
     update(p) {
       const lead = 1 - range(p, 0.1, 0.5);
       setOpacity(tagWrap, lead); // the tagline and the cue leave as the world starts to move
       setOpacity(foot, lead);
+      lightSuggested();
       applyMark(range(p, 0.02, 0.72));
       if (!running) {
         view.growth = done ? 1 : 0;
@@ -178,10 +201,11 @@ export function createIntro(ctx: WorldCtx): IntroChapter {
     },
     dispose() {
       window.removeEventListener('resize', onResize);
+      scene.root?.removeEventListener('click', onPick);
       if (mark) mark.style.transform = '';
       skipEvents.forEach((e) => window.removeEventListener(e, skip));
       scramblers.forEach((s) => s.restore());
-      ctx.scroll.unlock();
+      ctx.scroll.unlock('intro');
     },
   };
 }

@@ -49,19 +49,22 @@ const seen = new Map();
 lat.cells.forEach((c) => c.agent && seen.set(c.agent.name, (seen.get(c.agent.name) ?? 0) + 1));
 const missing = agents.filter((a) => !seen.has(a.name)).map((a) => a.name);
 const dup = [...seen].filter(([, n]) => n !== 1).map(([k]) => k);
-check(!missing.length && !dup.length && seen.size === agents.length, `every agent placed exactly once (${seen.size}/${agents.length}${missing.length ? `, missing ${missing}` : ''}${dup.length ? `, duplicated ${dup}` : ''})`);
+check(!missing.length && !dup.length && seen.size === agents.length + 1 && seen.has('main agent'), `every agent placed exactly once, plus the main agent (${seen.size}/${agents.length + 1}${missing.length ? `, missing ${missing}` : ''}${dup.length ? `, duplicated ${dup}` : ''})`);
 const band = (b) => lat.cells.filter((c) => c.agent?.band === b);
-check(band('core').length === 1 && !band('core')[0].moon && band('core')[0].ring === 0 && band('core')[0].normal.z > 0.999, 'lead-dev is the single core cell at ring 0 on +Z');
+check(band('main').length === 1 && !band('main')[0].moon && band('main')[0].ring === 0 && band('main')[0].normal.z > 0.999, 'the main agent is the single core cell at ring 0 on +Z');
+check(band('core').every((c) => c.ring === 1), 'the orchestrator (lead-dev) is in the first ring');
 check(band('satellite').every((c) => c.moon) && moon.filter((c) => c.agent).length === band('satellite').length, 'satellite agents are exactly the moon cluster agents');
 console.log('agents per band/ring (geodesic ring):');
-for (const b of ['core', 't1', 'domain', 'gate', 'satellite']) {
+for (const b of ['main', 'core', 't1', 'domain', 'gate', 'satellite']) {
   const rings = {};
   band(b).forEach((c) => (rings[c.ring] = (rings[c.ring] ?? 0) + 1));
   console.log(`  ${b.padEnd(9)} ${band(b).length} in rings ${JSON.stringify(rings)}`);
 }
-const used = ['core', 't1', 'domain', 'gate'].flatMap((b) => [...new Set(band(b).map((c) => c.ring))].sort((a, z) => a - z));
+const groups = [['main'], ['core', 't1'], ['domain'], ['gate']]; // (the orchestrator shares the first ring with the fast-work agents)
+const inGroup = (g) => g.flatMap(band);
+const used = groups.flatMap((g) => [...new Set(inGroup(g).map((c) => c.ring))].sort((a, z) => a - z));
 check(used.every((r, i) => r === i), `bands occupy consecutive geodesic rings with no gap (rings ${used})`);
-const order = ['core', 't1', 'domain', 'gate'].map((b) => Math.max(...band(b).map((c) => c.ring)));
+const order = groups.map((g) => Math.max(...inGroup(g).map((c) => c.ring)));
 check(order.every((r, i) => i === 0 || r > order[i - 1]), `bands are ordered outward by ring (outermost ring per band ${order})`);
 
 // no overlap and an even seam: every panel footprint is its Voronoi polygon inset by half the seam. For every neighbour pair, the gap
@@ -165,13 +168,13 @@ check(lat.cells.every((c) => c.height === c.base), 'layout leaves every column a
 check(globe.some((c) => c.base > look.cell.relief + 0.15), 'the globe has real relief (a column stands 0.15+ above the base)');
 const levels = new Set(globe.filter((c) => !c.agent).map((c) => c.base.toFixed(4)));
 check(levels.size <= look.cell.steps && levels.size >= 3, `basalt heights snap to at most ${look.cell.steps} levels (got ${levels.size})`);
-const tier = { core: 3, t1: 2, domain: 1, gate: 0 };
+const tier = { main: 3, core: 3, t1: 2, domain: 1, gate: 0 };
 const ag = globe.filter((c) => c.agent);
 const minGap = Math.min(...ag.map((c) => c.base)) - reach;
 check(minGap >= look.cell.towerLift - 1e-9, `every globe agent tower stands at least towerLift (${look.cell.towerLift}) above the tallest filler reach (clearance ${minGap.toFixed(3)})`);
 check(ag.every((c) => Math.abs(c.base - (reach + look.cell.towerLift + look.cell.towerStep * tier[c.agent.band])) < 1e-9), 'tower height = filler reach + towerLift + towerStep x tier rank (core tallest, then t1, domain, gate)');
 const byBand = (b) => ag.filter((c) => c.agent.band === b).map((c) => c.base);
-check(Math.min(...byBand('core')) > Math.max(...byBand('t1')) && Math.min(...byBand('t1')) > Math.max(...byBand('domain')) && Math.min(...byBand('domain')) > Math.max(...byBand('gate')), 'bands are told apart by tower height: core > t1 > domain > gate');
+check(Math.min(...byBand('main'), ...byBand('core')) > Math.max(...byBand('t1')) && Math.min(...byBand('t1')) > Math.max(...byBand('domain')) && Math.min(...byBand('domain')) > Math.max(...byBand('gate')), 'bands are told apart by tower height: main agent and orchestrator > t1 > domain > gate');
 check(moon.filter((c) => c.agent).every((c) => c.base > Math.max(...moon.filter((m) => !m.agent).map((m) => m.reach)) - 1e-9), 'moon agents stand above the moon fillers');
 const moonThrow = look.cell.stroke * look.cell.moonStroke;
 check(moon.filter((c) => !c.agent).every((c) => Math.abs(c.reach - (c.base + moonThrow)) < 1e-9) && moon.filter((c) => c.agent).every((c) => c.reach === c.base), `moon rods throw moonStroke (${look.cell.moonStroke}) of the globe's stroke = ${moonThrow.toFixed(3)} (reach = base + throw); moon towers stay steady`);

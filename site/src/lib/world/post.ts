@@ -66,9 +66,9 @@ export interface Post {
  * The three scene-stage passes are called directly (not through an EffectComposer), so their result can land in
  * whichever caller-owned target the frame needs (world.ts's dissolve halves, or this module's own `sceneOut`).
  */
-export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Camera, cfg: Look['post'], aoGroup: Group | null): Post {
-  const gScene = new Scene(); // G-buffer only: the aoGroup twin, nothing else (no overrideMaterial, no other scene content to corrupt it)
-  if (aoGroup) gScene.add(aoGroup);
+export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Camera, cfg: Look['post'], aoGroups: Group[]): Post {
+  const gScene = new Scene(); // G-buffer only: the panels' twin and the comets' twins, nothing else (no overrideMaterial, no other scene content to corrupt it)
+  gScene.add(...aoGroups);
   const gDepth = new DepthTexture(1, 1);
   gDepth.format = DepthStencilFormat;
   gDepth.type = UnsignedInt248Type;

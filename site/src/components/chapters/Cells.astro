@@ -1,17 +1,21 @@
 ---
-// The Cells scene: no roster panels. The hidden agent list and the label cards are pre-rendered from the agent data;
-// pick.ts (pointer raycast) and the roving-tabindex list drive the same highlight. The full roster is in Reference.
+// The Cells scene: the task's journey. The task tag, step captions (the status line and why), closing line and chips of every journey are pre-rendered from the routing data (journeys.ts) and the chapter only writes their opacity: the current
+// step's caption shows and its node on the rail lights (the rail's nodes are buttons: one jumps the journey to its step). The hidden agent list and the label cards are pre-rendered from the agent data; the full roster is in Reference. The band legend is the static
+// page's (the world shows the steps instead).
 import { facts } from '../../lib/facts';
 import { roleLine } from '../../lib/agents';
 import { blurb } from '../../lib/blurb';
-import { bandLabels, bandOrder } from '../../content/tiers';
+import { bandLabels, bandOrder, MAIN_AGENT } from '../../content/tiers';
+import { examples, gates, tiers } from '../../content/routing';
+import { journeysOf } from '../../lib/journeys';
 import { motion } from '../../lib/world/motion-config';
 
 const agents = facts.agents;
 const bands = bandOrder
   .map((band) => ({ band, ...bandLabels[band], count: agents.filter((a) => a.band === band).length }))
   .filter((b) => b.count > 0);
-const ordered = bandOrder.flatMap((b) => agents.filter((a) => a.band === b));
+const ordered = [MAIN_AGENT, ...bandOrder.flatMap((b) => agents.filter((a) => a.band === b))]; // (the main agent, your session, has a cell and a card but is not counted among the agents)
+const journeys = journeysOf(examples, gates.map((g) => g.agent), tiers);
 ---
 <section id="cells" class="chapter" style={`--runway:${motion.runway.cells}`} aria-labelledby="cells-title">
   <div class="scene" data-scene>
@@ -33,11 +37,46 @@ const ordered = bandOrder.flatMap((b) => agents.filter((a) => a.band === b));
       ))}
     </div>
 
-    <div class="scene-foot">
-      <p class="caption">{agents.length} agents, one cell each. <span class="world-only">Hover or focus a cell. Drag to look around.</span></p>
-      <ul class="chips" aria-label="Agent groups, from the core outwards">
+    {journeys.map((j, ji) => <p class="task-tag world-only" data-task-tag data-j={ji} data-fx>Task: {j.task} · {j.tier}</p>)}
+    {journeys.map((j, ji) => j.beats.filter((b) => b.stop < 0).map((b) => (
+      <p class="gate-tag world-only" data-gate-tag={b.agent} data-j={ji} data-fx><span>{b.agent}</span><span class="gate-why">{b.label.replace(/^If /i, '')}</span></p>
+    )))}
+
+    <div class="scene-foot scene-foot-stack">
+      <div class="captions">
+        <p class="caption static-only">{agents.length} agents, one cell each.</p>
+        {journeys.map((j, ji) => (
+          <>
+            {j.beats.map((b, bi) => b.stop >= 0 && (
+              <p class="caption world-only" data-caption-step data-j={ji} data-b={bi} data-fx><span class="caption-status">{b.status}</span><span class="caption-why">{b.why}</span></p>
+            ))}
+            {j.gate && (
+              <p class="caption world-only" data-caption-step data-j={ji} data-gates data-fx><span class="caption-status">{j.gate.status}</span><span class="caption-why">{j.gate.why}</span></p>
+            )}
+            <p class="caption world-only" data-caption-done data-j={ji} data-fx><span class="caption-status">{j.task}: done</span><span class="caption-why">{j.done}</span></p>
+          </>
+        ))}
+      </div>
+      <div class="rail-stack world-only">
+        {journeys.map((j, ji) => (
+          <ol class="rail" aria-label={`${j.task}: its steps (press one to jump to it)`} data-steps={ji} data-fx>
+            {j.beats.map((b, bi) => (
+              <li class="rail-step" data-step data-b={bi}>
+                {bi < j.beats.length - 1 && <i class="rail-track" aria-hidden="true"><i class="rail-fill"></i></i>}
+                <button type="button" class="rail-btn" data-seek={bi}>
+                  <i class="chip-ring rail-now" data-fx aria-hidden="true"></i>
+                  <i class="rail-dot" aria-hidden="true"><i class="rail-done"></i></i>
+                  <span class="rail-label">{bi === 0 ? `Classified ${j.tier}` : b.label}</span>
+                  {b.agent && <span class="rail-agent">{b.agent}</span>}
+                </button>
+              </li>
+            ))}
+          </ol>
+        ))}
+      </div>
+      <ul class="chips static-only" aria-label="Agent groups, from the core outwards">
         {bands.map((b) => (
-          <li class="chip" data-legend={b.band} title={b.note}><i class="chip-ring" data-fx aria-hidden="true"></i>{b.title} {b.count}</li>
+          <li class="chip" title={b.note}>{b.title} {b.count}</li>
         ))}
       </ul>
     </div>

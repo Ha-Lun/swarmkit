@@ -2,7 +2,10 @@
 // Look-dev bench (PLAN §9). Round 1: proposed values, nothing locked. Not linked, noindex.
 import '../styles/tokens.css';
 import { loadAgents } from '../lib/agents';
+import { examples, gates, tiers } from '../content/routing';
+import { journeysOf } from '../lib/journeys';
 const agents = loadAgents();
+const journeys = journeysOf(examples, gates.map((g) => g.agent), tiers);
 const typeScale = ['3xl', '2xl', 'xl', 'lg', 'base', 'sm', 'xs'];
 const spacing = ['1', '2', '3', '4', '6', '8', '12', '16', '24'];
 const favicon =
@@ -91,6 +94,7 @@ const favicon =
     <div id="readout"></div>
     <div id="tower-card" aria-hidden="true"></div>
     <script id="agents-data" type="application/json" set:html={JSON.stringify(agents)} />
+    <script id="journeys-data" type="application/json" set:html={JSON.stringify(journeys)} />
     <script>
       import {
         ACESFilmicToneMapping, Color, Fog, HalfFloatType, PCFShadowMap, PerspectiveCamera, Scene, SRGBColorSpace, Vector2, Vector3,
@@ -103,8 +107,10 @@ const favicon =
       import { createHexDissolve, hexPixelSize } from '../lib/world/transitions';
       import { createPost, type Post } from '../lib/world/post';
       import { createStudio, shadowExtentOf, type Studio } from '../lib/world/studio';
-      import { createWalkRoute, horizonDistance, horizonFog, nearestTowerAhead, type WalkPose } from '../lib/world/walk';
-      import { walkWeight } from '../lib/world/motion-config';
+      import { createFollowRoute } from '../lib/world/follow';
+      import { horizonDistance, horizonFog, nearestTowerAhead, type WalkPose } from '../lib/world/walk';
+      import { walkCfg, walkWeight } from '../lib/world/motion-config';
+      import { walkStopsOf, type Journey } from '../lib/journeys';
       import { bandLabels } from '../content/tiers';
       import { blurb } from '../lib/blurb';
       import { applyWalkLook } from '../lib/world/walk';
@@ -113,6 +119,8 @@ const favicon =
       import { createBgTexture } from '../lib/world/world';
 
       const agents: Agent[] = JSON.parse(document.getElementById('agents-data')!.textContent!);
+      const journeys: Journey[] = JSON.parse(document.getElementById('journeys-data')!.textContent!);
+      const benchJourney = journeys.find((j) => j.tier === 'T2') ?? journeys[0]; // the walk bench shows the T2 example's route
       const q = new URLSearchParams(location.search);
       const palette = readPalette();
       const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -125,7 +133,7 @@ const favicon =
       type PanelId = 'cell' | 'packet' | 'dissolve' | 'particles' | 'post' | 'palette';
       const PANELS: Record<PanelId, { title: string; note: string; groups: (keyof typeof look)[] }> = {
         cell: { title: 'Metal panels + lights', groups: ['cell', 'light', 'core', 'bg'], note: 'Round 11 (overrides round 7-8 matte basalt and round 4 no-glow): machined metal panels (metalness, roughness, clearcoat), per-tile roughness/tint jitter, a soft top-lit/cool-bottom gradient across the sphere, key + fill + rim + env lighting, an emissive core glowing through the seams (core.color/intensity), and the gradient background + fog (bg.gradient/fog). Judge: no black faces, even seams, the polished agent facets, the moving key (swing the orbit slider), the moon (view moon), and whether the core glow reads as a light source rather than a smear.' },
-        packet: { title: 'Comet', groups: ['packet'], note: 'Judge: is the head small and hard, does the tail lengthen with speed (move the speed slider) and taper crisply, are the sparks few. Should stay hard-edged, not bloom (raise post.bloomThreshold or lower packet.headBrightness if it does). Three accent candidates run the same loop.' },
+        packet: { title: 'Comet', groups: ['packet'], note: 'Judge: is the head a solid lit sphere with a clean outline (a shadow under it on the high tier), does the tail lengthen with speed (move the speed slider) and taper crisply, are the sparks few. Should stay hard-edged, not bloom (raise post.bloomThreshold or lower packet.headBrightness if it does). Three accent candidates run the same loop.' },
         dissolve: { title: 'Hex dissolve', groups: ['dissolve'], note: 'Judge: speed (use auto), hex size against the lattice, wavefront uniformity. Hex size is tied to the on-screen lattice cell.' },
         particles: { title: 'Particle swarm', groups: ['particles'], note: 'Judge: curl flow reads as swarm not fireworks, dim-to-bright, convergence on the target. attract stands in for chapterProgress.' },
         post: { title: 'AO + bloom + vignette + grain', groups: ['post'], note: 'High tier only. GTAO in the seams and column shadows, bloom on highlights and the emissive core, ACES exposure, a light vignette, chromatic aberration and grain. Judge: each effect noticeable only up close, never at a glance. Toggle to compare.' },
@@ -152,7 +160,7 @@ const favicon =
       };
       function num2(k: string, d: number) { return q.has(k) && !isNaN(Number(q.get(k))) ? Number(q.get(k)) : d; }
       const walk = {
-        cards: q.get('cards') !== '0', eye: num('eye', 0.3), fov: num('fov', 60), pitch: num('pitch', 20), near: num('near', 0.03), env: q.get('ground') !== 'smooth', path: num('path', 0.55), speed: num('speed', 0), u: num('u', 0),
+        cards: q.get('cards') !== '0', fov: num('fov', 55), near: num('near', 0.1), speed: num('speed', 0), u: num('u', 0),
         fogNear: num('fogNear', 6), fogFar: num('fogFar', 40), park: q.get('park') === '1',
       };
       let dissolveProgress = Number(q.get('progress') ?? 0.5), dissolveAuto = q.get('auto') === '1';
@@ -185,7 +193,7 @@ const favicon =
       const loop = loopPath(curve);
       const packets: Packet[] = accentCandidates.map((c) => createPacket(c.hex, look.packet));
       packets.forEach((p) => scene.add(p.group));
-      const leadIdx = comb.lattice.cells.findIndex((c) => c.agent?.band === 'core');
+      const leadIdx = comb.lattice.cells.findIndex((c) => c.agent?.band === 'main');
       const t1Idx = comb.lattice.cells.findIndex((c) => c.agent?.band === 't1');
 
       const R = lat.radius;
@@ -257,23 +265,15 @@ const favicon =
         cardEl.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -100%)`;
         cardEl.classList.add('is-on');
       }
-      const route = createWalkRoute(lat);
-      const walkPose: WalkPose = { position: cam.position.clone(), quaternion: cam.quaternion.clone(), fov: 50, up: cam.position.clone(), forward: cam.position.clone(), ground: 0, stop: 0 };
+      const route = createFollowRoute(lat, walkStopsOf(benchJourney, lat.cells.find((c) => c.agent?.band === 'main')!.agent!.name, walkCfg));
+      const walkPose: WalkPose = { position: cam.position.clone(), quaternion: cam.quaternion.clone(), fov: 50, up: cam.position.clone(), forward: cam.position.clone(), stop: 0 };
       let walkInfo = '';
-      // the path to follow: the tiles the route crosses are brightened with the existing panel-tone state (palette only, no accent, no glow)
-      const pathIdx = route.pathCells();
-      let pathShown = false;
-      function applyPath() {
-        const on = panel === 'cell' && cellView === 'walk' && walk.path > 0;
-        if (on) { pathIdx.forEach((i) => comb.setCellState(i, walk.path, 0)); pathShown = true; }
-        else if (pathShown) { pathIdx.forEach((i) => comb.setCellState(i, 0, 0)); pathShown = false; applyCellState(); }
-      }
       (window as unknown as { __bench: unknown }).__bench = { route, walk }; // inspection hook for QA shots
       // the walk camera: placed and oriented from the route's quaternion, never lookAt; fog from the sliders
       const walkLook = createWalkLook(); // drag the canvas to turn your head (double click: look forward)
       function walkCam(dt: number) {
         if (walk.speed > 0) walk.u = (walk.u + (walk.speed * dt) / route.length) % 1;
-        route.sample(walk.u, { eye: walk.eye, fov: walk.fov, pitchDeg: walk.pitch, ground: walk.env ? 'env' : 'smooth' }, walkPose);
+        route.sample(walk.u, { fov: walk.fov }, walkPose);
         if (cam.near !== walk.near) { cam.near = walk.near; cam.updateProjectionMatrix(); }
         cam.position.copy(walkPose.position);
         walkLook.enable();
@@ -283,7 +283,7 @@ const favicon =
         if (fx.fog) { const hf = horizonFog(R, cam.position.length(), fx.fogNear, fx.fogFar); (scene.fog as Fog).near = hf.near; (scene.fog as Fog).far = hf.far; }
         else { (scene.fog as Fog).near = walk.fogNear; (scene.fog as Fog).far = walk.fogFar; }
         const st = route.stops[walkPose.stop];
-        walkInfo = `walk u ${walk.u.toFixed(3)}  horizon ${horizonDistance(R, cam.position.length()).toFixed(1)}u  toward ${st.name} (${st.band}, ${walkPose.stop + 1}/${route.stops.length})  ground ${walkPose.ground.toFixed(2)}  altitude ${(cam.position.length() - R).toFixed(2)}  horizon dip ${((Math.acos(R / cam.position.length()) * 180) / Math.PI).toFixed(1)} deg  route ${route.length.toFixed(0)} units`;
+        walkInfo = `walk u ${walk.u.toFixed(3)}  horizon ${horizonDistance(R, cam.position.length()).toFixed(1)}u  toward ${st.name} (${st.band}, ${walkPose.stop + 1}/${route.stops.length})  altitude ${(cam.position.length() - R).toFixed(2)}  horizon dip ${((Math.acos(R / cam.position.length()) * 180) / Math.PI).toFixed(1)} deg  route ${route.length.toFixed(0)} units`;
       }
       // the gradient is a baked CanvasTexture (world.ts's createBgTexture), so the bg.gradient slider must rebuild it by hand
       function applyBg() {
@@ -341,10 +341,9 @@ const favicon =
         studio = createStudio(scene, tier, palette, shadowExtentOf(comb.lattice));
         applyShadows();
         applyCellState();
-        pathShown = false; applyPath();
         fxRadial = fxCore = fxShadowExt = -1; // the honeycomb and studio were rebuilt: re-apply the fixes
         post?.dispose();
-        post = tier === 'high' ? createPost(renderer, scene, cam, look.post, comb.aoGroup) : null;
+        post = tier === 'high' ? createPost(renderer, scene, cam, look.post, [...(comb.aoGroup ? [comb.aoGroup] : []), ...packets.map((k) => k.aoGroup)]) : null;
         if (swarm) buildSwarm();
         resize();
         document.querySelectorAll<HTMLButtonElement>('[data-tier]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tier === tier)));
@@ -396,18 +395,14 @@ const favicon =
           const views = document.createElement('div'); views.className = 'row'; ex.append(views);
           for (const v of ['cell', 'wide', 'fly', 'top', 'moon', 'walk']) button(views, `view ${v}`, () => { cellView = v; buildPanel(); }, cellView === v);
           if (cellView === 'walk') {
-            const wr = (k: string) => ({ eye: [0.1, 3, 0.05], near: [0.01, 0.1, 0.005], path: [0, 1, 0.01], fov: [40, 70, 1], pitch: [0, 45, 0.5], speed: [0, 12, 0.1], fogNear: [0, 40, 0.5], fogFar: [5, 150, 1] } as Record<string, [number, number, number]>)[k];
-            slider(ex, 'eye height above the local column top', () => walk.eye, (v) => (walk.eye = v), wr('eye'));
+            const wr = (k: string) => ({ near: [0.01, 0.5, 0.005], fov: [40, 70, 1], speed: [0, 12, 0.1], fogNear: [0, 40, 0.5], fogFar: [5, 150, 1] } as Record<string, [number, number, number]>)[k];
             slider(ex, 'near plane (walk cam only)', () => walk.near, (v) => (walk.near = v), wr('near'));
             slider(ex, 'vertical FOV (deg)', () => walk.fov, (v) => (walk.fov = v), wr('fov'));
-            slider(ex, 'pitch below the horizon (deg)', () => walk.pitch, (v) => (walk.pitch = v), wr('pitch'));
             slider(ex, 'walk speed (units/s, 0 = scrub)', () => walk.speed, (v) => (walk.speed = v), wr('speed'));
             slider(ex, 'fog near', () => walk.fogNear, (v) => (walk.fogNear = v), wr('fogNear'));
             slider(ex, 'fog far', () => walk.fogFar, (v) => (walk.fogFar = v), wr('fogFar'));
             slider(ex, 'scrub along the route (0..1)', () => walk.u, (v) => (walk.u = v), [0, 1, 0.0005]);
             if (tier === 'high') button(ex, 'post (GTAO, bloom)', () => { postOn = !postOn; buildPanel(); }, postOn);
-            slider(ex, 'path tiles: brightness of the tiles the route crosses', () => walk.path, (v) => { walk.path = v; applyPath(); }, wr('path'));
-            button(ex, 'ground: envelope (never clips columns)', () => { walk.env = !walk.env; buildPanel(); }, walk.env);
             button(ex, 'tower cards (what each subagent does)', () => { walk.cards = !walk.cards; buildPanel(); }, walk.cards);
             const h = document.createElement('h3'); h.textContent = 'close-up fixes (each off by default)'; ex.append(h);
             const tog = (label: string, key: 'pistons' | 'radial' | 'core' | 'fog' | 'light' | 'shadow' | 'comet') => button(ex, label, () => { fx[key] = !fx[key]; fxRadial = fxCore = fxShadowExt = -1; buildPanel(); }, fx[key]);
@@ -456,7 +451,6 @@ const favicon =
           const r = (ranges as Record<string, Record<string, [number, number, number]>>)[g];
           for (const k of Object.keys(r)) slider(sl, `${g}.${k}`, () => L[g][k], (v) => (L[g][k] = v), r[k], g === 'particles' && k === 'textWidth' ? () => swarm?.retarget(L.particles.textWidth) : g === 'bg' && k === 'gradient' ? applyBg : undefined);
         }
-        applyPath();
         if (panel === 'particles' && !swarm) buildSwarm();
         if (panel !== 'particles' && swarm) { swarm.dispose(); swarm = null; swarmScene.clear(); }
       }
@@ -489,10 +483,15 @@ const favicon =
         // fix 1: walk weight parks the pistons (1 = at rest); the ease demo runs the real walkWeight() ramp over a 16 s loop
         const pistonWalk = inWalk && fx.pistons ? (fx.pistonEase ? walkWeight(2, (time / 16) % 1) : fx.pistonW) : 0;
         applyFx(inWalk);
+        comb.uniforms.uWalkWall.value = inWalk && fx.light ? look.walk.wallLift : 0;
+        comb.uniforms.uWalkMatte.value = inWalk && fx.light ? look.walk.wallMatte : 0;
+        comb.uniforms.uWalkTower.value = inWalk && fx.light ? look.walk.towerWall : 0;
+        comb.uniforms.uWalkRough.value = inWalk && fx.light ? look.walk.topRough : 0; // round 14 ground look rides on the walker-light toggle (the lantern and fill boost are in studio.update)
         comb.update(1, 0, inWalk && walk.park ? undefined : time, 1, pistonWalk); // runs the pistons (parked at rest in the walk bench when asked); re-lays the terrain when relief, elevation, terrainScale or stroke changed
         const showPackets = panel === 'packet' || panel === 'post' || panel === 'dissolve' || (inWalk && fx.comet); // the walker hides the comet: the toggle shows it for comparison
         packets.forEach((p, i) => {
           p.group.visible = showPackets && (accentSel === 'all' || accentSel === accentCandidates[i].name);
+          p.aoGroup.visible = p.group.visible;
           if (p.group.visible) p.update(loop, cometDist + (accentSel === 'all' ? (i * loop.length) / packets.length : 0), cam, look.packet, 1, dt);
         });
 

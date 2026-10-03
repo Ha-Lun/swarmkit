@@ -1,26 +1,42 @@
-// Chapter 2. The camera flies along the lattice (camera-path.ts). Hovering a cell, or focusing its entry in the
-// hidden agent list, lifts and brightens it and shows its label card (pick.ts). No roster panels: the roster lives in
-// the Reference section. The tier legend chip of the active agent's band lights (opacity only).
+// Chapter 2. The task's journey: the camera follows the comet in and from tower to tower (follow.ts), and the steps are called out while the comet is at them: the current step's caption shows and
+// its node on the rail lights, the line on to the next fills (all pre-rendered from the routing data, only opacity and a scale are written); a node jumps the journey to its step. Hovering a cell, or focusing its entry in the hidden agent list, lifts and
+// brightens it and shows its label card (pick.ts). No roster panels: the roster lives in the Reference section.
 import { Vector3 } from 'three';
 import { nearestTowerAhead, type TowerRef } from '../walk';
 import { createWalkLook } from '../walk-look';
-import { motion, recedeMix } from '../motion-config';
+import { aerial, motion, recedeMix, walkCfg } from '../motion-config';
 import { createPick } from '../pick';
-import { sceneOf, setOpacity } from '../scene-dom';
+import { range, sceneOf, setOpacity } from '../scene-dom';
 import type { Chapter, WorldCtx } from '../types';
 
 export function createCells(ctx: WorldCtx): Chapter {
-  const { view } = ctx;
+  const { view, routing } = ctx;
   const scene = sceneOf('cells');
   const pick = createPick(ctx, scene.root);
   const tmp = new Vector3();
   // the walk: the tower the walker is heading for shows its card (pointer hover and keyboard focus still win)
-  const towers: TowerRef[] = ctx.lattice.cells.filter((c) => c.agent && !c.moon).map((c) => ({ name: c.agent!.name, top: new Vector3() }));
+  const towers: TowerRef[] = ctx.lattice.cells.filter((c) => c.agent).map((c) => ({ name: c.agent!.name, top: new Vector3() }));
+  const towerByName = new Map(towers.map((t) => [t.name, t]));
   const fwd = new Vector3();
   let ahead: string | null = null;
+  // the steps: every journey's captions and chips are in the page; the active journey's current one is shown
+  const captions = scene.q('[data-caption-step]').map((el) => ({ el, j: Number(el.dataset.j), b: el.dataset.b === undefined ? -1 : Number(el.dataset.b) }));
+  const doneCaptions = scene.q('[data-caption-done]').map((el) => ({ el, j: Number(el.dataset.j) })); // the closing line, once the gates have passed
+  const gateTags = scene.q('[data-gate-tag]').map((el) => ({ el, j: Number(el.dataset.j), name: el.dataset.gateTag!, x: NaN, y: NaN })); // the gates' name tags, over their towers while their comets land
+  const taskTags = scene.q('[data-task-tag]').map((el) => ({ el, j: Number(el.dataset.j) })); // the task's name, on screen for the whole walk
+  const chipLists = scene.q('[data-steps]').map((el) => ({
+    el, j: Number(el.dataset.steps),
+    chips: [...el.querySelectorAll<HTMLElement>('[data-step]')].map((c) => ({ ring: c.querySelector<HTMLElement>('.rail-now')!, fill: c.querySelector<HTMLElement>('.rail-fill'), done: c.querySelector<HTMLElement>('.rail-done')!, b: Number(c.dataset.b), last: -1 })),
+  }));
+  const EPS = 0.012; // the crossfade between two steps, in route parameter (and in Cells progress for the gates)
+  const win = (x: number, a: number, b: number) => range(x, a - EPS, a + EPS) * (1 - range(x, b - EPS, b + EPS));
   const look = createWalkLook(); // drag to look around while walking
-  const bandOf = new Map(ctx.agents.map((a) => [a.name, a.band as string]));
-  const legend = new Map(scene.q('[data-legend]').map((e) => [e.dataset.legend!, e.querySelector<HTMLElement>('.chip-ring')!]));
+  let seekTo: ((bi: number) => void) | null = null;
+  const onSeek = (e: MouseEvent) => {
+    const btn = e.target instanceof Element ? e.target.closest<HTMLElement>('[data-seek]') : null;
+    if (btn) seekTo?.(Number(btn.dataset.seek));
+  };
+  scene.root?.addEventListener('click', onSeek);
 
   return {
     enter() {
@@ -37,30 +53,89 @@ export function createCells(ctx: WorldCtx): Chapter {
       view.lookYaw = look.yaw;
       view.lookPitch = look.pitch;
       const walking = view.walk > 0.05;
-      if (view.walk > 0.85) { // cards only once the camera is on the ground (not mid-dive)
-        towers.forEach((t) => ctx.cellTop(t.name, t.top));
+      const route = ctx.walkRoute;
+      const uNow = (view.walkCp - walkCfg.uFrom) / (walkCfg.uTo - walkCfg.uFrom); // the route parameter of the camera (the damped progress), unclamped: negative before the launch
+      // the steps: where each step's window is in the journey (a stop's hold is shared by the steps shown at it; the gates run together once the camera has risen)
+      const jr = routing.journeys[view.journey];
+      const stops = route?.stops;
+      const windowOf = (bi: number): [number, number] => { // [start, end] in route parameter, or in Cells progress for a gate
+        const b = jr.beats[bi];
+        if (b.stop < 0) return [aerial.captionFrom, aerial.doneFrom];
+        const s = stops![b.stop], slot = (s.u1 - s.u0) / b.of, w0 = b.k === 0 && b.stop > 0 ? stops![b.stop - 1].u1 : s.u0 + slot * b.k; // (a stop's first step shows from the moment the comet leaves for it: the flight says where it is going)
+        return [bi === 0 ? -1 : w0, s.u0 + slot * (b.k + 1)];
+      };
+      const posOf = (bi: number) => (jr.beats[bi].stop < 0 ? p : uNow);
+      const weightOf = (bi: number) => { const [a, b] = windowOf(bi); return win(posOf(bi), a, b); };
+      if (stops && jr) {
+        seekTo = (bi: number) => { // a rail node: jump the journey to the start of that step (a route step: where its window opens, or the arrival for the first; a gate: its caption)
+          const b = jr.beats[bi];
+          if (!b) return;
+          const p0 = b.stop < 0 ? aerial.captionFrom : walkCfg.uFrom + Math.max(windowOf(bi)[0], stops[0].u0) * (walkCfg.uTo - walkCfg.uFrom);
+          ctx.scroll.seek(2, p0 + 0.002);
+        };
+        const gateBeat = jr.beats.findIndex((b) => b.stop < 0);
+        captions.forEach((c) => setOpacity(c.el, c.j !== view.journey ? 0 : weightOf(c.b >= 0 ? c.b : gateBeat)));
+        const doneFrom = jr.gates.length ? aerial.doneFrom : walkCfg.uTo + EPS; // (a task with no gate has nothing to say between its last step and the end)
+        doneCaptions.forEach((c) => setOpacity(c.el, c.j !== view.journey ? 0 : range(p, doneFrom - EPS, doneFrom + EPS)));
+        taskTags.forEach((t) => setOpacity(t.el, t.j === view.journey ? 1 : 0));
+        const tagIn = range(p, aerial.fanFrom - EPS, aerial.fanFrom + EPS) * (1 - range(p, aerial.doneFrom - EPS, aerial.doneFrom)); // (from the moment the comets leave, until the closing line)
+        gateTags.forEach((t) => {
+          const on = t.j === view.journey ? tagIn : 0;
+          setOpacity(t.el, on);
+          if (on <= 0.01 || !ctx.cellTop(t.name, tmp)) return;
+          tmp.project(ctx.camera);
+          const x = Math.round(((tmp.x + 1) / 2) * window.innerWidth * 2) / 2, y = Math.round(((1 - tmp.y) / 2) * window.innerHeight * 2) / 2;
+          if (x !== t.x || y !== t.y) { t.x = x; t.y = y; t.el.style.transform = y < 150 ? `translate3d(${x}px, ${y + 40}px, 0) translate(-50%, 0)` : `translate3d(${x}px, ${y - 48}px, 0) translate(-50%, -100%)`; } // (over the tower, or under it when there is no room below the nav)
+        });
+        chipLists.forEach((l) => {
+          setOpacity(l.el, l.j === view.journey ? 1 : 0);
+          const off = l.j !== view.journey;
+          if (l.el.inert !== off) l.el.inert = off; // (the rails of the other tasks are stacked under this one: they must not take its clicks or focus)
+          if (l.j !== view.journey) return;
+          l.chips.forEach((c) => {
+            const [a, b] = windowOf(c.b), xv = posOf(c.b);
+            setOpacity(c.ring, win(xv, a, b));
+            setOpacity(c.done, range(xv, a - EPS, a + EPS)); // (reached)
+            const v = Math.round(Math.min(1, Math.max(0, (xv - Math.max(a, 0)) / (b - Math.max(a, 0)))) * 500) / 500;
+            if (c.fill && v !== c.last) { c.last = v; c.fill.style.transform = `scaleX(${v})`; } // the line on to the next step fills as this one runs
+          });
+        });
+      }
+      // the aerial: the camera rises to the whole-globe view for the gates and returns for the Proof pull-back
+      view.overview = range(p, aerial.overviewIn[0], aerial.overviewIn[1]) * (1 - range(p, aerial.overviewOut[0], aerial.overviewOut[1]));
+      ctx.comet.update(route, uNow, view.walk, view.walkCp);
+      const stop = route?.stops[view.walkStop];
+      const dwelling = stop && uNow >= stop.u0 && uNow <= stop.u1 ? stop.name : null; // holding at this tower
+      if (view.walk > 0.85) { // the card of the tower the comet is heading for (or resting on), once the camera is in the low orbit (not mid-dive), unless you have turned your head away from it
+        const lookedAway = Math.abs(look.yaw) > 0.35 || Math.abs(look.pitch) > 0.35;
+        const stopTower = stop && !lookedAway ? towerByName.get(stop.name) : undefined;
+        if (stopTower) ctx.cellTop(stopTower.name, stopTower.top);
         fwd.set(0, 0, -1).applyQuaternion(ctx.camera.quaternion);
-        ahead = nearestTowerAhead(towers, ctx.camera.position, fwd, ctx.lattice.radius, ahead);
+        ahead = stopTower ? nearestTowerAhead([stopTower], ctx.camera.position, fwd, ctx.lattice.radius, ahead) : null;
       } else ahead = null;
       const { name, byKeyboard, byWalk } = pick.update({ strict: walking, forced: ahead });
       if (name && ctx.cellTop(name, tmp)) {
-        ctx.hilite(name, byWalk ? 0.6 : 1);
+        ctx.hilite(name, byWalk ? (name === dwelling ? 1 : 0.6) : 1);
         if (byKeyboard && !walking) { // a keyboard-focused cell may be off screen: ease the camera toward it (never on the walk: there the camera is the walker's, and focus only shows the card and highlight). A hovered one never moves the camera.
           view.focus.copy(tmp);
           view.focusWeight = motion.camera.hoverBias;
         }
       }
-      const band = name ? bandOf.get(name) : null;
-      legend.forEach((ring, b) => setOpacity(ring, b === band ? 1 : 0));
     },
     exit() {
+      ctx.comet.clear();
       pick.disable();
       look.disable();
       view.lookYaw = view.lookPitch = 0;
-      legend.forEach((ring) => setOpacity(ring, 0));
+      captions.forEach((c) => setOpacity(c.el, 0));
+      doneCaptions.forEach((c) => setOpacity(c.el, 0));
+      taskTags.forEach((t) => setOpacity(t.el, 0));
+      gateTags.forEach((t) => setOpacity(t.el, 0));
+      chipLists.forEach((l) => setOpacity(l.el, 0));
       scene.fade(0);
     },
     dispose() {
+      scene.root?.removeEventListener('click', onSeek);
       pick.dispose();
       look.disable();
     },

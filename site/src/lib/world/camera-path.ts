@@ -1,6 +1,6 @@
 import { Vector3 } from 'three';
 import type { Lattice } from './honeycomb';
-import { motion } from './motion-config';
+import { motion, loopFrom } from './motion-config';
 
 // One continuous camera for the whole site: the camera ORBITS a still globe (origin, core cell on +Z, moon to +X).
 //  - ONE position curve: a natural cubic spline (C2) through evenly spaced control points, so every chapter boundary is
@@ -242,9 +242,13 @@ const unwarpCells = (sd: number): number => { // design vh -> Cells progress
   return (lo + (target - WARP[lo]) / (WARP[hi] - WARP[lo])) / WARP_N;
 };
 
+// The finale is laid out longer than its design 400vh: the last part is the homecoming (motion-config LOOP_VH), where the camera path is already at its end (the homecoming blend
+// in world.ts takes over). Progress up to loopFrom is the old finale, so every part of it keeps exactly the camera and the speed per scroll it had.
+const finaleDesign = (p: number) => Math.min(1, p / loopFrom);
+
 export function scrollToProgress(chapter: number, chapterProgress: number): number {
   const p = Math.min(1, Math.max(0, chapterProgress));
-  const S = SCROLL_AT[chapter] + (chapter === 2 ? warpCells(p) : p * RUNWAY[chapter]);
+  const S = SCROLL_AT[chapter] + (chapter === 2 ? warpCells(p) : chapter === 4 ? finaleDesign(p) * RUNWAY[4] : p * RUNWAY[chapter]);
   return gOfArc(scrollArcAt(S));
 }
 
@@ -259,7 +263,7 @@ export function progressOfG(g: number): { chapter: number; chapterProgress: numb
   const S = (lo + hi) / 2;
   let ch = 0;
   while (ch < RUNWAY.length - 1 && S >= SCROLL_AT[ch + 1]) ch++;
-  return { chapter: ch, chapterProgress: ch === 2 ? unwarpCells(S - SCROLL_AT[2]) : Math.min(1, Math.max(0, (S - SCROLL_AT[ch]) / RUNWAY[ch])) };
+  return { chapter: ch, chapterProgress: ch === 2 ? unwarpCells(S - SCROLL_AT[2]) : Math.min(1, Math.max(0, (S - SCROLL_AT[ch]) / RUNWAY[ch])) * (ch === 4 ? loopFrom : 1) };
 }
 
 export function createCameraPath(lattice: Lattice): CameraPath {

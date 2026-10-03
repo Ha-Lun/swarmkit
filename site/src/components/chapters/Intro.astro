@@ -1,5 +1,8 @@
 ---
+// The landing screen. With the world running it asks which task to follow (the routing examples, pre-rendered): a button starts the story with that task, scrolling starts it with the
+// suggested one (lit; the telling order picks it, intro.ts).
 import { motion } from '../../lib/world/motion-config';
+import { examples } from '../../content/routing';
 ---
 <section id="top" class="chapter" style={`--runway:${motion.runway.intro}`} aria-labelledby="intro-title">
   <div class="scene" data-scene>
@@ -9,9 +12,17 @@ import { motion } from '../../lib/world/motion-config';
         <p class="intro-tag motion-rise-late">A specialist agent swarm for Claude Code, OpenCode and Antigravity, built from one source.</p>
       </div>
     </div>
-    <div class="scene-foot" data-fx>
+    <div class="scene-foot scene-foot-stack" data-fx>
+      <div class="start-pick world-only" role="group" aria-labelledby="start-pick-title">
+        <p id="start-pick-title" class="start-pick-title">Choose a task to follow through the swarm</p>
+        <div class="replays start-tasks">
+          {examples.map((e, i) => (
+            <button type="button" class="btn" data-start={i}><i class="btn-ring" data-fx aria-hidden="true"></i>{e.task}<span class="btn-tier">{e.tier}</span></button>
+          ))}
+        </div>
+      </div>
       <a href="#hive" class="cue">
-        <span>Scroll</span>
+        <span><span class="world-only">Or </span>scroll to start</span>
         <svg class="motion-cue" width="12" height="18" viewBox="0 0 16 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
           <path d="M8 2v18M2 14l6 6 6-6" />
         </svg>

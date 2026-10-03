@@ -10,7 +10,7 @@ import { createCellNormalMaterial } from './cell-normal';
 import { buildSphere, type Sphere } from './sphere';
 import { terrainField } from './terrain';
 import type { Agent } from '../agents';
-import type { Band } from '../../content/tiers';
+import { MAIN_AGENT, type Band } from '../../content/tiers';
 
 // The lattice is two Goldberg spheres (sphere.ts): the globe GP(5,0) and a small moon GP(2,0), both built the same way.
 // Every cell is a flush stone panel: its footprint is the cell's own spherical-Voronoi polygon inset by half the seam, so
@@ -28,8 +28,8 @@ const SEAM_DEFAULT = 0.085;
 
 // Agent panels are towers with a polished pale cap, standing fixed above every rod. Bands read apart by height (a tier step each: core tallest,
 // then t1, domain, gate) and by a small tone step (a fraction of the stone tone, brightest at the core): no colour, no inlay, no ring.
-const TOWER_RANK: Record<Band, number> = { core: 3, t1: 2, domain: 1, gate: 0, satellite: 0 };
-const BAND_STEP: Record<Band, number> = { core: 0.1, t1: 0.075, domain: 0.05, gate: 0.025, satellite: 0 };
+const TOWER_RANK: Record<Band, number> = { main: 3, core: 3, t1: 2, domain: 1, gate: 0, satellite: 0 };
+const BAND_STEP: Record<Band, number> = { main: 0.1, core: 0.1, t1: 0.075, domain: 0.05, gate: 0.025, satellite: 0 };
 
 export interface Cell {
   /** base surface point of the panel (on its sphere) */
@@ -184,8 +184,10 @@ export function layoutLattice(agents: Agent[]): Lattice {
 
   const slotOwner = new Map<number, Agent>();
   let nextRing = 0;
-  for (const band of ['core', 't1', 'domain', 'gate'] as Band[]) {
-    const members = agents.filter((a) => a.band === band).sort((a, b) => a.name.localeCompare(b.name));
+  // the main agent (your session, not an agent file) holds the core cell; the optional orchestrator shares the first ring with the fast-work agents
+  const all = [MAIN_AGENT, ...agents.filter((a) => a.name !== MAIN_AGENT.name)];
+  for (const group of [['main'], ['core', 't1'], ['domain'], ['gate']] as Band[][]) {
+    const members = all.filter((a) => group.includes(a.band)).sort((a, b) => group.indexOf(a.band) - group.indexOf(b.band) || a.name.localeCompare(b.name));
     if (!members.length) continue;
     const rings: number[] = [];
     let cap = 0;
@@ -635,8 +637,11 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
     moonFloor?.position.copy(lattice.moon.pos);
   };
   const whiteBase = material.color.clone();
-  const coreBase = coreMat.color.clone();
-  let coreScale = 1;
+  let coreScale = 1, coreGlow = 1, coreDim = 0; // the floor's glow: walk/altitude scale, how much of the lattice is up (growth), the proof-chapter dim
+  const coreTmp = new Color(), inkColor = new Color(palette.ink);
+  // The floor is only meant to be seen through the seams. With the tiles missing (the intro's first rings, the finale's break-up, the homecoming) it would be a flat bright disc, so its glow
+  // follows the lattice's growth: dark ink until most of the tiles are up.
+  const applyCore = () => coreMat.color.copy(coreTmp.copy(inkColor).lerp(coreColorOf(look.core), coreGlow).multiplyScalar((1 - 0.65 * coreDim) * coreScale));
 
   return {
     object,
@@ -646,9 +651,9 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
     lattice,
     material,
     uniforms: cellMat.uniforms,
-    syncLook() { cellMat.sync(look.cell); coreMat.color.copy(coreColorOf(look.core)).multiplyScalar(coreScale); },
+    syncLook() { cellMat.sync(look.cell); applyCore(); },
     setRadial(k) { cellMat.uniforms.uRadial.value = k; },
-    setCoreScale(k) { coreScale = k; lastDim = NaN; coreMat.color.copy(coreColorOf(look.core)).multiplyScalar(k); },
+    setCoreScale(k) { coreScale = k; applyCore(); },
     setCellState(i, bright, lf) {
       const s = slotOf.get(i);
       if (!s) return;
@@ -674,6 +679,7 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
       if (timed) lastTime = time;
       if (timed && moving) stepMoon(time, moonWeight); // (a second call in the same frame, e.g. the dissolve's other half, leaves the pose alone)
       if (growth !== lastGrowth || dirty || moving) {
+        if (growth !== lastGrowth) { const t = Math.min(1, Math.max(0, (growth - 0.55) / 0.45)); coreGlow = t * t * (3 - 2 * t); applyCore(); }
         lastGrowth = growth;
         dirty = false;
         kinds.forEach((kd) => {
@@ -709,7 +715,8 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
       if (dim !== lastDim) {
         lastDim = dim;
         material.color.copy(whiteBase).multiplyScalar(1 - 0.65 * dim);
-        coreMat.color.copy(coreBase).multiplyScalar((1 - 0.65 * dim) * coreScale); // the core follows the proof-chapter dim like the rest of the stone
+        coreDim = dim; // the core follows the proof-chapter dim like the rest of the stone
+        applyCore();
       }
     },
     dispose() {

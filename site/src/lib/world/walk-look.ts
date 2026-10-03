@@ -20,7 +20,7 @@ export interface WalkLook {
 }
 
 /** `ignore` = selector of things a drag must not start on (links, buttons, the agent list, the bench sidebar) */
-export function createWalkLook(ignore = 'a, button, input, select, textarea, [data-agent-list], .cell-card, #side, #bar'): WalkLook {
+export function createWalkLook(ignore = 'a, button, input, select, textarea, dialog, [data-agent-list], .cell-card, #side, #bar'): WalkLook {
   let tyaw = 0, tpitch = 0, px = 0, py = 0, pid = -1, on = false, live = false;
   const look: WalkLook = {
     yaw: 0, pitch: 0, dragging: false,
