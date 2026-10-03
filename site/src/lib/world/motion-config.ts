@@ -119,7 +119,9 @@ export const walkCfg = {
   rate: 8, dwellSec: 4, coreSec: 6, legStretch: 3, turnSecQuarter: 1.2, turnMinSec: 0.8, turnMaxSec: 2.8,
   /** while it faces a tower the view zooms to holdFov and tips up so the cap sits capY of the way from the centre to the top edge of the frame (never above capUpMax degrees);
    *  zoomSec is how long that zoom and tip take to ease in and out (a gaussian over the facing weight, in seconds) */
-  holdFov: 62, capY: 0.45, capUpMax: 40, zoomSec: 0.7,
+  /** the task's comet (journey-comet.ts): it leaves a tower this long before the walker's hold ends and lands on the next cap this long before the walker stops */
+  cometLeadSec: 1, cometArriveSec: 1, cometHover: 2.4, gazeYawDeg: 40, // (hover: world units above the cap's centre while it holds; the walker looks up at the cap, so lower is hidden behind the tower's near edge)
+  holdFov: 62, capY: 0.3, capUpMax: 60, zoomSec: 0.7,
   /** the walker stops this many world units short of the cell next to a tower, so the whole pillar is in frame (walk.ts) */
   holdBack: 2.2,
   /** seconds over which the street heading is rounded (the camera does not whip round cell corners) */

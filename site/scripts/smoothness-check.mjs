@@ -120,7 +120,7 @@ for (const jn of journeysOf(examples, gates.map((g) => g.agent))) {
   const i0 = poses.findIndex((p) => p.cp >= walkCfg.uFrom && p.w > 0), i1 = poses.length - 1 - [...poses].reverse().findIndex((p) => p.cp <= walkCfg.uTo && p.w > 0);
   const sliceMax = (name, a, b, d1, unit, max) => { if (b - a < 4) return; const m = Math.max(...d1.slice(a, b)), ok = m <= max; if (!ok) fails.push(`walk (${jn.tier}) ${name}: step max ${m.toExponential(2)} (limit ${max})`); console.log(`  ${name.padEnd(12)} max step ${m.toExponential(2)} ${unit}/${HW}vh (limit ${max.toFixed(4)})   ${ok ? 'PASS' : 'FAIL'}`); };
   if (i0 < 0 || i1 >= poses.length || i1 <= i0) { fails.push('walk: no samples on the route'); }
-  const degMax = 135, fovMax = 20;
+  const degMax = 140, fovMax = 20;
   console.log(`  (route: ${route.length.toFixed(0)} route units = ${routeSec.toFixed(0)} s at ${walkCfg.rate}/s, ${vhPerSec.toFixed(1)} vh/s; turns limited to ${degMax} deg/s = ${per01vh((degMax * Math.PI) / 180).toFixed(4)} rad/${HW}vh)`);
   stat('orientation', d1a, d2a, 'rad', Infinity, 4e-3); // (the spike test over the whole journey; the step limits follow per part)
   { const k = d2a.indexOf(Math.max(...d2a)) + 1, q = poses[k]; console.log(`    (largest orientation 2nd difference at ${q.S.toFixed(1)}vh, Cells progress ${q.cp.toFixed(4)}, walk weight ${q.w.toFixed(3)})`); }

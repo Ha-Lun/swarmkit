@@ -20,6 +20,9 @@ export interface WalkParams {
   pitchDeg: number;
 }
 
+/** What the walker's gaze follows: a world point and a weight. */
+export interface WalkAim { pos: Vector3; w: number }
+
 export interface WalkStop {
   name: string;
   band: string;
@@ -47,7 +50,8 @@ export interface WalkRoute {
   /** total route parameter length in route units (walkCfg.rate of them pass per second under autoplay): the streets stretched by walkCfg.legStretch, plus the holds */
   length: number;
   stops: WalkStop[];
-  sample(u: number, p: WalkParams, out?: WalkPose): WalkPose;
+  /** `aim` = the task's comet (world point) and how much the view follows it (0..1): the view tips up to keep it in frame, never looking lower than the walking pitch. Without it the view is the route's own (headAim). */
+  sample(u: number, p: WalkParams, out?: WalkPose, aim?: WalkAim): WalkPose;
   /** smoothed column top (above the sphere) in the direction `dir` */
   groundTop(dir: Vector3): number;
   /** unit direction of the route at parameter u (0..1), written to `out` */
@@ -400,7 +404,7 @@ export function createWalkRoute(lattice: Lattice, visit: WalkStopSpec[]): WalkRo
     return env[i] + (env[i + 1] - env[i]) * (x - i);
   };
 
-  // ---- facing a tower: the angle the view tips to so the cap sits capY of the way up the frame, from the stand point at the middle of the hold ----
+  // ---- facing a tower: the angle the view tips to so the comet above it sits capY of the way up the frame, from the stand point at the middle of the hold ----
   // Blended in with the (blurred) facing weight rather than looked up per sample, so there is no switch of target where one tower's hold hands over to the next.
   const headAim: number[] = [];
   {
@@ -412,7 +416,7 @@ export function createWalkRoute(lattice: Lattice, visit: WalkStopSpec[]): WalkRo
       const dw = segs[2 * i + 1], um = (dw.s0 + (dw.s1 - dw.s0) / 2) / total;
       place(um, dv, fw);
       const tc = cells[t.cell];
-      v.copy(tc.normal).multiplyScalar(R + tc.base + walkCfg.towerGrow).addScaledVector(dv, -(R + envAt(um) + walkCfg.eye));
+      v.copy(tc.normal).multiplyScalar(R + tc.base + walkCfg.towerGrow + walkCfg.cometHover).addScaledVector(dv, -(R + envAt(um) + walkCfg.eye));
       const elev = Math.asin(clamp(v.dot(dv) / Math.max(1e-6, v.length()), -1, 1));
       return clamp(elev - alpha, -pitch0, (walkCfg.capUpMax * Math.PI) / 180);
     });
@@ -432,21 +436,43 @@ export function createWalkRoute(lattice: Lattice, visit: WalkStopSpec[]): WalkRo
       built.forEach((c) => c.cells.forEach((i) => seen.add(i)));
       return [...seen];
     },
-    sample(u, p, out = fresh()) {
+    sample(u, p, out = fresh(), aim) {
       const stop = place(u, dir, fwd);
       const ground = p.ground === 'smooth' ? groundTop(dir) : envAt(u);
       out.ground = ground;
       out.position.copy(dir).multiplyScalar(R + ground + p.eye);
       out.up.copy(dir);
       out.forward.copy(fwd);
+      // the gaze follows the comet sideways too while walking (up to walkCfg.gazeYawDeg, fading out over the last stretch before it is overhead): at a hold the heading already faces the tower it hovers over
+      if (aim && aim.w > 1e-3) {
+        tmp.copy(aim.pos).sub(out.position);
+        tmp.addScaledVector(dir, -tmp.dot(dir));
+        const hl = tmp.length();
+        if (hl > 1e-3) {
+          tmp.divideScalar(hl);
+          const left = tmp2.crossVectors(dir, fwd);
+          const ang = Math.atan2(tmp.dot(left), tmp.dot(fwd));
+          const near = clamp((hl - 0.5) / 2.5, 0, 1), kk = aim.w * (1 - tabAt(headZoom, u)) * near * near * (3 - 2 * near);
+          const yaw = clamp(ang, -(walkCfg.gazeYawDeg * Math.PI) / 180, (walkCfg.gazeYawDeg * Math.PI) / 180) * kk;
+          fwd.multiplyScalar(Math.cos(yaw)).addScaledVector(left, Math.sin(yaw));
+          out.forward.copy(fwd);
+        }
+      }
       right.crossVectors(fwd, dir).normalize();
       back.copy(fwd).negate();
       qBase.setFromRotationMatrix(m.makeBasis(right, dir, back));
       // facing a tower: zoom in and tip the view up (see headAim); never looking lower than the walking pitch
       const zw = tabAt(headZoom, u);
       const holdFov = Math.min(p.fov, walkCfg.holdFov);
-      const pitch = ((p.pitchDeg * Math.PI) / 180) * (1 - zw) - tabAt(headAim, u);
+      let pitch = ((p.pitchDeg * Math.PI) / 180) * (1 - zw) - tabAt(headAim, u);
       const fov = p.fov + (holdFov - p.fov) * zw;
+      if (aim && aim.w > 1e-3) { // follow the comet: tip up until it sits capY of the way up the frame (at a hold it is the same point headAim frames)
+        tmp.copy(aim.pos).sub(out.position);
+        const elev = Math.asin(clamp(tmp.dot(dir) / Math.max(1e-6, tmp.length()), -1, 1));
+        const alpha = Math.atan(walkCfg.capY * Math.tan((fov * Math.PI) / 360));
+        const live = -clamp(elev - alpha, -(p.pitchDeg * Math.PI) / 180, (walkCfg.capUpMax * Math.PI) / 180);
+        pitch += (live - pitch) * aim.w;
+      }
       qPitch.setFromAxisAngle(right, -pitch);
       out.quaternion.copy(qPitch).multiply(qBase);
       out.fov = fov;
@@ -610,11 +636,11 @@ const _walkScratch: WalkPose = { position: new Vector3(), quaternion: new Quater
  */
 export function walkCameraPose(
   route: WalkRoute, base: Quaternion, splinePos: Vector3, splineTarget: Vector3, w: number, chapterProgress: number,
-  cfg: { eye: number; fov: number; pitchDeg: number }, outPos: Vector3, outQuat: Quaternion, walker: WalkPose = _walkScratch,
+  cfg: { eye: number; fov: number; pitchDeg: number }, outPos: Vector3, outQuat: Quaternion, walker: WalkPose = _walkScratch, aim?: WalkAim,
 ): number {
   _lookM.lookAt(splinePos, splineTarget, _up); // the same orientation Object3D.lookAt gives a camera
   _qSpline.setFromRotationMatrix(_lookM);
-  route.sample(walkUOf(chapterProgress), cfg, walker);
+  route.sample(walkUOf(chapterProgress), cfg, walker, aim);
   return blendWalkPose(splinePos, _qSpline, 40, walker.position, walker.quaternion, walker.fov, base, w, outPos, outQuat, splineTarget, walker.up);
 }
 

@@ -80,8 +80,10 @@ export function createPick(ctx: WorldCtx, root: HTMLElement | null): Pick {
     let dim = size.get(card);
     if (!dim) { dim = [card.offsetWidth, card.offsetHeight]; size.set(card, dim); }
     const w = window.innerWidth, h = window.innerHeight;
-    const x = Math.min(w - EDGE - dim[0] / 2, Math.max(EDGE + dim[0] / 2, ((tmp.x + 1) / 2) * w));
-    const y = Math.min(h - EDGE, Math.max(NAV_H + dim[1], ((1 - tmp.y) / 2) * h - CARD_GAP));
+    // on the walk the card sits beside the tower (the task's comet hovers above it), vertically centred on the cap; otherwise it stands on the cell
+    const cx = ((tmp.x + 1) / 2) * w, cy = ((1 - tmp.y) / 2) * h;
+    const x = Math.min(w - EDGE - dim[0] / 2, Math.max(EDGE + dim[0] / 2, strict ? cx + dim[0] / 2 + 0.12 * w : cx));
+    const y = Math.min(h - EDGE, Math.max(NAV_H + dim[1], strict ? cy + dim[1] / 2 : cy - CARD_GAP));
     card.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -100%)`;
   }
 

@@ -9,7 +9,7 @@ import type { Agent } from '../agents';
 import type { ScrollState } from '../scroll';
 import { createCameraPath, progressOfG, scrollToProgress, SEGMENTS } from './camera-path';
 import { walkStopsOf } from '../journeys';
-import { applyWalkLook, applyWalkSway, createWalkRoute, createWalkSway, horizonFog, walkBlendBase, walkCameraPose, type WalkPose, type WalkRoute } from './walk';
+import { applyWalkLook, applyWalkSway, createWalkRoute, createWalkSway, horizonFog, walkBlendBase, walkCameraPose, type WalkAim, type WalkPose, type WalkRoute } from './walk';
 import { range, sceneAlpha } from './scene-dom';
 import { accentCandidates, look, readPalette, type Palette } from './config';
 import { cellTopOf, createHoneycomb, layoutLattice, type Honeycomb } from './honeycomb';
@@ -121,7 +121,7 @@ export function createWorld(opts: WorldOptions): World {
   const path = createCameraPath(lattice);
 
   const accent = readAccent();
-  const flows: Flow[] = Array.from({ length: 4 }, () => createFlow(accent));
+  const flows: Flow[] = Array.from({ length: 5 }, () => createFlow(accent)); // 0-3: the Hive's comets (the task, then the three gates); 4: the task's comet on the ground (journey-comet.ts)
   // GTAO's G-buffer content: the panels' twin plus the comets' (so the AO of the stone behind a comet is not multiplied onto it)
   const aoGroupsOf = (h: Honeycomb) => [...(h.aoGroup ? [h.aoGroup] : []), ...flows.map((f) => f.packet.aoGroup)];
   flows.forEach((f) => globe.add(f.packet.group));
@@ -133,7 +133,7 @@ export function createWorld(opts: WorldOptions): World {
   // ---- view + panel highlight ----
   const view: View = {
     growth: 1, dim: 0, dissolve: 0, canvasOpacity: 1, latticeVisible: true, swarmFade: 0, swarmAttract: 0,
-    focus: new Vector3(), focusWeight: 0, focusDrop: 0, overview: 0, loop: 0, journey: routing.defaultJourney, camFloor: 0, walk: 0, walkStop: 0, lookYaw: 0, lookPitch: 0,
+    focus: new Vector3(), focusWeight: 0, focusDrop: 0, overview: 0, loop: 0, journey: routing.defaultJourney, camFloor: 0, walk: 0, cometHead: new Vector3(), cometGaze: 0, walkCp: 0, walkStop: 0, lookYaw: 0, lookPitch: 0,
   };
   const hiTarget = new Map<number, number>();
   const hiCur = new Map<number, number>();
@@ -314,6 +314,7 @@ export function createWorld(opts: WorldOptions): World {
   };
   const wpose: WalkPose = { position: new Vector3(), quaternion: new Quaternion(), fov: 40, up: new Vector3(), forward: new Vector3(), ground: 0, stop: 0 };
   const sway = createWalkSway();
+  const wAim: WalkAim = { pos: view.cometHead, w: 0 }; // the walker's gaze follows the task's comet (journey-comet.ts)
   // the mean leg speed under autoplay, world units per second: the walker takes walkCfg.sway.hz steps a second at it
   const swayRef = () => walkCfg.rate / walkCfg.legStretch; // (a street is walked at 1 / legStretch world units per route unit)
   let walkCp = 0; // Cells chapter progress read back from the damped camera parameter
@@ -352,7 +353,8 @@ export function createWorld(opts: WorldOptions): World {
     if (walkW > 0.001) {
       // the walk: blend the spline pose into the walker's pose with the one walk weight (position, orientation and FOV on the same curve)
       buildWalk();
-      fov = walkCameraPose(walkRoute!, walkBase, pos, target, walkW, walkCp, walkCfg, camera.position, camera.quaternion, wpose);
+      wAim.pos = view.cometHead; wAim.w = view.cometGaze;
+      fov = walkCameraPose(walkRoute!, walkBase, pos, target, walkW, walkCp, walkCfg, camera.position, camera.quaternion, wpose, wAim);
       // drag-to-look, faded in with the weight so the dive and the rise are never turned (walk-look.ts)
       const lf = Math.min(1, Math.max(0, (walkW - 0.6) / 0.4));
       applyWalkLook(camera.quaternion, wpose.up, view.lookYaw, view.lookPitch, lf * lf * (3 - 2 * lf), camera.quaternion);
@@ -497,8 +499,8 @@ export function createWorld(opts: WorldOptions): World {
     const dp = progressOfG(g);
     walkW = walkWeight(dp.chapter, dp.chapterProgress);
     walkCp = dp.chapterProgress;
+    view.walkCp = dp.chapter < 2 ? 0 : dp.chapter > 2 ? 1 : dp.chapterProgress;
     view.walk = walkW;
-    if (walkW > 0.001) { flows.forEach((f) => (f.packet.group.visible = false)); rings.mesh.visible = false; } // the walker does not see the comet
     flows.forEach((f) => (f.packet.aoGroup.visible = f.packet.group.visible));
     // the seam glow dims under the walk camera so bloom does not bleed through the seams (honeycomb.ts also keeps it dark until the tiles are up)
     // ... and it follows the camera's altitude too: on the dive and the rise the camera passes close to the surface (and the core region), where full glow plus bloom washes the frame white
