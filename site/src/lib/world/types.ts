@@ -9,10 +9,9 @@ import type { Journey } from '../journeys';
 import type { JourneyComet } from './journey-comet';
 
 export interface RoutingNames {
-  /** the tasks the page can tell, one per routing example (journeys.ts), and the one it tells unless the viewer picks another (the T2 example) */
+  /** the tasks the page can tell, one per routing example (journeys.ts) */
   journeys: Journey[];
-  defaultJourney: number;
-  /** the order the tasks are told in, loop after loop, when nobody picks (indices into journeys; routing.ts tellingOrder) */
+  /** the order the tasks are told in, loop after loop, when nobody picks (indices into journeys; routing.ts tellingOrder): the first loop tells order[0] */
   order: number[];
 }
 

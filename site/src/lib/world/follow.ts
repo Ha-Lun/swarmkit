@@ -8,8 +8,6 @@ import { aerial, motion, walkCfg } from './motion-config';
 import { look } from './config';
 import { Chain, clearRadius, easeLeg, entryPoint, Route, Transfer } from './routes';
 import type { Cell, Lattice } from './honeycomb';
-
-const ZERO = new Vector3(), WORLD_UP = new Vector3(0, 1, 0);
 import type { WalkParams, WalkPose, WalkRoute, WalkStopSpec } from './walk';
 
 
@@ -33,12 +31,12 @@ export function createFollowRoute(lattice: Lattice, visit: WalkStopSpec[]): Walk
   const clear = clearRadius(lattice);
   const moonClear = cells.reduce((m, c) => (c.moon ? Math.max(m, c.bodyRadius + c.reach) : m), 0) + 0.1;
   const points = [entry, ...caps];
-  const outward = (i: number, p: Vector3) => p.clone().sub(onMoon[i] ? moonC : ZERO).normalize(); // a route point's direction away from its body's centre
+  const outward = (i: number, p: Vector3) => (onMoon[i] ? p.clone().sub(moonC) : p.clone()).normalize(); // a route point's direction away from its body's centre
   /** one leg per hop: on the globe, on the moon (about its centre), or across */
   const legsOf = (pts: Vector3[], margin: number, lift: number) => pts.slice(1).map((b, k) => {
     const a = pts[k];
-    if (onMoon[k] && onMoon[k + 1]) return new Route([a, b], moonClear + margin, moonC);
-    if (!onMoon[k] && !onMoon[k + 1]) return new Route([a, b], clear + margin);
+    if (onMoon[k] && onMoon[k + 1]) return new Route(a, b, moonClear + margin, moonC);
+    if (!onMoon[k] && !onMoon[k + 1]) return new Route(a, b, clear + margin);
     return new Transfer(a, outward(k, a), b, outward(k + 1, b), lift);
   });
   const comet = new Chain(legsOf(points, 0, walkCfg.transferLift));
@@ -92,6 +90,7 @@ export function createFollowRoute(lattice: Lattice, visit: WalkStopSpec[]): Walk
 
   const stops = picked.map((c, i) => ({ name: visit[i].name, band: c.agent!.band as string, u0: arr[i] / total, u1: tD[i] / total }));
   const fresh = (): WalkPose => ({ position: new Vector3(), quaternion: new Quaternion(), fov: 55, up: new Vector3(), forward: new Vector3(), stop: 0 });
+  const WORLD_UP = new Vector3(0, 1, 0);
   const m = new Matrix4(), pos = new Vector3(), tgt = new Vector3(), f = new Vector3();
 
   return {

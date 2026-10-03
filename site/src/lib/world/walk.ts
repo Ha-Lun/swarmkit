@@ -81,13 +81,13 @@ export function blendWalkPose(
   else outPos.copy(dA).multiplyScalar(Math.sin((1 - w) * ang) / sin).addScaledVector(dB, Math.sin(w * ang) / sin);
   outPos.normalize().multiplyScalar(rA + (rB - rA) * w);
   // The spline half of the orientation blend keeps looking at the spline's own target (a point on the globe) from where the camera now is, so the view stays on the globe as the
-  // camera descends instead of sweeping off into empty sky (the spline's orientation, from a position it has left, no longer points at it). The walker's half takes over late (smootherstep).
+  // camera descends instead of sweeping off into empty sky (the spline's orientation, from a position it has left, no longer points at it). The walker's half takes over across the descent (smoothstep).
   const sw = clamp((w - 0.12) / 0.86, 0, 1); // (the direction swing runs over nearly the whole descent, and with a plain smoothstep: the descent weight is itself eased, so a smootherstep on top of it doubles the ease and the turn bunches into a short, fast stretch in the middle)
   const s = sw * sw * (3 - 2 * sw);
   if (upB && targetA) {
     // Not a blend of two orientations (a rotation blend passes through views that look away from the globe altogether, half way down; a slerp flips where the two are nearly opposite) but
-    // one look-at whose view DIRECTION turns from "towards the spline's target, from where the camera now is" to the walker's heading (a normalised lerp, late in the descent: smootherstep over
-    // its lower part) and whose roll reference moves from the world's up to the walker's own frame: the walker's heading while the view is steep (looking straight down the surface normal, which
+    // one look-at whose view DIRECTION turns from "towards the spline's target, from where the camera now is" to the walker's heading (turned by a slerp across the descent, smoothstep in
+    // the descent weight) and whose roll reference moves from the world's up to the walker's own frame: the walker's heading while the view is steep (looking straight down the surface normal, which
     // the dive passes close to, any radial up is degenerate), the walker's up once it is level. At w = 0 it is the spline's own look-at and at w = 1 exactly the walker's orientation.
     _fA.copy(targetA).sub(outPos).normalize();
     _fB.set(0, 0, -1).applyQuaternion(quatB);

@@ -38,7 +38,7 @@ export function createJourneyComet(ctx: WorldCtx, flow: Flow, gateFlows: Flow[])
     // the gates this task triggers (journeys.ts): one comet each, from the last stop, leaving together and landing together
     gateNames = ctx.routing.journeys[ctx.view.journey]?.gates.filter((g) => ctx.cellIndex(g) >= 0).slice(0, gateFlows.length) ?? [];
     const from = capTop(names[names.length - 1]);
-    gateRoutes = gateNames.map((g) => new Route([from, capTop(g)], clearRadius(ctx.lattice)));
+    gateRoutes = gateNames.map((g) => new Route(from, capTop(g), clearRadius(ctx.lattice)));
     gateRoutes.forEach((r, i) => gateFlows[i].setRoute(r));
     gateFlows.slice(gateNames.length).forEach((f) => f.hide());
   }

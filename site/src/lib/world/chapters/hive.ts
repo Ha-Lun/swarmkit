@@ -1,4 +1,4 @@
-// Chapter 1. The task waits: the comet hovers (breathing) at its entry point above the globe, drawn by the journey comet (journey-comet.ts), and the three task buttons are the pick. Pressing one
+// Chapter 1. The task waits: the comet hovers (breathing) at its entry point above the globe, drawn by the journey comet (journey-comet.ts), and the task buttons are the pick. Pressing one
 // chooses that task's journey (view.journey) and starts it: the Cells chapter flies the same comet in, and the camera follows it. Without a pick the default journey plays when you scroll on.
 // The caption is pre-rendered; this chapter only writes its opacity, so nothing is inserted or removed mid-scroll.
 import { walkRamp } from '../motion-config';

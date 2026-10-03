@@ -70,6 +70,7 @@ export const examples: ExampleTask[] = [
 
 /** The order the page tells the tasks in when nobody picks one: the first loop flies to the moon, each loop after it tells the next (world.ts, at the wrap). */
 export const tellingOrder = ['Build a product page', 'Add an API route', 'Refactor auth', 'Fix a typo'];
+for (const t of tellingOrder) if (!examples.some((e) => e.task === t)) throw new Error(`routing.ts tellingOrder names unknown task "${t}"`);
 
 const names = new Set(facts.agents.map((a) => a.name));
 for (const n of ['explore', ...gates.map((g) => g.agent), ...examples.flatMap((e) => e.route.flatMap((r) => (r.agent ? [r.agent] : [])))]) {

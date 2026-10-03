@@ -135,7 +135,7 @@ export function createWorld(opts: WorldOptions): World {
   // ---- view + panel highlight ----
   const view: View = {
     growth: 1, dim: 0, dissolve: 0, canvasOpacity: 1, latticeVisible: true, swarmFade: 0, swarmAttract: 0,
-    focus: new Vector3(), focusWeight: 0, focusDrop: 0, overview: 0, loop: 0, journey: routing.defaultJourney, camFloor: 0, walk: 0, walkCp: 0, walkStop: 0, lookYaw: 0, lookPitch: 0,
+    focus: new Vector3(), focusWeight: 0, focusDrop: 0, overview: 0, loop: 0, journey: routing.order[0] ?? 0, camFloor: 0, walk: 0, walkCp: 0, walkStop: 0, lookYaw: 0, lookPitch: 0,
   };
   const hiTarget = new Map<number, number>();
   const hiCur = new Map<number, number>();
@@ -441,7 +441,7 @@ export function createWorld(opts: WorldOptions): World {
       if (ch > 0) chapters[ch - 1].fade(0);
       if (Math.abs(state.globalProgress - prevG) > 0.5) { // the scroll wrapped
         gSm = state.globalProgress; gVel = 0; loopSm = loopCamera(view.loop);
-        if (prevG > state.globalProgress && routing.order.length) view.journey = routing.order[(routing.order.indexOf(view.journey) + 1) % routing.order.length]; // the next loop tells the next task
+        if (prevG > 0.9 && state.globalProgress < 0.1) view.journey = routing.order[(routing.order.indexOf(view.journey) + 1) % routing.order.length]; // the next loop tells the next task
       }
       else loopSm += (loopCamera(view.loop) - loopSm) * (1 - Math.exp(-dt / SMOOTH_TIME));
       prevG = state.globalProgress;
