@@ -1,5 +1,5 @@
 // Chapter 2. The task's journey: the camera follows the comet in and from tower to tower (follow.ts), and the steps are called out while the comet is at them: the current step's caption shows and
-// its chip lights and fills (all pre-rendered from the routing data, only opacity and a scale are written). Hovering a cell, or focusing its entry in the hidden agent list, lifts and
+// its node on the rail lights, the line on to the next fills (all pre-rendered from the routing data, only opacity and a scale are written); a node jumps the journey to its step. Hovering a cell, or focusing its entry in the hidden agent list, lifts and
 // brightens it and shows its label card (pick.ts). No roster panels: the roster lives in the Reference section.
 import { Vector3 } from 'three';
 import { nearestTowerAhead, type TowerRef } from '../walk';
@@ -26,11 +26,17 @@ export function createCells(ctx: WorldCtx): Chapter {
   const taskTags = scene.q('[data-task-tag]').map((el) => ({ el, j: Number(el.dataset.j) })); // the task's name, on screen for the whole walk
   const chipLists = scene.q('[data-steps]').map((el) => ({
     el, j: Number(el.dataset.steps),
-    chips: [...el.querySelectorAll<HTMLElement>('[data-step]')].map((c) => ({ ring: c.querySelector<HTMLElement>('.chip-ring')!, fill: c.querySelector<HTMLElement>('.chip-fill')!, b: Number(c.dataset.b), last: -1 })),
+    chips: [...el.querySelectorAll<HTMLElement>('[data-step]')].map((c) => ({ ring: c.querySelector<HTMLElement>('.rail-now')!, fill: c.querySelector<HTMLElement>('.rail-fill'), done: c.querySelector<HTMLElement>('.rail-done')!, b: Number(c.dataset.b), last: -1 })),
   }));
   const EPS = 0.012; // the crossfade between two steps, in route parameter (and in Cells progress for the gates)
   const win = (x: number, a: number, b: number) => range(x, a - EPS, a + EPS) * (1 - range(x, b - EPS, b + EPS));
   const look = createWalkLook(); // drag to look around while walking
+  let seekTo: ((bi: number) => void) | null = null;
+  const onSeek = (e: MouseEvent) => {
+    const btn = e.target instanceof Element ? e.target.closest<HTMLElement>('[data-seek]') : null;
+    if (btn) seekTo?.(Number(btn.dataset.seek));
+  };
+  scene.root?.addEventListener('click', onSeek);
 
   return {
     enter() {
@@ -61,6 +67,12 @@ export function createCells(ctx: WorldCtx): Chapter {
       const posOf = (bi: number) => (jr.beats[bi].stop < 0 ? p : uNow);
       const weightOf = (bi: number) => { const [a, b] = windowOf(bi); return win(posOf(bi), a, b); };
       if (stops && jr) {
+        seekTo = (bi: number) => { // a rail node: jump the journey to the start of that step (a route step: where its window opens, or the arrival for the first; a gate: its caption)
+          const b = jr.beats[bi];
+          if (!b) return;
+          const p0 = b.stop < 0 ? aerial.captionFrom : walkCfg.uFrom + Math.max(windowOf(bi)[0], stops[0].u0) * (walkCfg.uTo - walkCfg.uFrom);
+          ctx.scroll.seek(2, p0 + 0.002);
+        };
         const gateBeat = jr.beats.findIndex((b) => b.stop < 0);
         captions.forEach((c) => setOpacity(c.el, c.j !== view.journey ? 0 : weightOf(c.b >= 0 ? c.b : gateBeat)));
         const doneFrom = jr.gates.length ? aerial.doneFrom : walkCfg.uTo + EPS; // (a task with no gate has nothing to say between its last step and the end)
@@ -77,12 +89,15 @@ export function createCells(ctx: WorldCtx): Chapter {
         });
         chipLists.forEach((l) => {
           setOpacity(l.el, l.j === view.journey ? 1 : 0);
+          const off = l.j !== view.journey;
+          if (l.el.inert !== off) l.el.inert = off; // (the rails of the other tasks are stacked under this one: they must not take its clicks or focus)
           if (l.j !== view.journey) return;
           l.chips.forEach((c) => {
             const [a, b] = windowOf(c.b), xv = posOf(c.b);
             setOpacity(c.ring, win(xv, a, b));
+            setOpacity(c.done, range(xv, a - EPS, a + EPS)); // (reached)
             const v = Math.round(Math.min(1, Math.max(0, (xv - Math.max(a, 0)) / (b - Math.max(a, 0)))) * 500) / 500;
-            if (v !== c.last) { c.last = v; c.fill.style.transform = `scaleX(${v})`; }
+            if (c.fill && v !== c.last) { c.last = v; c.fill.style.transform = `scaleX(${v})`; } // the line on to the next step fills as this one runs
           });
         });
       }
@@ -120,6 +135,7 @@ export function createCells(ctx: WorldCtx): Chapter {
       scene.fade(0);
     },
     dispose() {
+      scene.root?.removeEventListener('click', onSeek);
       pick.dispose();
       look.disable();
     },

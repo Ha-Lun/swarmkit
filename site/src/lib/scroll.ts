@@ -21,6 +21,8 @@ export interface Scroll {
   unlock(reason: string): void;
   /** Start the story (the landing screen's task buttons): autoplay runs on from where the page is. */
   start(): void;
+  /** Jump to a point in a chapter (a step on the journey's rail), smoothly, and play on from there. */
+  seek(chapter: number, progress: number): void;
   /** The seconds the tour's route takes under autoplay (the world knows the route's length once it is built; before that a default). */
   setWalkSec(sec: number, tailSec: number): void;
   dispose(): void;
@@ -65,7 +67,7 @@ export function initScroll(): Scroll {
   // anchor clicks are swallowed while it plays). From the landing screen it starts on the first downward scroll or key (Down, PageDown, End, Space), the "Scroll to start" cue, a nav dot or
   // a task button on the landing screen, then runs every chapter at its own pace through the same scroll state as a wheel would (camera, fades and pull-back untouched), and ends where the loop wraps back to the
   // landing screen, which waits for the next start. The only control is Space: hold it to pause (release to carry on). The Reference panel pauses it too. Velocity eases, so start, pause and resume glide.
-  let playing = false, paused = false, vel = 0, acc = 0, routeSec = 140, tailSec: number = motion.walkAuto.tailSec, lastChapter = 0;
+  let playing = false, paused = false, vel = 0, acc = 0, routeSec = 140, tailSec: number = motion.walkAuto.tailSec, lastChapter = 0, seekUntil = 0;
   document.documentElement.classList.add('is-guided');
   const play = () => { playing = true; };
   const inPanel = (t: EventTarget | null) => t instanceof Element && !!t.closest('dialog'); // the Reference panel scrolls itself; its wheel and keys are not the page's
@@ -107,6 +109,7 @@ export function initScroll(): Scroll {
     }
     lastChapter = state.chapter;
     // (not `!lenis.isScrolling`: our own scrollTo raises 'native' for a few frames after every step, which held autoplay off four frames in five; only the wheel's and touch's own inertia, 'smooth', is the user scrolling)
+    if (performance.now() < seekUntil) { vel = 0; acc = lenis.scroll; return; } // a jump to a step glides on its own (any step of ours would cancel it); autoplay picks up from where it lands
     const go = playing && !paused && lenis.isScrolling !== 'smooth' && !lenis.isStopped;
     const ch = state.chapter, tr = triggers[ch];
     const pxPerSec = (tr.end - tr.start) * perSecAt(ch, state.chapterProgress);
@@ -121,6 +124,13 @@ export function initScroll(): Scroll {
   return {
     state,
     start() { play(); paused = false; },
+    seek(chapter, progress) {
+      const t = triggers[chapter];
+      play(); paused = false;
+      const sec = 1.2;
+      seekUntil = performance.now() + sec * 1000 + 50;
+      lenis.scrollTo(t.start + progress * (t.end - t.start), { duration: sec, force: true });
+    },
     setWalkSec(sec, tail) { routeSec = sec; tailSec = tail; },
     lock(reason) { locks.add(reason); lenis.stop(); },
     unlock(reason) { locks.delete(reason); if (!locks.size) lenis.start(); },

@@ -1,6 +1,6 @@
 ---
 // The Cells scene: the task's journey. The task tag, step captions (the status line and why), closing line and chips of every journey are pre-rendered from the routing data (journeys.ts) and the chapter only writes their opacity: the current
-// step's caption shows and its chip lights. The hidden agent list and the label cards are pre-rendered from the agent data; the full roster is in Reference. The band legend is the static
+// step's caption shows and its node on the rail lights (the rail's nodes are buttons: one jumps the journey to its step). The hidden agent list and the label cards are pre-rendered from the agent data; the full roster is in Reference. The band legend is the static
 // page's (the world shows the steps instead).
 import { facts } from '../../lib/facts';
 import { roleLine } from '../../lib/agents';
@@ -42,7 +42,7 @@ const journeys = journeysOf(examples, gates.map((g) => g.agent), tiers);
       <p class="gate-tag world-only" data-gate-tag={b.agent} data-j={ji} data-fx><span>{b.agent}</span><span class="gate-why">{b.label.replace(/^If /i, '')}</span></p>
     )))}
 
-    <div class="scene-foot">
+    <div class="scene-foot scene-foot-stack">
       <div class="captions">
         <p class="caption static-only">{agents.length} agents, one cell each.</p>
         {journeys.map((j, ji) => (
@@ -57,13 +57,21 @@ const journeys = journeysOf(examples, gates.map((g) => g.agent), tiers);
           </>
         ))}
       </div>
-      <div class="chip-stack world-only">
+      <div class="rail-stack world-only">
         {journeys.map((j, ji) => (
-          <ul class="chips" aria-label={`${j.task}: its steps`} data-steps={ji} data-fx>
+          <ol class="rail" aria-label={`${j.task}: its steps (press one to jump to it)`} data-steps={ji} data-fx>
             {j.beats.map((b, bi) => (
-              <li class="chip" data-step data-b={bi}><i class="chip-ring" data-fx aria-hidden="true"></i><i class="chip-fill" aria-hidden="true"></i>{b.label}</li>
+              <li class="rail-step" data-step data-b={bi}>
+                {bi < j.beats.length - 1 && <i class="rail-track" aria-hidden="true"><i class="rail-fill"></i></i>}
+                <button type="button" class="rail-btn" data-seek={bi}>
+                  <i class="chip-ring rail-now" data-fx aria-hidden="true"></i>
+                  <i class="rail-dot" aria-hidden="true"><i class="rail-done"></i></i>
+                  <span class="rail-label">{bi === 0 ? `Classified ${j.tier}` : b.label}</span>
+                  {b.agent && <span class="rail-agent">{b.agent}</span>}
+                </button>
+              </li>
             ))}
-          </ul>
+          </ol>
         ))}
       </div>
       <ul class="chips static-only" aria-label="Agent groups, from the core outwards">

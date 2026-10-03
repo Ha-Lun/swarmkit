@@ -54,7 +54,7 @@ export interface WorldCtx {
   readonly rings: RingFx;
   /** agent names from content/routing.ts, resolved at build time */
   readonly routing: RoutingNames;
-  readonly scroll: { lock(reason: string): void; unlock(reason: string): void; setWalkSec(sec: number, tailSec: number): void; start(): void };
+  readonly scroll: { lock(reason: string): void; unlock(reason: string): void; setWalkSec(sec: number, tailSec: number): void; start(): void; seek(chapter: number, progress: number): void };
   /** current honeycomb (globe + moon) (replaced on a tier change: never cache it) */
   readonly comb: Honeycomb;
   /** the walk route once it is built (a little before the Cells chapter), else null */
