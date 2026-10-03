@@ -1,5 +1,5 @@
 import {
-  BufferAttribute, BufferGeometry, CatmullRomCurve3, Color, Group, Mesh, MeshNormalMaterial, MeshPhysicalMaterial, MeshStandardMaterial, Points, ShaderMaterial,
+  BufferAttribute, BufferGeometry, CatmullRomCurve3, Color, Group, Mesh, MeshNormalMaterial, MeshPhysicalMaterial, Points, ShaderMaterial,
   SphereGeometry, TorusGeometry, MeshBasicMaterial, Vector3, type Camera,
 } from 'three';
 import { look, type Look } from './config';
@@ -52,6 +52,60 @@ export function createTestCurve(lattice: Lattice, count = 8): CatmullRomCurve3 {
   return new CatmullRomCurve3(loop, true, 'centripetal');
 }
 
+// the core: a small contained star. Two-octave-warped value noise in the core's own space, drifting slowly, coloured from the accent through its hot tint to white at the
+// filaments, brighter where it faces the camera (so it reads as a ball of plasma, not a flat disc); uGlow carries the breath and the head's glow (HDR: the hot parts bloom)
+const plasmaVert = /* glsl */ `
+  varying vec3 vP; varying vec3 vN; varying vec3 vV;
+  void main() {
+    vP = position;
+    vN = normalize( normalMatrix * normal );
+    vec4 mv = modelViewMatrix * vec4( position, 1.0 );
+    vV = normalize( -mv.xyz );
+    gl_Position = projectionMatrix * mv;
+  }`;
+const plasmaFrag = /* glsl */ `
+  uniform vec3 uCol; uniform vec3 uHot; uniform float uTime; uniform float uGlow;
+  varying vec3 vP; varying vec3 vN; varying vec3 vV;
+  float hash( vec3 p ) { p = fract( p * 0.3183099 + 0.1 ); p *= 17.0; return fract( p.x * p.y * p.z * ( p.x + p.y + p.z ) ); }
+  float noise( vec3 x ) {
+    vec3 i = floor( x ), f = fract( x ); f = f * f * ( 3.0 - 2.0 * f );
+    return mix( mix( mix( hash( i ), hash( i + vec3( 1, 0, 0 ) ), f.x ), mix( hash( i + vec3( 0, 1, 0 ) ), hash( i + vec3( 1, 1, 0 ) ), f.x ), f.y ),
+                mix( mix( hash( i + vec3( 0, 0, 1 ) ), hash( i + vec3( 1, 0, 1 ) ), f.x ), mix( hash( i + vec3( 0, 1, 1 ) ), hash( i + vec3( 1, 1, 1 ) ), f.x ), f.y ), f.z );
+  }
+  float fbm( vec3 p ) { float a = 0.5, s = 0.0; for ( int k = 0; k < 4; k++ ) { s += a * noise( p ); p = p * 2.03 + 11.7; a *= 0.5; } return s; }
+  void main() {
+    vec3 p = vP * 1.5;
+    float t = uTime * 0.35;
+    vec3 q = vec3( fbm( p + vec3( 0.0, t, 0.0 ) ), fbm( p + vec3( 5.2, -t, 1.3 ) ), fbm( p + vec3( 1.7, 9.2, t ) ) );
+    float n = fbm( p * 1.4 + q * 1.8 + vec3( 0.0, 0.0, -t ) );
+    float facing = max( dot( normalize( vN ), normalize( vV ) ), 0.0 );
+    vec3 col = mix( uCol * 0.3, uHot * 1.3, smoothstep( 0.35, 0.68, n ) );
+    col += vec3( 1.0 ) * ( 1.0 - smoothstep( 0.0, 0.045, abs( n - 0.5 ) ) ) * 0.9; // filaments
+    col = mix( col, vec3( 1.0 ), pow( facing, 6.0 ) * 0.35 );                    // a hot heart where it faces you
+    col *= 0.35 + 0.65 * facing;                                                   // and a darker limb: it is round
+    gl_FragColor = vec4( col * uGlow, 1.0 );
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+  }`;
+// the glass: a thin shell over the head that makes it read thick and polished, a sharp studio highlight and a softer second one (in view space, so they stay put as the comet
+// turns), a bright thin rim, and a faint caustic gathering on the lower inside, where light through a glass ball would pool
+const shineFrag = /* glsl */ `
+  uniform vec3 uHot; uniform float uAlpha;
+  varying vec3 vP; varying vec3 vN; varying vec3 vV;
+  void main() {
+    vec3 n = normalize( vN ), v = normalize( vV );
+    float nv = max( dot( n, v ), 0.0 );
+    vec3 r = reflect( -v, n );
+    float key = pow( max( dot( r, normalize( vec3( -0.45, 0.6, 0.66 ) ) ), 0.0 ), 70.0 ) * 1.4;
+    float fill = pow( max( dot( r, normalize( vec3( 0.55, -0.35, 0.76 ) ) ), 0.0 ), 24.0 ) * 0.4;
+    float rim = pow( 1.0 - nv, 5.0 );
+    float caustic = smoothstep( 0.1, 0.9, -n.y ) * pow( 1.0 - nv, 1.6 ) * 0.22;
+    float a = clamp( key + fill + rim * 0.85 + caustic, 0.0, 1.0 );
+    vec3 col = mix( uHot, vec3( 1.0 ), clamp( key + fill + rim, 0.0, 1.0 ) );
+    gl_FragColor = vec4( col, a * uAlpha );
+    #include <colorspace_fragment>
+  }`;
+
 const sparkVert = /* glsl */ `
   attribute float aSize;
   uniform float uPx;
@@ -77,12 +131,18 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
   const glass = { transparent: true, depthWrite: false, roughness: 0.12, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.05, sheen: 1, sheenRoughness: 0.35, sheenColor: new Color(1, 1, 1), fog: false } as const;
   const headGeo = new SphereGeometry(1, 64, 32);
   const headMat = new MeshPhysicalMaterial({ ...glass, color: colour.clone().lerp(new Color(1, 1, 1), 0.35), emissive: colour, opacity: cfg.glassOpacity });
-  const coreMat = new MeshStandardMaterial({ color: colour, emissive: hot, roughness: 0.5, metalness: 0, fog: false });
+  const coreMat = new ShaderMaterial({ uniforms: { uCol: { value: colour }, uHot: { value: hot }, uTime: { value: 0 }, uGlow: { value: 1 } }, vertexShader: plasmaVert, fragmentShader: plasmaFrag, fog: false });
   const head = new Mesh(headGeo, headMat);
   const core = new Mesh(headGeo, coreMat);
   core.scale.setScalar(0.5);
   core.castShadow = true;
   head.add(core);
+  const shineMat = new ShaderMaterial({ uniforms: { uHot: { value: hot }, uAlpha: { value: 1 } }, vertexShader: plasmaVert, fragmentShader: shineFrag, transparent: true, depthWrite: false, fog: false });
+  const shine = new Mesh(headGeo, shineMat);
+  shine.scale.setScalar(1.004);
+  shine.renderOrder = 3;
+  shine.frustumCulled = false;
+  head.add(shine);
   // aura: a soft Fresnel shell round the head (alpha-blended, never additive): bright at the rim, clear in the middle, and it breathes
   const auraMat = new ShaderMaterial({
     uniforms: { uColor: { value: hot }, uAlpha: { value: 0 } },
@@ -186,7 +246,7 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
     aoGroup,
     setColor(hex) {
       colour.set(hex); hot.copy(colour).lerp(new Color(1, 1, 1), 0.5);
-      headMat.color.copy(colour).lerp(new Color(1, 1, 1), 0.35); headMat.emissive.copy(colour); tailMat.emissive.copy(colour); coreMat.color.copy(colour); coreMat.emissive.copy(hot);
+      headMat.color.copy(colour).lerp(new Color(1, 1, 1), 0.35); headMat.emissive.copy(colour); tailMat.emissive.copy(colour); // (the core and the shine read colour and hot as uniforms)
     },
     setViewportHeight: (px) => (viewportScale = px / 1080),
     reset() {
@@ -215,7 +275,9 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
       const glow = c.headGlow * c.headBrightness;
       headMat.emissiveIntensity = glow * 0.3 * (1 + 0.5 * rest * br2);
       tailMat.emissiveIntensity = glow * 0.3;
-      coreMat.emissiveIntensity = glow * 2 * (1 + 0.35 * rest * br2);
+      coreMat.uniforms.uGlow.value = glow * 2 * (1 + 0.35 * rest * br2);
+      coreMat.uniforms.uTime.value = clock * (1 + 0.6 * Math.min(speed, 4)); // (the plasma churns faster in flight)
+      shineMat.uniforms.uAlpha.value = Math.min(1, fade);
       core.scale.setScalar(0.5 * (1 + 0.1 * rest * br2));
       aura.scale.setScalar(1.5 + 0.12 * rest * br2);
       auraMat.uniforms.uAlpha.value = 0.24 * (0.7 + 0.3 * rest * (0.5 + 0.5 * br2)) * Math.min(1, fade);
@@ -307,7 +369,7 @@ export function createPacket(color: string, cfg: Look['packet']): Packet {
     },
     dispose() {
       ringSets.forEach((r) => r.group.traverse((o) => { const m = o as Mesh; if (m.isMesh) { m.geometry.dispose(); (m.material as MeshBasicMaterial).dispose(); } }));
-      headGeo.dispose(); headMat.dispose(); coreMat.dispose(); auraMat.dispose(); tailGeo.dispose(); tailMat.dispose(); aoMat.dispose(); sparkGeo.dispose(); sparkMat.dispose();
+      headGeo.dispose(); headMat.dispose(); coreMat.dispose(); shineMat.dispose(); auraMat.dispose(); tailGeo.dispose(); tailMat.dispose(); aoMat.dispose(); sparkGeo.dispose(); sparkMat.dispose();
     },
   };
 }
