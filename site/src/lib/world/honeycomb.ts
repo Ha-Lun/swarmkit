@@ -635,8 +635,11 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
     moonFloor?.position.copy(lattice.moon.pos);
   };
   const whiteBase = material.color.clone();
-  const coreBase = coreMat.color.clone();
-  let coreScale = 1;
+  let coreScale = 1, coreGlow = 1, coreDim = 0; // the floor's glow: walk/altitude scale, how much of the lattice is up (growth), the proof-chapter dim
+  const coreTmp = new Color();
+  // The floor is only meant to be seen through the seams. With the tiles missing (the intro's first rings, the finale's break-up, the homecoming) it would be a flat bright disc, so its glow
+  // follows the lattice's growth: dark ink until most of the tiles are up.
+  const applyCore = () => coreMat.color.copy(coreTmp.copy(new Color(palette.ink)).lerp(coreColorOf(look.core), coreGlow).multiplyScalar((1 - 0.65 * coreDim) * coreScale));
 
   return {
     object,
@@ -646,9 +649,9 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
     lattice,
     material,
     uniforms: cellMat.uniforms,
-    syncLook() { cellMat.sync(look.cell); coreMat.color.copy(coreColorOf(look.core)).multiplyScalar(coreScale); },
+    syncLook() { cellMat.sync(look.cell); applyCore(); },
     setRadial(k) { cellMat.uniforms.uRadial.value = k; },
-    setCoreScale(k) { coreScale = k; lastDim = NaN; coreMat.color.copy(coreColorOf(look.core)).multiplyScalar(k); },
+    setCoreScale(k) { coreScale = k; applyCore(); },
     setCellState(i, bright, lf) {
       const s = slotOf.get(i);
       if (!s) return;
@@ -674,6 +677,7 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
       if (timed) lastTime = time;
       if (timed && moving) stepMoon(time, moonWeight); // (a second call in the same frame, e.g. the dissolve's other half, leaves the pose alone)
       if (growth !== lastGrowth || dirty || moving) {
+        if (growth !== lastGrowth) { const t = Math.min(1, Math.max(0, (growth - 0.55) / 0.45)); coreGlow = t * t * (3 - 2 * t); applyCore(); }
         lastGrowth = growth;
         dirty = false;
         kinds.forEach((kd) => {
@@ -709,7 +713,8 @@ export function createHoneycomb(agents: Agent[], tier: Tier = 'high', renderer?:
       if (dim !== lastDim) {
         lastDim = dim;
         material.color.copy(whiteBase).multiplyScalar(1 - 0.65 * dim);
-        coreMat.color.copy(coreBase).multiplyScalar((1 - 0.65 * dim) * coreScale); // the core follows the proof-chapter dim like the rest of the stone
+        coreDim = dim; // the core follows the proof-chapter dim like the rest of the stone
+        applyCore();
       }
     },
     dispose() {

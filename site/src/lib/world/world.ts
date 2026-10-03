@@ -500,12 +500,11 @@ export function createWorld(opts: WorldOptions): World {
     view.walk = walkW;
     if (walkW > 0.001) { flows.forEach((f) => (f.packet.group.visible = false)); rings.mesh.visible = false; } // the walker does not see the comet
     flows.forEach((f) => (f.packet.aoGroup.visible = f.packet.group.visible));
-    // the seam glow dims under the walk camera so bloom does not bleed through the seams, and on the homecoming it comes in with the regrowing lattice (a bare glowing ball is only the very first rings' worth)
-    const loopCore = view.loop > 0 ? range(view.growth, 0.45, 1) : 1;
+    // the seam glow dims under the walk camera so bloom does not bleed through the seams (honeycomb.ts also keeps it dark until the tiles are up)
     // ... and it follows the camera's altitude too: on the dive and the rise the camera passes close to the surface (and the core region), where full glow plus bloom washes the frame white
     const alt = dp.chapter === 2 ? range(lattice.radius * 2.9 - camera.position.length(), 0, lattice.radius * 1.4) : 0; // Cells only (the intro's first frames are untouched): 1 at 1.5 radii from the centre, 0 from 2.9 out (the fly-over never comes closer)
     nearGround = Math.max(walkW, alt);
-    const coreScale = (1 - walkCfg.coreDim * nearGround) * loopCore;
+    const coreScale = (1 - walkCfg.coreDim * nearGround);
     if (Math.abs(coreScale - walkCoreApplied) > 0.005 || (coreScale === 1 && walkCoreApplied !== 1)) { comb.setCoreScale(coreScale); walkCoreApplied = coreScale; }
     comb.uniforms.uDetail.value = Math.max(look.cell.detail, walkCfg.detail * walkW); // the close-up richness of the metal fades in with the dive (the orbit views are untouched)
     comb.uniforms.uWalkWall.value = look.walk.wallLift * walkW;
