@@ -107,14 +107,14 @@ The installer symlinks everything into each CLI's config directory. Anything it 
 
 | Flag | Description |
 |---|---|
-| `--claude` | Install the Claude Code config (rules, agents, hooks, skills, MCP servers) |
+| `--claude` | Install the Claude Code config (rules, agents, hooks, skills, MCP servers). Also adds the `plan-gate.py` UserPromptSubmit hook to `~/.claude/settings.json` (backed up first), which reminds Claude to enter plan mode first for T2/T3 work so `opusplan` plans on Opus |
 | `--opencode` | Install the OpenCode config (rules, agents, commands, skills, `opencode.jsonc`) |
 | `--agy` | Install the Antigravity config (`swarmkit` plugin, skills, MCP servers) and `agyw` |
 | `--all` | `--claude`, `--opencode` and `--agy`. This is also the default when no flag is given. |
 | `--n8n` | Configure self-hosted n8n credentials (not included in `--all`) |
 | `--cloudflare` | Install Cloudflare skills and authenticate (not included in `--all`) |
 | `--free` | OpenCode free mode: copies `opencode.jsonc` with a free default model |
-| `--uninstall` | Remove every link that points into this repo |
+| `--uninstall` | Remove every link that points into this repo and the plan-gate entry in `~/.claude/settings.json` |
 | `--help` | Show the help message |
 
 ### Updating an existing install
@@ -168,6 +168,10 @@ python3 scripts/build.py   # needs PyYAML
 ```
 
 Commit the sources and the generated files together. Never edit the generated `agents/`, `CLAUDE.md`, `AGENTS.md` or `plugins/swarmkit/` directly.
+
+## ✅ Benchmark
+
+`python3 bench/run.py` checks the whole config offline and for free: build in sync, the same roster in every CLI, delegation wording, foreign tool names, guard and plan-gate hook behaviour, and each CLI's native validator. Add `--live claude|agy|opencode --yes` to send real prompts and score which specialist each CLI actually dispatches, and (Claude) whether it enters plan mode first for T2 work. See [bench/README.md](bench/README.md).
 
 ## 🔗 Linking Your Own Self-Hosted n8n
 
