@@ -3,7 +3,7 @@
 One source of truth, compiled for three CLIs.
 
 **Edit these (sources):**
-- `core/agents/*.md` — agents in CLI-neutral frontmatter (`tier`, `capabilities`, optional `claude:` / `opencode:` override blocks)
+- `core/agents/*.md` — agents in CLI-neutral frontmatter (`tier`, `capabilities`, optional `claude:` / `opencode:` / `antigravity:` override blocks)
 - `core/skills/<name>/SKILL.md` — shared skills
 - `core/rules/AGENTS.md` — shared rules; `claude/rules.md`, `opencode/rules.md`, `antigravity/rules.md` — per-CLI addenda
 - `scripts/build.py` — the compiler, including the tier → model table

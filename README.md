@@ -22,9 +22,9 @@ You write every agent, skill and rule once in `core/`. A small compiler turns th
 
 | | Claude Code | OpenCode | Antigravity |
 |---|---|---|---|
-| Specialists | Subagents in `~/.claude/agents/` | Agents in `~/.config/opencode/agents/` | Skills in the `swarmkit` plugin (Antigravity has no custom subagents) |
+| Specialists | Subagents in `~/.claude/agents/` | Agents in `~/.config/opencode/agents/` | Agents in the `swarmkit` plugin (`invoke_subagent`) |
 | Rules | `~/.claude/CLAUDE.md` | `~/.config/opencode/AGENTS.md` | Plugin `rules/AGENTS.md` |
-| Tool limits | Enforced (`tools:` and `guard.py` hooks) | Enforced (`permission:` blocks) | Stated in each specialist skill |
+| Tool limits | Enforced (`tools:` and `guard.py` hooks) | Enforced (`permission:` blocks) | Stated in each agent's instructions |
 | Skills | `~/.claude/skills/` | `~/.config/opencode/skills/` | `~/.gemini/config/skills/` |
 | MCP servers | Registered with `claude mcp add-json` | `opencode.jsonc` | `~/.gemini/config/mcp_config.json` |
 
@@ -155,6 +155,8 @@ opencode:                 # passed to OpenCode as-is
 claude:                   # Claude Code-only extras
   description: ...        # optional; replaces the shared description
   extra_tools: [mcp__playwright__*]
+antigravity:              # optional; falls back to claude, then shared description
+  description: ...
 ```
 
 A file at `core/agents/claude/<name>.md` replaces that agent's body in the Claude Code build only (used by `lead-dev`).

@@ -3,14 +3,14 @@
 
   claude/agents/<name>.md                          Claude Code subagents
   opencode/agents/<name>.md                        OpenCode agents
-  antigravity/plugins/swarmkit/skills/<name>/      Antigravity has no custom
-                                                   subagents, so each specialist
-                                                   ships as an on-demand skill
+  antigravity/plugins/swarmkit/agents/<name>.md    Antigravity plugin agents
+                                                   (invoke_subagent types)
 
 Outputs are committed. Run after editing anything in core/agents.
 
 Claude-only overrides: `claude.description` in an agent's frontmatter, and a
 body file at core/agents/claude/<name>.md that replaces the shared body.
+Antigravity override: `antigravity.description` (it always uses the shared body).
 """
 import glob
 import os
@@ -82,11 +82,15 @@ def build_opencode(a, body):
 def build_antigravity(a, body):
     # No per-agent tool restrictions exist there, so state them as instructions.
     caps = ', '.join(a['capabilities']) or 'none (conversation only)'
-    header = (f"> Specialist playbook for the **{a['name']}** role. "
+    kind = 'orchestrator' if a.get('role') == 'orchestrator' else 'subagent'
+    header = (f"> You are the **{a['name']}** {kind}. "
               f"Allowed capabilities: {caps}. Stay within them.\n\n")
-    fm = {'name': a['name'],
-          'description': f"{a['description']} Load when acting as or delegating to the {a['name']} role."}
-    write(f"{ROOT}/antigravity/plugins/swarmkit/skills/{a['name']}/SKILL.md", fm, header + body)
+    # Claude's descriptions are written for a delegating main agent, which is
+    # what agy's invoke_subagent needs too, so fall back to them before the shared one.
+    desc = (a.get('antigravity', {}).get('description') or a.get('claude', {}).get('description')
+            or a['description'])
+    write(f"{ROOT}/antigravity/plugins/swarmkit/agents/{a['name']}.md",
+          {'name': a['name'], 'description': desc}, header + body)
 
 
 RULES_OUT = {
@@ -108,7 +112,9 @@ def build_rules():
 
 
 def main():
-    for d in ('claude/agents', 'opencode/agents', 'antigravity/plugins/swarmkit/skills'):
+    # The swarmkit skills dir is from the old layout (specialists as skills); kept so it gets removed.
+    for d in ('claude/agents', 'opencode/agents', 'antigravity/plugins/swarmkit/agents',
+              'antigravity/plugins/swarmkit/skills'):
         shutil.rmtree(os.path.join(ROOT, d), ignore_errors=True)
     agents = load_agents()
     for a, body in agents:
