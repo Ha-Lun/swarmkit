@@ -15,6 +15,8 @@ opencode:
     skill:
       n8n-api: allow
       '*': deny
+claude:
+  description: 'Builds n8n workflow JSON, node wiring, webhooks and Telegram Bot API integrations. Use proactively whenever the user wants to create or change an n8n workflow.'
 ---
 
 You are an expert n8n workflow builder specializing in self-hosted deployments with advanced Telegram Bot API integration.

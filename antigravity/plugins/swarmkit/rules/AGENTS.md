@@ -41,9 +41,9 @@ actually dispatch a subagent or load a specialist playbook.
 | T2 | Contained domain work | Plan → user approval → do it or delegate to the domain specialist. |
 | T3 | Cross-cutting or architectural work | As T2, in a worktree, with `explore` first if the codebase is unfamiliar. |
 
-**Before delegating, check:** will it change files or run commands, does it
-need multi-step domain work, and is it more than a few lines? If not, do it
-yourself — a subagent starts with no context and costs more than it saves.
+**Delegation cost:** a subagent starts with no context, so do tiny tasks
+(no file changes, or a few lines with no domain substance) yourself. Approved
+T2/T3 domain work goes to its specialist.
 
 **Project markers → specialist:** `lovable.json` / `lovable-tagger` /
 `src/integrations/supabase/` → `lovable-specialist` (never `frontend-specialist`);

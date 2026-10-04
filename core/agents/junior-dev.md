@@ -21,6 +21,8 @@ opencode:
     question: allow
     webfetch: deny
     websearch: deny
+claude:
+  description: 'Fast, cheap agent for batches of mechanical edits (typos, renames, version bumps, doc touch-ups). Use proactively when there are many trivial edits to apply; do a single small edit inline instead.'
 ---
 
 ## What you handle

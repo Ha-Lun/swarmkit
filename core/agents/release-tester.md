@@ -71,6 +71,7 @@ opencode:
     task: deny
     question: allow
 claude:
+  description: 'Runs tests, linters, type checkers and builds, and reports failures without fixing them. Use proactively as the quality gate when tests, lint or typecheck have not been run yet.'
   hooks:
     PreToolUse:
     - matcher: Bash

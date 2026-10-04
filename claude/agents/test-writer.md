@@ -1,6 +1,6 @@
 ---
 name: test-writer
-description: Writes unit and integration tests for new code. Identifies coverage gaps. Follows project conventions.
+description: Writes unit and integration tests following project conventions; edits test files only. Use proactively when new code lacks tests or the user asks for coverage.
 model: sonnet
 tools:
 - Read

@@ -8,6 +8,9 @@
                                                    ships as an on-demand skill
 
 Outputs are committed. Run after editing anything in core/agents.
+
+Claude-only overrides: `claude.description` in an agent's frontmatter, and a
+body file at core/agents/claude/<name>.md that replaces the shared body.
 """
 import glob
 import os
@@ -33,7 +36,7 @@ CLAUDE_TOOLS = {
     'edit': ['Edit', 'Write'],
     'bash': ['Bash'],
     'web': ['WebFetch', 'WebSearch'],
-    'delegate': ['Task'],
+    'delegate': ['Agent'],
 }
 
 
@@ -60,10 +63,13 @@ def model_for(cli, a):
 def build_claude(a, body):
     c = a.get('claude', {})
     tools = c.get('tools') or [t for cap in a['capabilities'] for t in CLAUDE_TOOLS[cap]]
-    fm = {'name': a['name'], 'description': a['description'],
+    fm = {'name': a['name'], 'description': c.get('description') or a['description'],
           'model': model_for('claude', a), 'tools': tools + c.get('extra_tools', [])}
     if c.get('hooks'):
         fm['hooks'] = c['hooks']
+    override = f"{ROOT}/core/agents/claude/{a['name']}.md"
+    if os.path.exists(override):
+        body = open(override).read()
     write(f"{ROOT}/claude/agents/{a['name']}.md", fm, body)
 
 

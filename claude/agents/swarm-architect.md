@@ -1,6 +1,6 @@
 ---
 name: swarm-architect
-description: Swarm architect specialist for designing, extending, and refactoring the SwarmKit workflow. Scaffolds new specialist subagents, wires dual MCP servers, creates modular skills, authors slash commands, and maintains orchestrator routing parity across OpenCode, Antigravity, and Claude Code.
+description: 'Changes to the SwarmKit swarm itself: agents, skills, rules, MCP wiring, build.py and CLI parity. Use proactively whenever a task edits this config repo''s agents, skills or routing.'
 model: opus
 tools:
 - Read

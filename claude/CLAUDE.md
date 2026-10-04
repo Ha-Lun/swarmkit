@@ -41,9 +41,9 @@ actually dispatch a subagent or load a specialist playbook.
 | T2 | Contained domain work | Plan → user approval → do it or delegate to the domain specialist. |
 | T3 | Cross-cutting or architectural work | As T2, in a worktree, with `explore` first if the codebase is unfamiliar. |
 
-**Before delegating, check:** will it change files or run commands, does it
-need multi-step domain work, and is it more than a few lines? If not, do it
-yourself — a subagent starts with no context and costs more than it saves.
+**Delegation cost:** a subagent starts with no context, so do tiny tasks
+(no file changes, or a few lines with no domain substance) yourself. Approved
+T2/T3 domain work goes to its specialist.
 
 **Project markers → specialist:** `lovable.json` / `lovable-tagger` /
 `src/integrations/supabase/` → `lovable-specialist` (never `frontend-specialist`);
@@ -154,6 +154,13 @@ Return format: summary of changes, tests run, open issues
 
 - **Delegating:** use the Agent tool with the specialist's name as the subagent
   type. Only the main thread can delegate; subagents cannot spawn subagents.
+- **Standing authorization:** the user authorizes you to spawn every specialist
+  in the Specialists table with the Agent tool, without asking first (except
+  `lead-dev`, which only runs as a `--agent` session). The Agent tool's default
+  of not spawning subagents unless asked does not apply to them. Project-marker
+  routing is mandatory: when a marker matches, that specialist does the work.
+  Once a T2/T3 plan is approved, delegate domain work to its specialist instead
+  of doing it inline; keep inline only T0/T1 and work that fits no specialist.
 - **Orchestrator mode:** for a large multi-specialist job the user can start
   `claude --agent lead-dev`. Otherwise you are the main agent.
 - **Approval:** for T2/T3, enter plan mode (`EnterPlanMode`) and write the plan
@@ -163,5 +170,3 @@ Return format: summary of changes, tests run, open issues
   AskUserQuestion when offering discrete choices.
 - **Worktrees:** `git worktree add .worktrees/<branch> -b <branch>`, or
   `EnterWorktree` to move the session into one.
-- **graphify:** when the user types `/graphify`, invoke the `graphify` skill
-  before doing anything else.

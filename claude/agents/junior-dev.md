@@ -1,6 +1,6 @@
 ---
 name: junior-dev
-description: Junior dev for light, mechanical code edits that don't need a domain specialist. Typos, single-line tweaks, simple renames, version bumps, README touch-ups, single-test fixes.
+description: Fast, cheap agent for batches of mechanical edits (typos, renames, version bumps, doc touch-ups). Use proactively when there are many trivial edits to apply; do a single small edit inline instead.
 model: haiku
 tools:
 - Read

@@ -1,6 +1,6 @@
 ---
 name: n8n-debugger
-description: Systematic debugging and diagnosis of broken n8n workflows. Analyzes execution logs, identifies failure patterns, and provides root cause analysis. Specializes in Telegram integration issues.
+description: Root-causes failed n8n executions from logs and workflow JSON, especially Telegram issues. Use proactively whenever an n8n workflow or execution is failing.
 model: sonnet
 tools:
 - Read

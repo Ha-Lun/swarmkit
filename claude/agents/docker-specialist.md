@@ -1,6 +1,6 @@
 ---
 name: docker-specialist
-description: Docker specialist for containerization, Dockerfiles, Compose stacks, image optimization, build caching, runtime debugging, and container security hygiene.
+description: Dockerfiles, Compose stacks, image optimisation, build caching and container security. Use proactively for any containerisation work.
 model: sonnet
 tools:
 - Read

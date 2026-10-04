@@ -26,6 +26,7 @@ opencode:
     task: deny
     question: allow
 claude:
+  description: 'Read-only security review: secrets, injection, auth flaws, CSRF/CORS, insecure configs. Use proactively after any change to auth, secrets, database access or user-input handling.'
   tools:
   - Read
   - Glob

@@ -1,6 +1,6 @@
 ---
 name: n8n-workflow-builder
-description: Build and design n8n workflows from requirements. Expert in n8n workflow JSON structure, node types, data flow, and Telegram Bot API integration. Self-hosted deployment ops knowledge.
+description: Builds n8n workflow JSON, node wiring, webhooks and Telegram Bot API integrations. Use proactively whenever the user wants to create or change an n8n workflow.
 model: sonnet
 tools:
 - Read

@@ -67,7 +67,7 @@ Load **`premium-frontend-system`** for design direction, motion language rules, 
 
 - **godly.design** — premier curated showcase of world-class web design, interaction, and motion benchmarks
 
-For 3D, scroll-driven, and vector animation work — study these sites before building. Open them with chrome-devtools to inspect actual implementations, timing curves, and performance patterns. These represent the state of the art for web animation.
+For 3D, scroll-driven, and vector animation work — study these sites before building. Open them in a browser (Playwright MCP, or chrome-devtools MCP where available) to inspect actual implementations, timing curves, and performance patterns. These represent the state of the art for web animation.
 
 ### 3D Product Storytelling (scroll-driven)
 - **apple.com/products/iphone** — Scroll-linked 3D product rotation, parallax depth layers, dramatic lighting transitions tied to scroll position, section overlap reveals. Study: how scroll position maps to 3D camera movement. The gold standard for product page scroll storytelling.
@@ -97,7 +97,7 @@ For 3D, scroll-driven, and vector animation work — study these sites before bu
 
 ### How to use this library
 1. Before building any animation, identify the technique category (scroll-driven 3D, vector animation, GSAP timeline, immersive experience)
-2. Open 2-3 relevant reference sites with chrome-devtools
+2. Open 2-3 relevant reference sites in a browser (Playwright MCP, or chrome-devtools MCP where available)
 3. Inspect: animation timing (easing curves, durations), scroll-mapping ratios, 3D asset loading strategies, fallback patterns
 4. Check the `premium-frontend-system` skill for GPU-only rules and prefers-reduced-motion requirements
 5. Extract specific techniques — e.g., "Apple's scroll-to-rotation ratio" or "GSAP's pin + scrub pattern from the showcase" — not wholesale copies

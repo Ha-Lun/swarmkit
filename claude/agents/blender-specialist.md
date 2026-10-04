@@ -1,6 +1,6 @@
 ---
 name: blender-specialist
-description: 3D modeling, mesh generation, asset staging, geometry nodes, spatial reasoning, and scene assembly using Blender MCP. Iterative execution with continuous viewport validation and sandboxed workspace boundaries.
+description: 3D modelling and scene assembly through the Blender MCP in small validated steps. Use proactively for meshes, geometry nodes, asset staging or any Blender work.
 model: sonnet
 tools:
 - Read

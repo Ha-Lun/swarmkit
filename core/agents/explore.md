@@ -24,6 +24,7 @@ opencode:
     task: deny
     question: allow
 claude:
+  description: 'SwarmKit''s fast, cheap read-only codebase pre-flight that returns a brief under 400 tokens (files in scope, signatures, architecture notes). Use proactively before T2/T3 work in an unfamiliar codebase; prefer it over the built-in Explore agent when a compact brief is needed.'
   tools:
   - Read
   - Glob

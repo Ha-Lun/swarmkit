@@ -153,8 +153,11 @@ opencode:                 # passed to OpenCode as-is
   mode: subagent
   permission: { ... }
 claude:                   # Claude Code-only extras
+  description: ...        # optional; replaces the shared description
   extra_tools: [mcp__playwright__*]
 ```
+
+A file at `core/agents/claude/<name>.md` replaces that agent's body in the Claude Code build only (used by `lead-dev`).
 
 After editing anything in `core/` or a `rules.md` addendum:
 

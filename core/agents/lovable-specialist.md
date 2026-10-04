@@ -19,6 +19,8 @@ opencode:
       '*': allow
     task: deny
     question: allow
+claude:
+  description: 'Frontend specialist for Lovable projects (React, Vite, Tailwind, Supabase client) that never touches supabase/, RLS, SQL or routing. Use proactively, instead of frontend-specialist, whenever the project has lovable.json, lovable-tagger, src/integrations/supabase/ or .lovable/, or the user says Lovable.'
 ---
 
 # Lovable Specialist

@@ -19,6 +19,8 @@ opencode:
       '*': allow
     task: deny
     question: allow
+claude:
+  description: 'Changes to the SwarmKit swarm itself: agents, skills, rules, MCP wiring, build.py and CLI parity. Use proactively whenever a task edits this config repo''s agents, skills or routing.'
 ---
 
 You are the **swarm-architect** specialist. Your mandate is the design, extension, and refactoring of the SwarmKit multi-agent framework.

@@ -10,6 +10,7 @@ capabilities:
 - web
 opencode: {}
 claude:
+  description: 'Technical SEO, structured data, sitemaps, Core Web Vitals and AI-search visibility with free tools. Use proactively for SEO audits or search-visibility work.'
   tools:
   - Read
   - Write

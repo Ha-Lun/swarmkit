@@ -1,6 +1,6 @@
 ---
 name: seo-specialist
-description: SEO specialist — makes sure websites actually get seen by Google and AI search engines. Technical SEO, sitemaps, structured data, content strategy, AI search optimization, analytics. Free public tools only.
+description: Technical SEO, structured data, sitemaps, Core Web Vitals and AI-search visibility with free tools. Use proactively for SEO audits or search-visibility work.
 model: sonnet
 tools:
 - Read

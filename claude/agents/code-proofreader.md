@@ -1,6 +1,6 @@
 ---
 name: code-proofreader
-description: Code proofreader that finds dead code, redundant logic, unused exports, and over-engineering survivors. Wraps the canonical ponytail-review / ponytail-audit procedure with a confidence layer for orchestrator action. Read-only; reports findings.
+description: Read-only ponytail review of dead code, redundancy, unused exports and over-engineering, with confidence-tagged findings. Use proactively on diffs over 100 lines or when the user asks for a review or cleanup audit.
 model: sonnet
 tools:
 - Read

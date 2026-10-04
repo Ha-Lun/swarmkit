@@ -1,6 +1,6 @@
 ---
 name: security-auditor
-description: Security reviewer that scans code for secrets leakage, hardcoded API keys, dangerous patterns, auth flaws, injection risks, and unsafe configurations. Read-only review; reports findings with proposed fixes for the main agent to apply
+description: 'Read-only security review: secrets, injection, auth flaws, CSRF/CORS, insecure configs. Use proactively after any change to auth, secrets, database access or user-input handling.'
 model: opus
 tools:
 - Read

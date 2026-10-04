@@ -15,6 +15,8 @@ opencode:
     skill:
       n8n-debugging: allow
       '*': deny
+claude:
+  description: 'Root-causes failed n8n executions from logs and workflow JSON, especially Telegram issues. Use proactively whenever an n8n workflow or execution is failing.'
 ---
 
 You are an expert n8n workflow debugger specializing in systematic diagnosis and root cause analysis.
