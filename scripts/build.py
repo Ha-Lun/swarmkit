@@ -8,9 +8,9 @@
 
 Outputs are committed. Run after editing anything in core/agents.
 
-Claude-only overrides: `claude.description` in an agent's frontmatter, and a
-body file at core/agents/claude/<name>.md that replaces the shared body.
-Antigravity override: `antigravity.description` (it always uses the shared body).
+Per-CLI overrides: `claude.description` / `antigravity.description` in an
+agent's frontmatter, and a body file at core/agents/<cli>/<name>.md (claude or
+opencode) that replaces the shared body. Antigravity always uses the shared body.
 """
 import glob
 import os
@@ -56,6 +56,11 @@ def write(path, fm, body):
         f.write(f'---\n{text}---\n{body}')
 
 
+def body_for(cli, a, body):
+    override = f"{ROOT}/core/agents/{cli}/{a['name']}.md"
+    return open(override).read() if os.path.exists(override) else body
+
+
 def model_for(cli, a):
     return a.get(cli, {}).get('model') or TIER_MODELS[cli][a['tier']]
 
@@ -67,16 +72,13 @@ def build_claude(a, body):
           'model': model_for('claude', a), 'tools': tools + c.get('extra_tools', [])}
     if c.get('hooks'):
         fm['hooks'] = c['hooks']
-    override = f"{ROOT}/core/agents/claude/{a['name']}.md"
-    if os.path.exists(override):
-        body = open(override).read()
-    write(f"{ROOT}/claude/agents/{a['name']}.md", fm, body)
+    write(f"{ROOT}/claude/agents/{a['name']}.md", fm, body_for('claude', a, body))
 
 
 def build_opencode(a, body):
     fm = {'description': a['description'], **a['opencode']}
     fm['model'] = model_for('opencode', a)
-    write(f"{ROOT}/opencode/agents/{a['name']}.md", fm, body)
+    write(f"{ROOT}/opencode/agents/{a['name']}.md", fm, body_for('opencode', a, body))
 
 
 def build_antigravity(a, body):

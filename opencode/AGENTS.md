@@ -154,9 +154,9 @@ Return format: summary of changes, tests run, open issues
 
 - **Delegating:** use the `task` tool with the specialist's agent name. Ask the
   user with the `question` tool.
-- **Orchestrator mode:** `lead-dev` is a primary agent; switch to it for large
-  multi-specialist jobs.
-- **Ponytail plugin:** the ponytail plugin is always on and injects the
-  minimum-code rules into every chat, so specialists don't need to load it.
-  Intensity is stored in `~/.config/opencode/.ponytail-active`; the user
-  switches it with `/ponytail lite|full|ultra|off`.
+- **Orchestrator mode:** `lead-dev` is the default primary agent
+  (`default_agent` in `opencode.jsonc`); it plans and dispatches, specialists
+  do the file and shell work.
+- **Ponytail:** ships as the `ponytail` skills plus the
+  `/ponytail lite|full|ultra|off` command. The shared rules above already carry
+  the ponytail principle, so specialists don't need to load it.

@@ -159,7 +159,7 @@ antigravity:              # optional; falls back to claude, then shared descript
   description: ...
 ```
 
-A file at `core/agents/claude/<name>.md` replaces that agent's body in the Claude Code build only (used by `lead-dev`).
+A file at `core/agents/claude/<name>.md` or `core/agents/opencode/<name>.md` replaces that agent's body in that CLI's build only (used by `lead-dev`).
 
 After editing anything in `core/` or a `rules.md` addendum:
 
