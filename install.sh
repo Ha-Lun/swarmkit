@@ -88,17 +88,6 @@ remove_repo_links() {
   done
 }
 
-if [ "$UNINSTALL_MODE" = true ]; then
-  echo "Uninstalling configurations..."
-  for d in "$OPENCODE_DIR" "$OPENCODE_DIR/skills" "$CLAUDE_DIR" "$CLAUDE_DIR/skills" "$CLAUDE_DIR/hooks" \
-           "$GEMINI_DIR/plugins" "$GEMINI_DIR/skills" "$HOME/.opencode"; do
-    remove_repo_links "$d"
-  done
-  rm -f "$GEMINI_DIR/mcp_config.json"
-  echo "Uninstall complete. MCP servers registered with 'claude mcp' are left in place."
-  exit 0
-fi
-
 backup_if_exists() {
   local path="$1"
   if [ -e "$path" ] || [ -L "$path" ]; then
@@ -135,6 +124,60 @@ link_skills() {
     ln -sfn "${skill_dir%/}" "$dest/$(basename "$skill_dir")"
   done
 }
+
+# Add or remove the plan-gate UserPromptSubmit hook in ~/.claude/settings.json.
+# Writes (after a backup) only when something changes, so re-runs are no-ops.
+plan_gate_settings() {
+  local settings="$CLAUDE_DIR/settings.json" tmp
+  tmp="$(mktemp)"
+  if python3 - "$settings" "$tmp" "$1" <<'PY'
+import json, os, sys
+path, out, mode = sys.argv[1:]
+try:
+    s = json.load(open(path)) if os.path.exists(path) else {}
+except ValueError as e:
+    sys.exit(f'  ! {path} is not valid JSON ({e}); plan-gate hook not changed')
+hooks = s.get('hooks', {})
+ups = hooks.get('UserPromptSubmit', [])
+mine = lambda e: any('plan-gate.py' in h.get('command', '') for h in e.get('hooks', []))
+if mode == 'add':
+    if any(map(mine, ups)):
+        sys.exit(1)
+    s.setdefault('hooks', {}).setdefault('UserPromptSubmit', []).append(
+        {'matcher': '*', 'hooks': [{'type': 'command', 'command': 'python3 ~/.claude/hooks/plan-gate.py'}]})
+else:
+    kept = [e for e in ups if not mine(e)]
+    if len(kept) == len(ups):
+        sys.exit(1)
+    if kept:
+        hooks['UserPromptSubmit'] = kept
+    else:
+        del hooks['UserPromptSubmit']
+    if not hooks:
+        del s['hooks']
+with open(out, 'w') as f:
+    json.dump(s, f, indent=2, ensure_ascii=False)
+    f.write('\n')
+PY
+  then
+    backup_if_exists "$settings"
+    cat "$tmp" > "$settings"
+    echo "  settings.json: plan-gate hook ($1)"
+  fi
+  rm -f "$tmp"
+}
+
+if [ "$UNINSTALL_MODE" = true ]; then
+  echo "Uninstalling configurations..."
+  for d in "$OPENCODE_DIR" "$OPENCODE_DIR/skills" "$CLAUDE_DIR" "$CLAUDE_DIR/skills" "$CLAUDE_DIR/hooks" \
+           "$GEMINI_DIR/plugins" "$GEMINI_DIR/skills" "$HOME/.opencode"; do
+    remove_repo_links "$d"
+  done
+  plan_gate_settings remove
+  rm -f "$GEMINI_DIR/mcp_config.json"
+  echo "Uninstall complete. MCP servers registered with 'claude mcp' are left in place."
+  exit 0
+fi
 
 install_opencode() {
   echo "=== Installing OpenCode Config ==="
@@ -207,6 +250,8 @@ install_claude() {
   link "$REPO_DIR/claude/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
   link "$REPO_DIR/claude/agents" "$CLAUDE_DIR/agents"
   link "$REPO_DIR/claude/hooks/guard.py" "$CLAUDE_DIR/hooks/guard.py"
+  link "$REPO_DIR/claude/hooks/plan-gate.py" "$CLAUDE_DIR/hooks/plan-gate.py"
+  plan_gate_settings add
   link_skills "$CLAUDE_DIR/skills"
 
   # MCP servers: register each one at user scope unless it already exists.

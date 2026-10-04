@@ -23,6 +23,8 @@ opencode:
       frontend-quality: allow
     task: deny
     question: allow
+claude:
+  description: 'Showroom coordinator for premium scroll-driven, dark-theme product pages in Astro, Tailwind and GSAP, running the S0-S10 pipeline with G1-G5 human gates and .showroom/state.json. Use proactively when the user wants a showroom or scroll-driven product page built from a brief.'
 ---
 
 # Mission

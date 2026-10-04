@@ -38,7 +38,7 @@ actually dispatch a subagent or load a specialist playbook.
 |---|---|---|
 | T0 | Questions, explanations, reviews | Answer directly; delegate a read-only review to `security-auditor`, `code-proofreader` or `explore` only when it is large. |
 | T1 | Trivial edits (typo, version bump, comment, rename; ≤ 30 lines, ≤ 3 files) | Do it directly. No plan, no approval, no quality gate. Use `junior-dev` only for a batch of mechanical edits. |
-| T2 | Contained domain work | Plan → user approval → do it or delegate to the domain specialist. |
+| T2 | Contained domain work. Also anything beyond T1 limits, any new behaviour, anything touching auth, data, CI, infra or build config, anything you would delegate, and any doubt between T1 and T2 | Plan → user approval → do it or delegate to the domain specialist. |
 | T3 | Cross-cutting or architectural work | As T2, in a worktree, with `explore` first if the codebase is unfamiliar. |
 
 **Delegation cost:** a subagent starts with no context, so do tiny tasks
@@ -54,8 +54,8 @@ changes to this swarm itself → `swarm-architect`.
 
 ## Plan, approval, worktrees
 
-- For T2/T3 edits: write the plan in chat (approach, files, changes, tests,
-  risks), ask for explicit approval, then execute.
+- For T2/T3 edits: present the plan (approach, files, changes, tests, risks)
+  for explicit approval, then execute. How to ask is in the CLI specifics below.
 - For heavy, risky or multi-file work (> 3 files, > 100 lines, cross-cutting),
   work in `.worktrees/<branch>` and make sure `.worktrees/` is gitignored.
 - **Never merge or remove a worktree without an explicit instruction.** End by
@@ -152,6 +152,24 @@ Return format: summary of changes, tests run, open issues
 
 ## Claude Code specifics
 
+### Plan-mode gate
+
+The session model is `opusplan`: Opus runs only inside plan mode, everything
+else runs on Sonnet. A plan made outside plan mode never reaches Opus.
+
+- Classify the tier before your first tool call.
+- **T2/T3: your first tool call is `EnterPlanMode`**, before reading files,
+  searching or spawning agents. Status line: `> **T<n> operation: entering plan mode**`.
+- In plan mode, investigate yourself (Read/Grep/Glob, `explore` for fan-out).
+  Don't dispatch the built-in `Plan` agent or specialists to design. Write the
+  plan to the plan file; `ExitPlanMode` is the approval request. Never present
+  a T2/T3 plan in chat.
+- T1 work that outgrows its limits: stop and call `EnterPlanMode`.
+- After approval, delegate execution to the specialist(s); don't re-plan.
+- T0 and T1 never enter plan mode.
+
+### Other
+
 - **Delegating:** use the Agent tool with the specialist's name as the subagent
   type. Only the main thread can delegate; subagents cannot spawn subagents.
 - **Standing authorization:** the user authorizes you to spawn every specialist
@@ -163,10 +181,6 @@ Return format: summary of changes, tests run, open issues
   of doing it inline; keep inline only T0/T1 and work that fits no specialist.
 - **Orchestrator mode:** for a large multi-specialist job the user can start
   `claude --agent lead-dev`. Otherwise you are the main agent.
-- **Approval:** for T2/T3, enter plan mode (`EnterPlanMode`) and write the plan
-  there; `ExitPlanMode` is the approval request. The session model is
-  `opusplan`, so planning runs on Opus and execution on Sonnet — a plan written
-  in chat outside plan mode skips Opus. T0/T1 never enter plan mode. Use
-  AskUserQuestion when offering discrete choices.
+- **Questions:** use AskUserQuestion when offering discrete choices.
 - **Worktrees:** `git worktree add .worktrees/<branch> -b <branch>`, or
   `EnterWorktree` to move the session into one.

@@ -38,7 +38,7 @@ actually dispatch a subagent or load a specialist playbook.
 |---|---|---|
 | T0 | Questions, explanations, reviews | Answer directly; delegate a read-only review to `security-auditor`, `code-proofreader` or `explore` only when it is large. |
 | T1 | Trivial edits (typo, version bump, comment, rename; ≤ 30 lines, ≤ 3 files) | Do it directly. No plan, no approval, no quality gate. Use `junior-dev` only for a batch of mechanical edits. |
-| T2 | Contained domain work | Plan → user approval → do it or delegate to the domain specialist. |
+| T2 | Contained domain work. Also anything beyond T1 limits, any new behaviour, anything touching auth, data, CI, infra or build config, anything you would delegate, and any doubt between T1 and T2 | Plan → user approval → do it or delegate to the domain specialist. |
 | T3 | Cross-cutting or architectural work | As T2, in a worktree, with `explore` first if the codebase is unfamiliar. |
 
 **Delegation cost:** a subagent starts with no context, so do tiny tasks
@@ -54,8 +54,8 @@ changes to this swarm itself → `swarm-architect`.
 
 ## Plan, approval, worktrees
 
-- For T2/T3 edits: write the plan in chat (approach, files, changes, tests,
-  risks), ask for explicit approval, then execute.
+- For T2/T3 edits: present the plan (approach, files, changes, tests, risks)
+  for explicit approval, then execute. How to ask is in the CLI specifics below.
 - For heavy, risky or multi-file work (> 3 files, > 100 lines, cross-cutting),
   work in `.worktrees/<branch>` and make sure `.worktrees/` is gitignored.
 - **Never merge or remove a worktree without an explicit instruction.** End by
@@ -153,7 +153,7 @@ Return format: summary of changes, tests run, open issues
 ## OpenCode specifics
 
 - **Delegating:** use the `task` tool with the specialist's agent name. Ask the
-  user with the `question` tool.
+  user, including for plan approval, with the `question` tool.
 - **Orchestrator mode:** `lead-dev` is the default primary agent
   (`default_agent` in `opencode.jsonc`); it plans and dispatches, specialists
   do the file and shell work.

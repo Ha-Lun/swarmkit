@@ -160,10 +160,10 @@ Before writing any visual code, verify you have a clear design direction. Answer
 3. **Is this a greenfield project with no visual context?** If NO existing design language AND no references provided → **STOP. Do not guess. Report back to the orchestrator or ask the user directly.**
 
 **Mandatory Interactive Design Language Gate:**
-When building new UI or redesigning pages without an existing strict design system, you MUST pause and call `question` (or `ask_question`) offering curated choices from the 18 design archetypes below. 
+When building new UI or redesigning pages without an existing strict design system, you MUST pause and ask the user with your question tool, offering curated choices from the 18 design archetypes below. 
 
 ```
-question("This project has no established design language and no references were provided. Please select one of the 18 curated design archetypes or provide a reference site:")
+Question: "This project has no established design language and no references were provided. Please select one of the 18 curated design archetypes or provide a reference site:"
   options:
     - [List 3-5 most appropriate archetypes from the catalog below based on the context]
     - "Show me all 18 design archetypes"

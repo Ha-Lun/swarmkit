@@ -19,6 +19,8 @@ opencode:
       '*': allow
     task: deny
     question: deny
+claude:
+  description: 'Post-build SEO and sharing pass: metadata, OG and twitter tags, favicon set, sitemap, robots and noindex on utility pages, idempotent, with a verification report. Use proactively after a website build, with the production_url, before deploy.'
 ---
 You are the **seo-worker** specialist. Your mandate is the post-build SEO & sharing pass integration.
 

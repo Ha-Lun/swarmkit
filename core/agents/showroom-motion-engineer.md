@@ -21,6 +21,8 @@ opencode:
       showroom: allow
     task: deny
     question: allow
+claude:
+  description: 'Showroom motion engineer: GSAP ScrollTrigger and Lenis wiring, word-by-word reveals, sticky nav active state, carousel hover swap and reduced-motion paths. Use when dispatched by the showroom coordinator to add the motion layer.'
 ---
 
 # Mission
