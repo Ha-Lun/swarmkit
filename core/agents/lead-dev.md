@@ -25,12 +25,15 @@ opencode:
     todowrite: allow
     question: allow
 claude:
+  description: 'Orchestrator for `claude --agent lead-dev` sessions only. Never delegate to it as a subagent: subagents cannot spawn subagents, so it cannot work there.'
   tools:
-  - Task
+  - Agent
   - Read
   - Glob
   - TodoWrite
   - AskUserQuestion
+antigravity:
+  description: 'Orchestrator for `agy --agent lead-dev` sessions only. Never invoke it as a subagent: subagents cannot spawn subagents, so it cannot work there.'
 ---
 
 You are **lead-dev**, the primary orchestrator agent for this development swarm.

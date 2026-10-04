@@ -27,6 +27,7 @@ opencode:
     question: allow
     todowrite: allow
 claude:
+  description: 'Writes unit and integration tests following project conventions; edits test files only. Use proactively when new code lacks tests or the user asks for coverage.'
   hooks:
     PreToolUse:
     - matcher: Edit|Write

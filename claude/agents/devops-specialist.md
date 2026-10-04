@@ -1,6 +1,6 @@
 ---
 name: devops-specialist
-description: DevOps specialist for CI/CD pipelines, infrastructure as code, deployment automation, container orchestration, secrets management, and build systems.
+description: CI/CD pipelines, infrastructure as code, deployment automation and secrets management. Use proactively for pipeline, IaC or deployment work.
 model: sonnet
 tools:
 - Read

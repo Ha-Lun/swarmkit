@@ -1,6 +1,6 @@
 ---
 name: server-specialist
-description: Ubuntu server administration expert for system configuration, service management, security hardening, and infrastructure maintenance.
+description: 'Ubuntu/Linux server administration: systemd, Nginx/TLS, firewall, hardening, packages. Use proactively for server configuration and maintenance tasks.'
 model: sonnet
 tools:
 - Read

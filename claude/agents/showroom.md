@@ -1,6 +1,6 @@
 ---
 name: showroom
-description: Showroom Coordinator. Orchestrates premium, scroll-driven, dark-theme product-detail pages from brief to deployment using Astro, Tailwind, GSAP, and human-in-the-loop Google Flow assets. Enforces G1-G5 gates, S0-S10 pipeline, state persistence in .showroom/state.json, and dispatches peer workers.
+description: Showroom coordinator for premium scroll-driven, dark-theme product pages in Astro, Tailwind and GSAP, running the S0-S10 pipeline with G1-G5 human gates and .showroom/state.json. Use proactively when the user wants a showroom or scroll-driven product page built from a brief.
 model: sonnet
 tools:
 - Read

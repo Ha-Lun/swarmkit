@@ -19,6 +19,8 @@ opencode:
       '*': allow
     task: deny
     question: allow
+claude:
+  description: 'Ubuntu/Linux server administration: systemd, Nginx/TLS, firewall, hardening, packages. Use proactively for server configuration and maintenance tasks.'
 ---
 
 # Server Specialist

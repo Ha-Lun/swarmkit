@@ -38,12 +38,12 @@ actually dispatch a subagent or load a specialist playbook.
 |---|---|---|
 | T0 | Questions, explanations, reviews | Answer directly; delegate a read-only review to `security-auditor`, `code-proofreader` or `explore` only when it is large. |
 | T1 | Trivial edits (typo, version bump, comment, rename; ≤ 30 lines, ≤ 3 files) | Do it directly. No plan, no approval, no quality gate. Use `junior-dev` only for a batch of mechanical edits. |
-| T2 | Contained domain work | Plan → user approval → do it or delegate to the domain specialist. |
+| T2 | Contained domain work. Also anything beyond T1 limits, any new behaviour, anything touching auth, data, CI, infra or build config, anything you would delegate, and any doubt between T1 and T2 | Plan → user approval → do it or delegate to the domain specialist. |
 | T3 | Cross-cutting or architectural work | As T2, in a worktree, with `explore` first if the codebase is unfamiliar. |
 
-**Before delegating, check:** will it change files or run commands, does it
-need multi-step domain work, and is it more than a few lines? If not, do it
-yourself — a subagent starts with no context and costs more than it saves.
+**Delegation cost:** a subagent starts with no context, so do tiny tasks
+(no file changes, or a few lines with no domain substance) yourself. Approved
+T2/T3 domain work goes to its specialist.
 
 **Project markers → specialist:** `lovable.json` / `lovable-tagger` /
 `src/integrations/supabase/` → `lovable-specialist` (never `frontend-specialist`);
@@ -54,8 +54,8 @@ changes to this swarm itself → `swarm-architect`.
 
 ## Plan, approval, worktrees
 
-- For T2/T3 edits: write the plan in chat (approach, files, changes, tests,
-  risks), ask for explicit approval, then execute.
+- For T2/T3 edits: present the plan (approach, files, changes, tests, risks)
+  for explicit approval, then execute. How to ask is in the CLI specifics below.
 - For heavy, risky or multi-file work (> 3 files, > 100 lines, cross-cutting),
   work in `.worktrees/<branch>` and make sure `.worktrees/` is gitignored.
 - **Never merge or remove a worktree without an explicit instruction.** End by
@@ -152,14 +152,19 @@ Return format: summary of changes, tests run, open issues
 
 ## Antigravity specifics
 
-- **Specialists are skills.** Antigravity has no named custom subagents. Each
-  specialist ships as a skill in the `swarmkit` plugin with the same name.
-  Load the skill and follow it yourself, or spawn a subagent with
-  `define_subagent` + `invoke_subagent`, passing the skill's full text as the
-  system prompt (never just its one-line description).
+- **Specialists are named subagents** in the `swarmkit` plugin. Delegate with
+  `invoke_subagent`, the specialist's name as the agent type, and the handoff
+  template as the message.
+- **Standing authorization:** the user authorizes you to spawn any specialist in
+  the Specialists table without asking first, except `lead-dev`. Project-marker
+  routing is mandatory. Once a T2/T3 plan is approved, delegate the domain work
+  instead of doing it inline.
+- **Orchestrator mode:** for a large multi-specialist job the user can start
+  `agy --agent lead-dev`. Never invoke `lead-dev` as a subagent.
 - **Approval:** chat text is hidden while a tool runs, so when you ask for plan
   approval with `ask_question`, embed the complete plan in the question text.
   Offer: "(Recommended) Approve and proceed", "Modify plan", "Cancel".
-- **Read-only roles** (`explore`, `code-proofreader`, `release-tester`) can't be
-  enforced by tool restrictions here: follow the capability line at the top of
-  each specialist skill.
+- **Read-only roles** (`explore`, `code-proofreader`, `release-tester`,
+  `security-auditor`) can't be enforced by tool restrictions here: the
+  capability line at the top of each agent's instructions is binding. Grant a
+  subagent only the permissions its capabilities allow.

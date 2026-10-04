@@ -1,6 +1,6 @@
 ---
 name: monitoring-specialist
-description: Monitoring and observability specialist for Prometheus, Grafana, Loki, alerting, log aggregation, APM, distributed tracing, metrics dashboards, SLI/SLO best practices, and synthetic monitoring.
+description: Observability with Prometheus, Grafana, Loki, alerting, tracing and SLI/SLO. Use proactively for metrics, dashboards, alerting or logging work.
 model: sonnet
 tools:
 - Read

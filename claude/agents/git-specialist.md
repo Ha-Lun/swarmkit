@@ -1,6 +1,6 @@
 ---
 name: git-specialist
-description: 'Git workflow specialist — commit/branch review (default) AND environment setup on lead-dev''s behalf: git worktree create/remove, .worktrees/ .gitignore append. Read-only for everything else.'
+description: Git worktree setup/teardown, commit hygiene and branch-state review; edits only .gitignore. Use proactively to set up a worktree for heavy multi-file work and for commit hygiene on diffs over 100 lines.
 model: haiku
 tools:
 - Read

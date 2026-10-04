@@ -1,6 +1,6 @@
 ---
 name: electron-specialist
-description: Electron specialist for wrapping existing React + Vite web apps as desktop applications. Handles Electron main/renderer/preload architecture, electron-builder/forge packaging, auto-updates, native menus, system tray, file system access, and cross-platform desktop deployment (macOS, Windows, Linux). Use when building or modifying Electron desktop apps.
+description: 'Electron specialist for wrapping React + Vite apps as desktop apps: main/preload, packaging, auto-update. Use proactively whenever the project has Electron markers (electron-builder, electron/main.ts, electron.vite.config).'
 model: sonnet
 tools:
 - Read

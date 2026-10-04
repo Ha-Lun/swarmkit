@@ -21,6 +21,8 @@ opencode:
       showroom: allow
     task: deny
     question: allow
+claude:
+  description: 'Showroom asset processor: validates files in /assets/raw with ffprobe/sharp, rejects with exact fix messages and optimizes accepted ones into /public/assets. Use when dispatched by the showroom coordinator to ingest the human-supplied assets.'
 ---
 
 # Mission

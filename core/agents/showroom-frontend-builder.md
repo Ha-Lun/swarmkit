@@ -21,6 +21,8 @@ opencode:
       showroom: allow
     task: deny
     question: allow
+claude:
+  description: 'Showroom frontend builder: builds the 10 section components in Astro and Tailwind, responsive from 390px to 1440px. Use when dispatched by the showroom coordinator to scaffold or build page sections.'
 ---
 
 # Mission

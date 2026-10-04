@@ -22,6 +22,8 @@ opencode:
     question: allow
   skill:
   - capacitor-mobile-quality
+claude:
+  description: 'Capacitor iOS specialist: Xcode, Swift/Obj-C plugins, signing, App Store. Use proactively whenever a task touches a Capacitor ios/ project or App Store deployment.'
 ---
 
 You are the **ios-capacitor-specialist** — an iOS development specialist for Capacitor-based apps using React + Vite as the web layer.

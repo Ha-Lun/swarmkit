@@ -1,6 +1,6 @@
 ---
 name: showroom-asset-processor
-description: Showroom Asset Processor Worker. Ingests /assets/raw, validates with ffprobe/sharp, rejects with exact fix messages, optimizes to /public/assets.
+description: 'Showroom asset processor: validates files in /assets/raw with ffprobe/sharp, rejects with exact fix messages and optimizes accepted ones into /public/assets. Use when dispatched by the showroom coordinator to ingest the human-supplied assets.'
 model: haiku
 tools:
 - Read

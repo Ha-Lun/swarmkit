@@ -1,6 +1,6 @@
 ---
 name: backend-specialist
-description: Backend specialist focused on API design, service boundaries, authentication/authorization, input validation, database interactions, observability, and backend maintainability. May inspect and edit code within backend scope.
+description: Backend specialist for APIs, services, auth, validation, background jobs and DB queries, including Cloudflare Workers (wrangler.toml). Use proactively for server-side work once the plan is approved.
 model: sonnet
 tools:
 - Read

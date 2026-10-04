@@ -2,14 +2,13 @@
   "$schema": "https://opencode.ai/config.json",
   "model": "opencode/nemotron-3.5-lightning-free",
   "default_agent": "lead-dev",
-  "instructions": [".opencode/instructions.md", "{env:HOME}/.config/opencode/custom-instructions.md"],
+  "instructions": ["{env:HOME}/.config/opencode/custom-instructions.md"],
   "tool_output": {
     "max_lines": 200,
     "max_bytes": 8192
   },
   "plugin": [
-    "opencode-antigravity-auth@latest",
-    "{env:HOME}/.opencode/plugins/ponytail.mjs"
+    "opencode-antigravity-auth@latest"
   ],
   "mcp": {
     "cloudflare": { "type": "remote", "url": "https://mcp.cloudflare.com/mcp", "enabled": true, "oauth": {} },

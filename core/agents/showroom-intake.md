@@ -21,6 +21,8 @@ opencode:
       showroom: allow
     task: deny
     question: allow
+claude:
+  description: 'Showroom intake: checks brief completeness, asks one batched question set, writes BRIEF.md and halts at G1. Use when dispatched by the showroom coordinator to turn the initial brief into BRIEF.md.'
 ---
 
 # Mission

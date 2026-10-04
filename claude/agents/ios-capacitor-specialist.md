@@ -1,6 +1,6 @@
 ---
 name: ios-capacitor-specialist
-description: iOS specialist for Capacitor apps with React + Vite. Handles Xcode project configuration, Swift/Obj-C native plugins, code signing, provisioning profiles, App Store Connect, native features (permissions, notifications, camera, biometrics), and iOS-specific debugging. Use when editing Capacitor iOS projects, native iOS code, or deploying to the App Store.
+description: 'Capacitor iOS specialist: Xcode, Swift/Obj-C plugins, signing, App Store. Use proactively whenever a task touches a Capacitor ios/ project or App Store deployment.'
 model: sonnet
 tools:
 - Read

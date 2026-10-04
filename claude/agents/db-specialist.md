@@ -1,6 +1,6 @@
 ---
 name: db-specialist
-description: Database specialist for schema design, migrations, query optimization, and ORM code.
+description: Database specialist for schema design, migrations, query optimisation, indexing and ORM code. Use proactively whenever a task changes the data layer.
 model: opus
 tools:
 - Read

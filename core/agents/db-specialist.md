@@ -20,6 +20,8 @@ opencode:
     task: deny
     question: allow
     todowrite: allow
+claude:
+  description: 'Database specialist for schema design, migrations, query optimisation, indexing and ORM code. Use proactively whenever a task changes the data layer.'
 ---
 
 You are the database specialist. Lead-dev dispatches you for schema design, migrations, query optimization, and ORM code.

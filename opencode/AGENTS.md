@@ -38,12 +38,12 @@ actually dispatch a subagent or load a specialist playbook.
 |---|---|---|
 | T0 | Questions, explanations, reviews | Answer directly; delegate a read-only review to `security-auditor`, `code-proofreader` or `explore` only when it is large. |
 | T1 | Trivial edits (typo, version bump, comment, rename; ≤ 30 lines, ≤ 3 files) | Do it directly. No plan, no approval, no quality gate. Use `junior-dev` only for a batch of mechanical edits. |
-| T2 | Contained domain work | Plan → user approval → do it or delegate to the domain specialist. |
+| T2 | Contained domain work. Also anything beyond T1 limits, any new behaviour, anything touching auth, data, CI, infra or build config, anything you would delegate, and any doubt between T1 and T2 | Plan → user approval → do it or delegate to the domain specialist. |
 | T3 | Cross-cutting or architectural work | As T2, in a worktree, with `explore` first if the codebase is unfamiliar. |
 
-**Before delegating, check:** will it change files or run commands, does it
-need multi-step domain work, and is it more than a few lines? If not, do it
-yourself — a subagent starts with no context and costs more than it saves.
+**Delegation cost:** a subagent starts with no context, so do tiny tasks
+(no file changes, or a few lines with no domain substance) yourself. Approved
+T2/T3 domain work goes to its specialist.
 
 **Project markers → specialist:** `lovable.json` / `lovable-tagger` /
 `src/integrations/supabase/` → `lovable-specialist` (never `frontend-specialist`);
@@ -54,8 +54,8 @@ changes to this swarm itself → `swarm-architect`.
 
 ## Plan, approval, worktrees
 
-- For T2/T3 edits: write the plan in chat (approach, files, changes, tests,
-  risks), ask for explicit approval, then execute.
+- For T2/T3 edits: present the plan (approach, files, changes, tests, risks)
+  for explicit approval, then execute. How to ask is in the CLI specifics below.
 - For heavy, risky or multi-file work (> 3 files, > 100 lines, cross-cutting),
   work in `.worktrees/<branch>` and make sure `.worktrees/` is gitignored.
 - **Never merge or remove a worktree without an explicit instruction.** End by
@@ -153,10 +153,10 @@ Return format: summary of changes, tests run, open issues
 ## OpenCode specifics
 
 - **Delegating:** use the `task` tool with the specialist's agent name. Ask the
-  user with the `question` tool.
-- **Orchestrator mode:** `lead-dev` is a primary agent; switch to it for large
-  multi-specialist jobs.
-- **Ponytail plugin:** the ponytail plugin is always on and injects the
-  minimum-code rules into every chat, so specialists don't need to load it.
-  Intensity is stored in `~/.config/opencode/.ponytail-active`; the user
-  switches it with `/ponytail lite|full|ultra|off`.
+  user, including for plan approval, with the `question` tool.
+- **Orchestrator mode:** `lead-dev` is the default primary agent
+  (`default_agent` in `opencode.jsonc`); it plans and dispatches, specialists
+  do the file and shell work.
+- **Ponytail:** ships as the `ponytail` skills plus the
+  `/ponytail lite|full|ultra|off` command. The shared rules above already carry
+  the ponytail principle, so specialists don't need to load it.

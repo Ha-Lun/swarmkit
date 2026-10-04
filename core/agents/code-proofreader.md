@@ -23,6 +23,7 @@ opencode:
     task: deny
     question: allow
 claude:
+  description: 'Read-only ponytail review of dead code, redundancy, unused exports and over-engineering, with confidence-tagged findings. Use proactively on diffs over 100 lines or when the user asks for a review or cleanup audit.'
   hooks:
     PreToolUse:
     - matcher: Bash
