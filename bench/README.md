@@ -41,14 +41,14 @@ Use `--repo PATH` to check another checkout. This is also how to try a deliberat
 
 ## Live tier
 
-Each case in `cases.json` runs in a fresh throwaway git repo created in the system temp dir. The repo holds a tiny Node project plus that case's marker files (`lovable.json` with `src/integrations/supabase/`, `wrangler.toml`, Capacitor `android/`, a Dockerfile, n8n workflow JSON, a fake hardcoded key with SQL concatenation, and so on). The repo is deleted afterwards. Every delegation prompt asks for read-only review or inspection, so no plan-approval gate blocks the run. The three `plan-*` cases (Claude only, fixture `plan`: `fetchJson` in `src/api.js` with two callers and a test, plus a README typo) are the exception: `plan-t2` asks for a multi-file feature and expects `EnterPlanMode` as the first tool call; `plan-t1` (one-word typo) and `plan-t0` (a conceptual question) expect no `EnterPlanMode`. Edits stay disallowed, so nothing is changed either way.
+Each case in `cases.json` runs in a fresh throwaway git repo created in the system temp dir. The repo holds a tiny Node project plus that case's marker files (`lovable.json` with `src/integrations/supabase/`, `wrangler.toml`, Capacitor `android/`, a Dockerfile, n8n workflow JSON, a fake hardcoded key with SQL concatenation, and so on). The repo is deleted afterwards. Every delegation prompt asks for read-only review or inspection, so no plan-approval gate blocks the run. The two `agy-*` cases (Claude only, fixture `security`) check the `agy-delegate` skill: `agy-delegate-review` expects a `Bash` command with `agy-task start` and `--review`, `neg-agy-inline` expects no `agy-task` for a one-sentence question. Bash is not permitted in the bench, so the command is recorded but agy never runs; both need `--budget 3` because the installed config's first turn alone costs about $1. The three `plan-*` cases (Claude only, fixture `plan`: `fetchJson` in `src/api.js` with two callers and a test, plus a README typo) are the exception: `plan-t2` asks for a multi-file feature and expects `EnterPlanMode` as the first tool call; `plan-t1` (one-word typo) and `plan-t0` (a conceptual question) expect no `EnterPlanMode`. Edits stay disallowed, so nothing is changed either way.
 
 Scoring uses only the CLI's machine output, never the model's prose:
 
 - **dispatched**: the subagent names the CLI actually invoked.
   - Claude: `tool_use` blocks named `Agent` or `Task` in top-level assistant events, using `input.subagent_type`.
   - agy: `step_update` events with `tool_name: invoke_subagent`, using `Subagents[].TypeName` or `subagent_info.subagents[].type_name`.
-- **correct**: every expectation the case sets holds. `expect.agent`: that agent is in `dispatched`, or nothing was dispatched when it is `null`; `wrong_agent` flags any other dispatch. `expect.first_tool` (Claude): the first top-level `tool_use` has that name. `expect.no_tool` (Claude): no top-level `tool_use` has that name.
+- **correct**: every expectation the case sets holds. `expect.agent`: that agent is in `dispatched`, or nothing was dispatched when it is `null`; `wrong_agent` flags any other dispatch. `expect.first_tool` (Claude): the first top-level `tool_use` has that name. `expect.no_tool` (Claude): no top-level `tool_use` has that name. `expect.bash_all` (Claude): one top-level `Bash` command contains every listed substring. `expect.no_bash` (Claude): no `Bash` command contains the substring.
 - **planner_model** (Claude): the `message.model` of top-level assistant messages after the `EnterPlanMode` call, and whether it contains `opus`. It is `null` when no assistant message follows the call (for example if headless mode does not continue in plan mode). Whether headless `-p` runs switch `opusplan` to Opus in plan mode has not been verified yet; this field is how to find out.
 - **status_line_ok**: the reply's first line matches `expect.status_line` (default `^> \*\*T\d operation: `).
 - Headlines: delegation accuracy (`category: positive`), false-delegation rate (`category: negative`), plan-mode gate (`category: plan`) with the share of planner models that were Opus, status-line compliance, mean duration, and cost or tokens.
@@ -84,7 +84,8 @@ Append to `cases` in `cases.json`:
 ```json
 {"id": "...", "title": "...", "category": "positive|negative|plan", "fixture": "<key in fixtures>",
  "prompt": "read-only review request ...", "expect": {"agent": "specialist-name or null", "status_line": "optional regex",
-                                                     "first_tool": "optional, Claude", "no_tool": "optional, Claude"},
+                                                     "first_tool": "optional, Claude", "no_tool": "optional, Claude",
+                                                     "bash_all": "optional, Claude", "no_bash": "optional, Claude"},
  "applies_to": ["claude", "agy", "opencode"]}
 ```
 
