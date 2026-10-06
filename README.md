@@ -195,6 +195,25 @@ To link your own self-hosted n8n securely:
 - **Zero hardcoded credentials**: No personal URLs, Tailscale hostnames, or API keys are committed to Git.
 - **Local-only config**: Endpoints reside strictly in `~/.config/swarmkit/n8n.env` (or your shell profile) making them accessible only to the running agent on your local machine.
 
+## 🧭 Delegating to agy from Claude Code
+
+`agy-task` runs one headless `agy` task on its own git worktree and branch `agy/<slug>`,
+then writes `result.json`. The `agy-delegate` skill tells Claude when to use it—such
+as for an independent diff review by a second model or bulk edits on separate
+quota without consuming Claude tokens.
+
+Tasks are managed with the `start`, `resume`, `list`, and `clean` commands. You can
+launch an advisory review task in the background with `--review`:
+
+```bash
+agy-task start diff-review "Review the auth refactor for regressions" --review
+```
+
+By default, tasks are edit-only so `agy` cannot run shell commands, meaning Claude
+must run tests itself in the worktree before merging. While a `--yolo` flag exists
+to permit shell commands, it is unsandboxed. Once verified, merge `agy/<slug>`
+and clean the worktree.
+
 ## 🔄 Multi-account switching (agyw)
 
 `agyw` is installed automatically as part of `--agy` or `--all`. It lets you switch between multiple Google accounts in `agy` without logging out.
