@@ -1,0 +1,1 @@
+Add a new specialist agent called `changelog-writer`: fast tier, read and edit capabilities only (no bash), that keeps CHANGELOG.md up to date from the git history. Make it available in all three CLIs the same way the other specialists are, and add it to the specialists table in the shared rules.

@@ -1,0 +1,1 @@
+Bug report for the user service in svc/: the same person can sign up twice by changing the capitalisation of their email (Ada@Example.com and ada@example.com both get an account). Fix it so the second sign-up is rejected like any other duplicate email. This has to hold for accounts that already exist in databases the service is already running against. Add tests.

@@ -1,0 +1,69 @@
+diff --git a/svc/docs/API.md b/svc/docs/API.md
+index d96c758..daa54f7 100644
+--- a/svc/docs/API.md
++++ b/svc/docs/API.md
+@@ -5,6 +5,6 @@
+ | GET | /health | Liveness check. Returns `{"status": "ok"}`. |
+ | GET | /users | All users, by id. |
+ | GET | /users/<id> | One user, or 404. |
+-| POST | /users | Create a user from `{name, email}`. 201, 400 on invalid input, 409 if the email is taken. |
++| POST | /users | Create a user from `{name, email}`. 201, 400 on invalid input, 409 if the email is taken (compared ignoring case). |
+ 
+ A user is `{id, name, email}`.
+diff --git a/svc/migrations/002_email_case_insensitive_unique.sql b/svc/migrations/002_email_case_insensitive_unique.sql
+new file mode 100644
+index 0000000..7fea775
+--- /dev/null
++++ b/svc/migrations/002_email_case_insensitive_unique.sql
+@@ -0,0 +1,3 @@
++-- Emails are unique ignoring case. Fails if existing rows already collide
++-- (e.g. Ada@Example.com and ada@example.com); those need merging by hand first.
++CREATE UNIQUE INDEX users_email_lower ON users (lower(email));
+diff --git a/svc/tests/test_migrations.py b/svc/tests/test_migrations.py
+index 5ac2478..ab16009 100644
+--- a/svc/tests/test_migrations.py
++++ b/svc/tests/test_migrations.py
+@@ -1,4 +1,5 @@
+ import os
++import sqlite3
+ import sys
+ import unittest
+ 
+@@ -14,6 +15,20 @@ class MigrationTests(unittest.TestCase):
+         self.assertEqual(db.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0], len(
+             [f for f in os.listdir(store.MIGRATIONS) if f.endswith(".sql")]))
+ 
++    def test_existing_database_rejects_case_variant(self):
++        """A database created before the case-insensitive migration keeps its rows and gains the check."""
++        db = store.connect()
++        with open(os.path.join(store.MIGRATIONS, "001_init.sql")) as f:
++            db.executescript(f.read())
++        db.execute("CREATE TABLE schema_migrations (name TEXT PRIMARY KEY)")
++        db.execute("INSERT INTO schema_migrations (name) VALUES ('001_init.sql')")
++        db.execute("INSERT INTO users (name, email) VALUES ('Ada', 'Ada@Example.com')")
++        db.commit()
++        store.migrate(db)
++        self.assertEqual(store.list_users(db)[0]["email"], "Ada@Example.com")
++        with self.assertRaises(sqlite3.IntegrityError):
++            store.create_user(db, "Ada 2", "ada@example.com")
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/svc/tests/test_users.py b/svc/tests/test_users.py
+index 2fd5461..4dc1a70 100644
+--- a/svc/tests/test_users.py
++++ b/svc/tests/test_users.py
+@@ -28,6 +28,12 @@ class UserTests(unittest.TestCase):
+         status, _ = app.handle("POST", "/users", {}, {"name": "Ada 2", "email": "ada@example.com"}, self.db)
+         self.assertEqual(status, 409)
+ 
++    def test_duplicate_email_ignores_case(self):
++        app.handle("POST", "/users", {}, {"name": "Ada", "email": "Ada@Example.com"}, self.db)
++        status, _ = app.handle("POST", "/users", {}, {"name": "Ada 2", "email": "ada@example.com"}, self.db)
++        self.assertEqual(status, 409)
++        self.assertEqual(len(store.list_users(self.db)), 1)
++
+     def test_list(self):
+         app.handle("POST", "/users", {}, {"name": "A", "email": "a@example.com"}, self.db)
+         app.handle("POST", "/users", {}, {"name": "B", "email": "b@example.com"}, self.db)

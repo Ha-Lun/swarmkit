@@ -1,0 +1,1 @@
+There is a typo in the description of the `explore` agent ("contxt-gathering"). Fix it everywhere it appears in this repo.

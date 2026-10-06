@@ -1,0 +1,165 @@
+diff --git a/antigravity/plugins/swarmkit/skills/junior-dev/SKILL.md b/antigravity/plugins/swarmkit/skills/junior-dev/SKILL.md
+index 4969089..8c6d571 100644
+--- a/antigravity/plugins/swarmkit/skills/junior-dev/SKILL.md
++++ b/antigravity/plugins/swarmkit/skills/junior-dev/SKILL.md
+@@ -1,6 +1,6 @@
+ ---
+ name: junior-dev
+-description: Junior dev for light, mechanical code edits that don't need a domain specialist. Typos, single-line tweaks, simple renames, version bumps, README touch-ups, single-test fixes. Load when acting as or delegating to the junior-dev role.
++description: Junior dev for light, mechanical code edits that don't need a domain specialist. Typos, single-line tweaks, simple renames, version bumps, README touch-ups, single-test fixes. (stale check) Load when acting as or delegating to the junior-dev role.
+ ---
+ > Specialist playbook for the **junior-dev** role. Allowed capabilities: read, edit, bash. Stay within them.
+ 
+diff --git a/claude/agents/junior-dev.md b/claude/agents/junior-dev.md
+index 904db46..3446b47 100644
+--- a/claude/agents/junior-dev.md
++++ b/claude/agents/junior-dev.md
+@@ -1,6 +1,6 @@
+ ---
+ name: junior-dev
+-description: Junior dev for light, mechanical code edits that don't need a domain specialist. Typos, single-line tweaks, simple renames, version bumps, README touch-ups, single-test fixes.
++description: Junior dev for light, mechanical code edits that don't need a domain specialist. Typos, single-line tweaks, simple renames, version bumps, README touch-ups, single-test fixes. (stale check)
+ model: haiku
+ tools:
+ - Read
+diff --git a/core/agents/junior-dev.md b/core/agents/junior-dev.md
+index 118ea05..30d5ece 100644
+--- a/core/agents/junior-dev.md
++++ b/core/agents/junior-dev.md
+@@ -1,6 +1,6 @@
+ ---
+ name: junior-dev
+-description: Junior dev for light, mechanical code edits that don't need a domain specialist. Typos, single-line tweaks, simple renames, version bumps, README touch-ups, single-test fixes.
++description: Junior dev for light, mechanical code edits that don't need a domain specialist. Typos, single-line tweaks, simple renames, version bumps, README touch-ups, single-test fixes. (stale check)
+ role: specialist
+ tier: fast
+ capabilities:
+diff --git a/opencode/agents/junior-dev.md b/opencode/agents/junior-dev.md
+index 191f001..1d0413a 100644
+--- a/opencode/agents/junior-dev.md
++++ b/opencode/agents/junior-dev.md
+@@ -1,5 +1,5 @@
+ ---
+-description: Junior dev for light, mechanical code edits that don't need a domain specialist. Typos, single-line tweaks, simple renames, version bumps, README touch-ups, single-test fixes.
++description: Junior dev for light, mechanical code edits that don't need a domain specialist. Typos, single-line tweaks, simple renames, version bumps, README touch-ups, single-test fixes. (stale check)
+ mode: subagent
+ temperature: 0.2
+ permission:
+diff --git a/scripts/build.py b/scripts/build.py
+index a889b5f..da8d86a 100755
+--- a/scripts/build.py
++++ b/scripts/build.py
+@@ -9,13 +9,17 @@
+ 
+ Outputs are committed. Run after editing anything in core/agents.
+ """
++import argparse
+ import glob
+ import os
+ import shutil
++import tempfile
+ 
+ import yaml
+ 
+ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
++OUT = ROOT  # where outputs are written; --check points it at a temp dir
++GENERATED_DIRS = ('claude/agents', 'opencode/agents', 'antigravity/plugins/swarmkit/skills')
+ 
+ # Model per tier, per CLI. An agent's own `claude.model` / `opencode.model`
+ # overrides this.
+@@ -64,13 +68,13 @@ def build_claude(a, body):
+           'model': model_for('claude', a), 'tools': tools + c.get('extra_tools', [])}
+     if c.get('hooks'):
+         fm['hooks'] = c['hooks']
+-    write(f"{ROOT}/claude/agents/{a['name']}.md", fm, body)
++    write(f"{OUT}/claude/agents/{a['name']}.md", fm, body)
+ 
+ 
+ def build_opencode(a, body):
+     fm = {'description': a['description'], **a['opencode']}
+     fm['model'] = model_for('opencode', a)
+-    write(f"{ROOT}/opencode/agents/{a['name']}.md", fm, body)
++    write(f"{OUT}/opencode/agents/{a['name']}.md", fm, body)
+ 
+ 
+ def build_antigravity(a, body):
+@@ -80,7 +84,7 @@ def build_antigravity(a, body):
+               f"Allowed capabilities: {caps}. Stay within them.\n\n")
+     fm = {'name': a['name'],
+           'description': f"{a['description']} Load when acting as or delegating to the {a['name']} role."}
+-    write(f"{ROOT}/antigravity/plugins/swarmkit/skills/{a['name']}/SKILL.md", fm, header + body)
++    write(f"{OUT}/antigravity/plugins/swarmkit/skills/{a['name']}/SKILL.md", fm, header + body)
+ 
+ 
+ RULES_OUT = {
+@@ -95,23 +99,64 @@ def build_rules():
+     shared = open(f'{ROOT}/core/rules/AGENTS.md').read()
+     for cli, out in RULES_OUT.items():
+         addendum = open(f'{ROOT}/{cli}/rules.md').read()
+-        os.makedirs(os.path.dirname(f'{ROOT}/{out}'), exist_ok=True)
+-        with open(f'{ROOT}/{out}', 'w') as f:
++        os.makedirs(os.path.dirname(f'{OUT}/{out}'), exist_ok=True)
++        with open(f'{OUT}/{out}', 'w') as f:
+             f.write(f'<!-- Generated by scripts/build.py from core/rules/AGENTS.md + {cli}/rules.md. Do not edit. -->\n\n'
+                     f'{shared.rstrip()}\n\n{addendum}')
+ 
+ 
+-def main():
+-    for d in ('claude/agents', 'opencode/agents', 'antigravity/plugins/swarmkit/skills'):
+-        shutil.rmtree(os.path.join(ROOT, d), ignore_errors=True)
++def build_all():
++    for d in GENERATED_DIRS:
++        shutil.rmtree(os.path.join(OUT, d), ignore_errors=True)
+     agents = load_agents()
+     for a, body in agents:
+         build_claude(a, body)
+         build_opencode(a, body)
+         build_antigravity(a, body)
+-    with open(f'{ROOT}/antigravity/plugins/swarmkit/plugin.json', 'w') as f:
++    os.makedirs(f'{OUT}/antigravity/plugins/swarmkit', exist_ok=True)
++    with open(f'{OUT}/antigravity/plugins/swarmkit/plugin.json', 'w') as f:
+         f.write('{\n  "name": "swarmkit"\n}\n')
+     build_rules()
++    return agents
++
++
++def files_under(base, subdirs=('',)):
++    found = set()
++    for sub in subdirs:
++        for dirpath, _, names in os.walk(os.path.join(base, sub)):
++            found.update(os.path.relpath(os.path.join(dirpath, n), base) for n in names)
++    return found
++
++
++def stale_outputs():
++    """Build into a temp dir and return the repo paths that differ from it."""
++    global OUT
++    with tempfile.TemporaryDirectory() as tmp:
++        OUT = tmp
++        try:
++            build_all()
++        finally:
++            OUT = ROOT
++        fresh = files_under(tmp)
++        existing = files_under(ROOT, GENERATED_DIRS)
++        stale = set(existing - fresh)
++        for rel in fresh:
++            path = os.path.join(ROOT, rel)
++            if not os.path.isfile(path) or open(path, 'rb').read() != open(os.path.join(tmp, rel), 'rb').read():
++                stale.add(rel)
++    return sorted(stale)
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
++    parser.add_argument('--check', action='store_true',
++                        help='write nothing; exit 1 and list stale outputs if any are out of date')
++    if parser.parse_args().check:
++        stale = stale_outputs()
++        for rel in stale:
++            print(rel)
++        raise SystemExit(1 if stale else 0)
++    agents = build_all()
+     print(f'Built {len(agents)} agents for claude, opencode, antigravity.')
+ 
+ 

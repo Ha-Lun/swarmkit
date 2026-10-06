@@ -1,0 +1,171 @@
+diff --git a/svc/app.py b/svc/app.py
+index d9f176e..7173e2e 100644
+--- a/svc/app.py
++++ b/svc/app.py
+@@ -21,4 +21,41 @@ def handle(method, path, query, body, db):
+             return 201, store.create_user(db, body["name"].strip(), body["email"])
+         except sqlite3.IntegrityError:
+             return 409, {"error": "email already registered"}
++    if method == "POST" and path == "/users/import":
++        return import_users(body, db)
+     return 404, {"error": "not found"}
++
++
++MAX_IMPORT = 100
++
++
++def import_users(body, db):
++    users = body.get("users") if isinstance(body, dict) else None
++    if not isinstance(users, list) or not users:
++        return 400, {"errors": [{"error": "users must be a non-empty list"}]}
++    if len(users) > MAX_IMPORT:
++        return 413, {"error": "at most %d users per request" % MAX_IMPORT}
++
++    problems = []
++    for i, entry in enumerate(users):
++        errors = validate.validate_user(entry) if isinstance(entry, dict) else ["entry must be an object"]
++        if errors:
++            problems.append({"index": i, "errors": errors})
++    if problems:
++        return 400, {"errors": problems}
++
++    taken = store.existing_emails(db, [u["email"] for u in users])
++    seen = set()
++    conflicts = []
++    for i, u in enumerate(users):
++        key = u["email"].lower()
++        if key in taken or key in seen:
++            conflicts.append({"index": i, "error": "email already registered"})
++        seen.add(key)
++    if conflicts:
++        return 409, {"errors": conflicts}
++
++    created, failed = store.create_users(db, [(u["name"].strip(), u["email"]) for u in users])
++    if failed is not None:  # lost a race with a concurrent insert
++        return 409, {"errors": [{"index": failed, "error": "email already registered"}]}
++    return 201, {"users": created}
+diff --git a/svc/docs/API.md b/svc/docs/API.md
+index d96c758..649e679 100644
+--- a/svc/docs/API.md
++++ b/svc/docs/API.md
+@@ -6,5 +6,19 @@
+ | GET | /users | All users, by id. |
+ | GET | /users/<id> | One user, or 404. |
+ | POST | /users | Create a user from `{name, email}`. 201, 400 on invalid input, 409 if the email is taken. |
++| POST | /users/import | Create many users from `{"users": [{name, email}, ...]}`, all or nothing. See below. |
++
++## POST /users/import
++
++At most 100 users per request. Each entry is validated like `POST /users`. Emails are compared ignoring capitalisation: an email may not already exist, nor appear twice in the batch.
++
++| Status | When | Body |
++|---|---|---|
++| 201 | All created | `{"users": [...]}` in input order |
++| 400 | `users` missing, empty or not a list (`{"errors": [{"error": "..."}]}`); an entry is not an object or is invalid | `{"errors": [{"index": i, "errors": [...]}]}` |
++| 409 | Email already registered, or repeated earlier in the batch | `{"errors": [{"index": i, "error": "email already registered"}]}` (index of the later entry) |
++| 413 | More than 100 users | `{"error": "..."}` |
++
++Validation (400) is checked before duplicates (409). On any error nothing is created.
+ 
+ A user is `{id, name, email}`.
+diff --git a/svc/store.py b/svc/store.py
+index 6c5bc2c..5d20049 100644
+--- a/svc/store.py
++++ b/svc/store.py
+@@ -31,6 +31,32 @@ def create_user(db, name, email):
+     return get_user(db, cur.lastrowid)
+ 
+ 
++def existing_emails(db, emails):
++    """The subset of `emails` (compared case-insensitively) already registered, as a lowercase set."""
++    wanted = {e.lower() for e in emails}
++    return {r["email"].lower() for r in db.execute("SELECT email FROM users")} & wanted
++
++
++def create_users(db, entries):
++    """Insert (name, email) pairs in one transaction: all or nothing.
++
++    Returns (users, None) on success, or (None, index) of the entry that hit a uniqueness conflict.
++    """
++    try:
++        ids = []
++        for i, (name, email) in enumerate(entries):
++            try:
++                ids.append(db.execute("INSERT INTO users (name, email) VALUES (?, ?)", (name, email)).lastrowid)
++            except sqlite3.IntegrityError:
++                db.rollback()
++                return None, i
++        db.commit()
++    except Exception:
++        db.rollback()
++        raise
++    return [get_user(db, i) for i in ids], None
++
++
+ def get_user(db, user_id):
+     row = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+     return dict(row) if row else None
+diff --git a/svc/tests/test_users.py b/svc/tests/test_users.py
+index 2fd5461..f03f92b 100644
+--- a/svc/tests/test_users.py
++++ b/svc/tests/test_users.py
+@@ -34,6 +34,59 @@ class UserTests(unittest.TestCase):
+         status, body = app.handle("GET", "/users", {}, None, self.db)
+         self.assertEqual([u["name"] for u in body["users"]], ["A", "B"])
+ 
++    def imp(self, body):
++        return app.handle("POST", "/users/import", {}, body, self.db)
++
++    def count(self):
++        return len(app.handle("GET", "/users", {}, None, self.db)[1]["users"])
++
++    def test_import_ok(self):
++        status, body = self.imp({"users": [{"name": " B ", "email": "b@example.com"}, {"name": "A", "email": "a@example.com"}]})
++        self.assertEqual(status, 201)
++        self.assertEqual([u["name"] for u in body["users"]], ["B", "A"])
++        self.assertEqual(self.count(), 2)
++
++    def test_import_bad_body(self):
++        for body in (None, [], {}, {"users": []}, {"users": "x"}, {"users": {"a": 1}}):
++            self.assertEqual(self.imp(body)[0], 400, body)
++
++    def test_import_non_object_entry(self):
++        status, body = self.imp({"users": [{"name": "A", "email": "a@example.com"}, "x"]})
++        self.assertEqual(status, 400)
++        self.assertEqual(body["errors"][0]["index"], 1)
++        self.assertEqual(self.count(), 0)
++
++    def test_import_invalid_entries_create_nothing(self):
++        status, body = self.imp({"users": [{"name": "A", "email": "a@example.com"}, {"name": "", "email": "nope"}]})
++        self.assertEqual(status, 400)
++        self.assertEqual(body, {"errors": [{"index": 1, "errors": ["name is required", "email is invalid"]}]})
++        self.assertEqual(self.count(), 0)
++
++    def test_import_duplicate_in_batch_ignores_case(self):
++        status, body = self.imp({"users": [
++            {"name": "A", "email": "a@example.com"},
++            {"name": "B", "email": "b@example.com"},
++            {"name": "C", "email": "A@Example.com"},
++        ]})
++        self.assertEqual(status, 409)
++        self.assertEqual(body, {"errors": [{"index": 2, "error": "email already registered"}]})
++        self.assertEqual(self.count(), 0)
++
++    def test_import_existing_email_ignores_case(self):
++        app.handle("POST", "/users", {}, {"name": "Ada", "email": "ada@example.com"}, self.db)
++        status, body = self.imp({"users": [{"name": "N", "email": "n@example.com"}, {"name": "A", "email": "ADA@example.com"}]})
++        self.assertEqual(status, 409)
++        self.assertEqual(body, {"errors": [{"index": 1, "error": "email already registered"}]})
++        self.assertEqual(self.count(), 1)
++
++    def test_import_limit(self):
++        def users(n):
++            return [{"name": "U", "email": "u%d@example.com" % i} for i in range(n)]
++        self.assertEqual(self.imp({"users": users(101)})[0], 413)
++        self.assertEqual(self.count(), 0)
++        self.assertEqual(self.imp({"users": users(100)})[0], 201)
++        self.assertEqual(self.count(), 100)
++
+ 
+ if __name__ == "__main__":
+     unittest.main()

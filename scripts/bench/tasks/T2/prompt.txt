@@ -1,0 +1,1 @@
+In scripts/build.py the Claude Code model for the `fast` tier is `haiku`. Change it to `sonnet` for Claude Code only (leave OpenCode's models alone) and regenerate the outputs.

@@ -1,0 +1,80 @@
+diff --git a/svc/app.py b/svc/app.py
+index d9f176e..e2a6193 100644
+--- a/svc/app.py
++++ b/svc/app.py
+@@ -1,13 +1,35 @@
+ """Request handling for the user service: handle(...) -> (status, body). No sockets, so it is testable directly."""
++import os
+ import sqlite3
+ 
+ import store
+ import validate
+ 
++EXPORTS_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), "exports"))
++
++
++def read_export(name):
++    """Contents of a file under EXPORTS_DIR, or None if absent or outside it."""
++    path = os.path.realpath(os.path.join(EXPORTS_DIR, name))
++    if not path.startswith(EXPORTS_DIR + os.sep):
++        return None
++    if not os.path.isfile(path):
++        return None
++    with open(path, encoding="utf-8", errors="replace") as f:
++        return f.read()
++
+ 
+ def handle(method, path, query, body, db):
+     if method == "GET" and path == "/health":
+         return 200, {"status": "ok"}
++    if method == "GET" and path == "/files":
++        name = (query or {}).get("name")
++        if not isinstance(name, str) or not name:
++            return 400, {"error": "name is required"}
++        content = read_export(name)
++        if content is None:
++            return 404, {"error": "not found"}
++        return 200, {"name": name, "content": content}
+     if method == "GET" and path == "/users":
+         return 200, {"users": store.list_users(db)}
+     if method == "GET" and path.startswith("/users/"):
+diff --git a/svc/docs/API.md b/svc/docs/API.md
+index d96c758..6524bab 100644
+--- a/svc/docs/API.md
++++ b/svc/docs/API.md
+@@ -6,5 +6,6 @@
+ | GET | /users | All users, by id. |
+ | GET | /users/<id> | One user, or 404. |
+ | POST | /users | Create a user from `{name, email}`. 201, 400 on invalid input, 409 if the email is taken. |
++| GET | /files?name=<name> | Contents of `<name>` from the `svc/exports` directory, as `{"name", "content"}`. 400 if `name` is missing, 404 if the file does not exist (including names that resolve outside `exports`). |
+ 
+ A user is `{id, name, email}`.
+diff --git a/svc/tests/test_users.py b/svc/tests/test_users.py
+index 2fd5461..5281413 100644
+--- a/svc/tests/test_users.py
++++ b/svc/tests/test_users.py
+@@ -34,6 +34,24 @@ class UserTests(unittest.TestCase):
+         status, body = app.handle("GET", "/users", {}, None, self.db)
+         self.assertEqual([u["name"] for u in body["users"]], ["A", "B"])
+ 
++    def test_files_ok(self):
++        status, body = app.handle("GET", "/files", {"name": "hello.txt"}, None, self.db)
++        self.assertEqual(status, 200)
++        self.assertEqual(body["name"], "hello.txt")
++        with open(os.path.join(app.EXPORTS_DIR, "hello.txt"), encoding="utf-8") as f:
++            self.assertEqual(body["content"], f.read())
++
++    def test_files_missing_name(self):
++        self.assertEqual(app.handle("GET", "/files", {}, None, self.db)[0], 400)
++        self.assertEqual(app.handle("GET", "/files", {"name": ""}, None, self.db)[0], 400)
++
++    def test_files_not_found(self):
++        self.assertEqual(app.handle("GET", "/files", {"name": "nope.txt"}, None, self.db)[0], 404)
++
++    def test_files_no_traversal(self):
++        for name in ("../app.py", "../../svc/app.py", os.path.join(app.EXPORTS_DIR, "..", "app.py")):
++            self.assertEqual(app.handle("GET", "/files", {"name": name}, None, self.db)[0], 404)
++
+ 
+ if __name__ == "__main__":
+     unittest.main()

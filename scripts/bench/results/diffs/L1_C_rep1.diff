@@ -1,0 +1,142 @@
+diff --git a/svc/app.py b/svc/app.py
+index d9f176e..3407a13 100644
+--- a/svc/app.py
++++ b/svc/app.py
+@@ -13,6 +13,11 @@ def handle(method, path, query, body, db):
+     if method == "GET" and path.startswith("/users/"):
+         user = store.get_user(db, path.split("/")[2]) if path.split("/")[2].isdigit() else None
+         return (200, user) if user else (404, {"error": "not found"})
++    if method == "DELETE" and path.startswith("/users/"):
++        user_id = path.split("/")[2]
++        if user_id.isdigit() and store.delete_user(db, user_id):
++            return 200, {"deleted": int(user_id)}
++        return 404, {"error": "not found"}
+     if method == "POST" and path == "/users":
+         errors = validate.validate_user(body or {})
+         if errors:
+diff --git a/svc/docs/API.md b/svc/docs/API.md
+index d96c758..61fd860 100644
+--- a/svc/docs/API.md
++++ b/svc/docs/API.md
+@@ -6,5 +6,8 @@
+ | GET | /users | All users, by id. |
+ | GET | /users/<id> | One user, or 404. |
+ | POST | /users | Create a user from `{name, email}`. 201, 400 on invalid input, 409 if the email is taken. |
++| DELETE | /users/<id> | Soft delete: the row is kept with a `deleted_at` timestamp. 200 with `{"deleted": <id>}`, 404 if unknown or already deleted. |
++
++Deleted users are hidden from `GET /users` and `GET /users/<id>` (404), and their email can be registered again. Email is unique among active users only.
+ 
+ A user is `{id, name, email}`.
+diff --git a/svc/migrations/002_soft_delete.sql b/svc/migrations/002_soft_delete.sql
+new file mode 100644
+index 0000000..f664eb4
+--- /dev/null
++++ b/svc/migrations/002_soft_delete.sql
+@@ -0,0 +1,16 @@
++-- Soft delete: add deleted_at, and make email unique among active users only.
++-- SQLite cannot drop the column-level UNIQUE, so rebuild the table, keeping ids and the id sequence.
++BEGIN;
++CREATE TABLE users_new (
++  id INTEGER PRIMARY KEY AUTOINCREMENT,
++  name TEXT NOT NULL,
++  email TEXT NOT NULL,
++  deleted_at TEXT
++);
++INSERT INTO users_new (id, name, email) SELECT id, name, email FROM users;
++DELETE FROM sqlite_sequence WHERE name = 'users_new';
++INSERT INTO sqlite_sequence (name, seq) SELECT 'users_new', seq FROM sqlite_sequence WHERE name = 'users';
++DROP TABLE users;
++ALTER TABLE users_new RENAME TO users;
++CREATE UNIQUE INDEX users_active_email ON users (email) WHERE deleted_at IS NULL;
++COMMIT;
+diff --git a/svc/store.py b/svc/store.py
+index 6c5bc2c..2ffc567 100644
+--- a/svc/store.py
++++ b/svc/store.py
+@@ -31,10 +31,22 @@ def create_user(db, name, email):
+     return get_user(db, cur.lastrowid)
+ 
+ 
++USER_COLUMNS = "id, name, email"
++
++
+ def get_user(db, user_id):
+-    row = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
++    row = db.execute("SELECT %s FROM users WHERE id = ? AND deleted_at IS NULL" % USER_COLUMNS, (user_id,)).fetchone()
+     return dict(row) if row else None
+ 
+ 
+ def list_users(db):
+-    return [dict(r) for r in db.execute("SELECT * FROM users ORDER BY id")]
++    return [dict(r) for r in db.execute("SELECT %s FROM users WHERE deleted_at IS NULL ORDER BY id" % USER_COLUMNS)]
++
++
++def delete_user(db, user_id):
++    """Soft delete. Returns False if there is no active user with that id."""
++    cur = db.execute(
++        "UPDATE users SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND deleted_at IS NULL",
++        (user_id,))
++    db.commit()
++    return cur.rowcount > 0
+diff --git a/svc/tests/test_migrations.py b/svc/tests/test_migrations.py
+index 5ac2478..790c45d 100644
+--- a/svc/tests/test_migrations.py
++++ b/svc/tests/test_migrations.py
+@@ -14,6 +14,20 @@ class MigrationTests(unittest.TestCase):
+         self.assertEqual(db.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0], len(
+             [f for f in os.listdir(store.MIGRATIONS) if f.endswith(".sql")]))
+ 
++    def test_upgrade_keeps_existing_users(self):
++        db = store.connect()
++        db.execute("CREATE TABLE schema_migrations (name TEXT PRIMARY KEY)")
++        db.executescript(open(os.path.join(store.MIGRATIONS, "001_init.sql")).read())
++        db.execute("INSERT INTO schema_migrations (name) VALUES ('001_init.sql')")
++        db.execute("INSERT INTO users (name, email) VALUES ('A', 'a@example.com')")
++        db.execute("INSERT INTO users (id, name, email) VALUES (7, 'B', 'b@example.com')")
++        db.execute("INSERT INTO users (id, name, email) VALUES (9, 'C', 'c@example.com')")
++        db.execute("DELETE FROM users WHERE id = 9")
++        db.commit()
++        store.migrate(db)
++        self.assertEqual([(u["id"], u["email"]) for u in store.list_users(db)], [(1, "a@example.com"), (7, "b@example.com")])
++        self.assertEqual(store.create_user(db, "D", "d@example.com")["id"], 10)
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/svc/tests/test_users.py b/svc/tests/test_users.py
+index 2fd5461..497f6f8 100644
+--- a/svc/tests/test_users.py
++++ b/svc/tests/test_users.py
+@@ -34,6 +34,32 @@ class UserTests(unittest.TestCase):
+         status, body = app.handle("GET", "/users", {}, None, self.db)
+         self.assertEqual([u["name"] for u in body["users"]], ["A", "B"])
+ 
++    def _create(self, name, email):
++        return app.handle("POST", "/users", {}, {"name": name, "email": email}, self.db)
++
++    def test_delete(self):
++        _, user = self._create("Ada", "ada@example.com")
++        self.assertEqual(app.handle("DELETE", "/users/%d" % user["id"], {}, None, self.db), (200, {"deleted": user["id"]}))
++        self.assertEqual(app.handle("GET", "/users/%d" % user["id"], {}, None, self.db)[0], 404)
++        self.assertEqual(app.handle("GET", "/users", {}, None, self.db)[1], {"users": []})
++        row = self.db.execute("SELECT deleted_at FROM users WHERE id = ?", (user["id"],)).fetchone()
++        self.assertIsNotNone(row["deleted_at"])
++
++    def test_delete_unknown_or_twice(self):
++        self.assertEqual(app.handle("DELETE", "/users/99", {}, None, self.db)[0], 404)
++        self.assertEqual(app.handle("DELETE", "/users/abc", {}, None, self.db)[0], 404)
++        _, user = self._create("Ada", "ada@example.com")
++        app.handle("DELETE", "/users/%d" % user["id"], {}, None, self.db)
++        self.assertEqual(app.handle("DELETE", "/users/%d" % user["id"], {}, None, self.db)[0], 404)
++
++    def test_email_reusable_after_delete(self):
++        _, user = self._create("Ada", "ada@example.com")
++        app.handle("DELETE", "/users/%d" % user["id"], {}, None, self.db)
++        status, again = self._create("Ada", "ada@example.com")
++        self.assertEqual(status, 201)
++        self.assertNotEqual(again["id"], user["id"])
++        self.assertEqual(self._create("Ada 3", "ada@example.com")[0], 409)
++
+ 
+ if __name__ == "__main__":
+     unittest.main()

@@ -1,0 +1,1 @@
+In the user service in svc/, add an optional `phone` field to users. It must be stored, returned by the user endpoints, and validated on create: digits, spaces and dashes with an optional leading +, 7 to 15 digits in total. The service already runs against existing databases that have users in them. Update docs/API.md and add tests.
