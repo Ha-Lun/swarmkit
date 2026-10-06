@@ -11,6 +11,7 @@ description: >
   they complain about over-engineering, bloat, boilerplate, or unnecessary
   dependencies.
 license: MIT
+disable-model-invocation: true
 ---
 
 # Ponytail

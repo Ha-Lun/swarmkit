@@ -1,0 +1,87 @@
+diff --git a/svc/app.py b/svc/app.py
+index d9f176e..6788479 100644
+--- a/svc/app.py
++++ b/svc/app.py
+@@ -1,9 +1,22 @@
+ """Request handling for the user service: handle(...) -> (status, body). No sockets, so it is testable directly."""
++import os
+ import sqlite3
+ 
+ import store
+ import validate
+ 
++EXPORTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "exports")
++
++
++def read_export(name):
++    """Contents of EXPORTS/name, or None if it is not a file inside EXPORTS."""
++    root = os.path.realpath(EXPORTS)
++    path = os.path.realpath(os.path.join(root, name))
++    if not path.startswith(root + os.sep) or not os.path.isfile(path):
++        return None
++    with open(path, encoding="utf-8", errors="replace") as f:
++        return f.read()
++
+ 
+ def handle(method, path, query, body, db):
+     if method == "GET" and path == "/health":
+@@ -13,6 +26,12 @@ def handle(method, path, query, body, db):
+     if method == "GET" and path.startswith("/users/"):
+         user = store.get_user(db, path.split("/")[2]) if path.split("/")[2].isdigit() else None
+         return (200, user) if user else (404, {"error": "not found"})
++    if method == "GET" and path == "/files":
++        name = (query or {}).get("name")
++        if not isinstance(name, str) or not name:
++            return 400, {"error": "name is required"}
++        content = read_export(name)
++        return (200, {"name": name, "content": content}) if content is not None else (404, {"error": "not found"})
+     if method == "POST" and path == "/users":
+         errors = validate.validate_user(body or {})
+         if errors:
+diff --git a/svc/docs/API.md b/svc/docs/API.md
+index d96c758..739a415 100644
+--- a/svc/docs/API.md
++++ b/svc/docs/API.md
+@@ -6,5 +6,6 @@
+ | GET | /users | All users, by id. |
+ | GET | /users/<id> | One user, or 404. |
+ | POST | /users | Create a user from `{name, email}`. 201, 400 on invalid input, 409 if the email is taken. |
++| GET | /files?name=<name> | Contents of `exports/<name>` as `{name, content}`. 400 if `name` is missing, 404 if the file does not exist (names that resolve outside `exports/` are 404 too). |
+ 
+ A user is `{id, name, email}`.
+diff --git a/svc/tests/test_files.py b/svc/tests/test_files.py
+new file mode 100644
+index 0000000..f8f5b68
+--- /dev/null
++++ b/svc/tests/test_files.py
+@@ -0,0 +1,30 @@
++import os
++import sys
++import unittest
++
++sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
++import app  # noqa: E402
++
++
++class FileTests(unittest.TestCase):
++    def get(self, query):
++        return app.handle("GET", "/files", query, None, None)
++
++    def test_read(self):
++        self.assertEqual(self.get({"name": "hello.txt"}), (200, {"name": "hello.txt", "content": "hello from exports\n"}))
++
++    def test_missing_name(self):
++        self.assertEqual(self.get({})[0], 400)
++        self.assertEqual(self.get({"name": ""})[0], 400)
++
++    def test_not_found(self):
++        self.assertEqual(self.get({"name": "nope.txt"})[0], 404)
++        self.assertEqual(self.get({"name": "."})[0], 404)
++
++    def test_no_traversal(self):
++        self.assertEqual(self.get({"name": "../app.py"})[0], 404)
++        self.assertEqual(self.get({"name": os.path.abspath(app.__file__)})[0], 404)
++
++
++if __name__ == "__main__":
++    unittest.main()

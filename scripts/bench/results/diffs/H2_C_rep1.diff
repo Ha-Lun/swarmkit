@@ -1,0 +1,128 @@
+diff --git a/svc/app.py b/svc/app.py
+index d9f176e..43a72ec 100644
+--- a/svc/app.py
++++ b/svc/app.py
+@@ -18,7 +18,7 @@ def handle(method, path, query, body, db):
+         if errors:
+             return 400, {"errors": errors}
+         try:
+-            return 201, store.create_user(db, body["name"].strip(), body["email"])
++            return 201, store.create_user(db, body["name"].strip(), body["email"], body.get("phone"))
+         except sqlite3.IntegrityError:
+             return 409, {"error": "email already registered"}
+     return 404, {"error": "not found"}
+diff --git a/svc/docs/API.md b/svc/docs/API.md
+index d96c758..3ef64fc 100644
+--- a/svc/docs/API.md
++++ b/svc/docs/API.md
+@@ -5,6 +5,7 @@
+ | GET | /health | Liveness check. Returns `{"status": "ok"}`. |
+ | GET | /users | All users, by id. |
+ | GET | /users/<id> | One user, or 404. |
+-| POST | /users | Create a user from `{name, email}`. 201, 400 on invalid input, 409 if the email is taken. |
++| POST | /users | Create a user from `{name, email, phone?}`. 201, 400 on invalid input, 409 if the email is taken. |
+ 
+-A user is `{id, name, email}`.
++A user is `{id, name, email, phone}`. `phone` is optional and `null` when not set (including for users created before the field existed).
++On create, `phone` must be a string of digits, spaces and dashes with an optional leading `+`, containing 7 to 15 digits; otherwise 400 with `"phone is invalid"`.
+diff --git a/svc/migrations/002_add_phone.sql b/svc/migrations/002_add_phone.sql
+new file mode 100644
+index 0000000..0b713fe
+--- /dev/null
++++ b/svc/migrations/002_add_phone.sql
+@@ -0,0 +1 @@
++ALTER TABLE users ADD COLUMN phone TEXT;
+diff --git a/svc/store.py b/svc/store.py
+index 6c5bc2c..a974f7e 100644
+--- a/svc/store.py
++++ b/svc/store.py
+@@ -25,8 +25,8 @@ def migrate(db):
+     db.commit()
+ 
+ 
+-def create_user(db, name, email):
+-    cur = db.execute("INSERT INTO users (name, email) VALUES (?, ?)", (name, email))
++def create_user(db, name, email, phone=None):
++    cur = db.execute("INSERT INTO users (name, email, phone) VALUES (?, ?, ?)", (name, email, phone))
+     db.commit()
+     return get_user(db, cur.lastrowid)
+ 
+diff --git a/svc/tests/test_migrations.py b/svc/tests/test_migrations.py
+index 5ac2478..cfe757a 100644
+--- a/svc/tests/test_migrations.py
++++ b/svc/tests/test_migrations.py
+@@ -14,6 +14,17 @@ class MigrationTests(unittest.TestCase):
+         self.assertEqual(db.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0], len(
+             [f for f in os.listdir(store.MIGRATIONS) if f.endswith(".sql")]))
+ 
++    def test_upgrade_keeps_existing_users(self):
++        db = store.connect()
++        db.execute("CREATE TABLE schema_migrations (name TEXT PRIMARY KEY)")
++        db.executescript(open(os.path.join(store.MIGRATIONS, "001_init.sql")).read())
++        db.execute("INSERT INTO schema_migrations (name) VALUES ('001_init.sql')")
++        db.execute("INSERT INTO users (name, email) VALUES ('Old', 'old@example.com')")
++        db.commit()
++        store.migrate(db)
++        user = store.get_user(db, 1)
++        self.assertEqual((user["name"], user["phone"]), ("Old", None))
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/svc/tests/test_users.py b/svc/tests/test_users.py
+index 2fd5461..b0354d2 100644
+--- a/svc/tests/test_users.py
++++ b/svc/tests/test_users.py
+@@ -34,6 +34,31 @@ class UserTests(unittest.TestCase):
+         status, body = app.handle("GET", "/users", {}, None, self.db)
+         self.assertEqual([u["name"] for u in body["users"]], ["A", "B"])
+ 
++    def test_phone_stored_and_returned(self):
++        status, user = app.handle("POST", "/users", {}, {"name": "A", "email": "a@example.com", "phone": "+46 70-123 45 67"}, self.db)
++        self.assertEqual((status, user["phone"]), (201, "+46 70-123 45 67"))
++        _, got = app.handle("GET", "/users/%d" % user["id"], {}, None, self.db)
++        self.assertEqual(got["phone"], "+46 70-123 45 67")
++        _, body = app.handle("GET", "/users", {}, None, self.db)
++        self.assertEqual(body["users"][0]["phone"], "+46 70-123 45 67")
++
++    def test_phone_optional(self):
++        for extra in ({}, {"phone": None}):
++            payload = dict({"name": "A", "email": "a%d@example.com" % len(extra)}, **extra)
++            status, user = app.handle("POST", "/users", {}, payload, self.db)
++            self.assertEqual(status, 201)
++            self.assertIsNone(user["phone"])
++
++    def test_phone_validation(self):
++        good = ["1234567", "123456789012345", "+1 234-567 8", "12-34 567"]
++        bad = ["123456", "1234567890123456", "12+34567", "++1234567", "123 abc 4567", "", "   ---  ", 1234567, "+"]
++        for i, phone in enumerate(good):
++            status, _ = app.handle("POST", "/users", {}, {"name": "A", "email": "g%d@example.com" % i, "phone": phone}, self.db)
++            self.assertEqual(status, 201, phone)
++        for i, phone in enumerate(bad):
++            status, body = app.handle("POST", "/users", {}, {"name": "A", "email": "b%d@example.com" % i, "phone": phone}, self.db)
++            self.assertEqual((status, body["errors"]), (400, ["phone is invalid"]), phone)
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/svc/validate.py b/svc/validate.py
+index 89ff6f5..5b26112 100644
+--- a/svc/validate.py
++++ b/svc/validate.py
+@@ -2,6 +2,7 @@
+ import re
+ 
+ EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
++PHONE = re.compile(r"^\+?[0-9 -]+$")
+ 
+ 
+ def validate_user(payload):
+@@ -12,4 +13,8 @@ def validate_user(payload):
+     email = payload.get("email")
+     if not isinstance(email, str) or not EMAIL.match(email):
+         errors.append("email is invalid")
++    phone = payload.get("phone")
++    if phone is not None:
++        if not isinstance(phone, str) or not PHONE.match(phone) or not 7 <= sum(c.isdigit() for c in phone) <= 15:
++            errors.append("phone is invalid")
+     return errors

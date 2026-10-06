@@ -3,6 +3,7 @@ name: explore
 description: Read-only context-gathering pre-flight for the lead-dev swarm. Spawned by lead-dev for non-trivial or uncertain-context tasks to produce a scoped context brief (relevant files, key snippets, architecture notes, open questions); may be skipped for trivial/self-contained tasks. Returns summaries — never analysis or fixes.
 role: reviewer
 tier: fast
+pack: core
 capabilities:
 - read
 - bash
@@ -24,7 +25,7 @@ opencode:
     task: deny
     question: allow
 claude:
-  description: 'SwarmKit''s fast, cheap read-only codebase pre-flight that returns a brief under 400 tokens (files in scope, signatures, architecture notes). Use proactively before T2/T3 work in an unfamiliar codebase; prefer it over the built-in Explore agent when a compact brief is needed.'
+  description: 'Fast read-only codebase search that returns a compact brief of relevant files, signatures and architecture.'
   tools:
   - Read
   - Glob

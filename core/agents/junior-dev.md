@@ -3,6 +3,7 @@ name: junior-dev
 description: Junior dev for light, mechanical code edits that don't need a domain specialist. Typos, single-line tweaks, simple renames, version bumps, README touch-ups, single-test fixes.
 role: specialist
 tier: fast
+pack: swarm
 capabilities:
 - read
 - edit

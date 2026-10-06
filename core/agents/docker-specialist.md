@@ -3,6 +3,7 @@ name: docker-specialist
 description: Docker specialist for containerization, Dockerfiles, Compose stacks, image optimization, build caching, runtime debugging, and container security hygiene.
 role: specialist
 tier: standard
+pack: ops
 capabilities:
 - read
 - edit

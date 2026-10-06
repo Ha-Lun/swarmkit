@@ -1,0 +1,77 @@
+diff --git a/svc/docs/API.md b/svc/docs/API.md
+index d96c758..daa54f7 100644
+--- a/svc/docs/API.md
++++ b/svc/docs/API.md
+@@ -5,6 +5,6 @@
+ | GET | /health | Liveness check. Returns `{"status": "ok"}`. |
+ | GET | /users | All users, by id. |
+ | GET | /users/<id> | One user, or 404. |
+-| POST | /users | Create a user from `{name, email}`. 201, 400 on invalid input, 409 if the email is taken. |
++| POST | /users | Create a user from `{name, email}`. 201, 400 on invalid input, 409 if the email is taken (compared ignoring case). |
+ 
+ A user is `{id, name, email}`.
+diff --git a/svc/store.py b/svc/store.py
+index 6c5bc2c..c599ed9 100644
+--- a/svc/store.py
++++ b/svc/store.py
+@@ -26,7 +26,21 @@ def migrate(db):
+ 
+ 
+ def create_user(db, name, email):
+-    cur = db.execute("INSERT INTO users (name, email) VALUES (?, ?)", (name, email))
++    """Insert a user; raises sqlite3.IntegrityError if the email is taken, ignoring case.
++
++    The UNIQUE constraint on users.email is case-sensitive, and existing databases may already
++    hold case-variant duplicates (so a unique index on lower(email) could not be built there).
++    The check is therefore done here, under a write lock so concurrent sign-ups cannot race.
++    """
++    db.commit()
++    db.execute("BEGIN IMMEDIATE")
++    try:
++        if db.execute("SELECT 1 FROM users WHERE lower(email) = lower(?)", (email,)).fetchone():
++            raise sqlite3.IntegrityError("email already registered")
++        cur = db.execute("INSERT INTO users (name, email) VALUES (?, ?)", (name, email))
++    except BaseException:
++        db.rollback()
++        raise
+     db.commit()
+     return get_user(db, cur.lastrowid)
+ 
+diff --git a/svc/tests/test_users.py b/svc/tests/test_users.py
+index 2fd5461..de5321b 100644
+--- a/svc/tests/test_users.py
++++ b/svc/tests/test_users.py
+@@ -28,6 +28,33 @@ class UserTests(unittest.TestCase):
+         status, _ = app.handle("POST", "/users", {}, {"name": "Ada 2", "email": "ada@example.com"}, self.db)
+         self.assertEqual(status, 409)
+ 
++    def test_duplicate_email_ignores_case(self):
++        app.handle("POST", "/users", {}, {"name": "Ada", "email": "ada@example.com"}, self.db)
++        status, _ = app.handle("POST", "/users", {}, {"name": "Ada 2", "email": "Ada@Example.com"}, self.db)
++        self.assertEqual(status, 409)
++        self.assertEqual(len(store.list_users(self.db)), 1)
++
++    def test_duplicate_email_ignores_case_other_direction(self):
++        app.handle("POST", "/users", {}, {"name": "Ada", "email": "Ada@Example.com"}, self.db)
++        status, _ = app.handle("POST", "/users", {}, {"name": "Ada 2", "email": "ada@example.com"}, self.db)
++        self.assertEqual(status, 409)
++
++    def test_existing_database_with_mixed_case_account(self):
++        # An account created before the fix, with whatever capitalisation it signed up with.
++        self.db.execute("INSERT INTO users (name, email) VALUES ('Old', 'Ada@Example.com')")
++        self.db.commit()
++        status, _ = app.handle("POST", "/users", {}, {"name": "New", "email": "ada@example.com"}, self.db)
++        self.assertEqual(status, 409)
++
++    def test_existing_case_duplicates_do_not_break_service(self):
++        self.db.execute("INSERT INTO users (name, email) VALUES ('A', 'a@example.com')")
++        self.db.execute("INSERT INTO users (name, email) VALUES ('A2', 'A@example.com')")
++        self.db.commit()
++        status, _ = app.handle("POST", "/users", {}, {"name": "B", "email": "b@example.com"}, self.db)
++        self.assertEqual(status, 201)
++        status, _ = app.handle("POST", "/users", {}, {"name": "C", "email": "A@EXAMPLE.COM"}, self.db)
++        self.assertEqual(status, 409)
++
+     def test_list(self):
+         app.handle("POST", "/users", {}, {"name": "A", "email": "a@example.com"}, self.db)
+         app.handle("POST", "/users", {}, {"name": "B", "email": "b@example.com"}, self.db)

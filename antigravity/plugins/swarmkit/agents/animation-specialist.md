@@ -23,6 +23,7 @@ Load **`premium-frontend-system`** for design direction, motion language rules, 
 - **Three.js** + **React Three Fiber** + **Drei** — WebGL scenes, declarative React
 - Custom GLSL shaders (vertex + fragment), postprocessing pipelines
 - Scroll-driven 3D, product configurators, hero scenes, immersive scroll
+- Image-to-3D components: procedural Three.js TypeScript with proper animation pivots, no external asset imports. Meshes and Blender work go to blender-specialist.
 
 ### When to engage
 - 3D scenes, scroll-driven storytelling, complex timeline-based motion

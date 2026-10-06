@@ -1,0 +1,53 @@
+diff --git a/claude/agents/junior-dev.md b/claude/agents/junior-dev.md
+index 904db46..c00014a 100644
+--- a/claude/agents/junior-dev.md
++++ b/claude/agents/junior-dev.md
+@@ -9,6 +9,12 @@ tools:
+ - Edit
+ - Write
+ - Bash
++hooks:
++  PreToolUse:
++  - matcher: Bash
++    hooks:
++    - type: command
++      command: python3 ~/.claude/hooks/guard.py junior-dev
+ ---
+ 
+ ## What you handle
+diff --git a/claude/hooks/guard.py b/claude/hooks/guard.py
+index 2f43179..1ba06cf 100644
+--- a/claude/hooks/guard.py
++++ b/claude/hooks/guard.py
+@@ -39,6 +39,13 @@ def main():
+                 print(f"test-writer can only modify test files: {path}", file=sys.stderr)
+                 sys.exit(2)
+                 
++    elif agent_name == 'junior-dev':
++        if tool_name == 'Bash':
++            denied = ['rm -rf', 'git push --force', 'git push -f']
++            if any(d in cmd for d in denied):
++                print(f"Command not allowed for {agent_name}: {cmd}", file=sys.stderr)
++                sys.exit(2)
++
+     elif agent_name == 'git-specialist':
+         if tool_name in ['Edit', 'Write']:
+             if not path.endswith('.gitignore'):
+diff --git a/core/agents/junior-dev.md b/core/agents/junior-dev.md
+index 118ea05..1a3fd0f 100644
+--- a/core/agents/junior-dev.md
++++ b/core/agents/junior-dev.md
+@@ -21,6 +21,13 @@ opencode:
+     question: allow
+     webfetch: deny
+     websearch: deny
++claude:
++  hooks:
++    PreToolUse:
++    - matcher: Bash
++      hooks:
++      - type: command
++        command: python3 ~/.claude/hooks/guard.py junior-dev
+ ---
+ 
+ ## What you handle

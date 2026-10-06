@@ -1,0 +1,1 @@
+In claude/hooks/guard.py add a rule for the agent `junior-dev`: deny (exit 2, with a message on stderr) any Bash command that contains `rm -rf`, `git push --force` or `git push -f`, and allow every other command. Wire the hook for junior-dev in its agent definition the same way the other guarded agents are wired, and regenerate the outputs.

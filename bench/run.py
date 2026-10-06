@@ -26,7 +26,7 @@ import yaml
 BENCH = os.path.dirname(os.path.abspath(__file__))
 TTY = sys.stdout.isatty()
 COLOURS = {'PASS': '32', 'FAIL': '31', 'SKIP': '33', 'WARN': '33'}
-GEN = ['claude/agents', 'claude/CLAUDE.md', 'opencode/agents', 'opencode/AGENTS.md',
+GEN = ['claude/agents', 'claude/packs', 'claude/CLAUDE.md', 'opencode/agents', 'opencode/AGENTS.md',
        'antigravity/plugins/swarmkit']
 SRC = ['core', 'scripts', 'claude/rules.md', 'opencode/rules.md', 'antigravity/rules.md']
 AGENT_DIRS = {'core': 'core/agents', 'claude': 'claude/agents', 'opencode': 'opencode/agents',
@@ -70,7 +70,9 @@ def frontmatter(path):
 
 
 def agent_files(repo, cli):
-    return {os.path.basename(p)[:-3]: p for p in sorted(glob.glob(f'{repo}/{AGENT_DIRS[cli]}/*.md'))}
+    # Claude ships core agents in claude/agents and the rest in claude/packs/<pack>/agents.
+    pats = [f'{repo}/{AGENT_DIRS[cli]}/*.md'] + ([f'{repo}/claude/packs/*/agents/*.md'] if cli == 'claude' else [])
+    return {os.path.basename(p)[:-3]: p for pat in pats for p in sorted(glob.glob(pat))}
 
 
 def tree(root):
@@ -161,22 +163,21 @@ def s2_roster(repo):
 def s3_signals(repo):
     cat = 'S3 delegation signals'
     trigger = re.compile(r'\bproactively\b|\buse (?:it |this agent )?when(?:ever)?\b', re.I)
+    # Core agents (claude/agents) keep one-line descriptions; pack specialists need trigger wording.
     lacking = [n for n, p in agent_files(repo, 'claude').items()
-               if n != 'lead-dev' and not trigger.search(frontmatter(p)[0].get('description', ''))]
-    rec(cat, 'every Claude specialist description has trigger wording', not lacking,
+               if '/packs/' in p and n != 'lead-dev' and not trigger.search(frontmatter(p)[0].get('description', ''))]
+    rec(cat, 'every Claude pack specialist description has trigger wording', not lacking,
         f'no "proactively"/"Use when" in: {", ".join(lacking)}' if lacking else '')
     for cli in ('claude', 'antigravity'):
-        desc = frontmatter(f'{repo}/{AGENT_DIRS[cli]}/lead-dev.md')[0].get('description', '')
+        desc = frontmatter(agent_files(repo, cli)['lead-dev'])[0].get('description', '')
         rec(cat, f'{cli} lead-dev description forbids subagent use',
             bool(re.search(r'never (?:delegate|invoke)', desc, re.I) and 'subagent' in desc))
-    for cli in ('claude', 'antigravity'):
-        rec(cat, f'{cli} rules contain the standing authorization', 'Standing authorization' in read(f'{repo}/{RULES[cli]}'))
     for cli, rel in RULES.items():
-        rec(cat, f'{cli} rules contain the status-line rule', '> **T<n> operation:' in read(f'{repo}/{rel}'))
+        rec(cat, f'{cli} rules say never to wait for approval when non-interactive', 'never wait' in read(f'{repo}/{rel}'))
     claude = read(f'{repo}/{RULES["claude"]}')
-    rec(cat, 'claude rules: T2/T3 first tool call is EnterPlanMode',
-        bool(re.search(r'first tool call is `EnterPlanMode`', claude)))
-    rec(cat, 'claude rules: "entering plan mode" status line', '> **T<n> operation: entering plan mode**' in claude)
+    rec(cat, 'claude rules: large or risky work calls EnterPlanMode first', '`EnterPlanMode` first' in claude)
+    size = len(claude.encode())
+    rec(cat, 'claude rules under 2200 bytes', size < 2200, f'{size} bytes')
 
 
 def s4_leakage(repo, mcp_servers):
@@ -194,10 +195,10 @@ def s4_leakage(repo, mcp_servers):
     rec(cat, 'claude tool lists use known tools / core/mcp.json servers', not bad, '; '.join(bad[:5]))
 
 
-def s5_guard(repo, guard_cases, gate_cases):
+def s5_guard(repo, guard_cases):
     cat = 'S5 hooks and guard'
     for name in GUARDED:
-        path = f'{repo}/claude/agents/{name}.md'
+        path = agent_files(repo, 'claude').get(name, '')
         cmds = []
         if os.path.exists(path):
             for entry in (frontmatter(path)[0].get('hooks') or {}).get('PreToolUse') or []:
@@ -213,21 +214,6 @@ def s5_guard(repo, guard_cases, gate_cases):
         verdict = {0: 'allow', 2: 'block'}.get(rc, f'exit {rc}')
         rec(cat, f'guard {agent} {tool} {arg!r} -> {"allow" if want == 0 else "block"}', rc == want,
             '' if rc == want else f'got {verdict}')
-    gate = f'{repo}/claude/hooks/plan-gate.py'
-    for name, stdin, want in gate_cases:
-        rc, out, _, _ = run([sys.executable, gate], stdin=stdin if isinstance(stdin, str) else json.dumps(stdin),
-                            timeout=20)
-        if not out.strip():
-            got = 'silent'
-        else:
-            try:
-                h = json.loads(out)['hookSpecificOutput']
-                ok = h['hookEventName'] == 'UserPromptSubmit' and 'EnterPlanMode' in h['additionalContext']
-                got = 'remind' if ok else 'malformed reminder'
-            except (ValueError, KeyError, TypeError):
-                got = 'malformed reminder'
-        rec(cat, f'plan-gate {name} -> {want}', rc == 0 and got == want,
-            '' if rc == 0 and got == want else f'exit {rc}{" (BLOCKS the prompt)" if rc == 2 else ""}, {got}')
 
 
 def skill_refs(text):
@@ -284,7 +270,7 @@ def s7_native(repo):
     rec(cat, 'opencode plugin/instruction paths resolve', not problems,
         f'missing: {problems}' if problems else '; '.join(notes))
     shipped = [p for p in ('claude/settings.json', 'claude/settings.local.json') if os.path.exists(f'{repo}/{p}')]
-    hooks = ('guard.py', 'plan-gate.py')
+    hooks = ('guard.py',)
     needed = [p for p in ('claude/CLAUDE.md', 'claude/agents') + tuple(f'claude/hooks/{h}' for h in hooks)
               if not os.path.exists(f'{repo}/{p}')]
     err = ''
@@ -382,19 +368,18 @@ def claude_env(args, repo, tmp):
         return 'no ~/.claude/.credentials.json to authenticate with', None
     os.symlink(f'{real}/.credentials.json', f'{cfg}/.credentials.json')
     settings = json.loads(read(f'{real}/settings.json')) if os.path.exists(f'{real}/settings.json') else {}
-    # Drop the installed plan gate (it resolves through $HOME); repo mode registers this repo's copy instead.
+    # Drop a plan-gate hook left by older installs (the hook no longer exists).
     ups = [e for e in (settings.get('hooks') or {}).get('UserPromptSubmit') or []
            if not any('plan-gate.py' in h.get('command', '') for h in e.get('hooks') or [])]
     if args.config == 'repo':
         os.symlink(f'{repo}/claude/CLAUDE.md', f'{cfg}/CLAUDE.md')
         os.symlink(f'{repo}/claude/agents', f'{cfg}/agents')
         os.symlink(f'{repo}/claude/hooks/guard.py', f'{cfg}/hooks/guard.py')
-        os.symlink(f'{repo}/claude/hooks/plan-gate.py', f'{cfg}/hooks/plan-gate.py')
         os.symlink(f'{repo}/core/skills', f'{cfg}/skills')
-        if not args.no_plan_gate:
-            ups.append({'matcher': '*', 'hooks': [{'type': 'command',
-                                                   'command': f'python3 {cfg}/hooks/plan-gate.py'}]})
-    settings.setdefault('hooks', {})['UserPromptSubmit'] = ups
+    if ups:
+        settings.setdefault('hooks', {})['UserPromptSubmit'] = ups
+    else:
+        (settings.get('hooks') or {}).pop('UserPromptSubmit', None)
     with open(f'{cfg}/settings.json', 'w') as f:  # written, never printed
         json.dump(settings, f, indent=2)
     return {**os.environ, 'CLAUDE_CONFIG_DIR': cfg}, (repo if args.config == 'repo' else 'none (vanilla Claude Code)')
@@ -698,8 +683,6 @@ def main():
     ap.add_argument('--max-total-usd', type=float, default=3.0,
                     help='stop a CLI\'s live run before the next case once it spent this')
     ap.add_argument('--only', help='comma-separated case-id prefixes, e.g. plan- (applied before --max-cases)')
-    ap.add_argument('--no-plan-gate', action='store_true',
-                    help='--config repo without the plan-gate hook (A/B the gate)')
     ap.add_argument('--model', help='override the main-session model (claude/agy)')
     ap.add_argument('--agy-skip-permissions', action='store_true',
                     help='pass --dangerously-skip-permissions to agy (fixtures are disposable temp dirs)')
@@ -722,7 +705,7 @@ def main():
     print(f'SwarmKit benchmark -- repo {repo}')
     mcp = set(json.loads(read(f'{repo}/core/mcp.json')).get('mcpServers', {}))
     for check in (s1_build, s2_roster, s3_signals, lambda r: s4_leakage(r, mcp),
-                  lambda r: s5_guard(r, spec['guard_cases'], spec['plan_gate_cases']), lambda r: s6_rules(r, spec['static']), s7_native):
+                  lambda r: s5_guard(r, spec['guard_cases']), lambda r: s6_rules(r, spec['static']), s7_native):
         try:
             check(repo)
         except Exception as e:  # noqa: BLE001 - a crashing check is a failing check

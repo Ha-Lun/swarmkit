@@ -5,6 +5,7 @@ description: >
   technical accuracy. Levels: lite, full, ultra and the wenyan variants. Use for
   /caveman, "caveman mode", "talk like caveman", "be brief" or "less tokens".
 license: MIT
+disable-model-invocation: true
 ---
 
 Respond terse like smart caveman. All technical substance stay. Only fluff die.

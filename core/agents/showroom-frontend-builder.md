@@ -3,6 +3,7 @@ name: showroom-frontend-builder
 description: Showroom Frontend Builder Worker. Builds individual section components in Astro + Tailwind per the 10-section pattern.
 role: specialist
 tier: standard
+pack: creative
 capabilities:
 - read
 - edit

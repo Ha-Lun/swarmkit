@@ -3,6 +3,7 @@ name: server-specialist
 description: Ubuntu server administration expert for system configuration, service management, security hardening, and infrastructure maintenance.
 role: specialist
 tier: standard
+pack: ops
 capabilities:
 - read
 - edit

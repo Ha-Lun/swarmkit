@@ -1,0 +1,1 @@
+In the user service in svc/, add GET /files. It takes a `name` query parameter and returns {"name": ..., "content": ...} with the contents of that file from the svc/exports directory. Return 400 if `name` is missing and 404 if the file does not exist. Keep the signature of handle() as it is. Add tests and document the endpoint in docs/API.md.

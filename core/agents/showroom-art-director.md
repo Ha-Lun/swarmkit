@@ -3,6 +3,7 @@ name: showroom-art-director
 description: Showroom Art Director. Produces tokens.css, type scale, and ASSET_REQUEST_PACK.md with prompt templates and Flow instructions. Halts at G2 & G3.
 role: specialist
 tier: standard
+pack: creative
 capabilities:
 - read
 - edit

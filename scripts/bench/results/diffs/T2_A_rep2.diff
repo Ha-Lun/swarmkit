@@ -1,0 +1,78 @@
+diff --git a/claude/agents/explore.md b/claude/agents/explore.md
+index 9ff2d49..d240666 100644
+--- a/claude/agents/explore.md
++++ b/claude/agents/explore.md
+@@ -1,7 +1,7 @@
+ ---
+ name: explore
+ description: Read-only context-gathering pre-flight for the lead-dev swarm. Spawned by lead-dev for non-trivial or uncertain-context tasks to produce a scoped context brief (relevant files, key snippets, architecture notes, open questions); may be skipped for trivial/self-contained tasks. Returns summaries — never analysis or fixes.
+-model: haiku
++model: sonnet
+ tools:
+ - Read
+ - Glob
+diff --git a/claude/agents/git-specialist.md b/claude/agents/git-specialist.md
+index acc08bb..e3282d7 100644
+--- a/claude/agents/git-specialist.md
++++ b/claude/agents/git-specialist.md
+@@ -1,7 +1,7 @@
+ ---
+ name: git-specialist
+ description: 'Git workflow specialist — commit/branch review (default) AND environment setup on lead-dev''s behalf: git worktree create/remove, .worktrees/ .gitignore append. Read-only for everything else.'
+-model: haiku
++model: sonnet
+ tools:
+ - Read
+ - Glob
+diff --git a/claude/agents/junior-dev.md b/claude/agents/junior-dev.md
+index 904db46..fae8565 100644
+--- a/claude/agents/junior-dev.md
++++ b/claude/agents/junior-dev.md
+@@ -1,7 +1,7 @@
+ ---
+ name: junior-dev
+ description: Junior dev for light, mechanical code edits that don't need a domain specialist. Typos, single-line tweaks, simple renames, version bumps, README touch-ups, single-test fixes.
+-model: haiku
++model: sonnet
+ tools:
+ - Read
+ - Glob
+diff --git a/claude/agents/release-tester.md b/claude/agents/release-tester.md
+index a56643a..b66c108 100644
+--- a/claude/agents/release-tester.md
++++ b/claude/agents/release-tester.md
+@@ -1,7 +1,7 @@
+ ---
+ name: release-tester
+ description: Final quality gate that runs tests, linters, type checkers, and build validation before release. Read-only; reports failures but does not fix them.
+-model: haiku
++model: sonnet
+ tools:
+ - Read
+ - Glob
+diff --git a/claude/agents/showroom-asset-processor.md b/claude/agents/showroom-asset-processor.md
+index 9b56670..6856684 100644
+--- a/claude/agents/showroom-asset-processor.md
++++ b/claude/agents/showroom-asset-processor.md
+@@ -1,7 +1,7 @@
+ ---
+ name: showroom-asset-processor
+ description: Showroom Asset Processor Worker. Ingests /assets/raw, validates with ffprobe/sharp, rejects with exact fix messages, optimizes to /public/assets.
+-model: haiku
++model: sonnet
+ tools:
+ - Read
+ - Glob
+diff --git a/scripts/build.py b/scripts/build.py
+index a889b5f..4d499b0 100755
+--- a/scripts/build.py
++++ b/scripts/build.py
+@@ -20,7 +20,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ # Model per tier, per CLI. An agent's own `claude.model` / `opencode.model`
+ # overrides this.
+ TIER_MODELS = {
+-    'claude': {'fast': 'haiku', 'standard': 'sonnet', 'deep': 'opus'},
++    'claude': {'fast': 'sonnet','standard': 'sonnet', 'deep': 'opus'},
+     'opencode': {
+         'fast': 'opencode/muse-spark-1.3-contributor-free',
+         'standard': 'opencode/nemotron-3.5-lightning-free',

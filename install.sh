@@ -9,7 +9,11 @@
 #   --cloudflare  Install Cloudflare skills and configure auth (optional add-on, not in --all)
 #   --all         Install all agent configs (opencode, agy, claude)
 #   --free        Enable free mode for OpenCode (uses default models, no keys)
-#   --uninstall   Uninstall all configurations
+#   --pack <name> [project]  Link a Claude Code specialist pack (agents + skills)
+#                 into <project>/.claude/ (default: current dir) and hide the links
+#                 via .git/info/exclude. Packs: web ops mobile n8n backend creative swarm
+#   --uninstall   Uninstall all configurations (with --pack: remove only that pack
+#                 from the project)
 #   --help        Show this help message
 
 set -euo pipefail
@@ -26,6 +30,8 @@ INSTALL_N8N=false
 INSTALL_CLOUDFLARE=false
 FREE_MODE=false
 UNINSTALL_MODE=false
+PACK=""
+PACK_DIR="$PWD"
 
 # Parse arguments
 if [ $# -eq 0 ]; then
@@ -35,7 +41,8 @@ if [ $# -eq 0 ]; then
   INSTALL_AGY=true
   INSTALL_CLAUDE=true
 else
-  for arg in "$@"; do
+  while [ $# -gt 0 ]; do
+    arg="$1"; shift
     case $arg in
       --opencode) INSTALL_OPENCODE=true ;;
       --agy)      INSTALL_AGY=true ;;
@@ -49,8 +56,13 @@ else
         ;;
       --free)     FREE_MODE=true ;;
       --uninstall)UNINSTALL_MODE=true ;;
+      --pack)
+        [ $# -gt 0 ] || { echo "--pack needs a pack name"; exit 1; }
+        PACK="$1"; shift
+        if [ $# -gt 0 ] && [[ "$1" != --* ]]; then PACK_DIR="$1"; shift; fi
+        ;;
       --help)
-        sed -n '2,12p' "$0" | sed 's/^# *//'
+        sed -n '2,17p' "$0" | sed 's/^# //'
         exit 0
         ;;
       *)
@@ -114,18 +126,78 @@ link() {
   ln -s "$src" "$dest"
 }
 
-# Symlink every shared skill into $1, dropping links left over from old repo paths.
+# Skills Claude Code gets globally; the rest come with a pack (--pack).
+CLAUDE_SKILLS="release-testing security-review caveman caveman-commit caveman-compress
+caveman-help caveman-review ponytail ponytail-audit ponytail-debt ponytail-help
+ponytail-review curated-resources"
+
+# Skills that ship with each Claude Code pack (agents come from claude/packs/<pack>/agents).
+pack_skills() {
+  case "$1" in
+    web)      echo "frontend-quality premium-frontend-system seo-engineering seo-sharing-pass web-design-guidelines scroll-craft" ;;
+    backend)  echo "backend-quality" ;;
+    mobile)   echo "capacitor-mobile-quality" ;;
+    n8n)      echo "n8n-api n8n-debugging" ;;
+    creative) echo "showroom img2threejs" ;;
+    swarm)    echo "swarm-handoff git-workflow" ;;
+    ops)      echo "" ;;
+  esac
+}
+
+# Symlink shared skills into $1: all of them, or only the names in $2 (then any
+# other link into this repo is removed, so the set stays exact).
 link_skills() {
-  local dest="$1" skill_dir
+  local dest="$1" only="${2:-}" skill_dir name
   mkdir -p "$dest"
-  prune_dead_repo_links "$dest"
+  if [ -n "$only" ]; then remove_repo_links "$dest"; else prune_dead_repo_links "$dest"; fi
   for skill_dir in "$REPO_DIR"/core/skills/*/; do
     [ -f "$skill_dir/SKILL.md" ] || continue
-    ln -sfn "${skill_dir%/}" "$dest/$(basename "$skill_dir")"
+    name="$(basename "$skill_dir")"
+    if [ -n "$only" ] && [[ " $(echo $only) " != *" $name "* ]]; then continue; fi
+    ln -sfn "${skill_dir%/}" "$dest/$name"
   done
 }
 
-# Add or remove the plan-gate UserPromptSubmit hook in ~/.claude/settings.json.
+# Link (or with --uninstall, unlink) a pack's agents and skills in a project's
+# .claude/, and list the links in the repo's .git/info/exclude.
+pack_cmd() {
+  local pack="$1" proj mode="$2" src name dest rel top excl
+  if [ ! -d "$REPO_DIR/claude/packs/$pack/agents" ]; then
+    echo "Unknown pack: $pack (available: $(ls "$REPO_DIR/claude/packs" | tr '\n' ' '))"
+    exit 1
+  fi
+  proj="$(cd "$PACK_DIR" && pwd -P)"
+  top="$(git -C "$proj" rev-parse --show-toplevel 2>/dev/null || true)"
+  excl="$(git -C "$proj" rev-parse --path-format=absolute --git-path info/exclude 2>/dev/null || true)"
+  [ "$mode" = remove ] || mkdir -p "$proj/.claude/agents" "$proj/.claude/skills"
+  for src in "$REPO_DIR/claude/packs/$pack/agents/"*.md \
+             $(for name in $(pack_skills "$pack"); do echo "$REPO_DIR/core/skills/$name"; done); do
+    name="$(basename "$src")"
+    if [[ "$src" == */agents/* ]]; then dest="$proj/.claude/agents/$name"; else dest="$proj/.claude/skills/$name"; fi
+    if [ -e "$dest" ] && [[ "$(readlink "$dest" 2>/dev/null)" != "$REPO_DIR"/* ]]; then
+      echo "  ! $dest exists and is not a SwarmKit link; skipped"
+      continue
+    fi
+    if [ "$mode" = remove ]; then rm -f "$dest"; else ln -sfn "$src" "$dest"; fi
+    [ -n "$top" ] || continue
+    rel="/$(realpath -s --relative-to="$top" "$dest")"
+    mkdir -p "$(dirname "$excl")"; touch "$excl"
+    if [ "$mode" = remove ]; then
+      grep -vxF "$rel" "$excl" > "$excl.tmp" || true
+      cat "$excl.tmp" > "$excl"; rm -f "$excl.tmp"
+    elif ! grep -qxF "$rel" "$excl"; then
+      echo "$rel" >> "$excl"
+    fi
+  done
+  if [ "$mode" = remove ]; then
+    rmdir "$proj/.claude/agents" "$proj/.claude/skills" "$proj/.claude" 2>/dev/null || true
+    echo "✓ Removed pack '$pack' from $proj/.claude"
+  else
+    echo "✓ Linked pack '$pack' into $proj/.claude${top:+ (listed in $excl)}"
+  fi
+}
+
+# Remove the old plan-gate UserPromptSubmit hook from ~/.claude/settings.json.
 # Writes (after a backup) only when something changes, so re-runs are no-ops.
 plan_gate_settings() {
   local settings="$CLAUDE_DIR/settings.json" tmp
@@ -140,21 +212,15 @@ except ValueError as e:
 hooks = s.get('hooks', {})
 ups = hooks.get('UserPromptSubmit', [])
 mine = lambda e: any('plan-gate.py' in h.get('command', '') for h in e.get('hooks', []))
-if mode == 'add':
-    if any(map(mine, ups)):
-        sys.exit(1)
-    s.setdefault('hooks', {}).setdefault('UserPromptSubmit', []).append(
-        {'matcher': '*', 'hooks': [{'type': 'command', 'command': 'python3 ~/.claude/hooks/plan-gate.py'}]})
+kept = [e for e in ups if not mine(e)]
+if len(kept) == len(ups):
+    sys.exit(1)
+if kept:
+    hooks['UserPromptSubmit'] = kept
 else:
-    kept = [e for e in ups if not mine(e)]
-    if len(kept) == len(ups):
-        sys.exit(1)
-    if kept:
-        hooks['UserPromptSubmit'] = kept
-    else:
-        del hooks['UserPromptSubmit']
-    if not hooks:
-        del s['hooks']
+    del hooks['UserPromptSubmit']
+if not hooks:
+    del s['hooks']
 with open(out, 'w') as f:
     json.dump(s, f, indent=2, ensure_ascii=False)
     f.write('\n')
@@ -166,6 +232,11 @@ PY
   fi
   rm -f "$tmp"
 }
+
+if [ -n "$PACK" ]; then
+  if [ "$UNINSTALL_MODE" = true ]; then pack_cmd "$PACK" remove; else pack_cmd "$PACK" add; fi
+  exit 0
+fi
 
 if [ "$UNINSTALL_MODE" = true ]; then
   echo "Uninstalling configurations..."
@@ -250,9 +321,10 @@ install_claude() {
   link "$REPO_DIR/claude/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
   link "$REPO_DIR/claude/agents" "$CLAUDE_DIR/agents"
   link "$REPO_DIR/claude/hooks/guard.py" "$CLAUDE_DIR/hooks/guard.py"
-  link "$REPO_DIR/claude/hooks/plan-gate.py" "$CLAUDE_DIR/hooks/plan-gate.py"
-  plan_gate_settings add
-  link_skills "$CLAUDE_DIR/skills"
+  # plan-gate.py was dropped; clean up its link and settings entry from old installs.
+  prune_dead_repo_links "$CLAUDE_DIR/hooks"
+  plan_gate_settings remove
+  link_skills "$CLAUDE_DIR/skills" "$CLAUDE_SKILLS"
 
   # MCP servers: register each one at user scope unless it already exists.
   if command -v claude &>/dev/null; then

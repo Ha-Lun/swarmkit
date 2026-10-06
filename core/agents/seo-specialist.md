@@ -3,6 +3,7 @@ name: seo-specialist
 description: SEO specialist — makes sure websites actually get seen by Google and AI search engines. Technical SEO, sitemaps, structured data, content strategy, AI search optimization, analytics. Free public tools only.
 role: specialist
 tier: standard
+pack: web
 capabilities:
 - read
 - edit

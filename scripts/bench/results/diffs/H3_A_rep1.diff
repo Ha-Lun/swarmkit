@@ -1,0 +1,40 @@
+diff --git a/svc/store.py b/svc/store.py
+index 6c5bc2c..eb4a934 100644
+--- a/svc/store.py
++++ b/svc/store.py
+@@ -26,6 +26,11 @@ def migrate(db):
+ 
+ 
+ def create_user(db, name, email):
++    # Emails are unique case-insensitively. Checked here rather than with a unique index on
++    # lower(email) so it also holds for existing databases, where such an index could not be
++    # created if case-variant duplicates are already present.
++    if db.execute("SELECT 1 FROM users WHERE lower(email) = lower(?)", (email,)).fetchone():
++        raise sqlite3.IntegrityError("email already registered")
+     cur = db.execute("INSERT INTO users (name, email) VALUES (?, ?)", (name, email))
+     db.commit()
+     return get_user(db, cur.lastrowid)
+diff --git a/svc/tests/test_users.py b/svc/tests/test_users.py
+index 2fd5461..24b6813 100644
+--- a/svc/tests/test_users.py
++++ b/svc/tests/test_users.py
+@@ -34,6 +34,19 @@ class UserTests(unittest.TestCase):
+         status, body = app.handle("GET", "/users", {}, None, self.db)
+         self.assertEqual([u["name"] for u in body["users"]], ["A", "B"])
+ 
++    def test_duplicate_email_differs_by_case(self):
++        app.handle("POST", "/users", {}, {"name": "Ada", "email": "Ada@Example.com"}, self.db)
++        status, _ = app.handle("POST", "/users", {}, {"name": "Ada 2", "email": "ada@example.com"}, self.db)
++        self.assertEqual(status, 409)
++        self.assertEqual(len(app.handle("GET", "/users", {}, None, self.db)[1]["users"]), 1)
++
++    def test_duplicate_of_preexisting_mixed_case_row(self):
++        # a row written before the fix, straight into the table
++        self.db.execute("INSERT INTO users (name, email) VALUES ('Ada', 'ADA@example.com')")
++        self.db.commit()
++        status, _ = app.handle("POST", "/users", {}, {"name": "Ada 2", "email": "ada@example.com"}, self.db)
++        self.assertEqual(status, 409)
++
+ 
+ if __name__ == "__main__":
+     unittest.main()

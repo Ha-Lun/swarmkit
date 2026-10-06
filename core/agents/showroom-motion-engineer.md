@@ -3,6 +3,7 @@ name: showroom-motion-engineer
 description: Showroom Motion Engineer Worker. GSAP ScrollTrigger + Lenis wiring, word-by-word reveal, sticky nav active state, carousel hover swap, reduced-motion paths.
 role: specialist
 tier: standard
+pack: creative
 capabilities:
 - read
 - edit

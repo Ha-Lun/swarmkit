@@ -3,6 +3,7 @@ name: blender-specialist
 description: 3D modeling, mesh generation, asset staging, geometry nodes, spatial reasoning, and scene assembly using Blender MCP. Iterative execution with continuous viewport validation and sandboxed workspace boundaries.
 role: specialist
 tier: standard
+pack: creative
 capabilities:
 - read
 - edit

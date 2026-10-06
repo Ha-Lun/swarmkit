@@ -3,6 +3,7 @@ name: showroom-asset-processor
 description: Showroom Asset Processor Worker. Ingests /assets/raw, validates with ffprobe/sharp, rejects with exact fix messages, optimizes to /public/assets.
 role: specialist
 tier: fast
+pack: creative
 capabilities:
 - read
 - edit

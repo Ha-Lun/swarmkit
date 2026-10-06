@@ -1,0 +1,76 @@
+diff --git a/svc/docs/API.md b/svc/docs/API.md
+index d96c758..8ba85cb 100644
+--- a/svc/docs/API.md
++++ b/svc/docs/API.md
+@@ -5,6 +5,6 @@
+ | GET | /health | Liveness check. Returns `{"status": "ok"}`. |
+ | GET | /users | All users, by id. |
+ | GET | /users/<id> | One user, or 404. |
+-| POST | /users | Create a user from `{name, email}`. 201, 400 on invalid input, 409 if the email is taken. |
++| POST | /users | Create a user from `{name, email}`. 201, 400 on invalid input, 409 if the email is taken (compared case-insensitively). |
+ 
+ A user is `{id, name, email}`.
+diff --git a/svc/migrations/002_email_ci_index.sql b/svc/migrations/002_email_ci_index.sql
+new file mode 100644
+index 0000000..09004e4
+--- /dev/null
++++ b/svc/migrations/002_email_ci_index.sql
+@@ -0,0 +1,5 @@
++-- Lookup index for case-insensitive email checks. Deliberately not UNIQUE:
++-- existing databases may already hold case-variant duplicates, and a unique
++-- index would make this migration fail on them. Uniqueness for new sign-ups
++-- is enforced in store.create_user.
++CREATE INDEX users_email_lower ON users (lower(email));
+diff --git a/svc/store.py b/svc/store.py
+index 6c5bc2c..1570d09 100644
+--- a/svc/store.py
++++ b/svc/store.py
+@@ -26,8 +26,15 @@ def migrate(db):
+ 
+ 
+ def create_user(db, name, email):
+-    cur = db.execute("INSERT INTO users (name, email) VALUES (?, ?)", (name, email))
++    # One atomic statement: reject the insert if any existing email matches ignoring case
++    # (this also covers rows created before case-insensitive checking existed).
++    cur = db.execute(
++        "INSERT INTO users (name, email) SELECT ?, ? "
++        "WHERE NOT EXISTS (SELECT 1 FROM users WHERE lower(email) = lower(?))",
++        (name, email, email))
+     db.commit()
++    if cur.rowcount == 0:
++        raise sqlite3.IntegrityError("email already registered")
+     return get_user(db, cur.lastrowid)
+ 
+ 
+diff --git a/svc/tests/test_users.py b/svc/tests/test_users.py
+index 2fd5461..1b47407 100644
+--- a/svc/tests/test_users.py
++++ b/svc/tests/test_users.py
+@@ -28,6 +28,27 @@ class UserTests(unittest.TestCase):
+         status, _ = app.handle("POST", "/users", {}, {"name": "Ada 2", "email": "ada@example.com"}, self.db)
+         self.assertEqual(status, 409)
+ 
++    def test_duplicate_email_ignores_case(self):
++        app.handle("POST", "/users", {}, {"name": "Ada", "email": "Ada@Example.com"}, self.db)
++        status, _ = app.handle("POST", "/users", {}, {"name": "Ada 2", "email": "ada@example.com"}, self.db)
++        self.assertEqual(status, 409)
++        self.assertEqual(len(store.list_users(self.db)), 1)
++
++    def test_duplicate_against_legacy_mixed_case_row(self):
++        # Database as deployed before migration 002, containing a mixed-case account and a legacy duplicate.
++        db = store.connect()
++        db.executescript(open(os.path.join(store.MIGRATIONS, "001_init.sql")).read())
++        db.execute("CREATE TABLE schema_migrations (name TEXT PRIMARY KEY)")
++        db.execute("INSERT INTO schema_migrations VALUES ('001_init.sql')")
++        db.execute("INSERT INTO users (name, email) VALUES ('Ada', 'Ada@Example.com')")
++        db.execute("INSERT INTO users (name, email) VALUES ('Ada dup', 'ADA@example.com')")
++        db.commit()
++        store.migrate(db)  # must not fail on existing duplicates
++        status, _ = app.handle("POST", "/users", {}, {"name": "x", "email": "ada@EXAMPLE.com"}, db)
++        self.assertEqual(status, 409)
++        status, _ = app.handle("POST", "/users", {}, {"name": "Bob", "email": "bob@example.com"}, db)
++        self.assertEqual(status, 201)
++
+     def test_list(self):
+         app.handle("POST", "/users", {}, {"name": "A", "email": "a@example.com"}, self.db)
+         app.handle("POST", "/users", {}, {"name": "B", "email": "b@example.com"}, self.db)

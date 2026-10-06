@@ -4,6 +4,7 @@ description: >
   Quick-reference card for caveman modes, skills and commands.
   Trigger: /caveman-help or "caveman help".
 license: MIT
+disable-model-invocation: true
 ---
 
 # Caveman Help

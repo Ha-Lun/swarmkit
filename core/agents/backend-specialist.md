@@ -3,6 +3,7 @@ name: backend-specialist
 description: Backend specialist focused on API design, service boundaries, authentication/authorization, input validation, database interactions, observability, and backend maintainability. May inspect and edit code within backend scope.
 role: specialist
 tier: standard
+pack: backend
 capabilities:
 - read
 - edit

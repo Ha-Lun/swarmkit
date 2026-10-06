@@ -1,0 +1,47 @@
+diff --git a/svc/store.py b/svc/store.py
+index 6c5bc2c..bd238c8 100644
+--- a/svc/store.py
++++ b/svc/store.py
+@@ -26,7 +26,15 @@ def migrate(db):
+ 
+ 
+ def create_user(db, name, email):
+-    cur = db.execute("INSERT INTO users (name, email) VALUES (?, ?)", (name, email))
++    # Emails are unique case-insensitively. Checked in the INSERT itself rather than by a
++    # UNIQUE index on lower(email), which could not be built on databases that already hold
++    # case-variant duplicates.
++    cur = db.execute(
++        "INSERT INTO users (name, email) SELECT ?, ? "
++        "WHERE NOT EXISTS (SELECT 1 FROM users WHERE lower(email) = lower(?))",
++        (name, email, email))
++    if cur.rowcount == 0:
++        raise sqlite3.IntegrityError("email already registered")
+     db.commit()
+     return get_user(db, cur.lastrowid)
+ 
+diff --git a/svc/tests/test_users.py b/svc/tests/test_users.py
+index 2fd5461..6f35c31 100644
+--- a/svc/tests/test_users.py
++++ b/svc/tests/test_users.py
+@@ -28,6 +28,21 @@ class UserTests(unittest.TestCase):
+         status, _ = app.handle("POST", "/users", {}, {"name": "Ada 2", "email": "ada@example.com"}, self.db)
+         self.assertEqual(status, 409)
+ 
++    def test_duplicate_email_ignores_case(self):
++        app.handle("POST", "/users", {}, {"name": "Ada", "email": "Ada@Example.com"}, self.db)
++        status, _ = app.handle("POST", "/users", {}, {"name": "Ada 2", "email": "ada@example.com"}, self.db)
++        self.assertEqual(status, 409)
++        self.assertEqual(len(store.list_users(self.db)), 1)
++
++    def test_duplicate_email_against_existing_row(self):
++        # a row written before the fix, and a database that already holds case-variant duplicates
++        self.db.execute("INSERT INTO users (name, email) VALUES ('Old', 'Bob@Example.com')")
++        self.db.execute("INSERT INTO users (name, email) VALUES ('Old2', 'bob@example.com')")
++        self.db.commit()
++        store.migrate(self.db)  # must still start up
++        status, _ = app.handle("POST", "/users", {}, {"name": "Bob", "email": "BOB@example.com"}, self.db)
++        self.assertEqual(status, 409)
++
+     def test_list(self):
+         app.handle("POST", "/users", {}, {"name": "A", "email": "a@example.com"}, self.db)
+         app.handle("POST", "/users", {}, {"name": "B", "email": "b@example.com"}, self.db)

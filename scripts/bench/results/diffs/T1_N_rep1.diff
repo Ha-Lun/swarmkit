@@ -1,0 +1,47 @@
+diff --git a/antigravity/plugins/swarmkit/skills/explore/SKILL.md b/antigravity/plugins/swarmkit/skills/explore/SKILL.md
+index aeb761a..94fde32 100644
+--- a/antigravity/plugins/swarmkit/skills/explore/SKILL.md
++++ b/antigravity/plugins/swarmkit/skills/explore/SKILL.md
+@@ -1,6 +1,6 @@
+ ---
+ name: explore
+-description: Read-only contxt-gathering pre-flight for the lead-dev swarm. Spawned by lead-dev for non-trivial or uncertain-context tasks to produce a scoped context brief (relevant files, key snippets, architecture notes, open questions); may be skipped for trivial/self-contained tasks. Returns summaries — never analysis or fixes. Load when acting as or delegating to the explore role.
++description: Read-only context-gathering pre-flight for the lead-dev swarm. Spawned by lead-dev for non-trivial or uncertain-context tasks to produce a scoped context brief (relevant files, key snippets, architecture notes, open questions); may be skipped for trivial/self-contained tasks. Returns summaries — never analysis or fixes. Load when acting as or delegating to the explore role.
+ ---
+ > Specialist playbook for the **explore** role. Allowed capabilities: read, bash. Stay within them.
+ 
+diff --git a/claude/agents/explore.md b/claude/agents/explore.md
+index 97ee8eb..9ff2d49 100644
+--- a/claude/agents/explore.md
++++ b/claude/agents/explore.md
+@@ -1,6 +1,6 @@
+ ---
+ name: explore
+-description: Read-only contxt-gathering pre-flight for the lead-dev swarm. Spawned by lead-dev for non-trivial or uncertain-context tasks to produce a scoped context brief (relevant files, key snippets, architecture notes, open questions); may be skipped for trivial/self-contained tasks. Returns summaries — never analysis or fixes.
++description: Read-only context-gathering pre-flight for the lead-dev swarm. Spawned by lead-dev for non-trivial or uncertain-context tasks to produce a scoped context brief (relevant files, key snippets, architecture notes, open questions); may be skipped for trivial/self-contained tasks. Returns summaries — never analysis or fixes.
+ model: haiku
+ tools:
+ - Read
+diff --git a/core/agents/explore.md b/core/agents/explore.md
+index 2ca9879..9e660e7 100644
+--- a/core/agents/explore.md
++++ b/core/agents/explore.md
+@@ -1,6 +1,6 @@
+ ---
+ name: explore
+-description: Read-only contxt-gathering pre-flight for the lead-dev swarm. Spawned by lead-dev for non-trivial or uncertain-context tasks to produce a scoped context brief (relevant files, key snippets, architecture notes, open questions); may be skipped for trivial/self-contained tasks. Returns summaries — never analysis or fixes.
++description: Read-only context-gathering pre-flight for the lead-dev swarm. Spawned by lead-dev for non-trivial or uncertain-context tasks to produce a scoped context brief (relevant files, key snippets, architecture notes, open questions); may be skipped for trivial/self-contained tasks. Returns summaries — never analysis or fixes.
+ role: reviewer
+ tier: fast
+ capabilities:
+diff --git a/opencode/agents/explore.md b/opencode/agents/explore.md
+index 0663f5b..f122a29 100644
+--- a/opencode/agents/explore.md
++++ b/opencode/agents/explore.md
+@@ -1,5 +1,5 @@
+ ---
+-description: Read-only contxt-gathering pre-flight for the lead-dev swarm. Spawned by lead-dev for non-trivial or uncertain-context tasks to produce a scoped context brief (relevant files, key snippets, architecture notes, open questions); may be skipped for trivial/self-contained tasks. Returns summaries — never analysis or fixes.
++description: Read-only context-gathering pre-flight for the lead-dev swarm. Spawned by lead-dev for non-trivial or uncertain-context tasks to produce a scoped context brief (relevant files, key snippets, architecture notes, open questions); may be skipped for trivial/self-contained tasks. Returns summaries — never analysis or fixes.
+ mode: subagent
+ temperature: 0.1
+ permission:
