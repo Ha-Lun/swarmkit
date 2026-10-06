@@ -192,7 +192,8 @@ cd swarmkit
                       <tbody>{bench.rows.map((r) => <tr>{bench.columns.map((c) => <td>{r[c] ?? ''}</td>)}</tr>)}</tbody>
                     </table>
                   </div>
-                  <p class="ref-card-body"><a href={bench.rawHref} class="underline underline-offset-4">Raw data (JSON)</a></p>
+                  {bench.notes.length > 0 && <ul class="ref-card-body">{bench.notes.map((n) => <li>{n}</li>)}</ul>}
+                  <p class="ref-card-body"><a href={bench.rawHref} class="underline underline-offset-4">Raw data (JSON)</a>{bench.runCount ? `, every one of the ${bench.runCount} runs included` : ''}</p>
                 </>
               ) : (
                 <>
@@ -204,7 +205,7 @@ cd swarmkit
             <div class="ref-card ref-proof-full" data-proof="harness">
               <h4 class="ref-card-title">Harness disclosure</h4>
               <p class="ref-card-body">
-                Benchmark runs: Antigravity (<code>agy</code>) with <code>gemini-3.8-flash-high</code>.{bench?.harness || bench?.model ? ` Recorded in the data file: ${[bench.harness, bench.model].filter(Boolean).join(', ')}.` : ''}{' '}
+                {bench ? `Benchmark runs: ${[bench.harness, bench.model].filter(Boolean).join(', ')}.` : 'No benchmark has been recorded, so there is no harness to disclose yet.'}{' '}
                 This site: built with Claude Code, using the agents described above. The scene is procedural: no external models, textures or volume data, and no AI-generated media.
               </p>
             </div>

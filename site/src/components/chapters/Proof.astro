@@ -6,7 +6,7 @@ import { motion } from '../../lib/world/motion-config';
 
 const bench = loadBenchmarks();
 const log = loadBuildlog();
-const harness = ['Antigravity (agy) gemini-3.8-flash-high', ...(bench?.harness || bench?.model ? [`recorded: ${[bench.harness, bench.model].filter(Boolean).join(' ')}`] : [])].join(', ');
+const harness = bench ? [bench.harness, bench.model].filter(Boolean).join(', ') : 'none recorded yet';
 ---
 <section id="proof" class="chapter" style={`--runway:${motion.runway.proof}`} aria-labelledby="proof-title">
   <div class="scene" data-scene>

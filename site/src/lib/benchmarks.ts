@@ -1,5 +1,5 @@
 // Reads public/data/benchmark_metrics.json when it exists. Absent file means "pending".
-// Expected shape: { harness?: string, model?: string, rows: Array<Record<string, string | number>> }.
+// Expected shape: { harness?: string, model?: string, notes?: string[], runs?: unknown[], rows: Array<Record<string, string | number>> }.
 // A file that exists but does not match fails the build instead of rendering guesses.
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -7,6 +7,8 @@ import { resolve } from 'node:path';
 export interface Benchmarks {
   harness?: string;
   model?: string;
+  notes: string[];
+  runCount: number;
   columns: string[];
   rows: Array<Record<string, string | number>>;
   rawHref: string;
@@ -20,5 +22,5 @@ export function loadBenchmarks(): Benchmarks | null {
     throw new Error('benchmark_metrics.json must contain a non-empty "rows" array');
   }
   const columns = [...new Set<string>(data.rows.flatMap((r: object) => Object.keys(r)))];
-  return { harness: data.harness, model: data.model, columns, rows: data.rows, rawHref: '/data/benchmark_metrics.json' };
+  return { harness: data.harness, model: data.model, notes: Array.isArray(data.notes) ? data.notes : [], runCount: Array.isArray(data.runs) ? data.runs.length : 0, columns, rows: data.rows, rawHref: '/data/benchmark_metrics.json' };
 }
