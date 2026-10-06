@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""Run one agy task headlessly in an isolated git worktree and report honestly.
+
+  agy-task start  SLUG [--model M] [--effort E] [--timeout 20m] [--base REF] [--yolo] PROMPT|-
+  agy-task resume SLUG [--timeout 20m] [--yolo] PROMPT|-
+  agy-task clean  SLUG [--force]
+
+Edit-only by default: agy can read and edit files but shell commands are denied, so run
+tests yourself on the branch. --yolo auto-approves every tool and is NOT sandboxed (agy
+can then write outside the worktree and reach the network); use it only for trusted work.
+Everything lands under $AGY_TASK_DIR (default ~/.agy-tasks/<repo>/<slug>): the worktree,
+result.json and agy.log. agy's own "status" is SUCCESS even when tools were denied, so
+result.json carries a recomputed "ok".
+"""
+import argparse, json, os, subprocess, sys
+from pathlib import Path
+
+
+def sh(*cmd, cwd=None, check=True):
+    p = subprocess.run(cmd, cwd=cwd, text=True, capture_output=True)
+    if check and p.returncode:
+        sys.exit(f"agy-task: {' '.join(cmd[:3])} failed: {p.stderr.strip() or p.stdout.strip()}")
+    return p.stdout.strip()
+
+
+def seconds(s):
+    return int(s[:-1]) * {"s": 1, "m": 60, "h": 3600}[s[-1]] if s[-1] in "smh" else int(s)
+
+
+def run_agy(task, prompt, a, resume_id=None):
+    wt = task / "worktree"
+    cmd = ["agy", "-p", prompt, "--output-format", "json", "--mode", "accept-edits",
+           "--print-timeout", f"{seconds(a.timeout)}s"]
+    if resume_id:
+        cmd += ["--conversation", resume_id]
+    else:
+        cmd += ["--model", a.model] + (["--effort", a.effort] if a.effort else [])
+    if a.yolo:
+        cmd.append("--dangerously-skip-permissions")
+        print("agy-task: --yolo, agy is unsandboxed", file=sys.stderr)
+    try:
+        p = subprocess.run(cmd, cwd=wt, text=True, capture_output=True, stdin=subprocess.DEVNULL,
+                           timeout=seconds(a.timeout) + 30)
+        out, err, code = p.stdout, p.stderr, p.returncode
+    except subprocess.TimeoutExpired as e:
+        out, err, code = (e.stdout or ""), "timed out", 124
+    (task / "agy.log").write_text(f"{err}\n{out}")
+    try:
+        res = json.loads(out)
+    except ValueError:
+        res = {}
+    sh("git", "add", "-A", cwd=wt)
+    if sh("git", "status", "--porcelain", cwd=wt):
+        sh("git", "commit", "-qm", f"agy: {task.name}", cwd=wt)
+    base = (task / "base").read_text().strip()
+    changed = sh("git", "diff", "--shortstat", base, "HEAD", cwd=wt) or "no changes"
+    denied = [d.get("display_name", d.get("action")) for d in res.get("denied_actions", [])]
+    ok = res.get("status") == "SUCCESS" and not denied and code == 0 and changed != "no changes"
+    result = {"ok": ok, "slug": task.name, "branch": f"agy/{task.name}", "worktree": str(wt),
+              "base": base, "changes": changed, "denied_actions": denied,
+              "conversation_id": res.get("conversation_id"), "exit_code": code,
+              "response": res.get("response", ""), "stderr": err.strip()[-500:]}
+    (task / "result.json").write_text(json.dumps(result, indent=2))
+    note = f" DENIED: {', '.join(denied)}" if denied else ""
+    print(f"agy-task {task.name}: {'ok' if ok else 'NOT ok'} ({changed}){note} -> {task}/result.json")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
+    ap.add_argument("cmd", choices=["start", "resume", "clean"])
+    ap.add_argument("slug")
+    ap.add_argument("prompt", nargs="?", help="task text, or - to read it from stdin")
+    ap.add_argument("--model", default="gemini-3.8-flash-high")
+    ap.add_argument("--effort")
+    ap.add_argument("--timeout", default="20m")
+    ap.add_argument("--base", default="HEAD")
+    ap.add_argument("--yolo", action="store_true")
+    ap.add_argument("--force", action="store_true")
+    a = ap.parse_args()
+
+    repo = Path(sh("git", "rev-parse", "--show-toplevel"))
+    root = Path(os.environ.get("AGY_TASK_DIR", Path.home() / ".agy-tasks")) / repo.name
+    task, branch = root / a.slug, f"agy/{a.slug}"
+
+    if a.cmd == "clean":
+        merged = subprocess.run(["git", "merge-base", "--is-ancestor", branch, "HEAD"], cwd=repo).returncode == 0
+        if not (merged or a.force):
+            sys.exit(f"agy-task: {branch} is not merged into HEAD; merge it or pass --force to discard")
+        if (task / "worktree").exists():
+            sh("git", "worktree", "remove", "--force", str(task / "worktree"), cwd=repo)
+        sh("git", "branch", "-D", branch, cwd=repo, check=False)
+        if task.exists():
+            for f in task.iterdir():
+                f.unlink()
+            task.rmdir()
+        return 0
+
+    prompt = sys.stdin.read() if a.prompt == "-" else a.prompt
+    if not prompt:
+        sys.exit("agy-task: a prompt (or -) is required")
+    if a.cmd == "start":
+        if task.exists():
+            sys.exit(f"agy-task: {task} exists; pick another slug or run clean")
+        task.mkdir(parents=True)
+        (task / "base").write_text(sh("git", "rev-parse", a.base, cwd=repo))
+        sh("git", "worktree", "add", "-q", "-b", branch, str(task / "worktree"), a.base, cwd=repo)
+        return run_agy(task, prompt, a)
+    prev = json.loads((task / "result.json").read_text())
+    if not prev.get("conversation_id"):
+        sys.exit("agy-task: previous run has no conversation_id to resume")
+    return run_agy(task, prompt, a, prev["conversation_id"])
+
+
+if __name__ == "__main__":
+    sys.exit(main())
