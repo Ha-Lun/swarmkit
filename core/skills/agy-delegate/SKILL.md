@@ -13,7 +13,7 @@ description: Use when handing a self-contained task to a headless Antigravity (a
 - Bulk mechanical edits or test writing, on agy's quota instead of yours (default `gemini-3.8-flash-high`).
 - 2-3 independent tasks at once. Never more: the box has 8 cores and little spare RAM.
 
-Skip it for small edits (do them inline), for anything that depends on conversation context, and for the same work a Claude subagent already does. agy starts cold: the prompt must carry the goal, the files, the constraints and what "done" looks like.
+Skip it for small edits (do them inline), for anything that depends on conversation context, and for the same work a Claude subagent already does. agy starts cold: the prompt must carry the goal, the files, the constraints and what "done" looks like. For edit tasks say "use your file edit tools, not the shell": a model that reaches for a shell command is denied and the task comes back NOT ok.
 
 ## Run
 
@@ -28,6 +28,7 @@ Options: `--model`, `--effort low|medium|high|xhigh|max`, `--timeout 20m`, `--ba
 
 - `--review` for tasks that answer in text (a review, an analysis): `ok` then means a non-empty response with no tool denied, instead of "files changed". Without it a review reports NOT ok.
 - `--setup "<cmd>"` runs in the worktree before agy. A fresh worktree has tracked files only, so use it for dependencies, e.g. `--setup "ln -s $PWD/node_modules node_modules"`. Never copy `.env` or other secrets into it.
+- agy sees only committed state: uncommitted changes in your checkout are invisible to it (the wrapper warns). Commit or stash first, or pass `--base <ref>`.
 - At most 3 tasks run at once (`AGY_TASK_MAX`); a fourth start is refused.
 - Split parallel tasks by file. Branches that touch the same files conflict when you merge.
 - Don't send client repos to agy unless the user has said that's fine: prompts and code go to Google.
@@ -36,7 +37,7 @@ The background run exits when agy does and prints one line. Read `result.json` n
 
 ## Read the result
 
-- agy reports `SUCCESS` even when it was blocked. Trust only `ok` in `result.json`; `denied_actions` lists what was refused. `usage` shows the tokens spent.
+- agy reports `SUCCESS` even when it was blocked. Trust only `ok` in `result.json`; `denied_actions` lists what was refused, `warnings` lists a timeout (partial output), an interruption or a failed commit. `usage` shows the tokens spent. Slugs are lowercase letters, digits, `.`, `_`, `-`.
 - Edit-only by default: agy can read and edit but **cannot run shell commands** (no tests, builds or installs). Run those yourself in `worktree` before you merge.
 - Check `response` against `git diff <base>..agy/<slug>`; the diff is the truth, the prose is a claim.
 - Review notes from agy are advisory. Verify each against the code before acting on it.
