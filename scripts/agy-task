@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """Run one agy task headlessly in an isolated git worktree and report honestly.
 
-  agy-task start  SLUG [--model M] [--effort E] [--timeout 20m] [--base REF] [--yolo] PROMPT|-
-  agy-task resume SLUG [--timeout 20m] [--yolo] PROMPT|-
+  agy-task start  SLUG [--model M] [--effort E] [--timeout 20m] [--base REF] [--setup CMD] [--review] [--yolo] PROMPT|-
+  agy-task resume SLUG [--timeout 20m] [--review] [--yolo] PROMPT|-
+  agy-task list
   agy-task clean  SLUG [--force]
 
+--review is for tasks that answer in text: ok then means "no tool denied and a non-empty
+response", not "files changed". --setup CMD runs in the worktree before agy (e.g. installing
+or linking dependencies; a fresh worktree has tracked files only). At most $AGY_TASK_MAX
+(default 3) tasks run at once.
 Edit-only by default: agy can read and edit files but shell commands are denied, so run
 tests yourself on the branch. --yolo auto-approves every tool and is NOT sandboxed (agy
 can then write outside the worktree and reach the network); use it only for trusted work.
@@ -14,6 +19,14 @@ result.json carries a recomputed "ok".
 """
 import argparse, json, os, subprocess, sys
 from pathlib import Path
+
+
+def alive(pidfile):
+    try:
+        os.kill(int(pidfile.read_text()), 0)
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 def sh(*cmd, cwd=None, check=True):
@@ -29,6 +42,7 @@ def seconds(s):
 
 def run_agy(task, prompt, a, resume_id=None):
     wt = task / "worktree"
+    (task / "pid").write_text(str(os.getpid()))
     cmd = ["agy", "-p", prompt, "--output-format", "json", "--mode", "accept-edits",
            "--print-timeout", f"{seconds(a.timeout)}s"]
     if resume_id:
@@ -44,6 +58,7 @@ def run_agy(task, prompt, a, resume_id=None):
         out, err, code = p.stdout, p.stderr, p.returncode
     except subprocess.TimeoutExpired as e:
         out, err, code = (e.stdout or ""), "timed out", 124
+    (task / "pid").unlink(missing_ok=True)
     (task / "agy.log").write_text(f"{err}\n{out}")
     try:
         res = json.loads(out)
@@ -55,10 +70,11 @@ def run_agy(task, prompt, a, resume_id=None):
     base = (task / "base").read_text().strip()
     changed = sh("git", "diff", "--shortstat", base, "HEAD", cwd=wt) or "no changes"
     denied = [d.get("display_name", d.get("action")) for d in res.get("denied_actions", [])]
-    ok = res.get("status") == "SUCCESS" and not denied and code == 0 and changed != "no changes"
+    ok = res.get("status") == "SUCCESS" and not denied and code == 0 and (
+        bool(res.get("response", "").strip()) if a.review else changed != "no changes")
     result = {"ok": ok, "slug": task.name, "branch": f"agy/{task.name}", "worktree": str(wt),
               "base": base, "changes": changed, "denied_actions": denied,
-              "conversation_id": res.get("conversation_id"), "exit_code": code,
+              "conversation_id": res.get("conversation_id"), "exit_code": code, "usage": res.get("usage"),
               "response": res.get("response", ""), "stderr": err.strip()[-500:]}
     (task / "result.json").write_text(json.dumps(result, indent=2))
     note = f" DENIED: {', '.join(denied)}" if denied else ""
@@ -68,19 +84,29 @@ def run_agy(task, prompt, a, resume_id=None):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    ap.add_argument("cmd", choices=["start", "resume", "clean"])
-    ap.add_argument("slug")
+    ap.add_argument("cmd", choices=["start", "resume", "list", "clean"])
+    ap.add_argument("slug", nargs="?")
     ap.add_argument("prompt", nargs="?", help="task text, or - to read it from stdin")
     ap.add_argument("--model", default="gemini-3.8-flash-high")
     ap.add_argument("--effort")
     ap.add_argument("--timeout", default="20m")
     ap.add_argument("--base", default="HEAD")
+    ap.add_argument("--setup", help="shell command run in the worktree before agy (start only)")
+    ap.add_argument("--review", action="store_true")
     ap.add_argument("--yolo", action="store_true")
     ap.add_argument("--force", action="store_true")
     a = ap.parse_args()
 
     repo = Path(sh("git", "rev-parse", "--show-toplevel"))
     root = Path(os.environ.get("AGY_TASK_DIR", Path.home() / ".agy-tasks")) / repo.name
+    if a.cmd == "list":
+        for d in sorted(root.glob("*/")) if root.exists() else []:
+            r = json.loads((d / "result.json").read_text()) if (d / "result.json").exists() else {}
+            state = "running" if alive(d / "pid") else ("ok" if r.get("ok") else "NOT ok" if r else "unfinished")
+            print(f"{d.name:24} {state:10} {r.get('changes', '')}")
+        return 0
+    if not a.slug:
+        sys.exit("agy-task: a slug is required")
     task, branch = root / a.slug, f"agy/{a.slug}"
 
     if a.cmd == "clean":
@@ -96,6 +122,9 @@ def main():
             task.rmdir()
         return 0
 
+    running = [f for f in root.glob("*/pid") if alive(f)]
+    if len(running) >= int(os.environ.get("AGY_TASK_MAX", 3)):
+        sys.exit(f"agy-task: {len(running)} tasks already running; wait for one (agy-task list)")
     prompt = sys.stdin.read() if a.prompt == "-" else a.prompt
     if not prompt:
         sys.exit("agy-task: a prompt (or -) is required")
@@ -105,6 +134,13 @@ def main():
         task.mkdir(parents=True)
         (task / "base").write_text(sh("git", "rev-parse", a.base, cwd=repo))
         sh("git", "worktree", "add", "-q", "-b", branch, str(task / "worktree"), a.base, cwd=repo)
+        if a.setup:
+            wt = task / "worktree"
+            sh("sh", "-c", a.setup, cwd=wt)
+            made = sh("git", "ls-files", "--others", "--exclude-standard", cwd=wt)
+            if made:  # keep setup artifacts (e.g. a node_modules link) out of agy's commit
+                with open(sh("git", "rev-parse", "--path-format=absolute", "--git-path", "info/exclude", cwd=wt), "a") as f:
+                    f.write(made + "\n")
         return run_agy(task, prompt, a)
     prev = json.loads((task / "result.json").read_text())
     if not prev.get("conversation_id"):

@@ -397,7 +397,8 @@ def adapter_claude(prompt, cwd, args, env):
            '--max-budget-usd', str(args.budget), '--permission-mode', 'acceptEdits',
            '--disallowedTools', 'Edit Write NotebookEdit'] + (['--model', args.model] if args.model else [])
     rc, out, err, timed_out = run(cmd, cwd=cwd, env=env, timeout=args.timeout)
-    r = {'dispatched': [], 'evidence': [], 'text': '', 'notes': [], 'raw': out, 'tools': [], 'planner_models': []}
+    r = {'dispatched': [], 'evidence': [], 'text': '', 'notes': [], 'raw': out, 'tools': [], 'planner_models': [],
+         'commands': []}
     result = None
     for e in events(out):
         if e.get('type') == 'assistant' and not e.get('parent_tool_use_id'):
@@ -407,6 +408,8 @@ def adapter_claude(prompt, cwd, args, env):
             for b in e.get('message', {}).get('content', []):
                 if b.get('type') == 'tool_use':
                     r['tools'].append(b.get('name'))
+                    if b.get('name') == 'Bash':
+                        r['commands'].append(str((b.get('input') or {}).get('command', '')))
                 if b.get('type') == 'text' and not r['text']:
                     r['text'] = b.get('text', '')
                 if b.get('type') == 'tool_use' and b.get('name') in ('Agent', 'Task'):
@@ -583,6 +586,11 @@ def live(cli, args, spec, repo, ts):
                     checks.append(tools[:1] == [x['first_tool']])
                 if x.get('no_tool'):
                     checks.append(x['no_tool'] not in tools)
+                cmds = r.pop('commands', [])
+                if x.get('bash_all'):  # one Bash command must contain every substring
+                    checks.append(any(all(t in c for t in x['bash_all']) for c in cmds))
+                if x.get('no_bash'):
+                    checks.append(not any(x['no_bash'] in c for c in cmds))
                 r.update(case=case['id'], category=case['category'], repeat=n + 1, expected=exp, expect=x,
                          first_line=line,
                          status_line_ok=bool(re.search(x.get('status_line') or STATUS_RE, line)),
@@ -606,7 +614,9 @@ def live(cli, args, spec, repo, ts):
 def expectation(x):
     return ', '.join(filter(None, ['agent' in x and f'agent {x["agent"] or "inline"}',
                                    x.get('first_tool') and f'first tool {x["first_tool"]}',
-                                   x.get('no_tool') and f'no {x["no_tool"]}']))
+                                   x.get('no_tool') and f'no {x["no_tool"]}',
+                                   x.get('bash_all') and f'Bash with {" + ".join(x["bash_all"])}',
+                                   x.get('no_bash') and f'no Bash with {x["no_bash"]}']))
 
 
 def live_ok(r):

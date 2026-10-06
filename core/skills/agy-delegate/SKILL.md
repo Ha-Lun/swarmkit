@@ -20,16 +20,23 @@ Skip it for small edits (do them inline), for anything that depends on conversat
 ```bash
 agy-task start <slug> "<self-contained prompt>"     # run via Bash run_in_background, one per task
 agy-task resume <slug> "<follow-up>"                # same conversation, same branch
+agy-task list                                       # running and finished tasks
 agy-task clean <slug> [--force]                     # remove worktree and branch once merged or discarded
 ```
 
 Options: `--model`, `--effort low|medium|high|xhigh|max`, `--timeout 20m`, `--base REF`. Use `-` as the prompt to read it from stdin.
 
+- `--review` for tasks that answer in text (a review, an analysis): `ok` then means a non-empty response with no tool denied, instead of "files changed". Without it a review reports NOT ok.
+- `--setup "<cmd>"` runs in the worktree before agy. A fresh worktree has tracked files only, so use it for dependencies, e.g. `--setup "ln -s $PWD/node_modules node_modules"`. Never copy `.env` or other secrets into it.
+- At most 3 tasks run at once (`AGY_TASK_MAX`); a fourth start is refused.
+- Split parallel tasks by file. Branches that touch the same files conflict when you merge.
+- Don't send client repos to agy unless the user has said that's fine: prompts and code go to Google.
+
 The background run exits when agy does and prints one line. Read `result.json` named in it.
 
 ## Read the result
 
-- agy reports `SUCCESS` even when it was blocked. Trust only `ok` in `result.json`; `denied_actions` lists what was refused.
+- agy reports `SUCCESS` even when it was blocked. Trust only `ok` in `result.json`; `denied_actions` lists what was refused. `usage` shows the tokens spent.
 - Edit-only by default: agy can read and edit but **cannot run shell commands** (no tests, builds or installs). Run those yourself in `worktree` before you merge.
 - Check `response` against `git diff <base>..agy/<slug>`; the diff is the truth, the prose is a claim.
 - Review notes from agy are advisory. Verify each against the code before acting on it.
