@@ -129,7 +129,7 @@ link() {
 # Skills Claude Code gets globally; the rest come with a pack (--pack).
 CLAUDE_SKILLS="release-testing security-review caveman caveman-commit caveman-compress
 caveman-help caveman-review ponytail ponytail-audit ponytail-debt ponytail-help
-ponytail-review curated-resources"
+ponytail-review curated-resources agy-delegate"
 
 # Skills that ship with each Claude Code pack (agents come from claude/packs/<pack>/agents).
 pack_skills() {
@@ -325,6 +325,8 @@ install_claude() {
   prune_dead_repo_links "$CLAUDE_DIR/hooks"
   plan_gate_settings remove
   link_skills "$CLAUDE_DIR/skills" "$CLAUDE_SKILLS"
+  mkdir -p "$HOME/.local/bin"
+  link "$REPO_DIR/scripts/agy-task" "$HOME/.local/bin/agy-task"
 
   # MCP servers: register each one at user scope unless it already exists.
   if command -v claude &>/dev/null; then
