@@ -18,6 +18,8 @@ export interface Scroll {
   state: ScrollState;
   lock(): void;
   unlock(): void;
+  /** jump to Cells chapter progress p (0..1): the tour timeline bar's seek */
+  seek(p: number): void;
   dispose(): void;
 }
 
@@ -89,6 +91,7 @@ export function initScroll(): Scroll {
     state,
     lock: () => lenis.stop(),
     unlock: () => lenis.start(),
+    seek: (p) => lenis.scrollTo(cells.start + Math.min(1, Math.max(0, p)) * (cells.end - cells.start), { immediate: true }), // the world's damped progress glides the camera there
     dispose() {
       triggers.forEach((t) => t.kill());
       gsap.ticker.remove(raf);

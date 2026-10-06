@@ -4,7 +4,7 @@
 import { Vector3 } from 'three';
 import { nearestTowerAhead, type TowerRef, type WalkRoute } from '../walk';
 import { createWalkLook } from '../walk-look';
-import { motion, recedeMix, walkUOf } from '../motion-config';
+import { motion, recedeMix, walkCfg, walkRamp, walkUOf } from '../motion-config';
 import { createPick } from '../pick';
 import { sceneOf, setOpacity } from '../scene-dom';
 import type { Chapter, WorldCtx } from '../types';
@@ -30,6 +30,49 @@ export function createCells(ctx: WorldCtx): Chapter {
     });
     return m;
   };
+  // the tour timeline: dive, one segment per band, rise, on the axis walkRamp.inFrom..outTo of the Cells progress (autoplay is linear in it, so width = time). Sized from the route when it exists.
+  const track: HTMLElement | undefined = scene.q('[data-tour]')[0];
+  const head = track?.querySelector<HTMLElement>('.tour-head') ?? null;
+  const segs = new Map([...(track?.querySelectorAll<HTMLElement>('[data-seg]') ?? [])].map((el) => [el.dataset.seg!, el]));
+  const A0 = walkRamp.inFrom, A1 = walkRamp.outTo;
+  const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
+  const pOfU = (u: number) => walkCfg.uFrom + u * (walkCfg.uTo - walkCfg.uFrom);
+  const tOfP = (p: number) => clamp01((p - A0) / (A1 - A0));
+  const pOfT = (t: number) => A0 + t * (A1 - A0);
+  let tourRoute: WalkRoute | null = null, tourW = 0, tourLast = -1, tourText = '', lastP = 0;
+  const phaseOf = (p: number, u: number) => (p < walkCfg.uFrom ? (p < A0 ? 'Orbit' : 'The dive') : p > walkCfg.uTo ? 'The rise' : (bandRange && [...bandRange].find(([, r]) => u >= r[0] && u <= r[1])?.[0]) || 'The walk');
+  const buildTour = (route: WalkRoute) => {
+    tourRoute = route;
+    const ranges = bandRange ?? rangesOf(route);
+    const set = (el: HTMLElement | undefined, a: number, b: number) => { if (el) el.style.flexGrow = String(Math.max(0, b - a)); };
+    set(segs.get('dive'), A0, walkCfg.uFrom);
+    set(segs.get('rise'), walkCfg.uTo, A1);
+    segs.forEach((el, band) => { if (band !== 'dive' && band !== 'rise' && !ranges.has(band)) el.style.display = 'none'; }); // a band with no stop on the route has no segment
+    ranges.forEach((r, band) => { const el = segs.get(band); set(el, pOfU(r[0]), pOfU(band === [...ranges.keys()].at(-1) ? 1 : r[1])); });
+    route.stops.forEach((s) => { // one tick per tower, in the band's segment
+      const el = segs.get(s.band);
+      const r = ranges.get(s.band);
+      if (!el || !r) return;
+      const tick = document.createElement('i');
+      tick.style.left = `${((((s.u0 + s.u1) / 2 - r[0]) / (r[1] - r[0])) * 100).toFixed(2)}%`;
+      tick.title = s.name;
+      el.append(tick);
+    });
+    tourW = track?.clientWidth ?? 0;
+  };
+  const seekTo = (e: PointerEvent) => { if (track) ctx.scroll.seek(pOfT(clamp01((e.clientX - track.getBoundingClientRect().left) / track.clientWidth))); };
+  let dragging = false;
+  const onDown = (e: PointerEvent) => { dragging = true; track!.setPointerCapture(e.pointerId); seekTo(e); };
+  const onMove = (e: PointerEvent) => { if (dragging) seekTo(e); };
+  const onUp = () => { dragging = false; };
+  const onKey = (e: KeyboardEvent) => {
+    const step = e.key === 'ArrowLeft' ? -0.02 : e.key === 'ArrowRight' ? 0.02 : e.key === 'PageUp' ? -0.1 : e.key === 'PageDown' ? 0.1 : 0;
+    const to = e.key === 'Home' ? 0 : e.key === 'End' ? 1 : step ? tOfP(lastP) + step : null;
+    if (to === null) return;
+    e.preventDefault(); e.stopPropagation(); // (the page-level keys would switch autoplay off)
+    ctx.scroll.seek(pOfT(clamp01(to)));
+  };
+  const onResize = () => { tourW = track?.clientWidth ?? 0; };
   const look = createWalkLook(); // drag to look around while walking
   const bandOf = new Map(ctx.agents.map((a) => [a.name, a.band as string]));
   const legend = new Map(scene.q('[data-legend]').map((e) => [e.dataset.legend!, e.querySelector<HTMLElement>('.chip-ring')!]));
@@ -38,6 +81,11 @@ export function createCells(ctx: WorldCtx): Chapter {
     enter() {
       pick.enable();
       look.enable();
+      if (track) {
+        track.addEventListener('pointerdown', onDown); track.addEventListener('pointermove', onMove); track.addEventListener('pointerup', onUp); track.addEventListener('pointercancel', onUp);
+        track.addEventListener('keydown', onKey);
+        window.addEventListener('resize', onResize);
+      }
     },
     fade: (v) => scene.fade(v),
     update(p) {
@@ -58,6 +106,18 @@ export function createCells(ctx: WorldCtx): Chapter {
           const v = r ? Math.round(Math.min(1, Math.max(0, (u - r[0]) / (r[1] - r[0]))) * 500) / 500 : 0;
           if (v !== f.last) { f.last = v; f.el.style.transform = `scaleX(${v})`; }
         }
+      }
+      lastP = p;
+      if (route && tourRoute !== route) buildTour(route);
+      if (head && track) { // playhead: transform only, quantized to a pixel
+        const x = Math.round(tOfP(p) * tourW);
+        if (x !== tourLast) {
+          tourLast = x;
+          head.style.transform = `translateX(${x}px)`;
+          track.setAttribute('aria-valuenow', String(Math.round(tOfP(p) * 100)));
+        }
+        const text = phaseOf(p, u);
+        if (text !== tourText) { tourText = text; track.setAttribute('aria-valuetext', text); }
       }
       const stop = route?.stops[view.walkStop];
       const dwelling = stop && u >= stop.u0 && u <= stop.u1 ? stop.name : null; // holding at this tower
@@ -83,6 +143,11 @@ export function createCells(ctx: WorldCtx): Chapter {
     },
     exit() {
       pick.disable();
+      if (track) {
+        track.removeEventListener('pointerdown', onDown); track.removeEventListener('pointermove', onMove); track.removeEventListener('pointerup', onUp); track.removeEventListener('pointercancel', onUp);
+        track.removeEventListener('keydown', onKey);
+        window.removeEventListener('resize', onResize);
+      }
       look.disable();
       view.lookYaw = view.lookPitch = 0;
       legend.forEach((ring) => setOpacity(ring, 0));

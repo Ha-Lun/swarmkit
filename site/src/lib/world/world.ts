@@ -32,7 +32,7 @@ export interface WorldOptions {
   routing: RoutingNames;
   state: Readonly<ScrollState>;
   tier: ActiveTier;
-  scroll: { lock(): void; unlock(): void };
+  scroll: { lock(): void; unlock(): void; seek(p: number): void };
 }
 
 export interface World {

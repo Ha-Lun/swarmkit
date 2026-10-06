@@ -33,6 +33,12 @@ const ordered = bandOrder.flatMap((b) => agents.filter((a) => a.band === b));
       ))}
     </div>
 
+    <div class="tour world-only" data-tour role="slider" tabindex="0" aria-label="Tour position" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="Orbit">
+      <span class="tour-seg" data-seg="dive" title="The dive"></span>
+      {bands.map((b) => <span class="tour-seg" data-seg={b.band} title={b.title}></span>)}
+      <span class="tour-seg" data-seg="rise" title="The rise"></span>
+      <i class="tour-head" aria-hidden="true"></i>
+    </div>
     <div class="scene-foot">
       <p class="caption">{agents.length} agents, one cell each. <span class="world-only">Walking on its own. Hold the mouse button (or Space) to pause, drag to look around.</span></p>
       <ul class="chips" aria-label="Agent groups, from the core outwards">
