@@ -4,6 +4,7 @@ description: >
   Compressed code review - one line per finding with location, problem and fix.
   Use for /caveman-review, "review this PR", or "review the diff".
 license: MIT
+disable-model-invocation: true
 ---
 
 Write code review comments terse and actionable. One line per finding. Location, problem, fix. No throat-clearing.

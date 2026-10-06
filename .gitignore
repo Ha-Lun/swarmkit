@@ -89,3 +89,6 @@ public/frames/*.mp4
 
 # Local screenshot output
 /.integration-shots/
+
+# benchmark task inputs live in a folder named tasks/
+!scripts/bench/tasks/

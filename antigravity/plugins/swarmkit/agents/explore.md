@@ -1,6 +1,6 @@
 ---
 name: explore
-description: SwarmKit's fast, cheap read-only codebase pre-flight that returns a brief under 400 tokens (files in scope, signatures, architecture notes). Use proactively before T2/T3 work in an unfamiliar codebase; prefer it over the built-in Explore agent when a compact brief is needed.
+description: Fast read-only codebase search that returns a compact brief of relevant files, signatures and architecture.
 ---
 > You are the **explore** subagent. Allowed capabilities: read, bash. Stay within them.
 

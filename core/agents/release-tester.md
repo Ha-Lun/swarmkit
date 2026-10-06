@@ -3,6 +3,7 @@ name: release-tester
 description: Final quality gate that runs tests, linters, type checkers, and build validation before release. Read-only; reports failures but does not fix them.
 role: reviewer
 tier: fast
+pack: core
 capabilities:
 - read
 - bash
@@ -71,7 +72,7 @@ opencode:
     task: deny
     question: allow
 claude:
-  description: 'Runs tests, linters, type checkers and builds, and reports failures without fixing them. Use proactively as the quality gate when tests, lint or typecheck have not been run yet.'
+  description: 'Runs tests, lint, typecheck and build after large changes and reports failures without fixing them.'
   hooks:
     PreToolUse:
     - matcher: Bash

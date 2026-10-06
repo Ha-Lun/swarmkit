@@ -3,6 +3,7 @@ name: db-specialist
 description: Database specialist for schema design, migrations, query optimization, and ORM code.
 role: specialist
 tier: deep
+pack: backend
 capabilities:
 - read
 - edit

@@ -3,6 +3,7 @@ name: n8n-debugger
 description: Systematic debugging and diagnosis of broken n8n workflows. Analyzes execution logs, identifies failure patterns, and provides root cause analysis. Specializes in Telegram integration issues.
 role: specialist
 tier: standard
+pack: n8n
 capabilities:
 - read
 - edit

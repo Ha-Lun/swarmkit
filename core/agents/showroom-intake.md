@@ -3,6 +3,7 @@ name: showroom-intake
 description: Showroom Intake Worker. Manages brief completeness, single batched question set, outputs BRIEF.md, halts at G1.
 role: specialist
 tier: standard
+pack: creative
 capabilities:
 - read
 - edit

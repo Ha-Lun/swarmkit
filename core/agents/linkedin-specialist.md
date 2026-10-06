@@ -3,6 +3,7 @@ name: linkedin-specialist
 description: LinkedIn content specialist. Interactive post creation — asks clarifying questions, generates short & punchy drafts, iterates on feedback, and guides through the LinkedIn upload process.
 role: specialist
 tier: standard
+pack: creative
 capabilities: []
 opencode:
   mode: subagent

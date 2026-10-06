@@ -1,6 +1,7 @@
 ---
 name: curated-resources
 description: Use when looking for vetted external developer resources — scraping tools, free public APIs, free-tier infrastructure, agent frameworks, awesome lists, and MCP server directories — before reaching for an unknown dependency or service.
+disable-model-invocation: true
 ---
 
 # Curated Resources Skill

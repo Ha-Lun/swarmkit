@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Compile core/agents/*.md (CLI-neutral) into per-CLI agent files.
 
-  claude/agents/<name>.md                          Claude Code subagents
+  claude/agents/<name>.md                          Claude Code subagents (pack: core)
+  claude/packs/<pack>/agents/<name>.md             Claude Code project packs
+                                                   (install.sh --pack)
   opencode/agents/<name>.md                        OpenCode agents
   antigravity/plugins/swarmkit/agents/<name>.md    Antigravity plugin agents
                                                    (invoke_subagent types)
@@ -11,6 +13,9 @@ Outputs are committed. Run after editing anything in core/agents.
 Per-CLI overrides: `claude.description` / `antigravity.description` in an
 agent's frontmatter, and a body file at core/agents/<cli>/<name>.md (claude or
 opencode) that replaces the shared body. Antigravity always uses the shared body.
+
+Every agent sets `pack:` (one of PACKS). It only decides where the Claude build
+goes; it is not emitted. OpenCode and Antigravity get every agent.
 """
 import glob
 import os
@@ -30,6 +35,8 @@ TIER_MODELS = {
         'deep': 'opencode/nemotron-3-ultra-free',
     },
 }
+
+PACKS = ('core', 'web', 'ops', 'mobile', 'n8n', 'backend', 'creative', 'swarm')
 
 CLAUDE_TOOLS = {
     'read': ['Read', 'Glob', 'Grep'],
@@ -72,7 +79,9 @@ def build_claude(a, body):
           'model': model_for('claude', a), 'tools': tools + c.get('extra_tools', [])}
     if c.get('hooks'):
         fm['hooks'] = c['hooks']
-    write(f"{ROOT}/claude/agents/{a['name']}.md", fm, body_for('claude', a, body))
+    pack = a['pack']
+    out = 'claude/agents' if pack == 'core' else f'claude/packs/{pack}/agents'
+    write(f"{ROOT}/{out}/{a['name']}.md", fm, body_for('claude', a, body))
 
 
 def build_opencode(a, body):
@@ -114,11 +123,14 @@ def build_rules():
 
 
 def main():
+    agents = load_agents()
+    for a, _ in agents:  # check before anything is deleted
+        if a.get('pack') not in PACKS:
+            raise SystemExit(f"{a['name']}: unknown or missing pack {a.get('pack')!r} (expected one of {PACKS})")
     # The swarmkit skills dir is from the old layout (specialists as skills); kept so it gets removed.
-    for d in ('claude/agents', 'opencode/agents', 'antigravity/plugins/swarmkit/agents',
+    for d in ('claude/agents', 'claude/packs', 'opencode/agents', 'antigravity/plugins/swarmkit/agents',
               'antigravity/plugins/swarmkit/skills'):
         shutil.rmtree(os.path.join(ROOT, d), ignore_errors=True)
-    agents = load_agents()
     for a, body in agents:
         build_claude(a, body)
         build_opencode(a, body)

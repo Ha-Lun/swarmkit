@@ -3,6 +3,7 @@ name: n8n-workflow-builder
 description: Build and design n8n workflows from requirements. Expert in n8n workflow JSON structure, node types, data flow, and Telegram Bot API integration. Self-hosted deployment ops knowledge.
 role: specialist
 tier: standard
+pack: n8n
 capabilities:
 - read
 - edit

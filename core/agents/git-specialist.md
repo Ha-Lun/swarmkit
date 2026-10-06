@@ -3,6 +3,7 @@ name: git-specialist
 description: 'Git workflow specialist — commit/branch review (default) AND environment setup on lead-dev''s behalf: git worktree create/remove, .worktrees/ .gitignore append. Read-only for everything else.'
 role: specialist
 tier: fast
+pack: swarm
 capabilities:
 - read
 - edit

@@ -3,6 +3,7 @@ name: android-capacitor-specialist
 description: Android specialist for Capacitor apps with React + Vite. Handles Gradle builds, Kotlin/Java native plugins, Android Studio integration, native features (permissions, notifications, camera, geolocation), Play Store deployment, and Android-specific debugging. Use when editing Capacitor Android projects, native Android code, or deploying to the Play Store.
 role: specialist
 tier: standard
+pack: mobile
 capabilities:
 - read
 - edit

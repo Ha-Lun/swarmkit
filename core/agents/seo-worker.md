@@ -3,6 +3,7 @@ name: seo-worker
 description: Post-build SEO & sharing pass worker. Implements metadata, OG tags, twitter:card, favicon sets, sitemap/robots, noindex on utility pages. Idempotent — never overwrites human-written fields. Returns structured verification report.
 role: specialist
 tier: standard
+pack: web
 capabilities:
 - read
 - edit

@@ -3,6 +3,7 @@ name: test-writer
 description: Writes unit and integration tests for new code. Identifies coverage gaps. Follows project conventions.
 role: specialist
 tier: standard
+pack: core
 capabilities:
 - read
 - edit
@@ -27,7 +28,7 @@ opencode:
     question: allow
     todowrite: allow
 claude:
-  description: 'Writes unit and integration tests following project conventions; edits test files only. Use proactively when new code lacks tests or the user asks for coverage.'
+  description: 'Writes unit and integration tests following project conventions, editing test files only.'
   hooks:
     PreToolUse:
     - matcher: Edit|Write

@@ -2,30 +2,24 @@
 
 **A multi-agent specialist swarm and modular skills for Claude Code, OpenCode, and Antigravity, all built from one source.**
 
-You write every agent, skill and rule once in `core/`. A small compiler turns them into each CLI's native format. The installer links the results into place. All three CLIs get the same team: 33 specialists, shared working rules, quality gates, and the always-on anti-over-engineering discipline.
+You write every agent, skill and rule once in `core/`. A small compiler turns them into each CLI's native format. The installer links the results into place. All three CLIs get the same team of 33 specialists and the same short working rules. In Claude Code only five core agents load globally; domain specialists come as opt-in per-project packs, so a default session costs little more than stock.
 
 ---
 
 ## ⚙️ How it works
 
-- **The main agent does the work and delegates when a task clearly belongs to a specialist.** Small edits happen directly. Domain work (UI, APIs, databases, infrastructure) goes to the matching specialist.
-- **Tiered routing:**
-  - **T0** questions and reviews: answered directly
-  - **T1** trivial edits (typos, renames, version bumps): done directly, with no plan and no gate
-  - **T2** contained domain work: plan, your approval, then execution
-  - **T3** cross-cutting work: same as T2, in an isolated git worktree
-- **Quality gates run only when relevant:** `security-auditor` when auth, secrets or input handling changed; `code-proofreader` and `git-specialist` on large diffs; `release-tester` if tests weren't run; `seo-worker` after website builds.
-- **Worktrees are never merged or removed without your explicit instruction.**
+- **The main agent does the work.** Small and medium work happens directly. Large or risky work (more than ~3 files, or auth, data, CI or infra) gets a plan and your approval first (Claude Code: plan mode, so `opusplan` plans on Opus). A non-interactive session states the plan and continues instead of waiting.
+- **Delegation where it helps:** `explore` for wide read-only searches; `security-auditor`, `code-proofreader` or `release-tester` as an independent review after large changes. Domain specialists say in their descriptions when to use them.
 - **`lead-dev`** is an optional pure orchestrator for big multi-specialist jobs (`claude --agent lead-dev`, or the `lead-dev` primary agent in OpenCode).
 
 ## 🧩 One source, three CLIs
 
 | | Claude Code | OpenCode | Antigravity |
 |---|---|---|---|
-| Specialists | Subagents in `~/.claude/agents/` | Agents in `~/.config/opencode/agents/` | Agents in the `swarmkit` plugin (`invoke_subagent`) |
+| Specialists | Core subagents in `~/.claude/agents/`, packs in `<project>/.claude/agents/` | Agents in `~/.config/opencode/agents/` | Agents in the `swarmkit` plugin (`invoke_subagent`) |
 | Rules | `~/.claude/CLAUDE.md` | `~/.config/opencode/AGENTS.md` | Plugin `rules/AGENTS.md` |
 | Tool limits | Enforced (`tools:` and `guard.py` hooks) | Enforced (`permission:` blocks) | Stated in each agent's instructions |
-| Skills | `~/.claude/skills/` | `~/.config/opencode/skills/` | `~/.gemini/config/skills/` |
+| Skills | `~/.claude/skills/` (core), packs in `<project>/.claude/skills/` | `~/.config/opencode/skills/` | `~/.gemini/config/skills/` |
 | MCP servers | Registered with `claude mcp add-json` | `opencode.jsonc` | `~/.gemini/config/mcp_config.json` |
 
 Each agent has a **tier** (`fast`, `standard`, `deep`). The model for each tier is set once per CLI in `scripts/build.py`:
@@ -39,16 +33,30 @@ Each agent has a **tier** (`fast`, `standard`, `deep`). The model for each tier 
 ## ✨ Key features
 
 - **Doer, not advisor.** Agents carry out the fix instead of describing what you should do.
-- **Isolation for risky work.** Heavy, multi-file changes run in `.worktrees/<branch>`, and your main branch stays clean until you merge.
-- **Ponytail discipline.** An always-on anti-over-engineering system with `lite`, `full` and `ultra` modes.
+- **Isolation for risky work.** `lead-dev` runs heavy, multi-file changes in `.worktrees/<branch>` (via `git-specialist`), and your main branch stays clean until you merge.
+- **Ponytail discipline.** Simplicity is a core working rule; the `ponytail` skills add `lite`, `full` and `ultra` modes on demand.
 - **Caveman mode.** Terse output that cuts tokens without losing technical detail: `caveman`, `caveman-commit`, `caveman-review`, `caveman-compress` and `caveman-help`. MIT skills vendored from [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) v2.7.0 (`2fd153c`). `caveman-compress` needs the `claude` CLI or `ANTHROPIC_API_KEY`.
-- **Project-type routing.** Detects Lovable, Capacitor, Electron, n8n and Cloudflare projects and routes to the right specialist.
+- **Project-type routing.** Specialist descriptions name their project markers (Lovable, Capacitor, Electron, n8n, Cloudflare), so the main agent picks the right one once the pack is linked.
 - **Cost-aware models.** Cheap models for mechanical work, strong models only where mistakes are expensive.
 - **MCP servers.** Playwright, Chrome DevTools, Firecrawl, Blender, Google Search Console, Google Trends, shadcn, 21st.dev, Gemini, and the Cloudflare suite.
 - **20+ shared skills.** Frontend and backend quality, git workflow, security review, premium frontend system, SEO engineering, n8n API and debugging, Capacitor mobile quality, curated resources, and more.
 - **Slash commands (OpenCode).** `/ponytail-review`, `/ponytail-audit`, `/ponytail-debt`, `/ponytail-help`, and `/ponytail lite|full|ultra|off`.
 
 ## 🤖 Agent roster
+
+In Claude Code, `--claude` installs the five quality and review agents below plus the `release-testing`, `security-review`, `caveman*`, `ponytail*` and `curated-resources` skills (the last three groups are slash-command only, so they cost no context). Everything else is a pack you link into a project with `./install.sh --pack <name> [project]`:
+
+| Pack | Agents | Skills |
+|---|---|---|
+| `web` | frontend, animation, seo-specialist, seo-worker, lovable | frontend-quality, premium-frontend-system, seo-engineering, seo-sharing-pass, web-design-guidelines, scroll-craft |
+| `backend` | backend, db | backend-quality |
+| `ops` | devops, docker, server, monitoring | |
+| `mobile` | android-capacitor, ios-capacitor, electron | capacitor-mobile-quality |
+| `n8n` | n8n-workflow-builder, n8n-debugger | n8n-api, n8n-debugging |
+| `creative` | blender, showroom + 5 workers, linkedin | showroom, img2threejs |
+| `swarm` | swarm-architect, lead-dev, junior-dev, git-specialist | swarm-handoff, git-workflow |
+
+OpenCode and Antigravity get every agent and skill globally.
 
 ### Orchestration, context and git
 
@@ -107,14 +115,15 @@ The installer symlinks everything into each CLI's config directory. Anything it 
 
 | Flag | Description |
 |---|---|
-| `--claude` | Install the Claude Code config (rules, agents, hooks, skills, MCP servers). Also adds the `plan-gate.py` UserPromptSubmit hook to `~/.claude/settings.json` (backed up first), which reminds Claude to enter plan mode first for T2/T3 work so `opusplan` plans on Opus |
+| `--claude` | Install the Claude Code config (rules, core agents, hooks, core skills, MCP servers). Removes the old `plan-gate.py` hook entry from `~/.claude/settings.json` if present |
+| `--pack <name> [project]` | Link a Claude Code pack's agents and skills into `<project>/.claude/` (default: current dir) and list the links in the repo's `.git/info/exclude`. Packs: `web`, `backend`, `ops`, `mobile`, `n8n`, `creative`, `swarm`. With `--uninstall`, removes that pack from the project |
 | `--opencode` | Install the OpenCode config (rules, agents, commands, skills, `opencode.jsonc`) |
 | `--agy` | Install the Antigravity config (`swarmkit` plugin, skills, MCP servers) and `agyw` |
 | `--all` | `--claude`, `--opencode` and `--agy`. This is also the default when no flag is given. |
 | `--n8n` | Configure self-hosted n8n credentials (not included in `--all`) |
 | `--cloudflare` | Install Cloudflare skills and authenticate (not included in `--all`) |
 | `--free` | OpenCode free mode: copies `opencode.jsonc` with a free default model |
-| `--uninstall` | Remove every link that points into this repo and the plan-gate entry in `~/.claude/settings.json` |
+| `--uninstall` | Remove every global link that points into this repo and any old plan-gate entry in `~/.claude/settings.json` |
 | `--help` | Show the help message |
 
 ### Updating an existing install
@@ -135,7 +144,7 @@ core/
   skills/        shared skills                  ← edit
   rules/AGENTS.md  shared rules                 ← edit
   mcp.json       MCP servers (Claude Code, Antigravity)
-claude/          rules.md addendum, hooks/, and generated agents/ + CLAUDE.md
+claude/          rules.md addendum, hooks/, and generated agents/ (core), packs/ + CLAUDE.md
 opencode/        rules.md addendum, opencode.jsonc, command/, and generated agents/ + AGENTS.md
 antigravity/     rules.md addendum and the generated plugins/swarmkit/
 scripts/build.py the compiler (and the tier → model table)
@@ -148,6 +157,7 @@ name: backend-specialist
 description: ...
 role: specialist          # orchestrator | specialist | reviewer
 tier: standard            # fast | standard | deep
+pack: backend             # core | web | ops | mobile | n8n | backend | creative | swarm (Claude Code only)
 capabilities: [read, edit, bash]
 opencode:                 # passed to OpenCode as-is
   mode: subagent
@@ -167,11 +177,11 @@ After editing anything in `core/` or a `rules.md` addendum:
 python3 scripts/build.py   # needs PyYAML
 ```
 
-Commit the sources and the generated files together. Never edit the generated `agents/`, `CLAUDE.md`, `AGENTS.md` or `plugins/swarmkit/` directly.
+Commit the sources and the generated files together. Never edit the generated `agents/`, `claude/packs/`, `CLAUDE.md`, `AGENTS.md` or `plugins/swarmkit/` directly.
 
 ## ✅ Benchmark
 
-`python3 bench/run.py` checks the whole config offline and for free: build in sync, the same roster in every CLI, delegation wording, foreign tool names, guard and plan-gate hook behaviour, and each CLI's native validator. Add `--live claude|agy|opencode --yes` to send real prompts and score which specialist each CLI actually dispatches, and (Claude) whether it enters plan mode first for T2 work. See [bench/README.md](bench/README.md).
+`python3 bench/run.py` checks the whole config offline and for free: build in sync, the same roster in every CLI, delegation wording, foreign tool names, guard hook behaviour, and each CLI's native validator. Add `--live claude|agy|opencode --yes` to send real prompts and score which specialist each CLI actually dispatches, and (Claude) whether it enters plan mode first for large work. See [bench/README.md](bench/README.md).
 
 ## 🔗 Linking Your Own Self-Hosted n8n
 

@@ -3,6 +3,7 @@ name: devops-specialist
 description: DevOps specialist for CI/CD pipelines, infrastructure as code, deployment automation, container orchestration, secrets management, and build systems.
 role: specialist
 tier: standard
+pack: ops
 capabilities:
 - read
 - edit

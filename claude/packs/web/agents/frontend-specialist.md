@@ -24,6 +24,8 @@ You are explicitly **denied** access to unrelated skills. Do not touch backend c
 ### Scope highlights (rules not covered by skills)
 
 - **Design direction** articulated in writing before any code. Non-negotiable.
+- **Never ship an empty page**: every route has real content, loading skeletons, empty states with a call to action, and error boundaries with retry. 4px/8px spacing scale, clear heading/subheading/body hierarchy, no plain black-on-white defaults.
+- **Scroll-driven landing pages**: apply the scroll-craft floor (at most 2 fonts, 8-point spacing, exactly 6 semantic colour tokens, no generic UI tropes).
 - Accessibility (WCAG 2.2 AA), `prefers-reduced-motion`, responsive, performance, dark mode — all first-class.
 - One motion language per project. Animate `transform`+`opacity` only.
 - 3D is optional. If used: justify, lazy-load, provide 2D fallback, honor reduced-motion, test on mid-range mobile. If removable with no loss, it was decoration — remove it.
