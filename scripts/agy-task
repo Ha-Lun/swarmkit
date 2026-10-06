@@ -17,14 +17,15 @@ Everything lands under $AGY_TASK_DIR (default ~/.agy-tasks/<repo>/<slug>): the w
 result.json and agy.log. agy's own "status" is SUCCESS even when tools were denied, so
 result.json carries a recomputed "ok".
 """
-import argparse, json, os, re, signal, subprocess, sys
+import argparse, hashlib, json, os, re, shutil, signal, subprocess, sys
 from pathlib import Path
 
 
 def alive(pidfile):
     try:
-        os.kill(int(pidfile.read_text()), 0)
-        return True
+        pid = int(pidfile.read_text())
+        os.kill(pid, 0)
+        return b"agy-task" in Path(f"/proc/{pid}/cmdline").read_bytes()  # not a recycled pid
     except (OSError, ValueError):
         return False
 
@@ -34,6 +35,12 @@ def sh(*cmd, cwd=None, check=True):
     if check and p.returncode:
         sys.exit(f"agy-task: {' '.join(cmd[:3])} failed: {p.stderr.strip() or p.stdout.strip()}")
     return p.stdout.strip()
+
+
+def spec(task):
+    """Pathspec for the worktree: everything except what --setup created."""
+    f = task / "setup-artifacts"
+    return ["--", ".", *[f":(exclude){x}" for x in (f.read_text().split("\n") if f.exists() else []) if x]]
 
 
 def seconds(s):
@@ -63,16 +70,30 @@ def run_agy(task, prompt, a, resume_id=None, warnings=()):
             os.killpg(p.pid, signal.SIGTERM)
         except OSError:
             pass
+    def reap(p):  # SIGTERM was sent; escalate if agy or a tool ignores it
+        try:
+            return p.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except OSError:
+                pass
+            return p.communicate(timeout=10)
     old = [signal.signal(sig, stop) for sig in (signal.SIGTERM, signal.SIGINT)]
     try:
         out, err = p.communicate(timeout=seconds(a.timeout) + 30)
     except subprocess.TimeoutExpired:
         stop()
-        out, err = p.communicate()
+        out, err = reap(p)
     finally:
         for sig, h in zip((signal.SIGTERM, signal.SIGINT), old):
             signal.signal(sig, h)
     code = p.returncode
+    if interrupted:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)  # stragglers from the process group
+        except OSError:
+            pass
     (task / "pid").unlink(missing_ok=True)
     (task / "agy.log").write_text(f"{err}\n{out}")
     try:
@@ -85,18 +106,18 @@ def run_agy(task, prompt, a, resume_id=None, warnings=()):
     if re.search(r"print timeout", err):  # agy exits 0 with partial output when its own timeout hits
         warnings.append("timed out: the response and edits may be incomplete")
     try:  # never lose agy's work to a hook or signing failure
-        sh("git", "add", "-A", cwd=wt)
-        if sh("git", "status", "--porcelain", cwd=wt):
+        sh("git", "add", "-A", *spec(task), cwd=wt)
+        if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=wt).returncode:
             sh("git", "-c", "commit.gpgsign=false", "commit", "--no-verify", "-qm", f"agy: {task.name}", cwd=wt)
     except SystemExit as e:
         warnings.append(f"commit failed, changes are uncommitted in the worktree: {e}")
     base = (task / "base").read_text().strip()
     changed = sh("git", "diff", "--shortstat", base, "HEAD", cwd=wt, check=False) or "no changes"
-    if changed == "no changes" and sh("git", "status", "--porcelain", cwd=wt, check=False):
+    if changed == "no changes" and sh("git", "status", "--porcelain", *spec(task), cwd=wt, check=False):
         changed = "uncommitted changes"
     denied = [d.get("display_name", d.get("action")) for d in res.get("denied_actions", [])]
     review = a.review
-    incomplete = any(w.startswith(("interrupted", "timed out")) for w in warnings)
+    incomplete = any(w.startswith(("interrupted", "timed out", "commit failed")) for w in warnings)
     produced = bool(res.get("response", "").strip()) if review else changed != "no changes"
     ok = res.get("status") == "SUCCESS" and not denied and code == 0 and not incomplete and produced
     result = {"ok": ok, "slug": task.name, "branch": f"agy/{task.name}", "worktree": str(wt), "review": review,
@@ -104,7 +125,8 @@ def run_agy(task, prompt, a, resume_id=None, warnings=()):
               "conversation_id": res.get("conversation_id"), "exit_code": code, "usage": res.get("usage"),
               "response": res.get("response", ""), "stderr": err.strip()[-500:]}
     (task / "result.json").write_text(json.dumps(result, indent=2))
-    note = (f" DENIED: {', '.join(denied)}" if denied else "") + "".join(f" WARNING: {w}" for w in warnings)
+    note = (f" DENIED: {', '.join(denied)} (resume it: use file view/edit tools only, no shell)" if denied else "") \
+        + "".join(f" WARNING: {w}" for w in warnings)
     print(f"agy-task {task.name}: {'ok' if ok else 'NOT ok'} ({changed}){note} -> {task}/result.json")
     return 0 if ok else 1
 
@@ -124,9 +146,11 @@ def main():
     ap.add_argument("--force", action="store_true")
     a = ap.parse_args()
 
-    # The main checkout even when run from inside a task worktree (common dir is <repo>/.git).
-    repo = Path(sh("git", "rev-parse", "--path-format=absolute", "--git-common-dir")).parent
-    root = Path(os.environ.get("AGY_TASK_DIR", Path.home() / ".agy-tasks")) / repo.name
+    # The first `git worktree list` entry is the main working tree, also when run from inside a
+    # task worktree or a submodule.
+    repo = Path(sh("git", "worktree", "list", "--porcelain").splitlines()[0].split(" ", 1)[1])
+    key = f"{repo.name}-{hashlib.sha1(str(repo).encode()).hexdigest()[:6]}"
+    root = Path(os.environ.get("AGY_TASK_DIR", Path.home() / ".agy-tasks")) / key
     if a.cmd == "list":
         for d in sorted(root.glob("*/")) if root.exists() else []:
             r = json.loads((d / "result.json").read_text()) if (d / "result.json").exists() else {}
@@ -138,16 +162,17 @@ def main():
     task, branch = root / a.slug, f"agy/{a.slug}"
 
     if a.cmd == "clean":
+        wt = task / "worktree"
         merged = subprocess.run(["git", "merge-base", "--is-ancestor", branch, "HEAD"], cwd=repo).returncode == 0
-        if not (merged or a.force):
-            sys.exit(f"agy-task: {branch} is not merged into HEAD; merge it or pass --force to discard")
-        if (task / "worktree").exists():
-            sh("git", "worktree", "remove", "--force", str(task / "worktree"), cwd=repo)
+        if not a.force:
+            if wt.exists() and sh("git", "status", "--porcelain", *spec(task), cwd=wt, check=False):
+                sys.exit(f"agy-task: {wt} has uncommitted changes; inspect them or pass --force to discard")
+            if not merged:
+                sys.exit(f"agy-task: {branch} is not merged into HEAD; merge it or pass --force to discard")
+        sh("git", "worktree", "remove", "--force", str(wt), cwd=repo, check=False)
+        shutil.rmtree(task, ignore_errors=True)
+        sh("git", "worktree", "prune", cwd=repo, check=False)
         sh("git", "branch", "-D", branch, cwd=repo, check=False)
-        if task.exists():
-            for f in task.iterdir():
-                f.unlink()
-            task.rmdir()
         return 0
 
     running = [f for f in root.glob("*/pid") if alive(f)]
@@ -159,7 +184,10 @@ def main():
     if a.cmd == "start":
         if task.exists():
             sys.exit(f"agy-task: {task} exists; pick another slug or run clean")
-        task.mkdir(parents=True)
+        try:
+            task.mkdir(parents=True)
+        except FileExistsError:
+            sys.exit(f"agy-task: {task} exists; pick another slug or run clean")
         (task / "base").write_text(sh("git", "rev-parse", a.base, cwd=repo))
         try:
             sh("git", "worktree", "add", "-q", "-b", branch, str(task / "worktree"), a.base, cwd=repo)
@@ -176,11 +204,15 @@ def main():
         if a.setup:
             wt = task / "worktree"
             sh("sh", "-c", a.setup, cwd=wt)
-            made = sh("git", "ls-files", "--others", "--exclude-standard", cwd=wt)
-            if made:  # keep setup artifacts (e.g. a node_modules link) out of agy's commit
-                with open(sh("git", "rev-parse", "--path-format=absolute", "--git-path", "info/exclude", cwd=wt), "a") as f:
-                    f.write(made + "\n")
+            # Keep setup artifacts (e.g. a node_modules link) out of agy's commit. Not info/exclude:
+            # that file is shared with the main checkout.
+            (task / "setup-artifacts").write_text(
+                sh("git", "ls-files", "--others", "--exclude-standard", "--directory", cwd=wt))
         return run_agy(task, prompt, a, warnings=warn)
+    if alive(task / "pid"):
+        sys.exit(f"agy-task: {a.slug} is still running; wait for it before resuming")
+    if not (task / "result.json").exists():
+        sys.exit(f"agy-task: no finished run for {a.slug} to resume")
     prev = json.loads((task / "result.json").read_text())
     if not prev.get("conversation_id"):
         sys.exit("agy-task: previous run has no conversation_id to resume")
