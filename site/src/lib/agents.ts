@@ -8,6 +8,8 @@ export interface Agent {
   role: string;
   tier: string;
   band: Band;
+  /** where the Claude Code build installs it: `core` (global) or a pack linked per project with `install.sh --pack` */
+  pack: string;
   description: string;
   capabilities: string[];
 }
@@ -44,11 +46,14 @@ export function loadAgents(): Agent[] {
     .map((f) => {
       const fm = frontmatter(readFileSync(resolve(dir, f), 'utf8'));
       const name = scalar(fm, 'name') || f.replace(/\.md$/, '');
+      const pack = scalar(fm, 'pack');
+      if (!pack) throw new Error(`core/agents/${f}: no pack: in the frontmatter (scripts/build.py requires one)`);
       return {
         name,
         role: scalar(fm, 'role'),
         tier: scalar(fm, 'tier'),
         band: bandOf(name),
+        pack,
         description: scalar(fm, 'description'),
         capabilities: list(fm, 'capabilities'),
       };

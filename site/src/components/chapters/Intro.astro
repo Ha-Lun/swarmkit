@@ -2,7 +2,7 @@
 // The landing screen. With the world running it asks which task to follow (the routing examples, pre-rendered): a button starts the story with that task, scrolling starts it with the
 // suggested one (lit; the telling order picks it, intro.ts).
 import { motion } from '../../lib/world/motion-config';
-import { examples } from '../../content/routing';
+import { examples, tierLabel } from '../../content/routing';
 ---
 <section id="top" class="chapter" style={`--runway:${motion.runway.intro}`} aria-labelledby="intro-title">
   <div class="scene" data-scene>
@@ -17,7 +17,7 @@ import { examples } from '../../content/routing';
         <p id="start-pick-title" class="start-pick-title">Choose a task to follow through the swarm</p>
         <div class="replays start-tasks">
           {examples.map((e, i) => (
-            <button type="button" class="btn" data-start={i}><i class="btn-ring" data-fx aria-hidden="true"></i>{e.task}<span class="btn-tier">{e.tier}</span></button>
+            <button type="button" class="btn" data-start={i}><i class="btn-ring" data-fx aria-hidden="true"></i>{e.task}<span class="btn-tier">{tierLabel(e.tier)}</span></button>
           ))}
         </div>
       </div>

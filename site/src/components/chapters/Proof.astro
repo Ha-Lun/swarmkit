@@ -1,12 +1,12 @@
 ---
 // The Proof scene: a slim HUD strip of instrument readouts over the dimmed lattice. Every value is real or "pending".
-import { loadBenchmarks } from '../../lib/benchmarks';
+import { harnessOf, loadBenchmarks } from '../../lib/benchmarks';
 import { loadBuildlog } from '../../lib/buildlog';
 import { motion } from '../../lib/world/motion-config';
 
 const bench = loadBenchmarks();
 const log = loadBuildlog();
-const harness = ['Antigravity (agy) gemini-3.8-flash-high', ...(bench?.harness || bench?.model ? [`recorded: ${[bench.harness, bench.model].filter(Boolean).join(' ')}`] : [])].join(', ');
+const harness = harnessOf(bench);
 ---
 <section id="proof" class="chapter" style={`--runway:${motion.runway.proof}`} aria-labelledby="proof-title">
   <div class="scene" data-scene>

@@ -1,5 +1,5 @@
 ---
-// Inline SVG: route -> explore -> execute -> quality gates (in parallel where the CLI allows).
+// Inline SVG: size up -> explore -> execute -> reviewers (quality gates, in parallel where the CLI allows).
 // Two layouts share one data source so text stays legible at 390px.
 import { gates } from '../content/routing';
 
@@ -7,9 +7,9 @@ interface Props { vertical?: boolean }
 const { vertical = false } = Astro.props;
 
 const stages = [
-  { name: 'route', sub: 'classify T0 to T3' },
+  { name: 'size up', sub: 'plan if large/risky' },
   { name: 'explore', sub: 'read-only context brief' },
-  { name: 'execute', sub: 'specialist does the work' },
+  { name: 'execute', sub: 'main agent or specialist' },
 ];
 const BOX_H = 56;
 const GATE_W = vertical ? 300 : 290;
@@ -23,7 +23,7 @@ const gateX = vertical ? 60 : W - GATE_W;
 const gateY = (i: number) => (vertical ? 330 + i * 64 : 30 + i * 92);
 const capY = vertical ? 288 : 0;
 
-const title = 'Routing: a request is classified, explored, executed, then checked by quality gates in parallel where the CLI allows';
+const title = 'Routing: a request is sized up (a plan first if it is large or risky), explored if needed, executed, then reviewed by quality gates in parallel where the CLI allows';
 const desc = `Steps: ${stages.map((s) => `${s.name} (${s.sub})`).join(', then ')}. Then, in parallel where the CLI allows and when relevant: ${gates.map((g) => `${g.agent} when ${g.when}`).join('; ')}.`;
 const id = vertical ? 'route-v' : 'route-h';
 ---

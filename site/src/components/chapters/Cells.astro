@@ -1,5 +1,5 @@
 ---
-// The Cells scene: the task's journey. The task tag, step captions (the status line and why), closing line and chips of every journey are pre-rendered from the routing data (journeys.ts) and the chapter only writes their opacity: the current
+// The Cells scene: the task's journey. The task tag, step captions (the first line and why), closing line and chips of every journey are pre-rendered from the routing data (journeys.ts) and the chapter only writes their opacity: the current
 // step's caption shows and its node on the rail lights (the rail's nodes are buttons: one jumps the journey to its step). The hidden agent list and the label cards are pre-rendered from the agent data; the full roster is in Reference. The band legend is the static
 // page's (the world shows the steps instead).
 import { facts } from '../../lib/facts';
@@ -37,7 +37,7 @@ const journeys = journeysOf(examples, gates.map((g) => g.agent), tiers);
       ))}
     </div>
 
-    {journeys.map((j, ji) => <p class="task-tag world-only" data-task-tag data-j={ji} data-fx>Task: {j.task} · {j.tier}</p>)}
+    {journeys.map((j, ji) => <p class="task-tag world-only" data-task-tag data-j={ji} data-fx>Task: {j.task} · {j.tierLabel}</p>)}
     {journeys.map((j, ji) => j.beats.filter((b) => b.stop < 0).map((b) => (
       <p class="gate-tag world-only" data-gate-tag={b.agent} data-j={ji} data-fx><span>{b.agent}</span><span class="gate-why">{b.label.replace(/^If /i, '')}</span></p>
     )))}
@@ -66,7 +66,7 @@ const journeys = journeysOf(examples, gates.map((g) => g.agent), tiers);
                 <button type="button" class="rail-btn" data-seek={bi}>
                   <i class="chip-ring rail-now" data-fx aria-hidden="true"></i>
                   <i class="rail-dot" aria-hidden="true"><i class="rail-done"></i></i>
-                  <span class="rail-label">{bi === 0 ? `Classified ${j.tier}` : b.label}</span>
+                  <span class="rail-label">{bi === 0 ? `Sized up: ${j.tierLabel}` : b.label}</span>
                   {b.agent && <span class="rail-agent">{b.agent}</span>}
                 </button>
               </li>

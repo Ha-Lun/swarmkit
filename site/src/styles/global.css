@@ -160,7 +160,7 @@
     .captions > * { grid-area: 1 / 1; }
     .captions > :not(:first-child) { opacity: 0; } /* before the world mounts, only the first caption shows; the chapter drives the rest */
     .scene-foot { flex-wrap: nowrap; }
-    .scene-foot > .captions { flex: 1 1 0; min-width: 0; } /* (the status line and why get the room the tools at the right leave) */
+    .scene-foot > .captions { flex: 1 1 0; min-width: 0; } /* (the caption's two lines get the room the tools at the right leave) */
     .scene-foot-stack > .captions { flex: none; }
     .intro-lede { position: absolute; left: max(var(--space-6), 4.5vw); top: 24vh; padding: 0; }
     .nav-mark { opacity: 0; } /* the wordmark travels here from the intro (intro.ts drives the opacity) */
