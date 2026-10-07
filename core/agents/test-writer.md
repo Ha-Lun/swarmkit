@@ -31,7 +31,7 @@ claude:
   description: 'Writes unit and integration tests following project conventions, editing test files only.'
   hooks:
     PreToolUse:
-    - matcher: Edit|Write
+    - matcher: Bash|Edit|Write
       hooks:
       - type: command
         command: python3 ~/.claude/hooks/guard.py test-writer

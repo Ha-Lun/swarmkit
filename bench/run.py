@@ -38,7 +38,6 @@ CLAUDE_TOOLS = {'Read', 'Glob', 'Grep', 'Edit', 'Write', 'Bash', 'WebFetch', 'We
 AGY_ONLY = ['write_to_file', 'ask_question', 'invoke_subagent', 'appDataDir', 'ArtifactMetadata']
 CLAUDE_ONLY = ['Task tool', 'AskUserQuestion', 'TodoWrite']
 GUARDED = ['security-auditor', 'code-proofreader', 'release-tester', 'test-writer', 'git-specialist']
-STATUS_RE = r'^> \*\*T\d operation: '
 RESULTS = []
 
 
@@ -207,13 +206,17 @@ def s5_guard(repo, guard_cases):
             any(re.search(rf'~/\.claude/hooks/guard\.py {re.escape(name)}$', c) for c in cmds),
             '' if cmds else 'no PreToolUse hook')
     guard = f'{repo}/claude/hooks/guard.py'
+    cwd = tempfile.mkdtemp(prefix='guard-')  # the guard checks edit paths against it and reads package.json scripts from it
+    with open(f'{cwd}/package.json', 'w') as f:
+        json.dump({'scripts': {'build': 'x', 'lint': 'x', 'test': 'x', 'typecheck': 'x'}}, f)
     for agent, tool, arg, want in guard_cases:
         key = 'command' if tool == 'Bash' else 'file_path'
-        payload = json.dumps({'tool_name': tool, 'tool_input': {key: arg}})
+        payload = json.dumps({'tool_name': tool, 'cwd': cwd, 'tool_input': {key: arg}})
         rc, _, _, _ = run([sys.executable, guard, agent], stdin=payload, timeout=20)
         verdict = {0: 'allow', 2: 'block'}.get(rc, f'exit {rc}')
         rec(cat, f'guard {agent} {tool} {arg!r} -> {"allow" if want == 0 else "block"}', rc == want,
             '' if rc == want else f'got {verdict}')
+    shutil.rmtree(cwd, ignore_errors=True)
 
 
 def skill_refs(text):
@@ -287,14 +290,18 @@ def s7_native(repo):
 def s8_installed(repo):
     cat = 'S8 installed links'
     home = os.path.expanduser('~')
-    links = [('.claude/CLAUDE.md', 'claude/CLAUDE.md', 'claude'), ('.claude/agents', 'claude/agents', 'claude'),
-             ('.claude/hooks/guard.py', 'claude/hooks/guard.py', 'claude'),
-             ('.config/opencode/AGENTS.md', 'opencode/AGENTS.md', 'opencode'),
-             ('.config/opencode/agents', 'opencode/agents', 'opencode'),
-             ('.config/opencode/opencode.jsonc', 'opencode/opencode.jsonc', 'opencode'),
-             ('.gemini/config/plugins/swarmkit', 'antigravity/plugins/swarmkit', 'agy')]
+    # (installed path, path in this repo, install flag, per-file). The installer fills per-file directories with one
+    # link per file (see link_files in install.sh), so files you add there stay yours.
+    links = [('.claude/CLAUDE.md', 'claude/CLAUDE.md', 'claude', False),
+             ('.claude/agents', 'claude/agents', 'claude', True),
+             ('.claude/hooks/guard.py', 'claude/hooks/guard.py', 'claude', False),
+             ('.config/opencode/AGENTS.md', 'opencode/AGENTS.md', 'opencode', False),
+             ('.config/opencode/agents', 'opencode/agents', 'opencode', True),
+             ('.config/opencode/command', 'opencode/command', 'opencode', True),
+             ('.config/opencode/opencode.jsonc', 'opencode/opencode.jsonc', 'opencode', False),
+             ('.gemini/config/plugins/swarmkit', 'antigravity/plugins/swarmkit', 'agy', False)]
     real_repo = os.path.realpath(repo)
-    for rel, target, flag in links:
+    for rel, target, flag, per_file in links:
         path = os.path.join(home, rel)
         want = os.path.join(real_repo, target)
         hint = f'run ./install.sh --{flag} from {repo}'
@@ -302,6 +309,12 @@ def s8_installed(repo):
             rec(cat, f'~/{rel}', False, f'not installed; {hint}', status='WARN')
         elif not os.path.exists(path):
             rec(cat, f'~/{rel}', False, f'dead link -> {os.readlink(path)}; {hint}', status='WARN')
+        elif per_file:
+            names = sorted(os.listdir(want))
+            bad = [n for n in names if os.path.realpath(os.path.join(path, n)) != os.path.join(want, n)]
+            rec(cat, f'~/{rel}', not bad, f'all {len(names)} files link into this repo' if not bad else
+                f'{len(bad)} of {len(names)} files do not link into this repo ({", ".join(bad[:3])}); {hint}',
+                status='WARN' if bad else None)
         elif os.path.realpath(path) == want:
             rec(cat, f'~/{rel}', True, 'points into this repo')
         elif rel.endswith('opencode.jsonc') and not os.path.islink(path):
@@ -353,14 +366,11 @@ def events(out):
             continue
 
 
-def first_line(text):
-    return next((ln for ln in (text or '').splitlines() if ln.strip()), '')
-
-
 def claude_env(args, repo, tmp):
     """installed = the user's ~/.claude; repo/none = a temp CLAUDE_CONFIG_DIR with auth + settings only."""
     if args.config == 'installed':
-        return None, os.path.realpath(os.path.expanduser('~/.claude/agents'))
+        # agents/ is a directory of per-file links now; CLAUDE.md is a link into the checkout
+        return None, os.path.dirname(os.path.realpath(os.path.expanduser('~/.claude/CLAUDE.md')))
     real = os.path.expanduser('~/.claude')
     cfg = os.path.join(tmp, 'claude-config')
     os.makedirs(f'{cfg}/hooks')
@@ -397,7 +407,7 @@ def adapter_claude(prompt, cwd, args, env):
            '--max-budget-usd', str(args.budget), '--permission-mode', 'acceptEdits',
            '--disallowedTools', 'Edit Write NotebookEdit'] + (['--model', args.model] if args.model else [])
     rc, out, err, timed_out = run(cmd, cwd=cwd, env=env, timeout=args.timeout)
-    r = {'dispatched': [], 'evidence': [], 'text': '', 'notes': [], 'raw': out, 'tools': [], 'planner_models': [],
+    r = {'dispatched': [], 'evidence': [], 'notes': [], 'raw': out, 'tools': [], 'planner_models': [],
          'commands': []}
     result = None
     for e in events(out):
@@ -410,8 +420,6 @@ def adapter_claude(prompt, cwd, args, env):
                     r['tools'].append(b.get('name'))
                     if b.get('name') == 'Bash':
                         r['commands'].append(str((b.get('input') or {}).get('command', '')))
-                if b.get('type') == 'text' and not r['text']:
-                    r['text'] = b.get('text', '')
                 if b.get('type') == 'tool_use' and b.get('name') in ('Agent', 'Task'):
                     sub = (b.get('input') or {}).get('subagent_type') or '?'
                     r['dispatched'].append(sub)
@@ -438,7 +446,7 @@ def adapter_agy(prompt, cwd, args, env):
     if args.agy_skip_permissions:
         cmd.append('--dangerously-skip-permissions')
     rc, out, err, timed_out = run(cmd, cwd=cwd, env=env, timeout=args.timeout)
-    r = {'dispatched': [], 'evidence': [], 'text': '', 'notes': [], 'raw': out}
+    r = {'dispatched': [], 'evidence': [], 'notes': [], 'raw': out}
     seen, result, denied = set(), None, 0
     for e in events(out):
         su = e.get('step_update') or {}
@@ -470,7 +478,7 @@ def adapter_opencode(prompt, cwd, args, env):
     # Unverified: the free tier refuses headless runs, so this parser was never exercised.
     rc, out, err, timed_out = run(['opencode', 'run', '--format', 'json', '--dir', cwd, prompt],
                                   cwd=cwd, env=env, timeout=args.timeout)
-    r = {'dispatched': [], 'evidence': [], 'text': '', 'notes': ['opencode parser unverified'], 'raw': out}
+    r = {'dispatched': [], 'evidence': [], 'notes': ['opencode parser unverified'], 'raw': out}
     for e in events(out):
         part = e.get('part') or {}
         if part.get('tool') == 'task':
@@ -478,8 +486,6 @@ def adapter_opencode(prompt, cwd, args, env):
             if sub not in r['dispatched']:
                 r['dispatched'].append(sub)
                 r['evidence'].append({'event': f'{e.get("type")}.part[tool=task]', 'subagent_type': sub})
-        if part.get('type') == 'text' and not r['text']:
-            r['text'] = part.get('text', '')
     return {**r, 'status': 'timeout' if timed_out else ('ok' if rc == 0 else 'error')}
 
 
@@ -505,14 +511,14 @@ def opencode_manual(spec, cases, ts):
              '2. Paste the prompt exactly.',
              '3. A delegation shows up as a `task` tool call naming the subagent (the subagent session is listed '
              'under the message). No `task` call means it answered inline.',
-             '4. Check the first line of the reply matches `> **T<n> operation: ...**`.', '',
-             '| # | Case | Fixture dir | Expected | Dispatched (fill in) | Status line ok (fill in) |',
-             '|---|---|---|---|---|---|']
+             '',
+             '| # | Case | Fixture dir | Expected | Dispatched (fill in) |',
+             '|---|---|---|---|---|']
     prompts = []
     for i, case in enumerate(cases, 1):
         dst = make_fixture(spec, case['fixture'], None, 'opencode', f'{fx_root}/{case["id"]}')
         exp = case['expect']['agent'] or 'nothing (inline)'
-        lines.append(f'| {i} | {case["id"]} | `{dst}` | {exp} | | |')
+        lines.append(f'| {i} | {case["id"]} | `{dst}` | {exp} | |')
         prompts += ['', f'### {i}. {case["id"]}: {case["title"]}', '', '```', case['prompt'], '```']
     with open(out, 'w') as f:
         f.write('\n'.join(lines + ['', '## Prompts'] + prompts) + '\n')
@@ -575,7 +581,6 @@ def live(cli, args, spec, repo, ts):
                 r['duration_s'] = round(r.get('duration_s') or time.time() - t0, 1)
                 x = case['expect']
                 exp = x.get('agent')
-                line = first_line(r.pop('text'))
                 tools = r.get('tools') or []
                 if cli == 'claude':
                     pm = r.pop('planner_models', [])
@@ -592,8 +597,6 @@ def live(cli, args, spec, repo, ts):
                 if x.get('no_bash'):
                     checks.append(not any(x['no_bash'] in c for c in cmds))
                 r.update(case=case['id'], category=case['category'], repeat=n + 1, expected=exp, expect=x,
-                         first_line=line,
-                         status_line_ok=bool(re.search(x.get('status_line') or STATUS_RE, line)),
                          correct=all(checks), first_tool=(tools or [None])[0],
                          wrong_agent='agent' in x and any(d != exp for d in r['dispatched']))
                 runs.append(r)
@@ -601,7 +604,6 @@ def live(cli, args, spec, repo, ts):
                 want = expectation(x)
                 print(f'  {paint(st, st)}  {case["id"]}#{n + 1}: expected {want}, dispatched '
                       f'{r["dispatched"] or "nothing"}, first tool {r["first_tool"]}, '
-                      f'status line {"ok" if r["status_line_ok"] else "MISSING"}, '
                       + (f'planner model {r["planner_model"] or "null"}, ' if x.get('first_tool') == 'EnterPlanMode' else '') +
                       f'{r["duration_s"]}s' + (f', ${r["cost_usd"]:.3f}' if r.get('cost_usd') else '')
                       + (f' [{r["status"]}]' if r['status'] != 'ok' else '')
@@ -634,7 +636,6 @@ def metrics(runs):
             'plan_gate': ratio(sum(r['correct'] for r in plan), len(plan)),
             'planner_opus': ratio(sum(bool(r.get('planner_opus')) for r in plan if r.get('planner_model')),
                                   sum(bool(r.get('planner_model')) for r in plan)),
-            'status_line': ratio(sum(r['status_line_ok'] for r in done), len(done)),
             'mean_duration_s': round(sum(r['duration_s'] for r in done) / len(done), 1) if done else None,
             'cost_usd': round(sum(r.get('cost_usd') or 0 for r in done), 4),
             'tokens': sum(r.get('tokens') or 0 for r in done),
@@ -656,17 +657,16 @@ def write_reports(live_results, ts):
         md += [f'- **Delegation accuracy (positives): {m["delegation_accuracy"]}**',
                f'- **False delegation (negatives): {m["false_delegation"]}**',
                f'- **Plan-mode gate (plan cases): {m["plan_gate"]}**; planner model was Opus: {m["planner_opus"]}',
-               f'- **Status-line compliance: {m["status_line"]}**',
                f'- Mean duration: {m["mean_duration_s"]}s; cost: ${m["cost_usd"]}; completed runs: {m["completed"]}', '',
-               '| Case | Expected | Dispatched | First tool | Correct | Status line | Duration | Cost / tokens | Notes |',
-               '|---|---|---|---|---|---|---|---|---|']
+               '| Case | Expected | Dispatched | First tool | Correct | Duration | Cost / tokens | Notes |',
+               '|---|---|---|---|---|---|---|---|']
         for r in res['runs']:
             spend = f'${r["cost_usd"]:.3f}' if r.get('cost_usd') else (f'{r["tokens"]} tok' if r.get('tokens') else '')
             notes = r['notes'] + ([f'planner model {r["planner_model"] or "null (no message after EnterPlanMode)"}']
                                   if r.get('first_tool') == 'EnterPlanMode' else [])
             md.append(f'| {r["case"]}#{r["repeat"]} | {expectation(r["expect"])} | {", ".join(r["dispatched"]) or "-"} '
                       f'| {r.get("first_tool") or "-"} | {"yes" if r["correct"] else "NO"}{" (wrong agent)" if r["wrong_agent"] else ""} '
-                      f'| {"ok" if r["status_line_ok"] else "missing"} | {r["duration_s"]}s | {spend} '
+                      f'| {r["duration_s"]}s | {spend} '
                       f'| {r["status"]}{"; " + "; ".join(notes) if notes else ""} |')
         md.append('')
     path = f'{BENCH}/results/{ts}.md'
@@ -746,7 +746,7 @@ def main():
             print(f'  {paint(st, st)}  live {res["cli"]:<21} '
                   f'delegation {m["delegation_accuracy"]}, false delegation {m["false_delegation"]}, '
                   f'plan gate {m["plan_gate"]}, '
-                  f'status line {m["status_line"]}, mean {m["mean_duration_s"]}s, '
+                  f'mean {m["mean_duration_s"]}s, '
                   + (f'${m["cost_usd"]}' if m['cost_usd'] else f'{m["tokens"]} tokens'))
     fails = sum(r['status'] == 'FAIL' for r in RESULTS)
     live_fails = sum(not live_ok(r) for res in live_results for r in res.get('runs', []))

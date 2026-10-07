@@ -18,7 +18,7 @@ You write every agent, skill and rule once in `core/`. A small compiler turns th
 |---|---|---|---|
 | Specialists | Core subagents in `~/.claude/agents/`, packs in `<project>/.claude/agents/` | Agents in `~/.config/opencode/agents/` | Agents in the `swarmkit` plugin (`invoke_subagent`) |
 | Rules | `~/.claude/CLAUDE.md` | `~/.config/opencode/AGENTS.md` | Plugin `rules/AGENTS.md` |
-| Tool limits | Enforced (`tools:` and `guard.py` hooks) | Enforced (`permission:` blocks) | Stated in each agent's instructions |
+| Tool limits | `tools:` enforced; `guard.py` hooks are a speed bump (see below) | Enforced (`permission:` blocks) | Stated in each agent's instructions |
 | Skills | `~/.claude/skills/` (core), packs in `<project>/.claude/skills/` | `~/.config/opencode/skills/` | `~/.gemini/config/skills/` |
 | MCP servers | Registered with `claude mcp add-json` | `opencode.jsonc` | `~/.gemini/config/mcp_config.json` |
 
@@ -38,7 +38,7 @@ Each agent has a **tier** (`fast`, `standard`, `deep`). The model for each tier 
 - **Caveman mode.** Terse output that cuts tokens without losing technical detail: `caveman`, `caveman-commit`, `caveman-review`, `caveman-compress` and `caveman-help`. MIT skills vendored from [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) v2.7.0 (`2fd153c`). `caveman-compress` needs the `claude` CLI or `ANTHROPIC_API_KEY`.
 - **Project-type routing.** Specialist descriptions name their project markers (Lovable, Capacitor, Electron, n8n, Cloudflare), so the main agent picks the right one once the pack is linked.
 - **Cost-aware models.** Cheap models for mechanical work, strong models only where mistakes are expensive.
-- **MCP servers.** Playwright, Chrome DevTools, Firecrawl, Blender, Google Search Console, Google Trends, shadcn, 21st.dev, Gemini, and the Cloudflare suite.
+- **MCP servers.** Playwright, Chrome DevTools, Firecrawl, Blender, Google Trends, shadcn, 21st.dev, Gemini, and the Cloudflare suite. Versions are pinned (no `@latest`), so a package can't change under you; bump them deliberately.
 - **20+ shared skills.** Frontend and backend quality, git workflow, security review, premium frontend system, SEO engineering, n8n API and debugging, Capacitor mobile quality, curated resources, and more.
 - **Slash commands (OpenCode).** `/ponytail-review`, `/ponytail-audit`, `/ponytail-debt`, `/ponytail-help`, and `/ponytail lite|full|ultra|off`.
 
@@ -57,6 +57,8 @@ In Claude Code, `--claude` installs the five quality and review agents below plu
 | `swarm` | swarm-architect, lead-dev, junior-dev, git-specialist | swarm-handoff, git-workflow |
 
 OpenCode and Antigravity get every agent and skill globally.
+
+**The guards are a speed bump, not a sandbox.** In Claude Code, `guard.py` blocks obvious writes (redirections, `rm`, `sed -i`, `--fix`), fetch-and-run commands (`npx <package>`, `npm install <package>`, `pnpm dlx`) and, for `test-writer`, edits outside test files (never a manifest such as `package.json` or `Makefile`) or outside the project. `npm`, `pnpm`, `yarn` and `bun` may only install, `test`, or run a script that exists in `package.json`. A guard error blocks the call. A test runner can still run any code in your project (a `test-writer` can write a test that does, then run it), and `git-specialist` keeps an unrestricted shell. Antigravity only gets a line of instructions. OpenCode's `permission:` blocks match edit paths and command prefixes but have none of the runner rules above (its `test-writer` shell is unrestricted).
 
 ### Orchestration, context and git
 
@@ -109,7 +111,7 @@ cd swarmkit
 ./install.sh --all
 ```
 
-The installer symlinks everything into each CLI's config directory. Anything it replaces is first backed up to `~/.opencode-backup-<timestamp>/`. You can run it again safely; a second run changes nothing.
+The installer symlinks everything into each CLI's config directory. The agents and command directories are real directories holding one link per file, so files you add there are left alone (a name you already use is skipped and reported). Anything it replaces is first backed up to `~/.opencode-backup-<timestamp>/`. You can run it again safely; a second run changes nothing.
 
 ### Installer flags
 
@@ -134,7 +136,7 @@ git pull
 ./install.sh --all      # or only the flags for the CLIs you use on this machine
 ```
 
-Always rerun the installer after pulling. It relinks moved files and removes links left over from older layouts.
+Always rerun the installer after pulling. It relinks moved files and removes links left over from older layouts. With per-file links a new agent only appears after the rerun. MCP servers that are already registered are skipped, so an existing install keeps its old registrations: to adopt the pinned versions, `claude mcp remove <name> -s user` and rerun.
 
 ## 🛠️ Customising the swarm
 
@@ -222,7 +224,7 @@ and clean the worktree.
 
 > **Already have SwarmKit installed?** Run these two commands directly — no need to re-run the full installer:
 > ```sh
-> npm install -g agyw && agyw init
+> npm install -g agyw@0.2.1 && agyw init
 > ```
 
 ```sh
@@ -236,5 +238,5 @@ agyw status            # Check active profile + symlink health
 > **Important:** Quit any running `agy` or Antigravity IDE processes before switching profiles.
 
 ## 🎬 Showroom Specialist Swarm
-- **`showroom`**: Orchestrates premium, scroll-driven, dark-theme product detail pages using Astro, Tailwind, GSAP, Lenis, and human-in-the-loop Google Flow assets.
-- Includes peer workers: `showroom-intake`, `showroom-art-director`, `showroom-asset-processor`, `showroom-frontend-builder`, `showroom-motion-engineer`.
+- **`showroom`**: Coordinates premium, scroll-driven, dark-theme product detail pages using Astro, Tailwind, GSAP, Lenis, and human-in-the-loop Google Flow assets. A subagent can't spawn subagents, so at each step it returns a `## DISPATCH: <worker>` handoff and the main agent (or `lead-dev`) dispatches that worker.
+- Peer workers: `showroom-intake`, `showroom-art-director`, `showroom-asset-processor`, `showroom-frontend-builder`, `showroom-motion-engineer`.

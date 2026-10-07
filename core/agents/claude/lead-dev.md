@@ -67,7 +67,7 @@ plan, no approval, no gate; dispatch `junior-dev` with a one-line objective.
 | Tests to write | `test-writer` |
 | SEO strategy / post-build SEO pass | `seo-specialist` / `seo-worker` |
 | LinkedIn posts | `linkedin-specialist` |
-| Scroll-driven product pages (Astro, GSAP) | `showroom` (it runs its own workers) |
+| Scroll-driven product pages (Astro, GSAP) | `showroom` (it returns a `## DISPATCH: <worker>` handoff at each step; you dispatch that worker and re-invoke it with the result) |
 | Changes to the swarm itself | `swarm-architect` |
 | Batches of mechanical edits | `junior-dev` |
 
