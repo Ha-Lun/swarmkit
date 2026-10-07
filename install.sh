@@ -216,6 +216,20 @@ pack_cmd() {
   fi
 }
 
+# Logo: only on an interactive terminal (nothing in logs or pipes); colours unless NO_COLOR is set.
+banner() {
+  [ -t 1 ] && [ "${TERM:-dumb}" != dumb ] || return 0
+  local c="" b="" d="" r=""
+  if [ -z "${NO_COLOR:-}" ]; then c=$'\033[38;5;214m' b=$'\033[1m' d=$'\033[2m' r=$'\033[0m'; fi
+  echo ""
+  printf '%s%s%s\n' "$c" '   __    __' "$r"
+  printf '%s%s%s     %s%s%s\n' "$c" '  /  \__/  \' "$r" "$b" '█▀▀ █ █ █ ▄▀█ █▀█ █▀▄▀█ █▄▀ █ ▀█▀' "$r"
+  printf '%s%s%s     %s%s%s\n' "$c" '  \__/  \__/' "$r" "$b" '▄▄█ ▀▄▀▄▀ █▀█ █▀▄ █ ▀ █ █ █ █  █' "$r"
+  printf '%s%s%s     %sone config, three CLIs%s\n' "$c" '  /  \__/  \' "$r" "$d" "$r"
+  printf '%s%s%s     %sClaude Code · OpenCode · Antigravity%s\n' "$c" '  \__/  \__/' "$r" "$d" "$r"
+  echo ""
+}
+
 # Remove the old plan-gate UserPromptSubmit hook from ~/.claude/settings.json.
 # Writes (after a backup) only when something changes, so re-runs are no-ops.
 plan_gate_settings() {
@@ -256,6 +270,8 @@ if [ -n "$PACK" ]; then
   if [ "$UNINSTALL_MODE" = true ]; then pack_cmd "$PACK" remove; else pack_cmd "$PACK" add; fi
   exit 0
 fi
+
+banner
 
 if [ "$UNINSTALL_MODE" = true ]; then
   echo "Uninstalling configurations..."
@@ -439,6 +455,6 @@ if [ "$INSTALL_CLOUDFLARE" = true ]; then install_cloudflare; fi
 
 echo ""
 echo "========================================"
-echo "  Installation Successful! 🎉"
+echo "  Installation Successful! 🐝"
 echo "========================================"
 echo "Restart your terminal or tools for changes to take effect."
