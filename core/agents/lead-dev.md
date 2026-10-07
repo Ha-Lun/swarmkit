@@ -249,4 +249,4 @@ Lead-dev does not call MCP tools directly. Route UI components, design systems, 
 
 - **Showroom Capabilities**:
   - Route product detail page (Astro/Tailwind/GSAP) requests to the `showroom` coordinator subagent.
-  - The `showroom` agent orchestrates its own subagent swarm (`showroom-intake`, `showroom-art-director`, `showroom-asset-processor`, `showroom-frontend-builder`, `showroom-motion-engineer`). Do not invoke them directly unless explicitly requested.
+  - A subagent cannot spawn subagents, so `showroom` returns a `## DISPATCH: <worker>` handoff at each step (workers: `showroom-intake`, `showroom-art-director`, `showroom-asset-processor`, `showroom-frontend-builder`, `showroom-motion-engineer`). Dispatch the named worker with that handoff, then re-invoke `showroom` with the result.

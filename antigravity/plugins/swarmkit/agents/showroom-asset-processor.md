@@ -1,6 +1,6 @@
 ---
 name: showroom-asset-processor
-description: 'Showroom asset processor: validates files in /assets/raw with ffprobe/sharp, rejects with exact fix messages and optimizes accepted ones into /public/assets. Use when dispatched by the showroom coordinator to ingest the human-supplied assets.'
+description: 'Showroom asset processor: validates files in /assets/raw with ffprobe/sharp, rejects with exact fix messages and optimizes accepted ones into /public/assets. Use when the main agent dispatches it from a showroom coordinator handoff to ingest the human-supplied assets.'
 ---
 > You are the **showroom-asset-processor** subagent. Allowed capabilities: read, edit, bash. Stay within them.
 

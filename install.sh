@@ -126,6 +126,25 @@ link() {
   ln -s "$src" "$dest"
 }
 
+# Symlink each file of $1 into the real directory $2, so files you add there stay yours (and a build
+# can't delete them). An old whole-directory link into this repo is replaced; a name that is already
+# a file of yours is skipped.
+link_files() {
+  local src_dir="$1" dest="$2" f name
+  if [ -L "$dest" ] && [[ "$(readlink "$dest")" == "$REPO_DIR"/* ]]; then rm -f "$dest"; fi
+  mkdir -p "$dest"
+  prune_dead_repo_links "$dest"
+  for f in "$src_dir"/*; do
+    [ -e "$f" ] || continue  # an empty source directory leaves the glob unexpanded
+    name="$(basename "$f")"
+    if { [ -e "$dest/$name" ] || [ -L "$dest/$name" ]; } && [[ "$(readlink "$dest/$name" 2>/dev/null)" != "$REPO_DIR"/* ]]; then
+      echo "  ! $dest/$name exists and is not a SwarmKit link; skipped"
+      continue
+    fi
+    ln -sfn "$f" "$dest/$name"
+  done
+}
+
 # Skills Claude Code gets globally; the rest come with a pack (--pack).
 CLAUDE_SKILLS="release-testing security-review caveman caveman-commit caveman-compress
 caveman-help caveman-review ponytail ponytail-audit ponytail-debt ponytail-help
@@ -240,11 +259,14 @@ fi
 
 if [ "$UNINSTALL_MODE" = true ]; then
   echo "Uninstalling configurations..."
-  for d in "$OPENCODE_DIR" "$OPENCODE_DIR/skills" "$CLAUDE_DIR" "$CLAUDE_DIR/skills" "$CLAUDE_DIR/hooks" \
+  for d in "$OPENCODE_DIR" "$OPENCODE_DIR/agents" "$OPENCODE_DIR/command" "$OPENCODE_DIR/skills" \
+           "$CLAUDE_DIR" "$CLAUDE_DIR/agents" "$CLAUDE_DIR/skills" "$CLAUDE_DIR/hooks" \
            "$GEMINI_DIR/plugins" "$GEMINI_DIR/skills" "$HOME/.opencode"; do
     remove_repo_links "$d"
   done
   plan_gate_settings remove
+  # only our own shim: ~/.local/bin also holds other tools' links
+  [[ "$(readlink "$HOME/.local/bin/agy-task" 2>/dev/null)" == "$REPO_DIR"/* ]] && rm -f "$HOME/.local/bin/agy-task"
   rm -f "$GEMINI_DIR/mcp_config.json"
   echo "Uninstall complete. MCP servers registered with 'claude mcp' are left in place."
   exit 0
@@ -257,9 +279,9 @@ install_opencode() {
   # Old installs linked into ~/.opencode (OpenCode's install dir); drop those links.
   remove_repo_links "$HOME/.opencode"
 
-  link "$REPO_DIR/opencode/agents" "$OPENCODE_DIR/agents"
+  link_files "$REPO_DIR/opencode/agents" "$OPENCODE_DIR/agents"
   link "$REPO_DIR/opencode/AGENTS.md" "$OPENCODE_DIR/AGENTS.md"
-  link "$REPO_DIR/opencode/command" "$OPENCODE_DIR/command"
+  link_files "$REPO_DIR/opencode/command" "$OPENCODE_DIR/command"
   link_skills "$OPENCODE_DIR/skills"
 
   if [ "$FREE_MODE" = true ]; then
@@ -297,10 +319,14 @@ install_agy() {
     cp "$REPO_DIR/core/mcp.json" "$GEMINI_DIR/mcp_config.json"
   fi
 
-  # Install agyw account switcher
+  # Install agyw account switcher (only if missing, so a re-run needs no network)
   if command -v npm &>/dev/null; then
-    echo "Installing agyw (account switcher)..."
-    npm install -g agyw
+    if command -v agyw &>/dev/null; then
+      echo "agyw already installed"
+    else
+      echo "Installing agyw (account switcher)..."
+      npm install -g agyw@0.2.1
+    fi
     if [ -d "$HOME/.gemini/antigravity-cli" ]; then
       agyw init
       echo "✓ agyw installed and initialized"
@@ -308,7 +334,7 @@ install_agy() {
       echo "✓ agyw installed. Run 'agyw init' after launching agy for the first time."
     fi
   else
-    echo "⚠ npm not found — skipping agyw. Install Node.js then run: npm install -g agyw && agyw init"
+    echo "⚠ npm not found — skipping agyw. Install Node.js then run: npm install -g agyw@0.2.1 && agyw init"
   fi
 
   echo "✓ Antigravity (agy) installation complete"
@@ -319,7 +345,7 @@ install_claude() {
   mkdir -p "$CLAUDE_DIR/hooks"
 
   link "$REPO_DIR/claude/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
-  link "$REPO_DIR/claude/agents" "$CLAUDE_DIR/agents"
+  link_files "$REPO_DIR/claude/agents" "$CLAUDE_DIR/agents"
   link "$REPO_DIR/claude/hooks/guard.py" "$CLAUDE_DIR/hooks/guard.py"
   # plan-gate.py was dropped; clean up its link and settings entry from old installs.
   prune_dead_repo_links "$CLAUDE_DIR/hooks"

@@ -7,30 +7,23 @@
     "cloudflare-observability": { "url": "https://observability.mcp.cloudflare.com/mcp" },
     "gemini-mcp-tool": {
       "command": "npx",
-      "args": ["-y", "gemini-mcp-tool@latest"],
-      "env": {
-        "ANTIGRAVITY_ACCOUNTS_PATH": "$HOME/.opencode/antigravity-accounts.json"
-      }
+      "args": ["-y", "gemini-mcp-tool@1.1.8"]
     },
     "firecrawl": {
       "command": "npx",
-      "args": ["-y", "firecrawl-mcp@latest"]
+      "args": ["-y", "firecrawl-mcp@3.28.2"]
     },
     "blender": {
       "command": "uvx",
-      "args": ["blender-mcp"]
-    },
-    "google-search-console": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-google-search-console@latest"]
+      "args": ["blender-mcp@2.0.0"]
     },
     "google-trends": {
       "command": "npx",
-      "args": ["-y", "google-trends-mcp@latest"]
+      "args": ["-y", "google-trends-mcp@0.1.1"]
     },
     "playwright": {
       "command": "npx",
-      "args": ["-y", "@playwright/mcp@latest"]
+      "args": ["-y", "@playwright/mcp@0.0.83"]
     }
   }
 }

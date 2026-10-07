@@ -32,10 +32,10 @@ Every run ends with a scoreboard and exits non-zero on any failure. `--json PATH
 | S2 roster parity | The same agent names exist in `core/agents` and all three CLI outputs (Claude: `claude/agents` plus `claude/packs/*/agents`). Every frontmatter is valid YAML with a description. Claude models are haiku, sonnet or opus. |
 | S3 delegation signals | Every Claude pack specialist description says "proactively" or "Use when" (lead-dev and the one-line core agents are exempt). The lead-dev descriptions for Claude and agy forbid subagent use. All three rules files say never to wait for approval when non-interactive. The Claude rules send large or risky work to `EnterPlanMode` first and stay under 2200 bytes. |
 | S4 foreign-tool leakage | Claude bodies contain no agy tool names. OpenCode bodies contain no agy or Claude tool names. Claude `tools:` lists contain only real Claude tools or `mcp__<server>__*`, where `<server>` is in `core/mcp.json`. |
-| S5 hooks and guard | The five guarded agents have their `guard.py` PreToolUse hook. Then `claude/hooks/guard.py` is run directly on 32 stdin cases: allowed commands, chaining, substitution and redirection bypasses, and test-writer and git-specialist file rules. |
+| S5 hooks and guard | The five guarded agents have their `guard.py` PreToolUse hook. Then `claude/hooks/guard.py` is run directly on the stdin cases in `cases.json`: allowed commands, chaining, substitution and redirection bypasses, and test-writer and git-specialist file rules. |
 | S6 rules sanity | The agy rules file is under 24,000 bytes. Every skill that a rules file or agent body tells the model to load exists in `core/skills`. The match is conservative: `Load **\`x\`**`, `` `x` skill``, `Skills to load: \`x\``. Third-party skills are listed in `cases.json` under `static.external_skills`. |
 | S7 native validators | `agy plugin validate` processes every agent (SKIP if `agy` is missing). `opencode.jsonc` parses, `default_agent` exists, and its plugin and instruction paths resolve. The Claude tree has CLAUDE.md, agents, and a compiling `guard.py`, and ships no settings. |
-| S8 installed links | Only with `--installed`. Every install symlink resolves into this checkout. Failures are a WARN with the exact `./install.sh --x` to run. |
+| S8 installed links | Only with `--installed`. Single links resolve into this checkout; `~/.claude/agents`, `~/.config/opencode/agents` and `~/.config/opencode/command` hold one link per file, and each must resolve into it. Failures are a WARN with the exact `./install.sh --x` to run. |
 
 Use `--repo PATH` to check another checkout. This is also how to try a deliberate defect without touching your repo: copy `core scripts claude opencode antigravity` to a temp dir, break something, then run `--repo` against the copy.
 
@@ -50,8 +50,7 @@ Scoring uses only the CLI's machine output, never the model's prose:
   - agy: `step_update` events with `tool_name: invoke_subagent`, using `Subagents[].TypeName` or `subagent_info.subagents[].type_name`.
 - **correct**: every expectation the case sets holds. `expect.agent`: that agent is in `dispatched`, or nothing was dispatched when it is `null`; `wrong_agent` flags any other dispatch. `expect.first_tool` (Claude): the first top-level `tool_use` has that name. `expect.no_tool` (Claude): no top-level `tool_use` has that name. `expect.bash_all` (Claude): one top-level `Bash` command contains every listed substring. `expect.no_bash` (Claude): no `Bash` command contains the substring.
 - **planner_model** (Claude): the `message.model` of top-level assistant messages after the `EnterPlanMode` call, and whether it contains `opus`. It is `null` when no assistant message follows the call (for example if headless mode does not continue in plan mode). Whether headless `-p` runs switch `opusplan` to Opus in plan mode has not been verified yet; this field is how to find out.
-- **status_line_ok**: the reply's first line matches `expect.status_line` (default `^> \*\*T\d operation: `).
-- Headlines: delegation accuracy (`category: positive`), false-delegation rate (`category: negative`), plan-mode gate (`category: plan`) with the share of planner models that were Opus, status-line compliance, mean duration, and cost or tokens.
+- Headlines: delegation accuracy (`category: positive`), false-delegation rate (`category: negative`), plan-mode gate (`category: plan`) with the share of planner models that were Opus, mean duration, and cost or tokens.
 
 Options: `--only PREFIXES` (comma-separated case-id prefixes, e.g. `--only plan-`), `--max-cases N` (the first N applicable cases after `--only`; the first two are the cheapest positive and negative), `--repeat N`, `--timeout S` (per CLI call, default 240; the whole process group is killed on timeout), `--model M`, `--json PATH`.
 
@@ -83,7 +82,7 @@ Append to `cases` in `cases.json`:
 
 ```json
 {"id": "...", "title": "...", "category": "positive|negative|plan", "fixture": "<key in fixtures>",
- "prompt": "read-only review request ...", "expect": {"agent": "specialist-name or null", "status_line": "optional regex",
+ "prompt": "read-only review request ...", "expect": {"agent": "specialist-name or null",
                                                      "first_tool": "optional, Claude", "no_tool": "optional, Claude",
                                                      "bash_all": "optional, Claude", "no_bash": "optional, Claude"},
  "applies_to": ["claude", "agy", "opencode"]}

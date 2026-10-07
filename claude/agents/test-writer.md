@@ -11,7 +11,7 @@ tools:
 - Bash
 hooks:
   PreToolUse:
-  - matcher: Edit|Write
+  - matcher: Bash|Edit|Write
     hooks:
     - type: command
       command: python3 ~/.claude/hooks/guard.py test-writer
