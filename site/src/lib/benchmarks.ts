@@ -12,6 +12,11 @@ export interface Benchmarks {
   rawHref: string;
 }
 
+/** What the page says produced the numbers: the recorded harness and model, 'pending' with no data file, 'not recorded' if the file names neither. */
+export function harnessOf(bench: Benchmarks | null): string {
+  return bench ? [bench.harness, bench.model].filter(Boolean).join(', ') || 'not recorded' : 'pending';
+}
+
 export function loadBenchmarks(): Benchmarks | null {
   const file = resolve(process.cwd(), 'public/data/benchmark_metrics.json');
   if (!existsSync(file)) return null;

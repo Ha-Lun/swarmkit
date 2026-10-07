@@ -6,21 +6,21 @@ import { journeysOf } from '../../lib/journeys';
 import { motion } from '../../lib/world/motion-config';
 
 const gateNames: string[] = gates.map((g) => g.agent);
-const mainExample = examples.find((e) => e.tier === 'T2');
+const mainExample = examples.find((e) => e.tier === 'planned');
 const specialist = mainExample?.route.find((r) => r.agent && r.agent !== 'explore' && !gateNames.includes(r.agent))?.agent;
 const steps = [
   'A task comes in.',
-  'It is classified. The tier sets how much ceremony it gets.',
-  `Routed to the specialist that owns the work${specialist ? `: ${specialist}` : ''}.`,
-  'Quality gates run in parallel, only where relevant.',
+  'The main agent sizes it up: small work is done directly, large or risky work gets a plan first.',
+  `Handed to the specialist that owns the work, when its pack is linked${specialist ? `: ${specialist}` : ''}.`,
+  'Reviewers run after large changes, only where relevant.',
 ];
-const chips = tiers.filter((t) => t.id !== 'T0');
+const chips = tiers.filter((t) => t.id !== 'ask');
 const journeys = journeysOf(examples, gateNames, tiers);
 ---
 <section id="hive" class="chapter" style={`--runway:${motion.runway.hive}`} aria-labelledby="hive-title">
   <div class="scene" data-scene>
     <h2 id="hive-title" class="sr-only">How it works</h2>
-    {journeys.map((j, ji) => <p class="task-tag world-only" data-task-tag data-j={ji} data-fx>Task: {j.task} · {j.tier}</p>)}
+    {journeys.map((j, ji) => <p class="task-tag world-only" data-task-tag data-j={ji} data-fx>Task: {j.task} · {j.tierLabel}</p>)}
     <div class="scene-foot">
       <div class="captions">
         {steps.map((s) => <p class="caption" data-caption data-fx>{s}</p>)}
@@ -28,7 +28,7 @@ const journeys = journeysOf(examples, gateNames, tiers);
       <div class="tools">
         <ul class="chips" aria-label="Routing tiers">
           {chips.map((t) => (
-            <li class="chip" data-chip={t.id} title={t.body}><i class="chip-ring" data-fx aria-hidden="true"></i>{t.id} {t.title}</li>
+            <li class="chip" data-chip={t.id} title={t.body}><i class="chip-ring" data-fx aria-hidden="true"></i>{t.title}</li>
           ))}
         </ul>
       </div>

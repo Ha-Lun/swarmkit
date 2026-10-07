@@ -6,11 +6,11 @@ import RoutingDiagram from './RoutingDiagram.astro';
 import { facts, repoUrl } from '../lib/facts';
 import { roleLine } from '../lib/agents';
 import { bandLabels, bandOrder } from '../content/tiers';
-import { examples, gates, tiers } from '../content/routing';
-import { loadBenchmarks } from '../lib/benchmarks';
+import { examples, gates, tierLabel, tiers } from '../content/routing';
+import { harnessOf, loadBenchmarks } from '../lib/benchmarks';
 import { loadBuildlog } from '../lib/buildlog';
 
-const { agents, platforms, flags, mcpServers, skills, commands } = facts;
+const { agents, platforms, flags, mcpServers, skills, commands, packs, coreAgents } = facts;
 const bench = loadBenchmarks();
 const log = loadBuildlog();
 const fmt = (ts: string) => ts.slice(0, 16).replace('T', ' ') + ' UTC';
@@ -20,7 +20,7 @@ const groups = bandOrder
 const installCmd = './install.sh --all';
 const sections = [
   { id: 'ref-install', label: 'Install', summary: 'Clone the repo and run one script; it links everything into place.' },
-  { id: 'ref-routing', label: 'How it routes', summary: 'A request is classified into a tier, explored if needed, executed, then checked.' },
+  { id: 'ref-routing', label: 'How it routes', summary: 'The main agent sizes a request up, explores if needed, plans first when it is large or risky, then has it reviewed.' },
   { id: 'ref-roster', label: 'Roster', summary: `${agents.length} agents, grouped by the job they do.` },
   { id: 'ref-extend', label: 'Extend', summary: 'MCP servers, skills and slash commands that ship with the kit.' },
   { id: 'ref-proof', label: 'Proof', summary: 'What is measured, what is not yet, and how this site was made.' },
@@ -67,12 +67,19 @@ cd swarmkit
               </li>
             ))}
           </ul>
+          {packs.length > 0 && <>
+          <h4 class="ref-sub">Packs <span class="ref-count">{packs.length}</span></h4>
+          <p class="ref-p">
+            In Claude Code, <code>--claude</code> installs {coreAgents} core agents and the core skills. The domain specialists come as packs, linked per project
+            with <code>./install.sh --pack &lt;name&gt;</code>: {packs.map((p) => `${p.name} (${p.count})`).join(', ')}. OpenCode and Antigravity get every agent and skill.
+          </p>
+          </>}
           <h4 class="ref-sub">Installer flags <span class="ref-count">{flags.length}</span></h4>
           <div class="ref-table-wrap">
             <table class="ref-table">
               <thead><tr><th scope="col">Flag</th><th scope="col">What it does</th></tr></thead>
               <tbody>
-                {flags.map((f) => <tr><th scope="row"><code>{f.flag}</code></th><td>{f.description}</td></tr>)}
+                {flags.map((f) => <tr><th scope="row"><code>{f.flag}{f.args && ` ${f.args}`}</code></th><td>{f.description}</td></tr>)}
               </tbody>
             </table>
           </div>
@@ -82,28 +89,28 @@ cd swarmkit
           <p class="ref-eyebrow">{num(1)} / {sRouting.label}</p>
           <h3 id={`${sRouting.id}-h`} class="ref-h">{sRouting.label}</h3>
           <p class="ref-sum">{sRouting.summary}</p>
-          <h4 class="ref-sub">Routing tiers</h4>
+          <h4 class="ref-sub">How work is sized</h4>
           <div class="ref-table-wrap">
             <table class="ref-table">
-              <thead><tr><th scope="col">Tier</th><th scope="col">Kind of task</th><th scope="col">What happens</th></tr></thead>
+              <thead><tr><th scope="col">Level</th><th scope="col">Kind of task</th><th scope="col">What happens</th></tr></thead>
               <tbody>
-                {tiers.map((t) => <tr><th scope="row"><code>{t.id}</code></th><td class="ref-strong">{t.title}</td><td>{t.body}</td></tr>)}
+                {tiers.map((t) => <tr><th scope="row"><code>{t.label}</code></th><td class="ref-strong">{t.title}</td><td>{t.body}</td></tr>)}
               </tbody>
             </table>
           </div>
-          <p class="ref-note">T0 to T3 are routing tiers (how much ceremony a task gets). fast, standard and deep are model tiers (which model class runs an agent).</p>
+          <p class="ref-note">The levels say how much ceremony a task gets; the rules themselves only distinguish small from large or risky work. fast, standard and deep are model tiers (which model class runs an agent).</p>
           <figure class="ref-figure">
             <div class="hidden md:block"><RoutingDiagram /></div>
             <div class="mx-auto max-w-[360px] md:hidden"><RoutingDiagram vertical /></div>
             <figcaption class="ref-note">Explore is for non-trivial work or uncertain context. It can be skipped when the task is self-contained.</figcaption>
           </figure>
           <h4 class="ref-sub">Example routes</h4>
-          <p class="ref-p">Illustrative: the actual route depends on what the change touches.</p>
+          <p class="ref-p">Illustrative: the actual route depends on what the change touches, which packs are linked, and the main agent's call on delegating.</p>
           <ul class="ref-cards ref-cards-3">
             {examples.map((e) => (
               <li class="ref-card">
                 <p class="ref-card-title">{e.task}</p>
-                <code class="ref-tag">{e.tier}</code>
+                <code class="ref-tag">{tierLabel(e.tier)}</code>
                 <ol class="ref-steps">
                   {e.route.map((r) => <li>{r.label}{r.agent && <> <code>{r.agent}</code></>}</li>)}
                 </ol>
@@ -111,7 +118,7 @@ cd swarmkit
             ))}
           </ul>
           <h4 class="ref-sub">Quality gates <span class="ref-count">{gates.length}</span></h4>
-          <p class="ref-p">Run after the work, in parallel where the CLI allows, and only when relevant. Worktrees are never merged or removed without an explicit instruction.</p>
+          <p class="ref-p">Run after large changes, in parallel where the CLI allows, and only when relevant. Worktrees are never merged or removed without an explicit instruction.</p>
           <div class="ref-table-wrap">
             <table class="ref-table">
               <thead><tr><th scope="col">Agent</th><th scope="col">Runs when</th></tr></thead>
@@ -136,6 +143,7 @@ cd swarmkit
                     <div class="ref-card-head">
                       <code class="ref-card-name">{a.name}</code>
                       <span class="ref-tag">{a.tier}</span>
+                      {a.pack !== 'core' && <span class="ref-tag">{a.pack} pack</span>}
                     </div>
                     <p class="ref-card-body">{roleLine(a, 72)}</p>
                   </li>
@@ -158,7 +166,7 @@ cd swarmkit
           </div>
           <div class="ref-group">
             <h4 class="ref-sub">Skills <span class="ref-count">{skills.length}</span></h4>
-            <p class="ref-p">Shared by all three CLIs, from <code>core/skills/</code>.</p>
+            <p class="ref-p">From <code>core/skills/</code>. OpenCode and Antigravity get all of them; Claude Code gets the core ones, and each pack adds its own.</p>
             <ul class="ref-chips">
               {skills.map((s) => <li class="ref-chip">{s}</li>)}
             </ul>
@@ -180,7 +188,7 @@ cd swarmkit
             <div class="ref-card" data-proof="ponytail">
               <h4 class="ref-card-title">Ponytail diff</h4>
               <p class="ref-status">net: pending</p>
-              <p class="ref-card-body">Ponytail is the always-on discipline against over-engineering. No before-and-after diff has been recorded yet, so no figure is shown.</p>
+              <p class="ref-card-body">Simplicity is a core working rule, and the Ponytail skills add stricter modes on demand. No before-and-after diff has been recorded yet, so no figure is shown.</p>
             </div>
             <div class="ref-card ref-proof-wide" data-proof="benchmarks">
               <h4 class="ref-card-title">Benchmarks</h4>
@@ -204,7 +212,7 @@ cd swarmkit
             <div class="ref-card ref-proof-full" data-proof="harness">
               <h4 class="ref-card-title">Harness disclosure</h4>
               <p class="ref-card-body">
-                Benchmark runs: Antigravity (<code>agy</code>) with <code>gemini-3.8-flash-high</code>.{bench?.harness || bench?.model ? ` Recorded in the data file: ${[bench.harness, bench.model].filter(Boolean).join(', ')}.` : ''}{' '}
+                Benchmark runs: {harnessOf(bench)}.{' '}
                 This site: built with Claude Code, using the agents described above. The scene is procedural: no external models, textures or volume data, and no AI-generated media.
               </p>
             </div>

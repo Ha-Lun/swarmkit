@@ -120,7 +120,7 @@ const favicon =
 
       const agents: Agent[] = JSON.parse(document.getElementById('agents-data')!.textContent!);
       const journeys: Journey[] = JSON.parse(document.getElementById('journeys-data')!.textContent!);
-      const benchJourney = journeys.find((j) => j.tier === 'T2') ?? journeys[0]; // the walk bench shows the T2 example's route
+      const benchJourney = journeys.find((j) => j.tier === 'planned') ?? journeys[0]; // the walk bench shows the first planned example's route
       const q = new URLSearchParams(location.search);
       const palette = readPalette();
       const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
