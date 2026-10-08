@@ -1,6 +1,6 @@
 ---
 name: explore
-description: Fast read-only codebase search that returns a compact brief of relevant files, signatures and architecture.
+description: 'Use this instead of the built-in Explore agent for any wide read-only codebase search: same job, runs on a cheaper, faster model. Returns a compact brief of relevant files, signatures and architecture.'
 model: haiku
 tools:
 - Read
