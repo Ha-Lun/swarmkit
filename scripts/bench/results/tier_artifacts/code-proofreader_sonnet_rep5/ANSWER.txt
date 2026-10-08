@@ -1,0 +1,18 @@
+## Code Proofread: [scope: diff]
+### Files inspected: app.py
+### Scope: diff vs HEAD~1
+
+### Findings
+- `app.py:L1:` `delete: unused import hashlib. Nothing replaces it.` `[high]`
+- `app.py:L5:` `delete: _unused_cache is never read or written. Nothing replaces it.` `[high]`
+- `app.py:L12-13:` `delete: legacy_format_price has zero call sites in the repo. Nothing replaces it.` `[medium]` Module-level function, so it could be imported from outside the repo. I found no references, though.
+- `app.py:L28-29:` `yagni: dispatch looks up handlers with getattr on sys.modules[__name__]. Use a dict, {"refund": handle_refund, "cancel": handle_cancel}[kind](order), or call the handlers directly. This also drops the import sys.` `[medium]` The lookup is string-based reflection. I found no callers of dispatch or handle_* in the repo, so they may be reached externally.
+- `app.py:L3:` `delete: import sys goes away once dispatch uses a dict. Nothing replaces it.` `[high]`
+
+### Confidence tally
+- high: 3
+- medium: 2
+- low: 0
+
+### net: -7 lines, -0 deps possible.
+(This counts hashlib, _unused_cache with its blank line, legacy_format_price and import sys. Replacing dispatch with a dict is line-neutral. No third-party dependencies are involved, only stdlib imports.)

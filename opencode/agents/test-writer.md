@@ -1,5 +1,6 @@
 ---
 description: Writes unit and integration tests for new code. Identifies coverage gaps. Follows project conventions.
+model: opencode/nemotron-3.5-lightning-free
 mode: subagent
 temperature: 0.2
 permission:
@@ -18,7 +19,6 @@ permission:
   task: deny
   question: allow
   todowrite: allow
-model: opencode/nemotron-3.5-lightning-free
 ---
 
 You are the test-writer. Lead-dev dispatches you to add tests for new code or fill coverage gaps.

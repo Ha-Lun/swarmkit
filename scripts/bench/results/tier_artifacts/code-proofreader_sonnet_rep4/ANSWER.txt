@@ -1,0 +1,20 @@
+## Code Proofread: [scope: diff]
+### Files inspected: app.py
+### Scope: diff vs HEAD~1
+
+### Findings
+- `app.py:L1:` `delete: unused import hashlib. Nothing replaces it.` `[high]`
+- `app.py:L5:` `delete: _unused_cache is never referenced (grep: only its definition). Nothing replaces it.` `[high]`
+- `app.py:L12-14:` `delete: legacy_format_price has zero call sites in the repo. Nothing replaces it.` `[medium]` (app.py has no __all__ and the function is public. An outside importer is possible, but none exists in the repo.)
+- `app.py:L28-29:` `yagni: dispatch looks up handlers by string through getattr(sys.modules[__name__], ...). Use a dict {"refund": handle_refund, "cancel": handle_cancel}[kind](order). That also drops the sys import.` `[medium]` (dispatch has no callers in the repo. Its handlers are only reachable through this string lookup, so removing the handlers means removing dispatch with them.)
+- `app.py:L20-25:` `delete: handle_refund and handle_cancel are stubs that echo their input. They are only reachable via dispatch, which has no callers. Delete all three, or keep them only once a real caller exists.` `[medium]` (This is dynamic dispatch by name. A caller outside the repo, or one using another kind string, can't be ruled out.)
+- `app.py:L3:` `delete: import sys is needed only by the getattr dispatch. It goes away with the dict form or with dispatch.` `[high]`
+
+### Confidence tally
+- high: 3
+- medium: 3
+- low: 0
+
+### net: -17 lines, -0 deps possible.
+
+The 17 lines assume everything is deleted: the 2 unused imports, `_unused_cache`, `legacy_format_price`, `handle_refund`, `handle_cancel` and `dispatch`, plus the blank lines around them. The imports are stdlib, so no dependencies come out.

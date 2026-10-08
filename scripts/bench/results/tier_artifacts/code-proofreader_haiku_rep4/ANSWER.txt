@@ -1,0 +1,25 @@
+## Code Proofread: [scope: diff]
+### Files inspected: app.py
+### Scope: diff vs HEAD~1 (73f1854 → f6d7d38)
+
+### Findings
+- `app.py:L1:` `delete: unused import hashlib. Nothing replaces it.` `[high]`
+- `app.py:L3:` `delete: import sys, used only by dispatch. Nothing replaces it once dispatch goes.` `[medium]`
+- `app.py:L5:` `delete: _unused_cache = {}, zero references. Nothing replaces it.` `[high]`
+- `app.py:L12-13:` `delete: legacy_format_price, zero references in repo. Nothing replaces it.` `[high]`
+- `app.py:L20-21:` `delete: handle_refund, no direct callers, reached only by string getattr in dispatch. Nothing replaces it.` `[medium]`
+- `app.py:L24-25:` `delete: handle_cancel, no direct callers, reached only by string getattr in dispatch. Nothing replaces it.` `[medium]`
+- `app.py:L28-29:` `delete: dispatch, zero call sites, getattr on sys.modules. If the feature must stay: dict({"refund": handle_refund, "cancel": handle_cancel})[kind](order), 1 line, drops the sys import.` `[medium]`
+
+Evidence for medium: the handlers and dispatch are reached only through `getattr(sys.modules[__name__], ...)`, so a grep finds no direct callers. Nothing else in the repo references `app.py`, but it could be imported by code outside this repo, so I'm not rating these high.
+
+Handoff, outside my scope: `dispatch` passes a caller-supplied `kind` into `getattr`. That belongs to `security-auditor`.
+
+### Confidence tally
+- high: 3
+- medium: 4
+- low: 0
+
+### net: -20 lines, -2 deps possible.
+
+The -20 is the full diff (20 insertions). Deps are `hashlib` and `sys`. If the refund/cancel feature stays and only the dict form replaces `dispatch`, the figure drops to about -12 lines, -1 dep (hashlib).

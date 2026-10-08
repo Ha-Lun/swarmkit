@@ -1,0 +1,37 @@
+I couldn't finalize `BRIEF.md`. The brief is too thin and no one is available to answer questions, so I wrote a **draft** and stopped at Gate G1. The draft has the known facts, the unknowns marked TBD, and four provisional assumptions (A–D).
+
+The client's brief only gives the product (Lumen, a smart lamp), a calm and premium tone, and the two required pieces: a hero video and a product gallery.
+
+## Batched questions for the client
+If a question has no answer, the default in brackets applies.
+
+**Goals and audience**
+1. What should the site achieve: brand awareness, pre-orders, driving traffic to a retailer, or investor and press interest? What is the primary call to action?
+2. Who is the target audience (consumers, interior designers, B2B)? Which markets and languages? [English only]
+3. Is this a showcase only, or does it need a buy button or checkout? [Showcase only, with a link out]
+
+**Scope and content**
+4. Which sections beyond the hero video and gallery do you want (features, specs, app and smart-home integrations, reviews, FAQ, contact or newsletter signup)? [Single page: hero, features, gallery, specs, contact]
+5. Who writes the copy: you or us? Do you have a tagline and key product claims?
+6. Which smart features and specs must be shown (for example connectivity, voice assistants, app, color temperature)?
+
+**Assets**
+7. Does the hero video already exist? If so, what are its length, format and resolution? If not, who produces it? Should it autoplay silently on loop?
+8. How many gallery images are there, and are they product shots, lifestyle shots, or both? Do you have a 3D model or an interactive viewer? What resolution and licensing do they have?
+9. Do you have a logo, brand guidelines, colors and fonts?
+
+**Look and feel**
+10. Please give 2–3 reference sites or brands you like, and 1–2 you dislike. What does "calm and premium" mean to you (muted palette, dark or light, lots of whitespace)?
+11. Are there accessibility requirements (WCAG level, reduced-motion support)? [WCAG AA]
+
+**Technical and delivery**
+12. Do you have a domain and hosting, or a preferred stack or CMS? Do you need to edit content yourself later? [Static site, no CMS]
+13. Do you need analytics, cookie consent or other compliance (GDPR)? [Basic privacy-friendly analytics]
+14. What are the deadline and budget range? Is there a launch event or date?
+15. Who approves the work, and in how many review rounds?
+
+## Next step
+Once the client answers (or accepts the defaults above), I'll merge the answers into `BRIEF.md`, remove the TBDs, and pass it to the `showroom` coordinator.
+
+Files are in `/tmp/claude-1000/-home-ha-lun-opencode-config/f81aee6f-f13b-4fc9-bd80-0e2322c84466/scratchpad/tier/showroom-intake_sonnet_rep2_mefbiqtf`:
+- BRIEF.md

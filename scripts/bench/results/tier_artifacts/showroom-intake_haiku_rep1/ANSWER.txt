@@ -1,0 +1,41 @@
+## Intake result: Gate G1 halted, BRIEF.md is a draft
+
+The brief is too thin to finalize. I wrote a draft `BRIEF.md` in the working directory, marked DRAFT, with the stated requirements and four unconfirmed assumptions (single-page marketing site, no e-commerce, client supplies assets, English only, responsive). Those assumptions need confirming in the answers below.
+
+Handing back to the `showroom` coordinator at G1. The batched question set follows, grouped by topic.
+
+### Batched question set for the client
+
+**Scope and goals**
+1. What is the primary goal of the site: awareness, pre-orders, sales through a retailer, or lead capture?
+2. Is this a single page or multiple pages? If multiple, which pages (e.g., Home, Features, Specs, Buy, Contact)?
+3. Is e-commerce or checkout needed, or does the site link out to a store or retailer?
+4. Which markets and languages are in scope?
+
+**Assets**
+5. Do you have the hero video? If so, its length, orientation, and resolution. If not, who produces it?
+6. How many gallery images do you have, and do you have high-resolution originals?
+7. Do you have a logo, brand guidelines, colour palette, and typefaces?
+8. Do you have product photography, lifestyle imagery, or only renders?
+
+**Content**
+9. Who writes the copy: you, or should we draft it? Do you have approved product names, headlines, and feature descriptions?
+10. Do you need specifications (dimensions, bulb, connectivity, app compatibility, warranty)? If so, supply them.
+11. Are there legal requirements: privacy policy, cookie consent, regulatory claims, or accessibility standard (e.g., WCAG 2.1 AA)?
+
+**Design direction**
+12. Can you give examples of sites whose feel you want (“calm and premium”)? Include ones you want to avoid.
+13. Colour direction: light or dark theme, and any palette preferences?
+14. Should the hero video autoplay muted and loop, or should it be user-initiated? Is a poster fallback needed?
+
+**Technical and delivery**
+15. Is there an existing domain, hosting, or CMS, or should we choose one?
+16. Are there analytics, tag manager, or consent tools to integrate?
+17. Are there performance targets (e.g., page weight limit, Lighthouse score) given the video load?
+18. What browsers and devices must be supported?
+19. Is there a target launch date and a point of contact for approvals?
+
+**Confirmation of assumptions**
+20. Please confirm or correct assumptions A.1 to A.4 in `BRIEF.md`.
+
+No commit was made. Nothing was pushed.

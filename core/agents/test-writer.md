@@ -2,13 +2,14 @@
 name: test-writer
 description: Writes unit and integration tests for new code. Identifies coverage gaps. Follows project conventions.
 role: specialist
-tier: standard
+tier: fast
 pack: core
 capabilities:
 - read
 - edit
 - bash
 opencode:
+  model: opencode/nemotron-3.5-lightning-free
   mode: subagent
   temperature: 0.2
   permission:

@@ -1,0 +1,17 @@
+Files touched: `tests/test_inventory.py` (new)
+
+Tests added: 21 (the existing `tests/test_existing.py` has 1 test for `chunk`, which I left alone)
+
+Test framework: `unittest` (stdlib), matching the existing test file
+
+Result: PASS (22 tests ran from the project root with `python3 -m unittest -v`, including the existing one)
+
+Coverage by function:
+- **`apply_discount`** (6): 0% and 100% boundaries, a 25% case, two-decimal rounding (19.99 at 10% → 17.99), and `ValueError` for pct below 0 and above 100.
+- **`chunk`** (6): even split, uneven tail, `n` larger than the list, empty input, and `ValueError` for `n` of 0 and negative.
+- **`parse_qty`** (9): plain digits, trailing `x` stripped, surrounding whitespace, `"0"`, and `ValueError` for `"x"`, `""`, `"abc"`, `"-1"`, and `"3xx"`.
+
+Notes:
+- The project has no config file (no pyproject, setup.cfg, or pytest config), so I ran it with `python3 -m unittest` from the root. I didn't touch any configuration.
+- I didn't change `inventory.py`. Everything passed on the first run, so no production changes were needed.
+- `parse_qty` accepts only ASCII digits via `str.isdigit`, which also accepts some Unicode digits such as superscripts. That case is untested and I didn't add a test for it.

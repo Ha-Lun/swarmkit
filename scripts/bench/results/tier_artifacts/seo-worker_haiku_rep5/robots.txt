@@ -1,0 +1,4 @@
+User-agent: *
+Disallow:
+
+Sitemap: https://acme-bakery.example/sitemap.xml

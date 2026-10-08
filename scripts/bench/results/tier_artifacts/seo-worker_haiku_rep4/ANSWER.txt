@@ -1,0 +1,48 @@
+## SEO & Sharing Pass Report — Acme Bakery — 2026-10-08
+
+### Files changed
+- `index.html`: added `lang="en"` and `data-seo-auto` on `<html>`; added viewport, theme-color, description, absolute canonical `https://acme-bakery.example/`, og:* and twitter:* tags; added TODO comments for og:image and favicon.
+- `about.html`: same set, canonical `https://acme-bakery.example/about.html`; og:title is "About Acme Bakery".
+- `404.html`: same set plus `<meta name="robots" content="noindex">`; canonical is itself.
+- `thank-you.html`: same set plus `noindex`; canonical is itself.
+- `sitemap.xml` (new): 2 URLs, index and about. Excludes the noindex 404 and thank-you pages. No `lastmod`.
+- `robots.txt` (new): `User-agent: *` with empty `Disallow:`, plus `Sitemap:` pointing at the production sitemap.
+
+Nothing is committed; the changes are in the working tree.
+
+### TODOs / placeholders unfilled
+- og:image, og:image:width/height/alt and twitter:image on all 4 pages: no brand asset found in root, `/public/`, `/assets/` or `/static/`, and neither `sharp` nor PIL is available. Supply a 1200x630 PNG/JPG under 1 MB, then emit absolute og:image tags on `https://acme-bakery.example`. Placeholder comments are tagged `TODO:SEO-IMAGE`.
+- Favicon set on all 4 pages: `favicon.ico` and `apple-touch-icon.png` are missing, and there is no brand asset to derive them from. Placeholders are tagged `TODO:SEO-FAVICON`.
+- Production domain: `acme-bakery.example` is a reserved example domain and returns no response (curl 000). Confirm the real production URL before deploy. Every canonical, sitemap entry and robots Sitemap line depends on it.
+
+### Skipped items & reasons
+- `<title>` on index, about, 404 and thank-you: already present and not tagged `seo:auto`, so marked `human_written` and left unchanged. The about title "About" is short; consider expanding it by hand.
+- `lastmod` in sitemap: the only git commit is a single `start` commit dated today, which does not reflect real content edits. Omitted rather than fabricated.
+- Framework-native sitemap/robots: no framework config found (no next/astro/vite/hugo/docusaurus config). Files were written by hand, so no build-time generation exists and no dependency was added.
+- `Disallow` rules in robots.txt: none added, since the user specified none. Noindex is used for utility pages instead of robots disallows, so crawlers can still read the noindex directive.
+- Image generation: not attempted (no sharp or PIL).
+- Assumptions: content is English, so `lang="en"` and `og:locale="en_US"`; theme-color `#ffffff`; canonicals use the real `.html` paths. If the host serves clean URLs, the `.html` canonicals will need changing.
+
+### Verification results
+| Check | Result | Detail |
+|---|---|---|
+| Build passes | PASS | No build step and no `dist/`; the static HTML files are the output. |
+| Sitemap valid XML | PASS | Parsed with `xml.etree` under `python3 -I`. |
+| All sitemap URLs return 200 | PRE-DEPLOY | `https://acme-bakery.example/`, `/about.html` and `/sitemap.xml` all returned 000. URLs not verified. |
+| Each page: exactly one title | PASS | 1 title on each of the 4 pages. |
+| Each page: exactly one description | PASS | 1 description on each of the 4 pages. |
+| Each page: exactly one canonical | PASS | 1 canonical on each of the 4 pages. |
+| No cross-page title duplicates | PASS | All four titles are distinct. |
+| og:image resolves (image content-type) | FAIL | No og:image emitted (TODO:SEO-IMAGE). Not a relative URL; the asset is simply absent. |
+| og:image dimensions 1200x630 | FAIL | No image exists to check. |
+| og:image < 1 MB | FAIL | No image exists to check. |
+| No relative URLs in og:/twitter: tags | PASS | All og:url values are absolute `https://`. No relative values found. |
+
+### Overall: FAIL — Block deploy: NO
+The FAIL is limited to link-preview images and the favicon set. Those are sharing-preview gaps only. Indexing, canonicals, robots and the sitemap are correct, so deploying does not hurt search. Previews will lack an image until one is supplied. Re-run the pass after adding the asset.
+
+### Manual follow-up (post-deploy)
+- [ ] Facebook Sharing Debugger: https://developers.facebook.com/tools/debug/
+- [ ] LinkedIn Post Inspector: https://www.linkedin.com/post-inspector/
+- [ ] If previews stale, force re-scrape in each tool.
+- [ ] Confirm the production domain (currently the reserved `acme-bakery.example`) and re-run the URL checks once it is live.

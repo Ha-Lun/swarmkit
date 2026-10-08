@@ -1,0 +1,47 @@
+## SEO & Sharing Pass Report — acme-bakery (Acme Bakery) — 2026-10-08
+
+Framework: none detected (plain static HTML: no `next.config.*`, `astro.config.*`, `vite.config.*`, `hugo.toml`, or `docusaurus.config.js`). Sitemap and robots were therefore hand-written. Skill note: `seo-engineering` and `seo-sharing-pass` are not at the path given (`/home/ha-lun/opencode-config/.agents/skills/`), so I followed the worker spec directly.
+
+### Files changed
+- index.html: added lang, viewport, theme-color, description, absolute canonical, favicon link, og:* and twitter:* tags, all tagged `data-seo-auto`. The existing title is kept.
+- about.html: same set as index.html. The existing title is kept.
+- 404.html: same set, plus `<meta name="robots" content="noindex">`. The existing title is kept.
+- thank-you.html: same set, plus noindex. The existing title is kept.
+- favicon.svg (new): simple "A" glyph, the only favicon I could create without image tooling.
+- sitemap.xml (new): two URLs, `/` and `/about.html`, with lastmod 2026-10-08 from the git commit date. 404 and thank-you are excluded.
+- robots.txt (new): allows everything, with `Sitemap: https://acme-bakery.example/sitemap.xml`.
+
+Nothing is committed.
+
+### TODOs / placeholders unfilled
+- og:image (all pages): no brand asset exists in the repo, and neither PIL nor sharp is installed. Need a 1200x630 PNG/JPG at https://acme-bakery.example/og-image.png (under 1 MB). Until then, og:image, og:image:width/height/alt and twitter:image are omitted, and a `TODO:SEO-IMAGE` comment sits in each head.
+- favicon.ico and apple-touch-icon.png (180x180): not created, `TODO:SEO-IMAGE` comment in each head.
+
+### Skipped items & reasons
+- `<title>` on all four pages: already present without the `seo:auto` tag, so marked `human_written` and left alone.
+- about.html title "About" is short and generic. Not changed, since it is human-written. Consider something like "About Acme Bakery".
+- Assumptions to confirm: lang="en" and og:locale en_US (content is English, though the business is in Lund); theme-color #8b5a2b and the "A" favicon are my placeholder brand choices; canonicals keep the file names (`/about.html`). If the host serves clean URLs (`/about`), canonical, og:url and the sitemap need updating.
+
+### Verification results
+| Check | Result | Detail |
+|---|---|---|
+| Build passes | PASS | No build step; the repo root is the deploy artifact. No dist/ exists, which is expected. |
+| Sitemap valid XML | PASS | Parsed with Python ElementTree (xmllint not installed). 2 URLs. |
+| All sitemap URLs return 200 | PRE-DEPLOY | acme-bakery.example does not resolve (curl exit 6). Not verified. |
+| Each page: exactly one title | PASS | 1 on each of 4 pages |
+| Each page: exactly one description | PASS | 1 on each of 4 pages |
+| Each page: exactly one canonical | PASS | 1 on each of 4 pages |
+| No cross-page title duplicates | PASS | Titles: "Acme Bakery - Fresh sourdough daily in Lund", "About", "Not found", "Thanks" |
+| og:image resolves (image content-type) | FAIL | No og:image exists (asset missing) |
+| og:image dimensions 1200x630 | FAIL | No image exists |
+| og:image < 1 MB | FAIL | No image exists |
+| No relative URLs in og:/twitter: tags | PASS | All og:url and twitter values are absolute |
+
+### Overall: FAIL — Block deploy: NO
+The only failures are the three og:image checks, caused by the missing share image. The site is otherwise valid and deployable, but link previews will have no image until one is added. Lead to decide whether that justifies blocking. Re-run once og-image.png exists.
+
+### Manual follow-up (post-deploy)
+- [ ] Facebook Sharing Debugger: https://developers.facebook.com/tools/debug/
+- [ ] LinkedIn Post Inspector: https://www.linkedin.com/post-inspector/
+- [ ] If previews stale, force re-scrape in each tool.
+- [ ] After deploy: curl each sitemap URL for 200, and confirm og-image.png once it exists.

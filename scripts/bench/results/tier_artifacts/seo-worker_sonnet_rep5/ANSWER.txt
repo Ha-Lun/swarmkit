@@ -1,0 +1,41 @@
+## SEO & Sharing Pass Report — Acme Bakery — 2026-10-08
+
+### Files changed
+- index.html, about.html, thank-you.html, 404.html: added `lang="en"` and a block wrapped in `<!-- seo:auto -->` markers. The block holds viewport, description, theme-color, favicon links, og:* and twitter:* tags. The canonical link is there too, except on 404. thank-you.html and 404.html also got `noindex, nofollow`.
+- sitemap.xml (new): hand-written static list with 2 URLs, `/` and `/about.html`. It has no lastmod because there are no real dates: git history is a single commit and there is no frontmatter.
+- robots.txt (new): `Allow: /` plus the sitemap reference. Nothing is disallowed.
+
+### TODOs / placeholders unfilled
+- `TODO:SEO-IMAGE` on all pages: the og:image and twitter:image tags point to `https://acme-bakery.example/og-image.png`, but the file doesn't exist. No brand asset was found, and neither sharp nor PIL is installed. A 1200x630 PNG/JPG under 1 MB needs to be supplied.
+- Favicons: the links point to `/favicon.ico`, `/favicon.svg` and `/apple-touch-icon.png`, which don't exist in the repo. They need to be supplied.
+- The descriptions are my own wording from the page content. Please review them.
+
+### Skipped items & reasons
+- Existing `<title>` elements ("About", "Thanks", the index title and "Not found") were untagged, so I treated them as human_written and left them. "About" and "Thanks" are short and generic; you may want better titles.
+- Canonical link on 404.html: omitted on purpose, since a canonical on an error page has no real URL to point to. The og:url there falls back to the site root.
+- Framework detection: no config was found, so this is plain static HTML. I wrote the sitemap and robots.txt as static files and added no dependencies.
+- The skill files (`seo-engineering`, `seo-sharing-pass`) weren't found at `/home/ha-lun/opencode-config/.agents/skills`, so I worked from the task spec alone.
+- noindex pages (404, thank-you) are excluded from the sitemap.
+
+### Verification results
+| Check | Result | Detail |
+|---|---|---|
+| Build passes | PASS | Static site, no build step. The HTML files are present. |
+| Sitemap valid XML | PASS | Parsed with python ET. |
+| All sitemap URLs return 200 | PRE-DEPLOY | URLs not verified. |
+| Each page: exactly one title | PASS | 1 per page. |
+| Each page: exactly one description | PASS | 1 per page. |
+| Each page: exactly one canonical | PASS | Index, about and thank-you have 1. 404 has 0 by design, since it is noindex. |
+| No cross-page title duplicates | PASS | All four titles are distinct. |
+| og:image resolves (image content-type) | FAIL | The image file doesn't exist yet (`TODO:SEO-IMAGE`). |
+| og:image dimensions 1200x630 | FAIL | No image exists to measure. The width and height meta tags are declared as 1200 and 630. |
+| og:image < 1 MB | FAIL | No image exists to measure. |
+| No relative URLs in og:/twitter: tags | PASS | All og:url, og:image and twitter:image values are absolute. |
+
+### Overall: FAIL — Block deploy: YES
+The deploy is blocked until the og image is supplied. Please also add the favicon files, or remove those links.
+
+### Manual follow-up (post-deploy)
+- [ ] Facebook Sharing Debugger: https://developers.facebook.com/tools/debug/
+- [ ] LinkedIn Post Inspector: https://www.linkedin.com/post-inspector/
+- [ ] If previews stale, force re-scrape in each tool.

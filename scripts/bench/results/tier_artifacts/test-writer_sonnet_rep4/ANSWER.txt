@@ -1,0 +1,8 @@
+Files touched: tests/test_inventory.py (new)
+Tests added: 12 (13 in the full suite, counting the existing test)
+Test framework: unittest, run with `python3 -m unittest discover`
+Result: PASS
+Notes:
+- The tests cover `apply_discount`, `chunk` and `parse_qty`. They include the boundary values, the invalid-input `ValueError` cases, rounding, and `parse_qty`'s handling of whitespace and the "x" suffix.
+- I made no production changes.
+- `parse_qty("")` and `parse_qty("x")` raise `ValueError`, which I took as intended. `parse_qty("2xx")` also raises, because only one trailing "x" is stripped.

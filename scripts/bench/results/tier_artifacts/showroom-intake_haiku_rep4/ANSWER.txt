@@ -1,0 +1,24 @@
+I read the brief and wrote a draft `BRIEF.md` in the working directory. It is marked DRAFT, and Gate G1 is open. I did not commit anything.
+
+**What the brief confirms:** Lumen is a smart lamp. The client wants a showcase website with a calm, premium feel, a hero video, and a product gallery.
+
+**Assumptions I made, pending answers:** a single-page showcase with one external call to action, English only, responsive, no checkout or accounts, and the client supplies all media and copy.
+
+## Batched question set
+
+1. **Hero video:** Does it exist? If so, what file(s), length, and orientation? If not, who produces it? Autoplay muted and looping, or user-controlled? Is there a poster image for loading and reduced-motion fallback?
+2. **Product gallery:** Do photos exist? How many, at what resolution? Grid, carousel, or lightbox? Detail or lifestyle shots? Captions needed?
+3. **Product facts:** Key specs (dimensions, weight, light output, colour temperature range, power, connectivity such as Wi-Fi, Bluetooth, Matter, or Zigbee)? Supported apps or voice assistants? Price and currency, if shown?
+4. **Copy:** Who writes it (you, us, or a copywriter)? Existing taglines or brand guidelines? Languages needed?
+5. **Brand assets:** Logo, colour palette, typefaces, style guide? Any existing brand site to match or avoid?
+6. **Call to action and scope:** Buy (external shop), pre-order, newsletter signup, find a retailer, or contact sales? Any e-commerce needed? Pages beyond the landing page (specs, about, support, FAQ, legal)?
+7. **Feel and references:** Two or three sites you like, and one you dislike. Preferred palette, motion level, and typography style?
+8. **Accessibility and performance:** Is WCAG 2.1 AA required? Mobile page-weight or load-time targets? Must the hero work without JavaScript?
+9. **Hosting and domain:** Existing domain and hosting? Preferred stack or platform, or should we choose?
+10. **Analytics and consent:** Which analytics or marketing tags, if any? Cookie consent banner needed for your target markets (e.g. EU/Sweden)?
+11. **Legal and compliance:** Required pages (privacy, terms, imprint, warranty)? Certifications to display (CE, electrical safety)? Any regulated claims (energy, eye comfort) needing approved wording?
+12. **Timeline and approval:** Target launch date? Who signs off on design and copy? Expected review rounds?
+13. **Markets and SEO:** Target countries or regions? Keywords or metadata?
+14. **Handover:** Source code, a deployable build, a content editing workflow for non-developers, or only a hosted site?
+
+The full draft, including these questions, is in `BRIEF.md`. Halted at G1. Design and build stay blocked until these are answered; control returns to the `showroom` coordinator.

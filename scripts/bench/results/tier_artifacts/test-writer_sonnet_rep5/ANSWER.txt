@@ -1,0 +1,8 @@
+Files touched: tests/test_inventory.py (new)
+Tests added: 20 (6 for `apply_discount`, 6 for `chunk`, 8 for `parse_qty`)
+Test framework: unittest, matching tests/test_existing.py
+Result: PASS. The full suite ran 21 tests (the 20 new ones plus the 1 existing) with `python3 -m unittest discover -s tests -t .`.
+Notes:
+- I made no production code changes.
+- The tests cover the normal cases and the error cases. For `apply_discount`, that means 0% and 100% discounts, rounding to two places, and `pct` below 0 or above 100. For `chunk`, it means an uneven final chunk, an empty list, `n` larger than the list, string input, and `n` of 0 or below. For `parse_qty`, it means plain digits, an `x` suffix, surrounding whitespace, and invalid inputs.
+- `parse_qty("-4")` raises `ValueError`, so negative quantities are rejected. I treated that as intended behavior.

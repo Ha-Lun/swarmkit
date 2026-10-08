@@ -1,0 +1,50 @@
+## SEO & Sharing Pass Report — Acme Bakery — 2026-10-08
+
+Framework: none (plain static HTML), so I wrote sitemap and robots as static files. `retry_count` wasn't passed, so I treated it as under 3.
+
+### Files changed
+- `index.html`, `about.html`, `thank-you.html`: added `lang="en"`, and an `<!-- seo:auto -->` block. The block holds viewport, theme-color, favicon link, description, absolute canonical, og:title/description/type/url/site_name/locale and twitter:card/title/description.
+- `404.html`: added `lang="en"` and a seo:auto block with viewport, theme-color, favicon and `noindex`. It has no canonical, description, og or twitter tags.
+- `thank-you.html`: also has `noindex, follow`.
+- `favicon.svg`: new, a simple "A" mark.
+- `robots.txt`: new. It allows everything and references the sitemap.
+- `sitemap.xml`: new. It lists `/` and `/about.html` with absolute URLs and no `lastmod`.
+
+### TODOs / placeholders unfilled
+- **og:image and twitter:image (all pages):** `TODO:SEO-IMAGE` comment left in each page. There was no brand asset, and neither sharp nor PIL is installed. The og:image width, height and alt tags and `twitter:image` are missing until a 1200x630 PNG or JPG under 1 MB is supplied.
+- **favicon.ico and apple-touch-icon.png (all pages):** `TODO:SEO-ICONS` comment left. I couldn't generate PNG or ICO files without image tooling.
+
+### Skipped items & reasons
+- **Existing `<title>` tags** (`human_written`, not tagged auto): all four pages already had titles, so I left them alone.
+  - `About` (`about.html`), `Thanks` (`thank-you.html`) and `Not found` (`404.html`) are weak. The og:title on those pages is more descriptive than the `<title>`.
+  - Titles are unique across pages and all under 60 characters.
+- **Canonical, description and og tags on 404.html:** skipped because it is a noindex error page.
+- **`lastmod` in sitemap:** the only git commit is the initial import, so there is no real date to use.
+- **Sitemap exclusions:** `404.html` and `thank-you.html` are left out because they are noindex.
+- **Build:** none exists. The files are already built.
+
+### Verification results
+| Check | Result | Detail |
+|---|---|---|
+| Build passes | PASS | No build step. The HTML files are present. |
+| Sitemap valid XML | PASS | Parsed with python ElementTree (`xmllint` is not installed). |
+| All sitemap URLs return 200 | PRE-DEPLOY | URLs not verified. |
+| Each page: exactly one title | PASS | 4 of 4 pages have one. |
+| Each page: exactly one description | PASS | `index`, `about` and `thank-you` have one. `404` has none by design. |
+| Each page: exactly one canonical | PASS | `index`, `about` and `thank-you` have one. `404` has none by design. |
+| No cross-page title duplicates | PASS | |
+| og:image resolves (image content-type) | FAIL | No og:image exists (`TODO:SEO-IMAGE`). |
+| og:image dimensions 1200x630 | FAIL | No image exists. |
+| og:image < 1 MB | FAIL | No image exists. |
+| No relative URLs in og:/twitter: tags | PASS | The existing og:/twitter: tags are all absolute. The missing image tags are the only gap. |
+
+### Overall: FAIL — Block deploy: YES
+The block is only for the missing og:image asset. Add a brand image at 1200x630, then re-run the pass. The metadata, sitemap and robots work is complete.
+
+### Manual follow-up (post-deploy)
+- [ ] Facebook Sharing Debugger: https://developers.facebook.com/tools/debug/
+- [ ] LinkedIn Post Inspector: https://www.linkedin.com/post-inspector/
+- [ ] If previews stale, force re-scrape in each tool.
+- [ ] Run `curl` against each sitemap URL to confirm 200.
+- [ ] Confirm `/about.html` is the canonical path your host serves. If it rewrites to `/about`, update the canonical, og:url and sitemap.
+- [ ] Consider better `<title>` text for `about.html` and `thank-you.html`.

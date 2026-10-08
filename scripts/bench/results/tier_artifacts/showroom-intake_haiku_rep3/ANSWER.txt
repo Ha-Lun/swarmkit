@@ -1,0 +1,44 @@
+I read `brief.txt` and wrote a draft `BRIEF.md` in the working directory. Gate G1 is **not passed**: the brief is too thin to build from, so I'm handing back to the `showroom` coordinator with the question set below.
+
+## Intake summary
+
+The client wants a showcase website for "Lumen", a smart lamp. The feel is calm and premium, with a hero video and a product gallery. The client said "That's all I have for now."
+
+## Batched question set (for the client)
+
+**Product**
+1. What are Lumen's key features and specs (light output, colour temperature, control method, connectivity, dimensions, materials)?
+2. What price, availability, and launch date should the site show, if any?
+3. Are there claims that need legal or certification backing (energy, safety, warranty, sustainability)?
+
+**Brand and style**
+4. Do you have a logo, colour palette, typography, or a style guide? If not, should we propose one?
+5. Name two or three premium websites or brands whose feel you like, and one you don't want it to resemble.
+
+**Media**
+6. Does the hero video exist? If so, what format, length, resolution, and who owns the licence? If not, who produces it?
+7. How many gallery images or clips exist, at what resolution, and with what licensing?
+
+**Scope and content**
+8. How many pages do you want? Options: a single landing page, or multiple pages (about, specs, FAQ, contact).
+9. Which sections are required beyond the hero and gallery (features, specs, reviews, press, story)?
+10. What is the call to action: buy link, retailer links, waitlist/email signup, enquiry form, or none?
+11. Is there any e-commerce, checkout, or account functionality? (Assumed: none.)
+
+**Audience and markets**
+12. Who is the target customer, and in which countries?
+13. Which languages are needed, and is there a right-to-left requirement?
+
+**Technical and compliance**
+14. Do you have a hosting provider, domain name, or technology preference (static site, specific framework, CMS)?
+15. What accessibility target applies (e.g. WCAG 2.2 AA)? Are there performance targets (page-load budget, mobile-first)?
+16. What privacy requirements apply? Will you use analytics, cookies, or a newsletter tool that needs consent handling?
+
+**Delivery**
+17. What is the launch deadline, and is there a budget ceiling that affects scope?
+18. Who is the point of contact, and who approves the final output?
+
+## Notes
+
+- `BRIEF.md` is marked DRAFT. Its assumptions (single marketing site, no e-commerce, static hosting) hold until the client answers.
+- I did not commit anything; the repo has no commit requested.

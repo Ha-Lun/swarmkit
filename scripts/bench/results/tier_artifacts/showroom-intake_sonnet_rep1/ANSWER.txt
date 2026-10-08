@@ -1,0 +1,45 @@
+**Intake result: HALTED at Gate G1.** The brief is incomplete. I wrote `BRIEF.md` as a draft that holds only what the client confirmed, plus open items and assumptions. Please hand it back to the `showroom` coordinator and get the answers below before G1 can pass.
+
+**Confirmed so far:** the product is Lumen, a smart lamp. The deliverable is a showcase website with a calm, premium feel. It needs a hero video and a product gallery.
+
+## Batched question set (please answer all in one reply)
+
+**Goals and audience**
+1. What is the main goal of the site: drive purchases, collect leads or sign-ups, build awareness, or support press and retail?
+2. Who is the target customer (for example age, home or office use, tech-savvy or design-minded)?
+3. Is there a store or product page the site should send people to? What is the main call to action?
+
+**Scope**
+4. Should this be a single scrolling page or several pages (for example Features, Specs, Gallery, About, Contact)?
+5. Which languages are needed?
+6. Is any e-commerce, pre-order or newsletter sign-up form in scope?
+
+**Content and assets**
+7. Does the hero video already exist? If so, what are its length, format and audio? If not, who produces it?
+8. For the gallery:
+   - How many images are there?
+   - Are they photos, renders or lifestyle shots?
+   - Do you own the rights to them?
+   - Do you want a zoom or lightbox view, or 3D/AR?
+9. Please share the product facts: key features, smart-home integrations (Matter, HomeKit, Alexa and so on), specs, colour variants and pricing. Should pricing appear on the site?
+10. Who writes the copy: you, or should we draft it?
+
+**Brand and design**
+11. Do you have a logo, colour palette, fonts or brand guidelines? Please share them.
+12. Please give 2–3 reference sites you like, and any you dislike. What does "calm and premium" mean to you (for example dark or light, motion level)?
+
+**Technical**
+13. Do you have a domain and hosting, or a preferred platform or CMS?
+14. Do you need analytics or cookie consent?
+15. Do you have any accessibility or performance requirements, such as WCAG level or autoplay-video behaviour on mobile?
+
+**Logistics**
+16. What is the target launch date and budget range?
+17. Who approves each stage, and is there more than one decision-maker?
+
+## Assumptions in the draft (please confirm or correct)
+- The site is static, responsive and mobile-first.
+- It is English only.
+- There is no checkout. The call to action links out to your existing store.
+
+**File:** `BRIEF.md` in the working directory, marked DRAFT. Once the answers arrive, I will replace the TBD entries and mark the brief final for G1.

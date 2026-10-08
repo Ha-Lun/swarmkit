@@ -1,0 +1,4 @@
+# seo:auto
+User-agent: *
+
+Sitemap: https://acme-bakery.example/sitemap.xml

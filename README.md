@@ -26,7 +26,7 @@ Each agent has a **tier** (`fast`, `standard`, `deep`). The model for each tier 
 
 | Tier | Claude Code | OpenCode | Used for |
 |---|---|---|---|
-| fast | `haiku` | muse-spark-1.3 | explore, junior-dev, git-specialist, release-tester, showroom-asset-processor |
+| fast | `haiku` | muse-spark-1.3 | explore, junior-dev, git-specialist, release-tester, showroom-asset-processor, test-writer and seo-worker (Claude Code only; they stay on nemotron-3.5-lightning in OpenCode) |
 | standard | `sonnet` | nemotron-3.5-lightning | most specialists |
 | deep | `opus` | nemotron-3-ultra | db-specialist, security-auditor, swarm-architect, lead-dev |
 
@@ -90,7 +90,7 @@ OpenCode and Antigravity get every agent and skill globally.
 | **n8n-workflow-builder** | standard | Build n8n workflows |
 | **n8n-debugger** | standard | Debug broken n8n workflows |
 | **seo-specialist** | standard | Technical SEO, structured data, AI search |
-| **seo-worker** | standard | Post-build SEO and sharing pass |
+| **seo-worker** | fast | Post-build SEO and sharing pass |
 | **linkedin-specialist** | standard | LinkedIn content |
 | **showroom** + 5 workers | standard / fast | Scroll-driven product pages (see below) |
 
@@ -101,7 +101,7 @@ OpenCode and Antigravity get every agent and skill globally.
 | **security-auditor** | deep | Security review, vulnerability scanning |
 | **code-proofreader** | standard | Dead code, unused exports, over-engineering |
 | **release-tester** | fast | Tests, lint, typecheck, build validation |
-| **test-writer** | standard | Unit and integration tests |
+| **test-writer** | fast | Unit and integration tests |
 
 ## 🚀 Installation
 

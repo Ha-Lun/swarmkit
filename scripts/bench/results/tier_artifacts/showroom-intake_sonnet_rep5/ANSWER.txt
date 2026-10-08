@@ -1,0 +1,36 @@
+**Intake halted at Gate G1.** The brief is incomplete, and no human was available to answer, so I wrote `BRIEF.md` as a draft. It holds only what the client gave: Lumen smart lamp, showcase site, calm and premium tone, hero video, product gallery. Everything else is marked TBD. Handing back to the `showroom` coordinator to get these answered.
+
+## Batched questions for the client
+
+**Goal and audience**
+1. What should the site achieve: drive pre-orders or purchases, generate leads or retailer enquiries, or build brand awareness?
+2. What is the single main call to action (for example "Buy now", "Join the waitlist" or "Find a retailer")? Where should it lead?
+3. Who is the target audience (consumers, interior designers, B2B)? Which markets?
+
+**Content and assets**
+4. Does the hero video already exist? If so, send the length, format and who owns the rights. If not, should we plan for a stock or placeholder video, or does production need to be scoped separately?
+5. How many gallery images are there, and are they product shots, lifestyle shots or both? Do you have the rights to use them? Are there any 3D renders?
+6. What are the key product facts: features, smart-home compatibility (app, voice assistants, protocols), specs, colours or variants, and price?
+7. Who writes the copy: you or us? Is there a tagline?
+
+**Brand and design**
+8. Is there a brand kit (logo, colours, fonts, tone of voice)?
+9. Can you give 2–3 reference sites you like, and 1–2 you dislike?
+10. Is "calm and premium" meant as dark and moody, light and airy, or something else? Should the hero video autoplay with sound, or stay silent?
+
+**Scope and technical**
+11. Should it be a single scrolling page or multiple pages (for example specs, FAQ, contact)? Do you need a store or checkout, or only links out?
+12. Which languages are needed?
+13. Do you have a domain and hosting preference, or an existing CMS or stack we must use?
+14. Do you need analytics, a newsletter signup or a cookie-consent banner?
+
+**Logistics**
+15. What are the deadline and budget range?
+16. Who is the single approver for sign-off at each gate?
+
+## Assumptions in the draft
+These are not binding until confirmed:
+- A single-page site is acceptable.
+- The site is a static front end with no checkout.
+
+**File:** `/tmp/claude-1000/-home-ha-lun-opencode-config/f81aee6f-f13b-4fc9-bd80-0e2322c84466/scratchpad/tier/showroom-intake_sonnet_rep5_zr4ov8oq/BRIEF.md`

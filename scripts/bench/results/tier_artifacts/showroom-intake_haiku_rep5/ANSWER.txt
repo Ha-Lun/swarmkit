@@ -1,0 +1,43 @@
+I've written a draft `BRIEF.md`, but the brief is too thin to pass Gate G1, so I'm halting here and handing back to the `showroom` coordinator.
+
+The client's brief gives only four facts: the product is Lumen, a smart lamp; it needs a showcase website; the feel is calm and premium; and it needs a hero video and a product gallery. Everything else is unknown.
+
+The draft `BRIEF.md` is at `/tmp/claude-1000/-home-ha-lun-opencode-config/f81aee6f-f13b-4fc9-bd80-0e2322c84466/scratchpad/tier/showroom-intake_haiku_rep5_aqdnk589/BRIEF.md`. It lists the confirmed requirements, four provisional assumptions (single-page or small multi-page site, responsive, English, client supplies assets) and a provisional out-of-scope list (no checkout, accounts, or companion app).
+
+## Batched question set for the client
+
+**Scope and goals**
+1. What is the primary goal of the site: brand awareness, pre-orders, sales, email sign-ups, or something else?
+2. Which pages do you need (for example: home, product detail, about, contact, press, FAQ)? Is any e-commerce or checkout needed?
+3. Is there a launch date or deadline?
+
+**Audience and messaging**
+4. Who is the target customer, and in which markets?
+5. What are the three to five key selling points of Lumen (for example: light quality, smart features, design, materials, price tier)?
+6. What is the price, and should price be displayed on the site?
+7. Are there competitors whose sites you admire or want to avoid?
+
+**Brand and design**
+8. Do you have brand guidelines: logo, colour palette, typography, and tone-of-voice notes?
+9. Can you describe "calm and premium" with examples (reference sites, colours, imagery style, motion level)?
+10. Should the site be light, dark, or both?
+
+**Content assets**
+11. Do you have the hero video? If so, what are its length, resolution, orientation, and does it have audio? If not, who produces it?
+12. How many product photos are available for the gallery, and do they include lifestyle shots, detail shots, and packshots on white?
+13. Is product copy (headlines, descriptions, specs) written, or must we write it?
+14. Which product specs should be displayed (dimensions, weight, light output in lumens, colour temperature, connectivity, power, warranty)?
+15. Which legal or compliance texts are needed (privacy policy, terms, cookie consent, safety certifications, CE/FCC marks)?
+
+**Technical and delivery**
+16. Is there an existing domain, hosting, or CMS, or should we propose one?
+17. Which languages are required, and is localisation needed?
+18. Which analytics, tracking, or marketing tools should be integrated (for example GA, Meta Pixel, a newsletter provider)?
+19. Is there an accessibility target (for example WCAG 2.1 AA)? Must the video have captions?
+20. Are there performance constraints: maximum page weight, target devices and browsers, or a need for a mobile video fallback?
+
+**Ownership and process**
+21. Who is the single point of contact for approvals, and how many review rounds do you expect?
+22. Who owns the final copy and imagery rights?
+
+Once these are answered, I'll update `BRIEF.md`, mark G1 as passed, and hand back to the coordinator.

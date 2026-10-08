@@ -1,7 +1,7 @@
 ---
 name: test-writer
 description: Writes unit and integration tests following project conventions, editing test files only.
-model: sonnet
+model: haiku
 tools:
 - Read
 - Glob

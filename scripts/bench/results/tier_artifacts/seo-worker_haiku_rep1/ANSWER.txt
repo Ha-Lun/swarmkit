@@ -1,0 +1,46 @@
+## SEO & Sharing Pass Report — Acme Bakery — 2026-10-08
+
+### Files changed
+- index.html: added `lang="en"`, viewport, description, canonical (`https://acme-bakery.example/`), theme-color, favicon link, full og:/twitter: set, and a TODO comment for the missing og-image and icons. All new tags carry `data-seo-auto`. Existing `<title>` left untouched.
+- about.html: same set as index.html, with canonical `https://acme-bakery.example/about.html` and og:title "About us - Acme Bakery".
+- 404.html: same set plus `<meta name="robots" content="noindex">`. Canonical is set to its own URL.
+- thank-you.html: same set plus `<meta name="robots" content="noindex">`.
+- favicon.svg (new): simple brown rounded square with a cream circle.
+- sitemap.xml (new): hand-written, two URLs (`/` and `/about.html`), `lastmod` 2026-10-08 from git commit date. 404 and thank-you excluded.
+- robots.txt (new): `User-agent: *` with a Sitemap line. No Disallow rules.
+
+### TODOs / placeholders unfilled
+- og:image / twitter:image (`https://acme-bakery.example/og-image.png`) on all 4 pages: no brand asset found in /public/, /assets/, /static/ or root, and neither sharp nor PIL is installed. Needs a 1200x630 PNG or JPG under 1 MB at the site root. A `TODO:SEO-IMAGE` comment marks each page.
+- favicon.ico and apple-touch-icon.png on all 4 pages: not present, and no PNG tooling is available. A `TODO:SEO-ICON` comment marks each page.
+
+### Skipped items & reasons
+- `<title>` on index.html, about.html, 404.html, thank-you.html: existing human-written fields, not tagged `seo:auto`, so left as-is per the idempotency rule. The About title is only "About", which you may want to improve by hand.
+- Skills `seo-engineering` and `seo-sharing-pass`: not found at the path in the spec or anywhere in the repo. I applied the worker spec directly.
+- Framework detection: no next/astro/vite/hugo/docusaurus config, so there is no native sitemap or robots mechanism. I wrote both files by hand, with no new dependencies.
+- Build: no build step and no dist/. The repo root is the served output.
+- Assumptions to confirm: site content is English, so `lang="en"` and `og:locale="en_US"`. The theme-color `#8b5a2b` and the favicon colours are my choices, not from an existing brand. The noindex pages also got link-preview tags because the spec asks for them on every page.
+
+### Verification results
+| Check | Result | Detail |
+|---|---|---|
+| Build passes | PASS | Static site, no build command; files validated directly |
+| Sitemap valid XML | PASS | Parsed with python3 ElementTree (xmllint not installed) |
+| All sitemap URLs return 200 | PRE-DEPLOY | acme-bakery.example does not resolve (curl exit 6 / 000); URLs not verified |
+| Each page: exactly one title | PASS | 1 title on each of 4 pages |
+| Each page: exactly one description | PASS | 1 description on each of 4 pages |
+| Each page: exactly one canonical | PASS | 1 canonical on each of 4 pages |
+| No cross-page title duplicates | PASS | Titles are distinct |
+| og:image resolves (image content-type) | FAIL | File absent (TODO:SEO-IMAGE); also PRE-DEPLOY, so unverified |
+| og:image dimensions 1200x630 | FAIL | No image file to measure |
+| og:image < 1 MB | FAIL | No image file present |
+| No relative URLs in og:/twitter: tags | PASS | All og:url, og:image and twitter:image values are absolute https |
+
+### Overall: FAIL — Block deploy: YES
+Reason: og:image and twitter:image point to a file that does not exist, so link previews would be broken. Add a 1200x630 image at `/og-image.png` and re-run, or tell me to ship without it.
+
+### Manual follow-up (post-deploy)
+- [ ] Facebook Sharing Debugger: https://developers.facebook.com/tools/debug/
+- [ ] LinkedIn Post Inspector: https://www.linkedin.com/post-inspector/
+- [ ] If previews stale, force re-scrape in each tool.
+
+Nothing has been committed. The changes are uncommitted in the working tree (4 modified, 3 new files).

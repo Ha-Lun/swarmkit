@@ -1,0 +1,49 @@
+## SEO & Sharing Pass Report — Acme Bakery — 2026-10-08
+
+### Files changed
+- `index.html`, `about.html`, `404.html`, `thank-you.html`: added `lang="en"` to `<html>`, and added a `<!-- seo:auto -->…<!-- /seo:auto -->` head block with description, viewport, theme-color, absolute canonical, favicon links, the full og:/twitter: set, and absolute og:image. `404.html` and `thank-you.html` also get `<meta name="robots" content="noindex">`. Existing titles and body content are unchanged.
+- `sitemap.xml` (new): 2 URLs, `/` and `/about.html`, with `lastmod` 2026-10-08 from the git commit date. `404.html` and `thank-you.html` are excluded.
+- `robots.txt` (new): allows all, references the sitemap, disallows nothing.
+- `og-image.png` (new): 1200x630 RGB PNG, 4,503 bytes, generated with the Python standard library.
+- `apple-touch-icon.png` (new): 180x180 PNG.
+- `favicon.ico` (new): 32x32 ICO wrapping a PNG.
+- `favicon.svg` (new).
+
+Nothing is committed; the changes are in the working tree.
+
+### TODOs / placeholders unfilled
+- og-image.png, favicon.ico, favicon.svg, apple-touch-icon.png: these are generic placeholder graphics (brown background, cream panel). No brand asset exists in `/public/`, `/assets/`, `/static/`, or the root. Replace them with real brand artwork.
+- Canonical and sitemap URLs use the file names (`/about.html`). If the host serves clean URLs (`/about`), change the canonical, `og:url`, and sitemap entries to match.
+- Locale and colour were assumed: `lang="en"` and `og:locale="en_US"` (the copy is English, the business is in Lund); `theme-color="#7a4a1e"` is a guess. Confirm them.
+
+### Skipped items & reasons
+- `<title>` on all four pages: existing untagged titles are treated as `human_written` under the idempotency rule and were not changed. The `About` title on `about.html` is weak. Consider `About us - Acme Bakery`, which I'd suggest but did not apply. The same goes for `Not found` and `Thanks`.
+- Framework-native sitemap/robots: no `next.config.*`, `astro.config.*`, `vite.config.*`, `hugo.toml`, or `docusaurus.config.js` exists, so the files are static and hand-written. No new dependency was added.
+- Noindex on `/admin/*`, `/success*`, `/dashboard/*`, `/private/*`: no such pages exist.
+- Image generation via sharp or PIL: neither is installed, so I used the standard library.
+- Skill path: the spec's `.agents/skills/…` path does not exist. I loaded the skills from `/home/ha-lun/opencode-config/core/skills/seo-sharing-pass/SKILL.md` and `…/seo-engineering/SKILL.md`.
+
+### Verification results
+| Check | Result | Detail |
+|---|---|---|
+| Build passes | PASS | No build step; static HTML. No `dist/` expected. All four files parse as HTML. |
+| Sitemap valid XML | PASS | Parsed with Python ElementTree (`xmllint` not installed). 2 URLs. |
+| All sitemap URLs return 200 | PRE-DEPLOY | `acme-bakery.example` does not resolve (curl exit 6). Not verified. |
+| Each page: exactly one title | PASS | 1 on each of the 4 pages |
+| Each page: exactly one description | PASS | 1 on each of the 4 pages |
+| Each page: exactly one canonical | PASS | 1 on each of the 4 pages, all absolute |
+| No cross-page title duplicates | PASS | "Acme Bakery - Fresh sourdough daily in Lund", "About", "Not found", "Thanks" |
+| og:image resolves (image content-type) | PRE-DEPLOY | Local file is a valid PNG. Remote URL not checked. |
+| og:image dimensions 1200x630 | PRE-DEPLOY | Local file is 1200x630. Remote not checked. |
+| og:image < 1 MB | PASS | 4,503 bytes |
+| No relative URLs in og:/twitter: tags | PASS | og:url, og:image, and twitter:image are all absolute https. Canonicals too. |
+
+### Overall: PASS — Block deploy: NO
+
+Pre-deploy items (sitemap URL status and og:image remote checks) need a re-run after deployment. They are not failures.
+
+### Manual follow-up (post-deploy)
+- [ ] Facebook Sharing Debugger: https://developers.facebook.com/tools/debug/
+- [ ] LinkedIn Post Inspector: https://www.linkedin.com/post-inspector/
+- [ ] If previews stale, force re-scrape in each tool.
+- [ ] Re-run the sitemap URL and og:image checks against the live domain.

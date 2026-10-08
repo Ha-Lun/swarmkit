@@ -1,0 +1,13 @@
+Files touched: `tests/test_inventory.py` (new)
+
+Tests added: 25 (the suite now runs 26 total, including the existing `test_even` in `tests/test_existing.py`, which I left unchanged)
+
+Test framework: `unittest` (matches the existing test file and `__main__` pattern)
+
+Result: PASS (`python3 -m unittest -v`, 26 tests OK)
+
+Notes:
+- Coverage: `apply_discount` (boundaries 0 and 100, out-of-range errors, 2-decimal rounding), `chunk` (uneven final chunk, n ≥ len, empty input, n ≤ 0 errors), and `parse_qty` (whitespace, a single trailing `x`, rejection of `x`, `3xx`, empty, negative, decimal, and inner-space input, plus the error message).
+- Possible production issue, not tested: `parse_qty` uses `str.isdigit()`, which accepts some non-ASCII digits (e.g. `"²"`), and then `int()` raises a plain `ValueError` with no "bad quantity" message. I did not add a test for this because it would require a production change to pin down. Flagging it for lead-dev to decide.
+- `apply_discount` rounding relies on Python's `round` (banker's rounding on exact halves). I only tested a non-tie value, so that behavior is not pinned.
+- Nothing was committed or modified in git.

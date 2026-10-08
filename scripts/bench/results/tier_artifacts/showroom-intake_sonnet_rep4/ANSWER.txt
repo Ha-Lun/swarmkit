@@ -1,0 +1,39 @@
+Intake is done, but I've stopped at Gate G1. `BRIEF.md` is only a draft, and the questions below need answers before it can be finalized. I've handed back to the `showroom` coordinator.
+
+`brief.txt` gives only four facts. The product is a smart lamp called Lumen, the deliverable is a showcase website, the feel should be calm and premium, and it needs a hero video and a product gallery. Everything else is missing.
+
+I wrote the draft to `BRIEF.md` in the working directory. It lists the known facts and three unconfirmed assumptions: a single-page responsive static site, no e-commerce, and English only.
+
+**Batched questions for the client**
+
+*Goal and audience*
+1. What is the primary goal: drive purchases, collect leads or waitlist sign-ups, or build brand awareness?
+2. Who is the target audience (consumers, interior designers, B2B)?
+3. What should the main call to action be, and where does it point (store URL, email form, none)?
+
+*Content and assets*
+
+4. Do you have a hero video? If not, who produces it? Please give its length and format, and say whether it has audio.
+5. How many gallery images are there? Are they final, and what resolution and licensing do they have? Are there lifestyle shots as well as product shots?
+6. Do you have copy: tagline, product description, feature list, specs, pricing? Or should we draft it?
+7. Which smart features must be shown (app, voice assistant, Matter/HomeKit, dimming, color temperature)?
+
+*Brand and design*
+
+8. Do you have a logo, brand colors, fonts, or a style guide?
+9. Name 2–3 reference sites you like, and any you dislike.
+10. Do you prefer a dark or light theme? Should the site include motion and animation, such as parallax?
+
+*Scope and technical*
+
+11. Which pages or sections do you want beyond the hero and gallery (features, specs, FAQ, reviews, contact)?
+12. Which languages are needed?
+13. Do you have a domain and hosting, or a preferred stack or CMS?
+14. Do you need analytics or cookie consent? Are there accessibility or legal requirements (WCAG level, GDPR)?
+
+*Constraints*
+
+15. What is the deadline or launch date, and the budget range?
+16. Who approves deliverables, and what is the review process?
+
+Once these are answered, I'll replace the draft with the final `BRIEF.md`.

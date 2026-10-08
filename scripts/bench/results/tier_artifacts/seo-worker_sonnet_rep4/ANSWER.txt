@@ -1,0 +1,48 @@
+## SEO & Sharing Pass Report — Acme Bakery — 2026-10-08
+
+Framework: none (plain static HTML). The skill files `seo-engineering` and `seo-sharing-pass` were not found at the given path, so I worked from the spec in my instructions.
+
+### Files changed
+- `index.html`: added `lang="en"`, viewport, theme-color, description, absolute canonical, og:title/description/type/url/site_name/locale, and twitter:card/title/description. Every added tag carries `data-seo-auto`. The existing title (41 chars) is human-written and was kept.
+- `about.html`: same as `index.html`, with canonical `https://acme-bakery.example/about`. The existing title "About" was kept.
+- `thank-you.html`: added `lang`, viewport, theme-color and `noindex, nofollow`.
+- `404.html`: added `lang`, viewport, theme-color and `noindex, nofollow`.
+- `sitemap.xml` (new): `/` and `/about`, with `lastmod` from `git log` (2026-10-08, the only commit). 404 and thank-you are excluded.
+- `robots.txt` (new): `Allow: /` and a sitemap reference. Nothing is disallowed.
+
+### TODOs / placeholders unfilled
+- og:image, og:image:width/height/alt and twitter:image on `index.html` and `about.html`: there is no brand asset, and neither sharp nor PIL is available. I left a `TODO:SEO-IMAGE` comment in the head, which expects a 1200x630 image at `https://acme-bakery.example/og-image.png`.
+- Favicon set (ico, svg/png, apple-touch-icon): no assets exist, so no tags were added.
+- Meta descriptions for `thank-you.html` and `404.html`: not added because both pages are noindex.
+
+### Skipped items & reasons
+- Canonical on `thank-you.html` and `404.html`: both are noindex, and the 404 has no stable URL.
+- OG and Twitter tags on the noindex pages: not needed because they are not shared or indexed.
+- Rewriting the existing titles ("About", "Thanks", "Not found"): they are human-written. "About" is weak for search and sharing, so you may want a better one, such as "About Acme Bakery".
+- Build: none exists, and the files are already built.
+
+### Verification results
+| Check | Result | Detail |
+|---|---|---|
+| Build passes | PASS | No build step; the HTML files are present |
+| Sitemap valid XML | PASS | Parsed with Python ElementTree |
+| All sitemap URLs return 200 | PRE-DEPLOY | URLs not verified. `/about` needs the host to serve `about.html` without the extension; otherwise change the canonical and sitemap entry to `/about.html`. |
+| Each page: exactly one title | PASS | |
+| Each page: exactly one description | PASS | The two indexable pages have one each. The noindex pages have none, by design. |
+| Each page: exactly one canonical | PASS | The two indexable pages have one each. The noindex pages have none, by design. |
+| No cross-page title duplicates | PASS | |
+| og:image resolves (image content-type) | PRE-DEPLOY | The image doesn't exist yet |
+| og:image dimensions 1200x630 | PRE-DEPLOY | The image doesn't exist yet |
+| og:image < 1 MB | PASS | Vacuous: there is no image |
+| No relative URLs in og:/twitter: tags | PASS | All URLs are absolute |
+
+### Overall: FAIL — Block deploy: NO
+The overall result is FAIL because the link-preview image requirement is unmet. The site is still safe to deploy, since nothing is broken. Link previews will have no image until you supply one.
+
+### Manual follow-up (post-deploy)
+- [ ] Add a 1200x630 `og-image.png` (under 1 MB) to the site root. Then add og:image, og:image:width, og:image:height, og:image:alt and twitter:image, all with absolute URLs.
+- [ ] Add favicon files and their tags.
+- [ ] Run `curl` against each sitemap URL once the site is deployed.
+- [ ] Facebook Sharing Debugger: https://developers.facebook.com/tools/debug/
+- [ ] LinkedIn Post Inspector: https://www.linkedin.com/post-inspector/
+- [ ] If previews are stale, force a re-scrape in each tool.

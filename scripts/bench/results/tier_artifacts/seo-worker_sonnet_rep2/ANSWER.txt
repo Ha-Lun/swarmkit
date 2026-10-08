@@ -1,0 +1,45 @@
+## SEO & Sharing Pass Report — Acme Bakery — 2026-10-08
+
+### Files changed
+- index.html: added `lang="en"`, viewport, theme-color, favicon link, description, canonical, og:* and twitter:* tags (no image tags yet). The block is wrapped in `<!-- seo:auto -->`.
+- about.html: same set of tags as index.html.
+- 404.html: added `lang`, viewport, theme-color, favicon link, description and `noindex`. It has no canonical or og/twitter tags, since it is not indexed.
+- thank-you.html: same as 404.html.
+- favicon.svg: new simple placeholder icon, which you can replace with the real brand icon.
+- sitemap.xml: new, listing `/` and `/about.html` as absolute URLs. It has no `lastmod`, because the only git commit is the initial one and the pages have no frontmatter dates.
+- robots.txt: new. It allows everything and references the sitemap.
+
+### TODOs / placeholders unfilled
+- og:image, og:image:width, og:image:height, og:image:alt and twitter:image on `/` and `/about.html`: no brand asset exists, and neither sharp nor PIL is installed. A `TODO:SEO-IMAGE` comment marks the spot.
+- twitter:card is set to `summary` for now. Switch it to `summary_large_image` once the 1200x630 image exists.
+- favicon.ico and apple-touch-icon: both need raster images, which I couldn't generate.
+
+### Skipped items & reasons
+- The existing `<title>` tags on all four pages were kept as human-written. The title on about.html ("About") is short and generic, so you may want to improve it. The og:title I added uses "About - Acme Bakery".
+- No canonical or og/twitter tags on 404.html and thank-you.html, because they are noindex.
+- Both skill files (`seo-engineering`, `seo-sharing-pass`) are missing at `/home/ha-lun/opencode-config/.agents/skills`. I worked from the spec in my instructions instead.
+- Framework detection: none found, so this is plain static HTML. I wrote sitemap.xml and robots.txt by hand and added no dependencies.
+- No build was run, as instructed. The files are already built.
+
+### Verification results
+| Check | Result | Detail |
+|---|---|---|
+| Build passes | PASS | No build step. The HTML files exist. |
+| Sitemap valid XML | PASS | Parsed with Python ElementTree. `xmllint` was not checked. |
+| All sitemap URLs return 200 | PRE-DEPLOY | URLs not verified. |
+| Each page: exactly one title | PASS | One `<title>` in each of the 4 files. |
+| Each page: exactly one description | PASS | |
+| Each page: exactly one canonical | PASS | One each on index.html and about.html. The noindex pages have none, by design. |
+| No cross-page title duplicates | PASS | |
+| og:image resolves (image content-type) | PRE-DEPLOY | No image exists yet. |
+| og:image dimensions 1200x630 | PRE-DEPLOY | No image exists yet. |
+| og:image < 1 MB | FAIL | No image to measure. |
+| No relative URLs in og:/twitter: tags | PASS | Every og:url and canonical is absolute. The `/favicon.svg` link is not an og/twitter tag. |
+
+### Overall: FAIL — Block deploy: NO
+The pass is incomplete because the og:image is missing, so link previews will have no image. Nothing is broken, so I wouldn't block deploy. Add a 1200x630 PNG or JPG under 1 MB at `/og-image.png`, then add the og:image and twitter:image tags.
+
+### Manual follow-up (post-deploy)
+- [ ] Facebook Sharing Debugger: https://developers.facebook.com/tools/debug/
+- [ ] LinkedIn Post Inspector: https://www.linkedin.com/post-inspector/
+- [ ] If previews stale, force re-scrape in each tool.

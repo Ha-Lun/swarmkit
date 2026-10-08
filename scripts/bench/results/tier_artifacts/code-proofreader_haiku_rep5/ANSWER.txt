@@ -1,0 +1,22 @@
+## Code Proofread: [scope: diff]
+### Files inspected: app.py
+### Scope: diff vs HEAD~1 (702f07e vs 8485a53)
+
+**Caveat:** I could not load the ponytail-review skill. `~/.claude/skills/ponytail-review/SKILL.md` doesn't exist in this sandbox, and a glob search under the slim_home tier didn't find it either. The findings below use the review categories as I understand them (dead code, unused imports, redundant or over-engineered logic), so the tags are provisional. Re-run once the skill is available to confirm the tag vocabulary.
+
+### Findings
+- `app.py:L1:` `unused import: `hashlib` is never referenced. Delete the line. `[high]`
+- `app.py:L5:` `dead code: `_unused_cache = {}` has zero references in the repo. Delete the line and its trailing blanks. `[high]`
+- `app.py:L12:` `dead code: `legacy_format_price` has zero call sites in the repo. Delete the function. `[high]`
+- `app.py:L20:` `over-engineering: `handle_refund` is reached only through the string-built `getattr` in `dispatch`, with no direct callers. If `dispatch` survives, a plain dict of handlers would be simpler. `[medium]` Evidence: dynamic dispatch via `getattr(sys.modules[__name__], "handle_" + kind)`.
+- `app.py:L24:` `over-engineering: `handle_cancel`, same as above. `[medium]` Same evidence.
+- `app.py:L28:` `over-engineering: `dispatch` has zero callers in the repo and resolves handlers by reflection. Delete it, or replace it with a direct call or a dict lookup. `[medium]` Evidence: no references outside its definition. The caveat is that it may be called by external code or a string-based entry point. Deleting `dispatch` also makes the `import sys` on L3 unused, so remove that too.
+
+Out of scope, noted for `security-auditor`: `dispatch` builds an attribute name from the caller-supplied `kind` and calls `getattr` on the module. The `handle_` prefix limits this, but the input is still untrusted and the lookup is still reflective.
+
+### Confidence tally
+- high: 3
+- medium: 3
+- low: 0
+
+### net: -6 lines, -1 dep possible (high findings only). -19 lines, -2 deps possible if all findings are cut (adds `dispatch` and the `handle_*` handlers, plus `import sys`).

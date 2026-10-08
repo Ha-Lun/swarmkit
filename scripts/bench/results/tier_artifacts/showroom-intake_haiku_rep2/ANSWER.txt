@@ -1,0 +1,36 @@
+I wrote a draft `BRIEF.md` in the working directory, but Gate G1 is not passed. The client brief is too thin to build from, so I'm handing back to the `showroom` coordinator with the batched questions below.
+
+## Batched question set for the client
+
+**Product and scope**
+1. What are the Lumen's key features and specs (light output, colour temperature, dimming, connectivity such as Wi-Fi, Bluetooth, Matter, or voice assistant support, app)?
+2. What pages or sections beyond the hero video and product gallery do you want (features, specs, about, FAQ, contact, press, where to buy)?
+3. Is this a single-page site or a multi-page site?
+4. Does the site need to sell directly (cart, checkout, payments), link out to a retailer, or only showcase the product?
+
+**Brand and design**
+5. Do you have brand guidelines: logo, colour palette, typography, or an existing style guide?
+6. Can you give 2–3 reference sites whose feel you like, and any you want to avoid?
+7. Should the look be light or dark, and is there a preferred accent colour?
+
+**Assets**
+8. Do you have the hero video (file, length, orientation, resolution) and the gallery photos or renders? If not, who will produce them?
+9. Do you have product copy, or should we write it? What is the tone of voice?
+
+**Languages, audience and legal**
+10. Which languages are needed at launch?
+11. Who is the target customer?
+12. Do you need a privacy policy, cookie consent, or other legal text? Are there any claims (energy, safety, certifications) that must be approved before publishing?
+
+**Technical and delivery**
+13. Do you have a domain, hosting, or preferred tech stack, or should we choose?
+14. Are there analytics, email signup, or other third-party integrations to include?
+15. What is the target launch date, and who approves the final version?
+
+## Assumptions to accept or reject at G1
+- Single-page marketing site, not an e-commerce store.
+- Client supplies the hero video and gallery assets.
+- English-language copy.
+- Responsive web only, no native app.
+
+Once the client answers these, or accepts the assumptions, the brief can be finalized and G1 can pass.

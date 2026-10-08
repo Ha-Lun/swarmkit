@@ -1,0 +1,46 @@
+## SEO & Sharing Pass Report — Acme Bakery — 2026-10-08
+
+Static HTML, no framework detected, so I wrote `sitemap.xml` and `robots.txt` by hand. The two skill files (`seo-engineering`, `seo-sharing-pass`) don't exist at the given path, so I worked from the spec in the brief. `og-image.png` doesn't exist yet, so the deploy should be blocked until it's added.
+
+### Files changed
+- `index.html`: added `lang="en"`, viewport, description, theme-color, absolute canonical, full og:* and twitter:* tags. All added tags carry `data-seo-auto`.
+- `about.html`: same additions as `index.html`.
+- `thank-you.html`: same additions, plus `noindex, nofollow`.
+- `404.html`: `lang`, viewport, description, theme-color and `noindex, nofollow`. I left out canonical and og/twitter tags because a 404 has no stable URL to share.
+- `sitemap.xml` (new): `/` and `/about.html`. I left out `lastmod`, since the only git commit is the build commit and there is no frontmatter.
+- `robots.txt` (new): `Allow: /` and a Sitemap reference. Nothing is disallowed, because you didn't ask for anything to be.
+
+### TODOs / placeholders unfilled
+- og:image / twitter:image on all pages except 404: the tags point to `https://acme-bakery.example/og-image.png`, but that file doesn't exist. Neither sharp nor PIL is installed, and there is no brand asset in the repo. I left a `TODO:SEO-IMAGE` comment in each page. Add a 1200x630 PNG or JPG under 1 MB at the site root.
+- Favicon set (ico, svg or png, apple-touch-icon): no assets exist, so I added no `<link>` tags rather than point at files that would 404.
+- `theme-color` is a placeholder `#ffffff`. Replace it with the brand colour.
+- og:image:alt and og:locale (`en_US`) are my assumptions. Please confirm them.
+
+### Skipped items & reasons
+- Existing `<title>` tags on all four pages: they have no auto tag, so I treated them as human-written and kept them. `About` and `Thanks` are short and could be more descriptive.
+- Canonical on `404.html`: a 404 has no stable canonical URL.
+- `thank-you.html` and `404.html` are excluded from the sitemap because they are noindex.
+
+### Verification results
+| Check | Result | Detail |
+|---|---|---|
+| Build passes | PASS | No build step; the HTML files exist. |
+| Sitemap valid XML | PASS | Parsed with Python ElementTree; `xmllint` is not installed. |
+| All sitemap URLs return 200 | PRE-DEPLOY | URLs not verified. |
+| Each page: exactly one title | PASS | Each of the 4 pages has 1. |
+| Each page: exactly one description | PASS | Each page has exactly 1 (checked by reading the generated head, not a count command). |
+| Each page: exactly one canonical | PASS | Pages that should have one (index, about, thank-you) have exactly 1. `404.html` has none, by design. |
+| No cross-page title duplicates | PASS | All four titles are distinct. |
+| og:image resolves (image content-type) | FAIL | `og-image.png` doesn't exist locally, and the site isn't deployed. |
+| og:image dimensions 1200x630 | FAIL | No image exists to measure. |
+| og:image < 1 MB | FAIL | No image exists to measure. |
+| No relative URLs in og:/twitter: tags | PASS | Grep found 0 relative values. |
+
+### Overall: FAIL — Block deploy: YES
+The only blocker is the missing `og-image.png`. Once it's added at 1200x630 and under 1 MB, the og:image checks should pass.
+
+### Manual follow-up (post-deploy)
+- [ ] Facebook Sharing Debugger: https://developers.facebook.com/tools/debug/
+- [ ] LinkedIn Post Inspector: https://www.linkedin.com/post-inspector/
+- [ ] If previews stale, force re-scrape in each tool.
+- [ ] Re-run the sitemap URL check (expect 200 for each URL) and the og:image content-type and dimensions check against production.

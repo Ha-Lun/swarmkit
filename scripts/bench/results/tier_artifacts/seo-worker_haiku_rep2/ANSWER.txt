@@ -1,0 +1,49 @@
+## SEO & Sharing Pass Report — Acme Bakery — 2026-10-08
+
+Site type: plain static HTML (no `next/astro/vite/hugo/docusaurus` config), so there's no native sitemap mechanism. I wrote `sitemap.xml` and `robots.txt` by hand and added no dependencies. Production URL: `https://acme-bakery.example`. This was the first attempt (`retry_count` not provided).
+
+### Files changed
+- `index.html`: added `lang="en"`, viewport, description, canonical, theme-color, favicon/apple-touch links, full OG and Twitter tags, and TODO comments for the missing image assets. The existing `<title>` and body are unchanged.
+- `about.html`: same set of additions, with the description "About Acme Bakery: a family bakery since 1998." and canonical `/about.html`.
+- `404.html`: same additions plus `<meta name="robots" content="noindex">`.
+- `thank-you.html`: same additions plus `<meta name="robots" content="noindex">`.
+- `sitemap.xml` (new): lists `/` and `/about.html` with `lastmod` 2026-10-08 (from git history). 404 and thank-you are excluded.
+- `robots.txt` (new): `User-agent: *` with no Disallow rules, plus the sitemap reference.
+- `favicon.svg` (new): a placeholder "A" mark in brown (#8b5a2b). It needs brand review.
+
+Every auto-added tag carries `data-seo-auto`, so a re-run can find and replace it.
+
+### TODOs / placeholders unfilled
+- `og-image.png` (all pages): no brand image exists in the repo, and neither sharp nor PIL is installed to generate one. Create a 1200x630 PNG or JPG under 1 MB at the site root. The `og:image` and `twitter:image` tags already point to it.
+- `favicon.ico` and `apple-touch-icon.png` (all pages): same cause. Each page has a `TODO:SEO-IMAGE` comment, and the apple-touch-icon link already points to the file.
+
+### Skipped items & reasons
+- Existing `<title>` on index, about, 404, thank-you: human_written (present, not tagged `seo:auto`). Kept unchanged. The about title "About" is short and generic, so consider a human rewrite (e.g., "About Acme Bakery").
+- Existing body content: untouched, out of scope.
+- The skill files named in the spec path (`/home/ha-lun/opencode-config/.agents/skills/...`) don't exist. I used the project copies in `.claude/skills/seo-sharing-pass` and `seo-engineering`.
+
+### Verification results
+| Check | Result | Detail |
+|---|---|---|
+| Build passes | PASS | No build step in this project. The four HTML files exist and parse. There is no `dist/`, so the output is the repo root. |
+| Sitemap valid XML | PASS | Parsed with `xml.etree` (`xmllint` not installed). |
+| All sitemap URLs return 200 | PRE-DEPLOY | `acme-bakery.example` doesn't resolve (curl exit 6), so URLs were not verified. |
+| Each page: exactly one title | PASS | 1 each on all four pages. |
+| Each page: exactly one description | PASS | 1 each. |
+| Each page: exactly one canonical | PASS | 1 each, all absolute on the production domain. |
+| No cross-page title duplicates | PASS | Titles: "Acme Bakery - Fresh sourdough daily in Lund", "About", "Not found", "Thanks". |
+| og:image resolves (image content-type) | FAIL | The file does not exist locally. Unreachable remotely too, so this is not only a pre-deploy gap. |
+| og:image dimensions 1200x630 | FAIL | No file to measure. |
+| og:image < 1 MB | FAIL | No file to measure. |
+| No relative URLs in og:/twitter: tags | PASS | `og:url`, `og:image`, `twitter:image` are all absolute `https://acme-bakery.example/...`. |
+
+### Overall: FAIL — Block deploy: YES
+The blocker is the missing OG/Twitter image (and the favicon files). Every page's share preview points to it. Once `og-image.png` (1200x630) is in place, re-run this pass to confirm the three image checks.
+
+Assumptions to confirm: content is English, so `lang="en"` and `og:locale="en_US"`. Canonicals use the real file paths (`/about.html`); if the host serves clean URLs, the canonicals and sitemap need to change. The noindex pages canonicalize to themselves.
+
+### Manual follow-up (post-deploy)
+- [ ] Facebook Sharing Debugger: https://developers.facebook.com/tools/debug/
+- [ ] LinkedIn Post Inspector: https://www.linkedin.com/post-inspector/
+- [ ] If previews stale, force re-scrape in each tool.
+- [ ] After deploy: re-run `curl` against each sitemap URL and `og-image.png` to confirm 200 and `image/png`.
