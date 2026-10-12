@@ -44,7 +44,7 @@ Each agent has a **tier** (`fast`, `standard`, `deep`). The model for each tier 
 
 ## 🤖 Agent roster
 
-In Claude Code, `--claude` installs the five quality and review agents below plus the `release-testing`, `security-review`, `caveman*`, `ponytail*` and `curated-resources` skills (the last three groups are slash-command only, so they cost no context). Everything else is a pack you link into a project with `./install.sh --pack <name> [project]`:
+In Claude Code, `--claude` installs the five quality and review agents below plus the `release-testing`, `security-review`, `diagnosing-bugs`, `caveman*`, `ponytail*` and `curated-resources` skills (the last three groups are slash-command only, so they cost no context). Everything else is a pack you link into a project with `./install.sh --pack <name> [project]`:
 
 | Pack | Agents | Skills |
 |---|---|---|
@@ -54,7 +54,7 @@ In Claude Code, `--claude` installs the five quality and review agents below plu
 | `mobile` | android-capacitor, ios-capacitor, electron | capacitor-mobile-quality |
 | `n8n` | n8n-workflow-builder, n8n-debugger | n8n-api, n8n-debugging |
 | `creative` | blender, showroom + 5 workers, linkedin | showroom, img2threejs |
-| `swarm` | swarm-architect, lead-dev, junior-dev, git-specialist | swarm-handoff, git-workflow |
+| `swarm` | swarm-architect, lead-dev, junior-dev, git-specialist | swarm-handoff, git-workflow, writing-for-agents |
 
 OpenCode and Antigravity get every agent and skill globally.
 

@@ -23,7 +23,7 @@ You are responsible for strictly adhering to the **6-Point Synchronicity Contrac
 ## Guidelines
 - **Agent Permission Sandboxing**: Strictly scope permissions for subagents. Apply the principle of least privilege.
 - **YAML Frontmatter Validity**: Ensure all agent markdown files have valid YAML frontmatter blocks.
-- **Prompt Engineering**: Use precise, lean, actionable instructions. Avoid fluff.
+- **Writing for agents**: Load **`writing-for-agents`** before creating or editing a skill, an agent prompt or description, or a rules file (`AGENTS.md`, `CLAUDE.md`, the per-CLI addenda).
 - **Skill and Slash Command Authoring**: Write modular, portable skills and clear slash commands.
 - **Ponytail Anti-Over-Engineering**: Write the minimum necessary code. Lean instructions. No bloated abstractions.
 - **Autonomous Syntax Validation**: You MUST autonomously validate JSON, JSONC, and YAML files you create or edit using bash commands (e.g. `jq`, `yq`, or simple syntax checkers) to prevent configuration corruption.
