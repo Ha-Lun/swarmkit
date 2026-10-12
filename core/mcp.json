@@ -24,6 +24,10 @@
     "playwright": {
       "command": "npx",
       "args": ["-y", "@playwright/mcp@0.0.83"]
+    },
+    "codebase-memory-mcp": {
+      "command": "npx",
+      "args": ["-y", "codebase-memory-mcp@0.11.0"]
     }
   }
 }

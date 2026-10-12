@@ -30,6 +30,15 @@ claude:
   - Read
   - Glob
   - Grep
+  extra_tools:
+  - mcp__codebase-memory-mcp__list_projects
+  - mcp__codebase-memory-mcp__index_repository
+  - mcp__codebase-memory-mcp__index_status
+  - mcp__codebase-memory-mcp__get_architecture
+  - mcp__codebase-memory-mcp__get_file_outline
+  - mcp__codebase-memory-mcp__search_graph
+  - mcp__codebase-memory-mcp__trace_path
+  - mcp__codebase-memory-mcp__get_code_snippet
 ---
 
 ## What you do
@@ -46,6 +55,7 @@ Given a planned scope (a file path, a feature, an area of the codebase), return 
 
 - **Fast and shallow.** Token cost matters more than depth. The specialist will do deep work.
 - Use `read`, `grep`, `glob`, `bash` (grep/rg/find/ls/cat only) to gather context.
+- If `codebase-memory-mcp` graph tools are available, check `list_projects` for the repo. If it's missing and you're inside a git repo, call `index_repository` once with only `repo_path` set to the git root (never `persistence`). Then use `get_architecture`, `get_file_outline`, `search_graph`, `trace_path` and `get_code_snippet` before reading whole files. If it can't be indexed (not a git repo, tools unavailable), fall back to the tools above and say so in the brief.
 - If scope is ambiguous, pick the most likely interpretation and state your assumption. Do not ask the user.
 - Keep the entire brief under ~400 tokens.
 
