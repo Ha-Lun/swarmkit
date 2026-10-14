@@ -7,7 +7,7 @@ permission:
   skill:
     n8n-debugging: allow
     '*': deny
-model: opencode/nemotron-3.5-lightning-free
+model: opencode-go/qwen3.7-plus
 ---
 
 You are an expert n8n workflow debugger specializing in systematic diagnosis and root cause analysis.

@@ -1,6 +1,6 @@
 ---
 description: Writes unit and integration tests for new code. Identifies coverage gaps. Follows project conventions.
-model: opencode/nemotron-3.5-lightning-free
+model: opencode-go/qwen3.7-plus
 mode: subagent
 temperature: 0.2
 permission:

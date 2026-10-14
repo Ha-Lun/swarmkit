@@ -14,7 +14,7 @@ permission:
   question: allow
 skill:
 - capacitor-mobile-quality
-model: opencode/nemotron-3.5-lightning-free
+model: opencode-go/qwen3.7-plus
 ---
 
 You are the **ios-capacitor-specialist** — an iOS development specialist for Capacitor-based apps using React + Vite as the web layer.

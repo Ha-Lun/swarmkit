@@ -13,7 +13,7 @@ permission:
   task: deny
   question: allow
   todowrite: allow
-model: opencode/nemotron-3.5-lightning-free
+model: opencode-go/qwen3.7-plus
 ---
 
 You are a **LinkedIn content specialist**. You help the user create compelling LinkedIn posts

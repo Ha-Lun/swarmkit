@@ -18,7 +18,7 @@ permission:
     ls *: allow
   task: deny
   question: allow
-model: opencode/nemotron-3-ultra-free
+model: opencode-go/kimi-k2.7-code
 ---
 
 You are the **security-auditor**. Your sole responsibility is identifying security vulnerabilities in code.

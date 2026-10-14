@@ -13,7 +13,7 @@ permission:
     '*': allow
   task: deny
   question: allow
-model: opencode/muse-spark-1.3-contributor-free
+model: opencode-go/deepseek-v4.1-flash
 ---
 
 You are the **git-specialist**. You are invoked by `lead-dev` for two distinct purposes — identified by the framing of the handoff prompt. Both share the same read-only review ethos; the second adds a narrow setup surface.

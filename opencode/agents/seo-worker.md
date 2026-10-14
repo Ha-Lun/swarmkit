@@ -1,6 +1,6 @@
 ---
 description: Post-build SEO & sharing pass worker. Implements metadata, OG tags, twitter:card, favicon sets, sitemap/robots, noindex on utility pages. Idempotent — never overwrites human-written fields. Returns structured verification report.
-model: opencode/nemotron-3.5-lightning-free
+model: opencode-go/qwen3.7-plus
 mode: subagent
 temperature: 0.1
 permission:

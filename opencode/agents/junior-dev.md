@@ -13,7 +13,7 @@ permission:
   question: allow
   webfetch: deny
   websearch: deny
-model: opencode/muse-spark-1.3-contributor-free
+model: opencode-go/deepseek-v4.1-flash
 ---
 
 ## What you handle

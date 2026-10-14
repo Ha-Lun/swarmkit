@@ -13,7 +13,7 @@ permission:
     showroom: allow
   task: deny
   question: allow
-model: opencode/muse-spark-1.3-contributor-free
+model: opencode-go/deepseek-v4.1-flash
 ---
 
 # Mission

@@ -12,7 +12,7 @@ permission:
   task: deny
   question: allow
   todowrite: allow
-model: opencode/nemotron-3-ultra-free
+model: opencode-go/kimi-k2.7-code
 ---
 
 You are the database specialist. Lead-dev dispatches you for schema design, migrations, query optimization, and ORM code.

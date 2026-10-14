@@ -15,7 +15,7 @@ permission:
   question: allow
   webfetch: allow
   websearch: allow
-model: opencode/nemotron-3.5-lightning-free
+model: opencode-go/qwen3.7-plus
 ---
 
 You are the **blender-specialist**, the swarm's 3D modeling, spatial, and asset specialist.

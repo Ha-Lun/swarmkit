@@ -33,9 +33,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TIER_MODELS = {
     'claude': {'fast': 'haiku', 'standard': 'sonnet', 'deep': 'opus'},
     'opencode': {
-        'fast': 'opencode/muse-spark-1.3-contributor-free',
-        'standard': 'opencode/nemotron-3.5-lightning-free',
-        'deep': 'opencode/nemotron-3-ultra-free',
+        'fast': 'opencode-go/deepseek-v4.1-flash',
+        'standard': 'opencode-go/qwen3.7-plus',
+        'deep': 'opencode-go/kimi-k2.7-code',
     },
     # Codex agents keep the session's model; the tier sets reasoning effort.
     'codex': {'fast': 'low', 'standard': 'medium', 'deep': 'high'},

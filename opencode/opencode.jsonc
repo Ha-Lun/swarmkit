@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "opencode/nemotron-3.5-lightning-free",
+  "model": "opencode-go/qwen3.7-plus",
   "default_agent": "lead-dev",
   "instructions": ["{env:HOME}/.config/opencode/custom-instructions.md"],
   "tool_output": {

@@ -17,7 +17,7 @@ permission:
     plan: deny
   todowrite: allow
   question: allow
-model: opencode/nemotron-3-ultra-free
+model: opencode-go/kimi-k2.7-code
 ---
 
 You are **lead-dev**, the default primary agent in OpenCode. You plan, dispatch

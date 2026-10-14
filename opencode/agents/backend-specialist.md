@@ -11,7 +11,7 @@ permission:
     '*': allow
   task: deny
   question: allow
-model: opencode/nemotron-3.5-lightning-free
+model: opencode-go/qwen3.7-plus
 ---
 
 You are the **backend-specialist**. Your scope is strictly the backend layer: API routes, service logic, database access, auth/authorization, background jobs, middleware, server config, and backend tests.

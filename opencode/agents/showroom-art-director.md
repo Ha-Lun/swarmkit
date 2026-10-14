@@ -13,7 +13,7 @@ permission:
     showroom: allow
   task: deny
   question: allow
-model: opencode/nemotron-3.5-lightning-free
+model: opencode-go/qwen3.7-plus
 ---
 
 # Mission
