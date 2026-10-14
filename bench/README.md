@@ -76,6 +76,26 @@ OpenCode's free tier rejects non-interactive runs ("can only be used from within
 - If the probe fails, the benchmark writes `bench/results/opencode-manual-checklist.md` (cases, expected specialists, copy-paste prompts, and how to spot a `task` tool call in the TUI). It also writes the fixtures to `bench/results/opencode-fixtures/<case>/` so you can `cd` into one and run `opencode`.
 - If the probe succeeds (for example, on a paid provider), the cases run through `opencode run --format json` and are scored from `task` tool parts. This parser has never seen real output yet, so treat it as unverified.
 
+## Cost comparison (compare.py)
+
+`bench/compare.py` runs the same real implementation task under three Claude Code variants and measures Claude-side cost, wall time, and delegated-worker quota:
+
+- `stock`: `claude -p` with no agent.
+- `lead-dev`: `claude -p --agent lead-dev`.
+- `hybrid`: `claude -p --agent lead-dev-hybrid`.
+
+The task is the approved plan from the `delegate-after-plan` case: add retry-with-backoff to `src/api.js`, add `test/api.test.js`, and fix the README typo. Every variant gets a fresh `plan` fixture, the same prompt, and the same `--permission-mode` (default `bypassPermissions` because the fixture is disposable and contains no secrets). After each run the script reads any new or updated worker task directories under `~/.agy-tasks`, `~/.opencode-tasks`, and `~/.codex-tasks` and aggregates their `result.json` token usage per backend. Worker tokens are backend-specific quota and are **not** converted to USD.
+
+A fair cost read requires every variant to complete and pass the local verification (`node test.js && node test/api.test.js`); runs that fail verification are marked invalid. Raw event streams are kept under `bench/results/raw/` and a Markdown report plus JSON are written to `bench/results/<timestamp>-compare.*`.
+
+```bash
+python3 bench/compare.py --dry-run          # resolve commands, build one fixture, run nothing
+python3 bench/compare.py --yes              # run the three variants once (spends quota)
+python3 bench/compare.py --yes --repeat 3   # per-variant means over 3 runs each
+```
+
+Options: `--variants stock,lead-dev,hybrid`, `--timeout 1800`, `--budget 10.0`, `--model`, `--permission-mode`, `--json PATH`.
+
 ## Adding a case
 
 Append to `cases` in `cases.json`:
