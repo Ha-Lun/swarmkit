@@ -1,7 +1,7 @@
 ---
 name: lead-dev-hybrid
 description: 'Orchestrator for `claude --agent lead-dev-hybrid` sessions only. Never delegate to it as a subagent: subagents cannot spawn subagents, so it cannot work there.'
-model: opus
+model: inherit
 tools:
 - Agent
 - Read

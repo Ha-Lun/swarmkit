@@ -158,7 +158,7 @@ def s2_roster(repo):
                 errors.append(f'{name}: empty description')
             if cli != 'opencode' and fm.get('name') != name:
                 errors.append(f'{name}: name field {fm.get("name")!r}')
-            if cli == 'claude' and fm.get('model') not in ('haiku', 'sonnet', 'opus'):
+            if cli == 'claude' and fm.get('model') not in ('haiku', 'sonnet', 'opus', 'inherit'):
                 errors.append(f'{name}: model {fm.get("model")!r}')
             if cli == 'codex' and fm.get('model_reasoning_effort') not in ('low', 'medium', 'high'):
                 errors.append(f'{name}: effort {fm.get("model_reasoning_effort")!r}')

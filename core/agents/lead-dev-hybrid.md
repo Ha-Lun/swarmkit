@@ -28,6 +28,7 @@ opencode:
     webfetch: deny
     websearch: deny
 claude:
+  model: inherit
   description: 'Orchestrator for `claude --agent lead-dev-hybrid` sessions only. Never delegate to it as a subagent: subagents cannot spawn subagents, so it cannot work there.'
   tools:
   - Agent
