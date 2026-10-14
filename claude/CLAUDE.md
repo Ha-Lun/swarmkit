@@ -36,6 +36,9 @@ Bind to `0.0.0.0` (e.g. `vite --host 0.0.0.0`); report them as
 
 - Large or risky work: call `EnterPlanMode` first so `opusplan` plans on Opus;
   `ExitPlanMode` is the approval request.
+- After an approved plan, hand implementation to agy or OpenCode
+  (`delegate-implementation`); do small, context-heavy or security
+  edits yourself.
 - Delegate with the Agent tool, the specialist's name as subagent type. Project
   packs (`install.sh --pack`) add domain specialists; their descriptions say when.
 - Structural questions (who calls X, the shape of a big file, what a change
