@@ -5,8 +5,6 @@ description: Use when handing a self-contained implementation task to a headless
 
 # Delegating to OpenCode
 
-> **Status:** the free models currently refuse headless calls ("free tier can only be used from within OpenCode"). Until the default model in `scripts/agy-task` is updated, use `agy-task`, or pass `--model` a provider that works headless (e.g. `nvidia/nvidia/nemotron-3-super-120b-a12b`, rate-limited).
-
 `opencode-task` runs one headless `opencode run` task on its own branch and worktree. It shares its code with `agy-task`, so the commands and `result.json` are the same. You stay the administrator: you decide what to hand off, then review and merge the result yourself. For when to delegate and how to split a plan, follow `delegate-implementation`.
 
 ## Run
@@ -18,7 +16,7 @@ opencode-task list                                     # running and finished ta
 opencode-task clean <slug> [--force]                   # remove worktree and branch once merged or discarded
 ```
 
-Options: `--model provider/model` (default: the free model set in `scripts/agy-task`), `--effort <variant>`, `--timeout 20m`, `--base REF`, `--setup "<cmd>"`, `--review`. Use `-` as the prompt to read it from stdin.
+Options: `--model opencode-go/<model>` (default: the free model set in `scripts/agy-task`; use `opencode-go/` models, the user's subscription), `--effort <variant>`, `--timeout 20m`, `--base REF`, `--setup "<cmd>"`, `--review`. Use `-` as the prompt to read it from stdin.
 
 - Each run gets a config overlay for that process only. It allows edits, limits the shell to common test, lint and build commands (`npm test`, `npm run test|lint|build|typecheck`, `pytest`, `python3 -m unittest`, `go test`, `cargo test`, `make test`, …) plus `git status|diff|log|show`, and turns off web fetches and subagents. Name the exact test command in the prompt; other commands are denied and listed in `denied_actions`. With `--review`, edits are denied too.
 - **This is a guard against accidents, not a sandbox.** A test runner runs code the worker can write itself (a test, a `conftest.py`, a Makefile target), with your user rights, your environment variables and network access. Only delegate repos and prompts you'd let a junior developer run unattended.

@@ -129,21 +129,24 @@ def opencode_cmd(task, prompt, a, resume_id):
     o = remembered_opts(task, a, resume_id)
     if a.yolo:
         print("opencode-task: --yolo, the shell is unrestricted and unsandboxed", file=sys.stderr)
-    # --dir is required: from a linked worktree's cwd alone, opencode edits the main checkout.
-    cmd = ["opencode", "run", "--format", "json", "--agent", "build", "--title", f"delegate: {task.name}",
-           "--dir", str(task / "worktree")]
-    cmd += (["-s", resume_id] if resume_id else []) + (["-m", o["model"]] if o.get("model") else []) \
-        + (["--variant", o["effort"]] if o.get("effort") else [])
+    # --standalone: a private server started with our env (and so the overlay). The shared background
+    # service would apply the user's own config.
+    cmd = ["opencode", "run", "--standalone", "--format", "json", "--agent", "build",
+           "--title", f"delegate: {task.name}"] + (["-s", resume_id] if resume_id else [])
+    if o.get("model"):
+        cmd += ["-m", o["model"] + (f"#{o['effort']}" if o.get("effort") else "")]
     return cmd + ["--", prompt]
 
 
-def opencode_env(a):
+def opencode_env(a, wt):
     perm = dict(OPENCODE_OVERLAY["permission"])
     if a.yolo:
         perm["bash"] = "allow"
     if a.review:  # a review answers in text and must not edit
         perm["edit"] = "deny"
-    return {**os.environ, "OPENCODE_CONFIG_CONTENT": json.dumps({"permission": perm})}
+    # opencode takes its project directory from $PWD, not the real cwd: without this it edits the
+    # checkout agy-task was started from instead of the worktree.
+    return {**os.environ, "PWD": str(wt), "OPENCODE_CONFIG_CONTENT": json.dumps({"permission": perm})}
 
 
 def opencode_parse(out, err):
@@ -184,7 +187,7 @@ BACKENDS = {
     "codex-task": {"cli": "codex", "env": "CODEX_TASK", "home": ".codex-tasks",
                    "model": None, "cmd": codex_cmd, "parse": codex_parse, "grace": 0},
     "opencode-task": {"cli": "opencode", "env": "OPENCODE_TASK", "home": ".opencode-tasks",
-                      "model": "opencode/longcat-2.5-preview-free", "cmd": opencode_cmd,
+                      "model": "opencode-go/longcat-2.5-preview-free", "cmd": opencode_cmd,
                       "parse": opencode_parse, "grace": 0, "proc_env": opencode_env},
 }
 BACKEND = BACKENDS[PROG]
@@ -235,7 +238,7 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     cmd = BACKEND["cmd"](task, prompt, a, resume_id)
     main_before = main_state(repo)
     # Own process group so a SIGTERM/SIGINT to us (or a timeout) takes the agent and its tools down too.
-    env = BACKEND["proc_env"](a) if "proc_env" in BACKEND else None
+    env = BACKEND["proc_env"](a, wt) if "proc_env" in BACKEND else None
     p = subprocess.Popen(cmd, cwd=wt, env=env, text=True, stdin=subprocess.DEVNULL, start_new_session=True,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     interrupted = []

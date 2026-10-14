@@ -26,7 +26,7 @@ Everything else in the plan goes to a worker.
 
 | Task | Worker |
 |---|---|
-| Implementation where the worker should run the tests itself | `opencode-task` (free model), see `opencode-delegate`. **Not yet:** the free models currently refuse headless calls, so use `agy-task` until this line is removed |
+| Implementation where the worker should run the tests itself | `opencode-task` (free `opencode-go/` model), see `opencode-delegate` |
 | Edits and boilerplate where you run the tests | `agy-task` (default `gemini-3.8-flash-high`; `--model gemini-3.1-pro-high` for harder logic), see `agy-delegate` |
 | Second opinion on your own diff | `agy-task --review --model gemini-3.1-pro-high`, or `codex-task --review` if Codex is installed |
 
