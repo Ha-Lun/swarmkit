@@ -153,7 +153,7 @@ link_files() {
 # Skills Claude Code gets globally; the rest come with a pack (--pack).
 CLAUDE_SKILLS="release-testing security-review caveman caveman-commit caveman-compress
 caveman-help caveman-review ponytail ponytail-audit ponytail-debt ponytail-help
-ponytail-review curated-resources agy-delegate delegate-implementation diagnosing-bugs"
+ponytail-review curated-resources agy-delegate delegate-implementation hybrid-delegate diagnosing-bugs"
 
 # Skills that ship with each Claude Code pack (agents come from claude/packs/<pack>/agents).
 pack_skills() {

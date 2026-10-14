@@ -11,6 +11,7 @@ You write every agent, skill and rule once in `core/`. A small compiler turns th
 - **The main agent does the work.** Small and medium work happens directly. Large or risky work (more than ~3 files, or auth, data, CI or infra) gets a plan and your approval first (Claude Code: plan mode, so `opusplan` plans on Opus). A non-interactive session states the plan and continues instead of waiting.
 - **Delegation where it helps:** `explore` for wide read-only searches; `security-auditor`, `code-proofreader` or `release-tester` as an independent review after large changes. Domain specialists say in their descriptions when to use them.
 - **`lead-dev`** is an optional pure orchestrator for big multi-specialist jobs (`claude --agent lead-dev`, or the `lead-dev` primary agent in OpenCode).
+- **`lead-dev-hybrid`** is the same orchestration flow with implementation spread in parallel across `agy-task`, `opencode-task` and optional `codex-task` workers (`claude --agent lead-dev-hybrid`).
 
 ## 🧩 One source, four CLIs
 
@@ -56,7 +57,7 @@ In Claude Code, `--claude` installs the five quality and review agents below plu
 | `mobile` | android-capacitor, ios-capacitor, electron | capacitor-mobile-quality |
 | `n8n` | n8n-workflow-builder, n8n-debugger | n8n-api, n8n-debugging |
 | `creative` | blender, showroom + 5 workers, linkedin | showroom, img2threejs |
-| `swarm` | swarm-architect, lead-dev, junior-dev, git-specialist | swarm-handoff, git-workflow, writing-for-agents |
+| `swarm` | swarm-architect, lead-dev, lead-dev-hybrid, junior-dev, git-specialist | swarm-handoff, git-workflow, writing-for-agents, hybrid-delegate |
 
 OpenCode, Antigravity and Codex get every agent and skill globally.
 
@@ -67,6 +68,7 @@ OpenCode, Antigravity and Codex get every agent and skill globally.
 | Agent | Tier | Role |
 |---|---|---|
 | **lead-dev** | deep | Optional pure orchestrator: plans, dispatches, synthesises |
+| **lead-dev-hybrid** | deep | Hybrid orchestrator: Opus plans, headless workers implement in parallel |
 | **explore** | fast | Read-only context gathering before non-trivial work |
 | **git-specialist** | fast | Worktrees, commit hygiene, branch state |
 | **junior-dev** | fast | Batches of mechanical edits |
