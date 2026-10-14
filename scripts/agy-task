@@ -17,6 +17,13 @@ Everything lands under $AGY_TASK_DIR (default ~/.agy-tasks/<repo>/<slug>): the w
 result.json and agy.log. agy's own "status" is SUCCESS even when tools were denied, so
 result.json carries a recomputed "ok".
 
+Invoked as opencode-task (a symlink) it drives `opencode run`: branches opencode/<slug>, tasks under
+$OPENCODE_TASK_DIR (default ~/.opencode-tasks). A per-run config overlay (OPENCODE_CONFIG_CONTENT, this
+process only) allows edits, limits the shell to test/build runners and read-only git, and turns off
+subagents; the user's own OpenCode config is untouched. --yolo lifts the shell limit (not sandboxed).
+
+The running-task limit is shared: agy, codex and opencode tasks together never exceed it.
+
 Invoked as codex-task (a symlink to this file) it drives `codex exec` instead: branches
 codex/<slug>, tasks under $CODEX_TASK_DIR (default ~/.codex-tasks), at most $CODEX_TASK_MAX.
 Codex runs in its own workspace-write sandbox, so it CAN run shell commands (tests, builds),
@@ -26,7 +33,8 @@ but only writes inside the worktree and has no network. --model defaults to the 
 import argparse, hashlib, json, os, re, shutil, signal, subprocess, sys
 from pathlib import Path
 
-PROG = "codex-task" if Path(sys.argv[0]).name == "codex-task" else "agy-task"  # codex-task is a symlink
+PROG = Path(sys.argv[0]).name  # codex-task and opencode-task are symlinks to this file
+PROG = PROG if PROG in ("codex-task", "opencode-task") else "agy-task"
 
 
 def seconds(s):
@@ -58,13 +66,18 @@ def agy_parse(out, err):
             "timed_out": bool(re.search(r"print timeout", err))}
 
 
-def codex_cmd(task, prompt, a, resume_id):
-    opts = task / "codex-opts.json"  # codex exec resume forgets model and effort, so keep them
+def remembered_opts(task, a, resume_id):
+    """Model and effort of the first run: codex and opencode forget them on resume."""
+    f = task / "opts.json"
     if resume_id:
-        o = json.loads(opts.read_text()) if opts.exists() else {}
-    else:
-        o = {"model": a.model, "effort": a.effort}
-        opts.write_text(json.dumps(o))
+        return json.loads(f.read_text()) if f.exists() else {}
+    o = {"model": a.model, "effort": a.effort}
+    f.write_text(json.dumps(o))
+    return o
+
+
+def codex_cmd(task, prompt, a, resume_id):
+    o = remembered_opts(task, a, resume_id)
     sandbox = "danger-full-access" if a.yolo else "workspace-write"
     if a.yolo:
         print("codex-task: --yolo, codex is unsandboxed", file=sys.stderr)
@@ -95,12 +108,82 @@ def codex_parse(out, err):
     return r  # sandbox blocks surface as failed commands in the response, not as denials
 
 
-BACKEND = {
+# Applied only to the delegated run (OPENCODE_CONFIG_CONTENT), so the user's own OpenCode config is
+# untouched: edits allowed, the shell limited to test/build runners and read-only git, no subagents.
+OPENCODE_OVERLAY = {
+    "default_agent": "build",
+    "permission": {
+        "edit": "allow", "webfetch": "deny", "task": "deny",
+        "bash": {"*": "deny", **{c: "allow" for c in (
+            "npm test*", "npm run *", "pnpm test*", "pnpm run *", "yarn test*", "yarn run *", "bun test*",
+            "bun run *", "npx tsc*", "npx vitest*", "npx jest*", "python3 -m pytest*", "python -m pytest*",
+            "pytest*", "python3 -m unittest*", "python -m unittest*", "go test*", "go build*", "go vet*",
+            "cargo test*", "cargo build*", "cargo check*", "make test*", "make check*",
+            "git status*", "git diff*", "git log*", "git show*", "ls*")}},
+    },
+}
+
+
+def opencode_cmd(task, prompt, a, resume_id):
+    o = remembered_opts(task, a, resume_id)
+    if a.yolo:
+        print("opencode-task: --yolo, the shell is unrestricted and unsandboxed", file=sys.stderr)
+    # --dir is required: from a linked worktree's cwd alone, opencode edits the main checkout.
+    cmd = ["opencode", "run", "--format", "json", "--agent", "build", "--title", f"delegate: {task.name}",
+           "--dir", str(task / "worktree")]
+    cmd += (["-s", resume_id] if resume_id else []) + (["-m", o["model"]] if o.get("model") else []) \
+        + (["--variant", o["effort"]] if o.get("effort") else [])
+    return cmd + ["--", prompt]
+
+
+def opencode_env(a):
+    overlay = json.loads(json.dumps(OPENCODE_OVERLAY))
+    if a.yolo:
+        overlay["permission"]["bash"] = "allow"
+    return {**os.environ, "OPENCODE_CONFIG_CONTENT": json.dumps(overlay)}
+
+
+def opencode_parse(out, err):
+    r = {"done": False, "conversation_id": None, "usage": None, "response": "", "denied": [],
+         "timed_out": False}
+    failed, usage = False, {}
+    for line in out.splitlines():
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        t, part = e.get("type"), e.get("part") or {}
+        r["conversation_id"] = r["conversation_id"] or e.get("sessionID")
+        if t == "error":
+            failed = True
+        elif t == "text" and part.get("text", "").strip():
+            r["response"] = part["text"]
+        elif t == "step_finish":
+            r["done"] = True
+            tok = part.get("tokens") or {}
+            for k in ("input", "output", "reasoning"):
+                usage[k] = usage.get(k, 0) + tok.get(k, 0)
+            usage["cache_read"] = usage.get("cache_read", 0) + (tok.get("cache") or {}).get("read", 0)
+        elif t == "tool_use":
+            st = part.get("state") or {}
+            if st.get("status") == "error" and "rule which prevents" in str(st.get("error", "")):
+                inp = st.get("input") or {}
+                r["denied"].append(inp.get("command") or part.get("tool", "tool"))
+    r["done"] = r["done"] and not failed
+    r["usage"] = usage or None
+    return r
+
+
+BACKENDS = {
     "agy-task": {"cli": "agy", "env": "AGY_TASK", "home": ".agy-tasks",
                  "model": "gemini-3.8-flash-high", "cmd": agy_cmd, "parse": agy_parse, "grace": 30},
     "codex-task": {"cli": "codex", "env": "CODEX_TASK", "home": ".codex-tasks",
                    "model": None, "cmd": codex_cmd, "parse": codex_parse, "grace": 0},
-}[PROG]
+    "opencode-task": {"cli": "opencode", "env": "OPENCODE_TASK", "home": ".opencode-tasks",
+                      "model": "opencode/longcat-2.5-preview-free", "cmd": opencode_cmd,
+                      "parse": opencode_parse, "grace": 0, "proc_env": opencode_env},
+}
+BACKEND = BACKENDS[PROG]
 CLI = BACKEND["cli"]
 
 
@@ -108,7 +191,8 @@ def alive(pidfile):
     try:
         pid = int(pidfile.read_text())
         os.kill(pid, 0)
-        return PROG.encode() in Path(f"/proc/{pid}/cmdline").read_bytes()  # not a recycled pid
+        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
+        return any(name.encode() in cmdline for name in BACKENDS)  # not a recycled pid
     except (OSError, ValueError):
         return False
 
@@ -130,8 +214,11 @@ def run_task(task, prompt, a, resume_id=None, warnings=()):
     wt = task / "worktree"
     (task / "pid").write_text(str(os.getpid()))
     cmd = BACKEND["cmd"](task, prompt, a, resume_id)
+    main = Path(sh("git", "rev-parse", "--path-format=absolute", "--git-common-dir", cwd=wt)).parent
+    main_before = sh("git", "status", "--porcelain", cwd=main, check=False)
     # Own process group so a SIGTERM/SIGINT to us (or a timeout) takes the agent and its tools down too.
-    p = subprocess.Popen(cmd, cwd=wt, text=True, stdin=subprocess.DEVNULL, start_new_session=True,
+    env = BACKEND["proc_env"](a) if "proc_env" in BACKEND else None
+    p = subprocess.Popen(cmd, cwd=wt, env=env, text=True, stdin=subprocess.DEVNULL, start_new_session=True,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     interrupted = []
 
@@ -169,6 +256,8 @@ def run_task(task, prompt, a, resume_id=None, warnings=()):
     (task / f"{CLI}.log").write_text(f"{err}\n{out}")
     res = BACKEND["parse"](out, err)
     warnings = list(warnings)
+    if sh("git", "status", "--porcelain", cwd=main, check=False) != main_before:
+        warnings.append(f"main checkout changed during the run ({main}): check `git status` there")
     if interrupted:
         warnings.append(f"interrupted: {CLI} was stopped before it finished")
     if res["timed_out"]:
@@ -185,7 +274,7 @@ def run_task(task, prompt, a, resume_id=None, warnings=()):
         changed = "uncommitted changes"
     denied = res["denied"]
     review = a.review
-    incomplete = any(w.startswith(("interrupted", "timed out", "commit failed")) for w in warnings)
+    incomplete = any(w.startswith(("interrupted", "timed out", "commit failed", "main checkout changed")) for w in warnings)
     produced = bool(res["response"].strip()) if review else changed != "no changes"
     ok = res["done"] and not denied and code == 0 and not incomplete and produced
     result = {"ok": ok, "slug": task.name, "branch": f"{CLI}/{task.name}", "worktree": str(wt), "review": review,
@@ -219,7 +308,9 @@ def main():
     # task worktree or a submodule.
     repo = Path(sh("git", "worktree", "list", "--porcelain").splitlines()[0].split(" ", 1)[1])
     key = f"{repo.name}-{hashlib.sha1(str(repo).encode()).hexdigest()[:6]}"
-    root = Path(os.environ.get(f"{BACKEND['env']}_DIR", Path.home() / BACKEND["home"])) / key
+    def home(b):
+        return Path(os.environ.get(f"{b['env']}_DIR", Path.home() / b["home"])) / key
+    root = home(BACKEND)
     if a.cmd == "list":
         for d in sorted(root.glob("*/")) if root.exists() else []:
             r = json.loads((d / "result.json").read_text()) if (d / "result.json").exists() else {}
@@ -244,9 +335,10 @@ def main():
         sh("git", "branch", "-D", branch, cwd=repo, check=False)
         return 0
 
-    running = [f for f in root.glob("*/pid") if alive(f)]
+    # One limit for all backends: they share the box.
+    running = [f for b in BACKENDS.values() for f in home(b).glob("*/pid") if alive(f)]
     if len(running) >= int(os.environ.get(f"{BACKEND['env']}_MAX", 3)):
-        sys.exit(f"{PROG}: {len(running)} tasks already running; wait for one ({PROG} list)")
+        sys.exit(f"{PROG}: {len(running)} delegated tasks already running (all backends); wait for one")
     prompt = sys.stdin.read() if a.prompt == "-" else a.prompt
     if not prompt:
         sys.exit(f"{PROG}: a prompt (or -) is required")

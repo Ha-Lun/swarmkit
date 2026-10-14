@@ -1,6 +1,6 @@
 ---
 name: agy-delegate
-description: Use when handing a self-contained task to a headless Antigravity (agy) instance from Claude Code, for a second model's independent review, or for bulk edits on separate quota, run in parallel on isolated git worktrees. Not for small tasks or anything needing Claude's context.
+description: Use when handing a self-contained task to a headless Antigravity (agy) instance from Claude Code, for implementation from an approved plan (see delegate-implementation), a second model's independent review, or bulk edits on separate quota, run in parallel on isolated git worktrees. Not for small tasks or anything needing Claude's context.
 ---
 
 # Delegating to agy

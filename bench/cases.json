@@ -867,6 +867,21 @@
       "applies_to": [
         "claude"
       ]
+    },
+    {
+      "id": "delegate-after-plan",
+      "title": "An approved multi-file plan is implemented by a delegated worker",
+      "category": "positive",
+      "fixture": "plan",
+      "prompt": "This plan is already approved; implement it now. 1) In src/api.js, make fetchJson retry failed requests (HTTP 5xx or a thrown fetch error) up to 3 attempts with exponential backoff starting at 100 ms. 2) Add test/api.test.js covering: success on the first try, success after one 500, and an error after three 500s. 3) Fix the README typo 'recieve'.",
+      "expect": {
+        "bash_all": [
+          "-task start"
+        ]
+      },
+      "applies_to": [
+        "claude"
+      ]
     }
   ]
 }

@@ -201,37 +201,26 @@ To link your own self-hosted n8n securely:
 - **Zero hardcoded credentials**: No personal URLs, Tailscale hostnames, or API keys are committed to Git.
 - **Local-only config**: Endpoints reside strictly in `~/.config/swarmkit/n8n.env` (or your shell profile) making them accessible only to the running agent on your local machine.
 
-## 🧭 Delegating to agy from Claude Code
+## 🧭 Opus plans, cheaper models implement
 
-`agy-task` runs one headless `agy` task on its own git worktree and branch `agy/<slug>`,
-then writes `result.json`. The `agy-delegate` skill tells Claude when to use it—such
-as for an independent diff review by a second model or bulk edits on separate
-quota without consuming Claude tokens.
+Claude Code is meant to run on Opus for the thinking and hand the implementation to headless workers on their own quota. After a plan is approved, the `delegate-implementation` skill splits it into self-contained tasks (one per group of files), picks a worker, then reviews, tests and merges each branch. Small edits, context-heavy work and security-sensitive code stay with Claude.
 
-Tasks are managed with the `start`, `resume`, `list`, and `clean` commands. You can
-launch an advisory review task in the background with `--review`:
+All three workers are the same script (`scripts/agy-task`; the others are symlinks to it) with the same commands (`start`, `resume`, `list`, `clean`), `result.json` and `--review`. Each task runs on its own git worktree and branch `<cli>/<slug>`, and at most 3 run at once across all of them.
+
+| Worker | Runs | Can run tests? | Notes |
+|---|---|---|---|
+| `agy-task` | `agy -p`, Gemini on agy's quota | No: edit-only, Claude runs the tests | `agy-delegate` skill. `--yolo` allows shell, unsandboxed |
+| `opencode-task` | `opencode run`, free models | Yes: shell limited to test/build runners and read-only git | `opencode-delegate` skill. A per-run config overlay; your own OpenCode config is untouched |
+| `codex-task` | `codex exec` (opt-in: `./install.sh --codex --claude`) | Yes, in Codex's `workspace-write` sandbox (no network) | `codex-delegate` skill. `--yolo` lifts the sandbox |
 
 ```bash
 agy-task start diff-review "Review the auth refactor for regressions" --review
+opencode-task start api-retry "Add retry to fetchJson in src/api.js ... verify with: npm test" --setup "ln -s $PWD/node_modules node_modules"
 ```
 
-By default, tasks are edit-only so `agy` cannot run shell commands, meaning Claude
-must run tests itself in the worktree before merging. While a `--yolo` flag exists
-to permit shell commands, it is unsandboxed. Once verified, merge `agy/<slug>`
-and clean the worktree.
+Workers see only committed state and get no network for installs (use `--setup`). `ok` in `result.json` is recomputed by the wrapper (agy reports success even when blocked), and a run that touches your main checkout instead of its worktree is flagged and never `ok`. Never merge a branch you haven't reviewed.
 
-## 🧭 Delegating to Codex from Claude Code
-
-Optional: needs the `codex` CLI and `./install.sh --codex --claude`. `codex-task` is the same tool driving `codex exec` instead (it is a symlink to `agy-task`):
-same commands, `result.json` and `--review`, on branch `codex/<slug>`. The `codex-delegate`
-skill tells Claude when to use it. Unlike agy, Codex runs in its own `workspace-write`
-sandbox, so it can run your tests itself, but it writes only inside the worktree and has
-no network. `--yolo` switches the sandbox to `danger-full-access`. It uses the model in
-`~/.codex/config.toml` unless you pass `--model`.
-
-```bash
-codex-task start add-tests "Add unit tests for src/api.js and run npm test" --setup "ln -s $PWD/node_modules node_modules"
-```
+**Running alongside your own OpenCode.** Delegated runs set their config through an environment variable for that one process, so your interactive OpenCode keeps its own agents, rules and permissions. They share your account's quota and rate limits, your login, and the session history (titled `delegate: <slug>`).
 
 ## 🔄 Multi-account switching (agyw)
 

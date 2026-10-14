@@ -5,6 +5,7 @@ All notable changes to the opencode-config repository.
 ## [Unreleased]
 
 ### Added
+- feat: `opencode-task` (headless `opencode run` on free models, shell limited by a per-run config overlay) and the `delegate-implementation` skill: after an approved plan, Claude hands implementation to agy/OpenCode and reviews, tests and merges the branches; one running-task limit across all workers; any run that changes the main checkout is flagged
 - feat: Codex as an opt-in fourth build target (`codex/agents/*.toml`, `codex/AGENTS.md`, `./install.sh --codex`, not in `--all`) and `codex-task` + `codex-delegate` skill for headless delegation from Claude Code; `agy-task` now picks its backend from the program name
 - animation-specialist agent for 2D/3D web animation (Motion, GSAP, Anime.js, React Spring; Three.js, R3F, Drei) — model opencode-go/hy3 at temperature 0.3
 - Task complexity classification and cost-aware routing in lead-dev
