@@ -187,7 +187,7 @@ BACKENDS = {
     "codex-task": {"cli": "codex", "env": "CODEX_TASK", "home": ".codex-tasks",
                    "model": None, "cmd": codex_cmd, "parse": codex_parse, "grace": 0},
     "opencode-task": {"cli": "opencode", "env": "OPENCODE_TASK", "home": ".opencode-tasks",
-                      "model": "opencode-go/longcat-2.5-preview-free", "cmd": opencode_cmd,
+                      "model": "opencode-go/cat-jam-free", "cmd": opencode_cmd,
                       "parse": opencode_parse, "grace": 0, "proc_env": opencode_env},
 }
 BACKEND = BACKENDS[PROG]

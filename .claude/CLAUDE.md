@@ -7,7 +7,7 @@ One source of truth, compiled for four CLIs.
 - `core/skills/<name>/SKILL.md` — shared skills
 - `core/rules/AGENTS.md` — shared rules; `claude/rules.md`, `opencode/rules.md`, `antigravity/rules.md`, `codex/rules.md` — per-CLI addenda
 - `scripts/build.py` — the compiler, including the tier → model table
-- `scripts/agy-task` — headless delegation; `scripts/codex-task` is a symlink to it
+- `scripts/agy-task` — headless delegation; `scripts/codex-task` and `scripts/opencode-task` are symlinks to it
 - `core/mcp.json` (Claude Code + Antigravity MCP servers), `opencode/opencode.jsonc`, `opencode/command/`, `claude/hooks/guard.py`
 
 Install with `./install.sh --claude|--opencode|--agy|--all` (`--codex` is opt-in); it symlinks into each CLI's config dir and backs up anything it replaces.
