@@ -173,7 +173,7 @@ def s3_signals(repo):
     trigger = re.compile(r'\bproactively\b|\buse (?:it |this agent )?when(?:ever)?\b', re.I)
     # Core agents (claude/agents) keep one-line descriptions; pack specialists need trigger wording.
     lacking = [n for n, p in agent_files(repo, 'claude').items()
-               if '/packs/' in p and n != 'lead-dev' and not trigger.search(frontmatter(p)[0].get('description', ''))]
+               if '/packs/' in p and n not in ('lead-dev', 'lead-dev-hybrid') and not trigger.search(frontmatter(p)[0].get('description', ''))]
     rec(cat, 'every Claude pack specialist description has trigger wording', not lacking,
         f'no "proactively"/"Use when" in: {", ".join(lacking)}' if lacking else '')
     for cli in ('claude', 'antigravity', 'codex'):

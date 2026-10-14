@@ -32,14 +32,16 @@ Everything else in the approved plan goes to a worker.
    | Second opinion on your own diff | `agy-task --review --model gemini-3.1-pro-high`, or `codex-task --review` if Codex is installed |
    | Context-dependent work that cannot be handed off cold | Your own `Agent` subagents (Claude lane) |
 
+   Prompt additions that avoid wasted resumes: tell opencode workers "you are already in the worktree; do not `cd`", give them the exact verify command (`node test/x.test.js`, `npm test -- src/x`), and tell agy workers "file view/search/edit tools only, no shell".
 5. **Keep slots full.** Start workers with a background Bash call. The running-task limit is **shared across all backends**; the wrapper reads it from the invoked backend's `*_TASK_MAX` (default 3). Do not treat it as 3 per backend. When a task lands and is merged or discarded, immediately start the next queued task so both quotas stay busy.
 6. **Review and merge as results land.** For each finished task:
    - Trust only `ok` in `result.json`; `agy` reports `SUCCESS` even when blocked.
-   - Read `git diff <base>..<cli>/<slug>`; the diff is the truth.
+   - Read `git diff <base>..<cli>/<slug>`; the diff is the truth. An agy task that is `NOT ok` only because it tried a shell command (denied `RunCommand`) but produced a diff is not a failure: review the diff and run the verify command yourself instead of resuming.
    - Rerun the verify command in the worktree yourself.
    - If something is wrong, `resume` once with concrete feedback (file, line, expected behaviour).
    - `git merge <cli>/<slug>`, then `<cli>-task clean <slug>`.
-7. **After the last merge:** run the full test suite, then apply the usual quality gate (`security-auditor`, `code-proofreader`, `release-tester` as the change requires). Report to the user which parts went to which worker/backend.
+7. **Cheap second opinion before you report.** Your own review reads diffs on Claude quota; a different model catches different mistakes on other quota. For merged logic of more than ~50 lines, run `agy-task start review-<n> --review --model gemini-3.1-pro-high` on the merged diff (or `codex-task --review`) and read only its findings. Skip it for boilerplate and renames.
+8. **After the last merge:** run the full test suite, then apply the usual quality gate (`security-auditor`, `code-proofreader`, `release-tester` as the change requires). Report to the user which parts went to which worker/backend.
 
 ## Safety facts
 

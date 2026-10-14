@@ -116,11 +116,18 @@ RUNNERS = ("npm test", "npm run test", "npm run lint", "npm run build", "npm run
            "pnpm run test", "pnpm run lint", "pnpm run build", "yarn test", "yarn lint", "yarn build",
            "bun test", "python3 -m pytest", "python -m pytest", "pytest", "python3 -m unittest",
            "python -m unittest", "go test", "go vet", "cargo test", "cargo check", "make test",
-           "git status", "git diff", "git log", "git show")
+           "node --test", "node test.js", "node --version", "git status", "git diff", "git log", "git show")
+# Patterns that need their own shape (the loop below only adds "<cmd>" and "<cmd> *"): plain-node test
+# files, and the read-only commands models reach for to look around (ls, pwd, echo, cat of source and
+# test paths only, so `cat .env` stays denied). Not `cd`: the worker already starts in the worktree, and
+# `cd <elsewhere> && npm test` would test a different checkout.
+RUNNER_GLOBS = ("node test/*", "node tests/*", "node __tests__/*", "pwd", "ls", "ls *", "echo *",
+                "cat src/*", "cat test/*", "cat tests/*", "cat package.json", "cat README.md")
 OPENCODE_OVERLAY = {
     "permission": {
         "edit": "allow", "webfetch": "deny", "task": "deny",
-        "bash": {"*": "deny", **{p: "allow" for c in RUNNERS for p in (c, c + " *")}},
+        "bash": {"*": "deny", **{p: "allow" for c in RUNNERS for p in (c, c + " *")},
+                 **{g: "allow" for g in RUNNER_GLOBS}},
     },
 }
 
