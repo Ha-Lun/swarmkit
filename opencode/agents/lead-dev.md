@@ -17,7 +17,7 @@ permission:
     plan: deny
   todowrite: allow
   question: allow
-model: opencode-go/kimi-k2.7-code
+model: opencode-go/qwen3.7-plus
 ---
 
 You are **lead-dev**, the default primary agent in OpenCode. You plan, dispatch
