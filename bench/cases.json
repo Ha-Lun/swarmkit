@@ -615,6 +615,32 @@
       "src/orders.js": "const { fetchJson } = require('./api');\n\nasync function getOrder(id) {\n  return fetchJson(`/api/orders/${id}`);\n}\n\nmodule.exports = { getOrder };\n",
       "src/products.js": "const { fetchJson } = require('./api');\n\nasync function listProducts() {\n  return fetchJson('/api/products');\n}\n\nmodule.exports = { listProducts };\n",
       "test/orders.test.js": "const assert = require('assert');\nglobal.fetch = async () => ({ ok: true, json: async () => ({ id: 1 }) });\nconst { getOrder } = require('../src/orders');\ngetOrder(1).then((o) => assert.strictEqual(o.id, 1));\n"
+    },
+    "migration": {
+      "README.md": "# tiny-shop\n\nA small shop backend. Prices are stored with `cents()` and displayed with `formatPrice()`.\n",
+      "src/format.js": "function cents(n) {\n  return Math.round(n);\n}\n\nfunction formatPrice(c) {\n  return '$' + (c / 100).toFixed(2);\n}\n\nmodule.exports = { cents, formatPrice };\n",
+      "src/cart.js": "const { cents } = require('./format');\n\nfunction total(items) {\n  return items.reduce((sum, i) => sum + cents(i.price * i.qty), 0);\n}\n\nmodule.exports = { total };\n",
+      "src/orders.js": "const { cents } = require('./format');\n\nfunction orderTotal(order) {\n  return cents(order.subtotal + order.tax);\n}\n\nmodule.exports = { orderTotal };\n",
+      "src/products.js": "const { cents, formatPrice } = require('./format');\n\nfunction listProduct(p) {\n  const priceCents = cents(p.price);\n  return { ...p, priceCents, label: formatPrice(priceCents) };\n}\n\nmodule.exports = { listProduct };\n",
+      "src/inventory.js": "const { cents } = require('./format');\n\nfunction value(qty, unitPrice) {\n  return cents(qty * unitPrice);\n}\n\nmodule.exports = { value };\n",
+      "src/index.js": "const { total } = require('./cart');\nconst { orderTotal } = require('./orders');\nconst { listProduct } = require('./products');\nconst { value } = require('./inventory');\nconst { cents, formatPrice } = require('./format');\n\nmodule.exports = { total, orderTotal, listProduct, value, cents, formatPrice };\n",
+      "test.js": "const assert = require('assert');\nconst { cents, formatPrice, total, orderTotal, listProduct, value } = require('./src/index');\n\nassert.strictEqual(cents(1.234), 1);\nassert.strictEqual(formatPrice(123), '$1.23');\nassert.strictEqual(total([{ price: 2.5, qty: 3 }]), 8);\nassert.strictEqual(orderTotal({ subtotal: 10.4, tax: 0.6 }), 11);\nconst p = listProduct({ id: 1, price: 5.555 });\nassert.strictEqual(p.priceCents, 6);\nassert.strictEqual(p.label, '$0.06');\nassert.strictEqual(value(3, 1.4), 4);\nconsole.log('all tests passed');\n",
+      "test/cart.test.js": "const assert = require('assert');\nconst { total } = require('../src/cart');\nconst { cents } = require('../src/format');\n\nassert.strictEqual(total([{ price: 1.1, qty: 2 }]), 2);\nassert.strictEqual(cents(2.5), 3);\nconsole.log('cart tests passed');\n",
+      "test/orders.test.js": "const assert = require('assert');\nconst { orderTotal } = require('../src/orders');\nconst { cents } = require('../src/format');\n\nassert.strictEqual(orderTotal({ subtotal: 5.5, tax: 0.5 }), 6);\nassert.strictEqual(cents(4.4), 4);\nconsole.log('orders tests passed');\n",
+      "test/inventory.test.js": "const assert = require('assert');\nconst { value } = require('../src/inventory');\nconst { cents } = require('../src/format');\n\nassert.strictEqual(value(10, 0.99), 10);\nassert.strictEqual(cents(9.8), 10);\nconsole.log('inventory tests passed');\n"
+    },
+    "features": {
+      "README.md": "# tiny-shop\n\nA small shop backend.\n",
+      "src/slugify.js": "function slugify(s) {\n  throw new Error('TODO: implement slugify');\n}\n\nmodule.exports = { slugify };\n",
+      "src/email.js": "function isEmail(s) {\n  throw new Error('TODO: implement isEmail');\n}\n\nmodule.exports = { isEmail };\n",
+      "src/range.js": "function clamp(n, lo, hi) {\n  throw new Error('TODO: implement clamp');\n}\n\nmodule.exports = { clamp };\n",
+      "src/pad.js": "function padLeft(s, n, ch) {\n  throw new Error('TODO: implement padLeft');\n}\n\nmodule.exports = { padLeft };\n",
+      "src/unique.js": "function unique(xs) {\n  throw new Error('TODO: implement unique');\n}\n\nmodule.exports = { unique };\n",
+      "test/slugify.test.js": "const assert = require('assert');\nconst { slugify } = require('../src/slugify');\n\nassert.strictEqual(slugify('Hello World'), 'hello-world');\nassert.strictEqual(slugify('\\u00c4\\u00d6\\u00dc\\u00df'), 'aeoeuess');\nassert.strictEqual(slugify('a--b  c'), 'a-b-c');\nassert.strictEqual(slugify('-leading-trailing-'), 'leading-trailing');\nassert.strictEqual(slugify(''), '');\nconsole.log('slugify tests passed');\n",
+      "test/email.test.js": "const assert = require('assert');\nconst { isEmail } = require('../src/email');\n\nassert.strictEqual(isEmail('a@b.com'), true);\nassert.strictEqual(isEmail('foo.bar+tag@example.co.uk'), true);\nassert.strictEqual(isEmail('notanemail'), false);\nassert.strictEqual(isEmail('a@b'), false);\nassert.strictEqual(isEmail('a @b.com'), false);\nassert.strictEqual(isEmail('a@@b.com'), false);\nassert.strictEqual(isEmail('a'.repeat(250) + '@b.com'), false);\nconsole.log('email tests passed');\n",
+      "test/range.test.js": "const assert = require('assert');\nconst { clamp } = require('../src/range');\n\nassert.strictEqual(clamp(5, 0, 10), 5);\nassert.strictEqual(clamp(-3, 0, 10), 0);\nassert.strictEqual(clamp(15, 0, 10), 10);\nassert.throws(() => clamp(5, 10, 0), TypeError);\nconsole.log('range tests passed');\n",
+      "test/pad.test.js": "const assert = require('assert');\nconst { padLeft } = require('../src/pad');\n\nassert.strictEqual(padLeft('hi', 5), '   hi');\nassert.strictEqual(padLeft('hi', 5, '0'), '000hi');\nassert.strictEqual(padLeft('hello', 3), 'llo');\nassert.strictEqual(padLeft('hi', 2), 'hi');\nconsole.log('pad tests passed');\n",
+      "test/unique.test.js": "const assert = require('assert');\nconst { unique } = require('../src/unique');\n\nassert.deepStrictEqual(unique([1, 2, 3, 2, 1]), [1, 2, 3]);\nassert.deepStrictEqual(unique(['a', 'b', 'a']), ['a', 'b']);\nconst withNaN = unique([NaN, 1, NaN, 2, NaN]);\nassert.strictEqual(withNaN.length, 3);\nassert.ok(Number.isNaN(withNaN[0]));\nassert.strictEqual(withNaN[1], 1);\nassert.strictEqual(withNaN[2], 2);\nassert.deepStrictEqual(unique([]), []);\nconsole.log('unique tests passed');\n"
     }
   },
   "cases": [

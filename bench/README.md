@@ -78,23 +78,31 @@ OpenCode's free tier rejects non-interactive runs ("can only be used from within
 
 ## Cost comparison (compare.py)
 
-`bench/compare.py` runs the same real implementation task under three Claude Code variants and measures Claude-side cost, wall time, and delegated-worker quota:
+`bench/compare.py` runs one or more real implementation tasks under three Claude Code variants and measures Claude-side cost, wall time, and delegated-worker quota:
 
 - `stock`: `claude -p` with no agent.
 - `lead-dev`: `claude -p --agent lead-dev`.
 - `hybrid`: `claude -p --agent lead-dev-hybrid`.
 
-The task is the approved plan from the `delegate-after-plan` case: add retry-with-backoff to `src/api.js`, add `test/api.test.js`, and fix the README typo. Every variant gets a fresh `plan` fixture, the same prompt, and the same `--permission-mode` (default `bypassPermissions` because the fixture is disposable and contains no secrets). After each run the script reads any new or updated worker task directories under `~/.agy-tasks`, `~/.opencode-tasks`, and `~/.codex-tasks` and aggregates their `result.json` token usage per backend. Worker tokens are backend-specific quota and are **not** converted to USD.
+Three cases are built in:
 
-A fair cost read requires every variant to complete and pass the local verification (`node test.js && node test/api.test.js`); runs that fail verification are marked invalid. Raw event streams are kept under `bench/results/raw/` and a Markdown report plus JSON are written to `bench/results/<timestamp>-compare.*`.
+- `small`: the approved plan from the `delegate-after-plan` case (add retry-with-backoff to `src/api.js`, add `test/api.test.js`, fix the README typo). Verify: `node test.js && node test/api.test.js`.
+- `big`: a mechanical multi-file migration in the `migration` fixture. It renames `cents` to `toCents` across `src/format.js`, five callers, `src/index.js`, four tests, and the README. Verify: `node test.js && node test/cart.test.js && node test/orders.test.js && node test/inventory.test.js`.
+- `features`: five independent stub-to-implementation tasks (`src/slugify.js`, `src/email.js`, `src/range.js`, `src/pad.js`, `src/unique.js`), each with its own failing test file under `test/`. The fixture deliberately fails verification at creation time; implementations must be written from scratch and match the tests exactly. Verify: `node test/slugify.test.js && node test/email.test.js && node test/range.test.js && node test/pad.test.js && node test/unique.test.js`.
+
+The big case is intentionally larger and file-disjoint so that `lead-dev` and `hybrid` should dispatch `agy`/`opencode` workers, while the small task often finishes inline. Every variant gets a fresh fixture, the same prompt, and the same `--permission-mode` (default `bypassPermissions` because the fixture is disposable and contains no secrets). During each run a background sampler periodically reads worker task directories under `~/.agy-tasks`, `~/.opencode-tasks`, and `~/.codex-tasks` and keeps parsed `result.json` records in memory; after the run it aggregates token usage per backend from the sampler plus a final filesystem sweep. Workers that were cleaned up by `<backend>-task clean` during the run are still counted, and a note is added when this happens. Worker attribution and verification logic are otherwise unchanged from the single-case version.
+
+A fair cost read requires every variant to complete and pass the local verification for the selected case; runs that fail verification are marked invalid. Raw event streams are kept under `bench/results/raw/` with names like `<timestamp>-compare-<case>-<variant>-<n>.jsonl`, and a Markdown report plus JSON are written to `bench/results/<timestamp>-compare.*`.
 
 ```bash
-python3 bench/compare.py --dry-run          # resolve commands, build one fixture, run nothing
-python3 bench/compare.py --yes              # run the three variants once (spends quota)
-python3 bench/compare.py --yes --repeat 3   # per-variant means over 3 runs each
+python3 bench/compare.py --dry-run              # resolve commands, build fixtures, run nothing
+python3 bench/compare.py --dry-run --case big   # dry-run the migration case only
+python3 bench/compare.py --yes                  # run both cases under all three variants (spends quota)
+python3 bench/compare.py --yes --case small     # only the small task
+python3 bench/compare.py --yes --repeat 3       # per-(case,variant) means over 3 runs each
 ```
 
-Options: `--variants stock,lead-dev,hybrid`, `--timeout 1800`, `--budget 10.0`, `--model`, `--permission-mode`, `--json PATH`.
+Options: `--case small,big,features` (default `all`), `--variants stock,lead-dev,hybrid`, `--timeout 1800`, `--budget 10.0`, `--model`, `--permission-mode`, `--json PATH`.
 
 ## Adding a case
 

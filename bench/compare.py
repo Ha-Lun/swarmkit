@@ -4,15 +4,38 @@
   python3 bench/compare.py --dry-run
   python3 bench/compare.py --yes
 """
-import argparse, datetime, hashlib, json, os, pathlib, re, shutil, subprocess, sys, tempfile, time
-import yaml
+import argparse, datetime, hashlib, json, os, pathlib, re, shutil, subprocess, sys, tempfile, threading, time
 
 BENCH = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BENCH)
 import run  # noqa: E402
 
+CASES = {
+    "small": {
+        "fixture": "plan",
+        "prompt": None,  # loaded from cases.json case delegate-after-plan
+        "verify": "node test.js && node test/api.test.js",
+    },
+    "big": {
+        "fixture": "migration",
+        "prompt": ("Approved mechanical migration: rename the function `cents` to `toCents` in src/format.js "
+                   "and update every import, destructuring and call site that references it, across src/index.js, "
+                   "src/cart.js, src/orders.js, src/products.js, src/inventory.js, test.js, test/cart.test.js, "
+                   "test/orders.test.js and test/inventory.test.js, plus the README references. Behavior must not change."),
+        "verify": "node test.js && node test/cart.test.js && node test/orders.test.js && node test/inventory.test.js",
+    },
+    "features": {
+        "fixture": "features",
+        "prompt": ("Implement the five functions whose test files already exist and currently fail: "
+                   "src/slugify.js, src/email.js, src/range.js, src/pad.js, src/unique.js. "
+                   "Implement them independently; do NOT modify any test file (tests define the contract). "
+                   "Behavior must match the tests exactly."),
+        "verify": ("node test/slugify.test.js && node test/email.test.js && node test/range.test.js && "
+                   "node test/pad.test.js && node test/unique.test.js"),
+    },
+}
 SUFFIX = ("Non-interactive bench run: do not ask questions or wait for approval; "
-          "decide and proceed. Done when `node test.js && node test/api.test.js` both exit 0.")
+          "decide and proceed. Done when `{verify}` exits 0.")
 BACKENDS = [("agy", "AGY_TASK_DIR", ".agy-tasks"), ("opencode", "OPENCODE_TASK_DIR", ".opencode-tasks"),
             ("codex", "CODEX_TASK_DIR", ".codex-tasks")]
 
@@ -26,41 +49,87 @@ def worker_root(env, home, fx):
     return pathlib.Path(os.environ.get(env, str(pathlib.Path.home() / home))) / task_key(fx)
 
 
-def snapshot(fx):
-    out = {}
-    for name, env, home in BACKENDS:
-        root = worker_root(env, home, fx)
-        if root.exists():
-            for d in root.iterdir():
-                if d.is_dir():
-                    rf = d / "result.json"
-                    out[(name, str(d))] = rf.stat().st_mtime if rf.exists() else 0
-    return out
-
-
 def sum_usage(u):
     if isinstance(u, int):
         return u
     return sum(sum_usage(v) for v in u.values()) if isinstance(u, dict) else 0
 
 
-def diff_workers(before, after, fx, base_sha):
+def sweep_worker_roots(fx):
+    """Read every currently-present worker result.json under the three roots."""
+    out = {}
+    for name, env, home in BACKENDS:
+        root = worker_root(env, home, fx)
+        if not root.exists():
+            continue
+        for d in root.iterdir():
+            if not d.is_dir():
+                continue
+            rf = d / "result.json"
+            if not rf.exists():
+                continue
+            try:
+                with open(rf) as f:
+                    r = json.load(f)
+            except Exception:
+                continue
+            out[(name, str(d))] = r
+    return out
+
+
+def sample_workers(fx, stop, seen):
+    """Daemon sampler: repeatedly sweep worker roots until `stop` is set.
+
+    Only reads files; never writes. Mid-write partials fail json.load and are
+    skipped. The final sweep after the event catches anything written at the end.
+    """
+    while not stop.wait(5):
+        seen.update(sweep_worker_roots(fx))
+    seen.update(sweep_worker_roots(fx))
+
+
+def collect_workers(fx, sample, base_sha):
+    """Build worker list from in-run sample plus a final filesystem sweep.
+
+    `sample` is the sampler's in-memory map of (backend, dir) -> result.json.
+    It survives even when a worker's `<cli>-task clean` deletes the directory.
+    A final sweep catches anything the sampler missed in the last interval.
+    """
     workers = []
-    for key, mtime in after.items():
-        if before.get(key) == mtime:
+    cleaned = []
+    seen = set()
+    for (backend, d), r in sample.items():
+        if r.get("base") != base_sha:
             continue
-        backend, d = key
-        try:
-            with open(pathlib.Path(d) / "result.json") as f:
-                r = json.load(f)
-        except Exception:
-            continue
-        if r.get("base") != base_sha:  # result.json["base"] is the fixture commit this worker started from
-            continue
+        seen.add((backend, d))
         workers.append({"cli": backend, "slug": r.get("slug", pathlib.Path(d).name), "ok": r.get("ok", False),
                         "usage": r.get("usage"), "tokens": sum_usage(r.get("usage")),
                         "denied": r.get("denied_actions", []), "warnings": r.get("warnings", [])})
-    return workers
+        if not pathlib.Path(d).exists():
+            cleaned.append((backend, r.get("slug", pathlib.Path(d).name)))
+    for name, env, home in BACKENDS:
+        root = worker_root(env, home, fx)
+        if not root.exists():
+            continue
+        for d in root.iterdir():
+            if not d.is_dir():
+                continue
+            key = (name, str(d))
+            if key in seen:
+                continue
+            try:
+                with open(d / "result.json") as f:
+                    r = json.load(f)
+            except Exception:
+                continue
+            if r.get("base") != base_sha:
+                continue
+            workers.append({"cli": name, "slug": r.get("slug", d.name), "ok": r.get("ok", False),
+                            "usage": r.get("usage"), "tokens": sum_usage(r.get("usage")),
+                            "denied": r.get("denied_actions", []), "warnings": r.get("warnings", [])})
+    notes = [f"worker {cli}/{slug} cleaned up during the run (counted from in-run sampling)"
+             for cli, slug in cleaned]
+    return workers, notes
 
 
 def parse_usage(u):
@@ -97,31 +166,44 @@ def build_cmd(variant, prompt, args, modes):
     return cmd + ["--permission-mode", mode], None
 
 
-def verify(fx):
-    rc, out, err, _ = run.run(["bash", "-c", "node test.js && node test/api.test.js"], cwd=fx, timeout=120)
+def verify(fx, verify_cmd):
+    rc, out, err, _ = run.run(["bash", "-c", verify_cmd], cwd=fx, timeout=120)
     last = ((out or err).strip().splitlines() or [""])[-1]
     log = len(run.run(["git", "-C", fx, "log", "--oneline"], timeout=30)[1].strip().splitlines())
     dirty = len(run.run(["git", "-C", fx, "status", "--porcelain"], timeout=30)[1].strip().splitlines())
     return {"ok": rc == 0, "exit": rc, "last": last, "logs": log, "dirty": dirty}
 
 
-def run_variant(variant, prompt, args, spec, ts, n):
-    fx = run.make_fixture(spec, "plan", None, "claude")
-    before = snapshot(fx)
+def case_prompt(case_spec, spec):
+    prompt = case_spec["prompt"]
+    if prompt is None:
+        prompt = next(c["prompt"] for c in spec["cases"] if c["id"] == "delegate-after-plan")
+    return prompt + "\n\n" + SUFFIX.format(verify=case_spec["verify"])
+
+
+def run_variant(case_key, case_spec, variant, args, spec, ts, n):
+    prompt = case_prompt(case_spec, spec)
+    fx = run.make_fixture(spec, case_spec["fixture"], None, "claude")
     base_sha = run.run(["git", "-C", fx, "rev-parse", "HEAD"], timeout=30)[1].strip()
     cmd, note = build_cmd(variant, prompt, args, help_modes())
-    print(f"  [{variant}#{n}] {fx}")
+    print(f"  [{case_key} {variant}#{n}] {fx}")
+    seen = {}
+    stop = threading.Event()
+    sampler = threading.Thread(target=sample_workers, args=(fx, stop, seen), daemon=True)
+    sampler.start()
     t0 = time.time()
     rc, out, err, timed_out = run.run(cmd, cwd=fx, env=None, timeout=args.timeout)
     wall = round(time.time() - t0, 1)
-    raw = f"{BENCH}/results/raw/{ts}-compare-{variant}-{n}.jsonl"
+    stop.set()
+    sampler.join(timeout=30)
+    raw = f"{BENCH}/results/raw/{ts}-compare-{case_key}-{variant}-{n}.jsonl"
     os.makedirs(os.path.dirname(raw), exist_ok=True)
     with open(raw, "w") as f:
         f.write(out)
     result = next((e for e in run.events(out) if e.get("type") == "result"), None)
     notes = ([note] if note else []) + (["timed out"] if timed_out else [])
-    r = {"variant": variant, "repeat": n, "status": "ok", "wall_s": wall, "raw": raw, "notes": notes,
-         "workers": [], "worker_tokens": {}, "verify": {}}
+    r = {"case": case_key, "variant": variant, "repeat": n, "status": "ok", "wall_s": wall,
+         "raw": raw, "notes": notes, "workers": [], "worker_tokens": {}, "verify": {}}
     if not result:
         r["status"] = "error"
         notes.append("no result event" if not rc else (err.strip().splitlines() or [f"exit {rc}"])[-1][:160])
@@ -136,7 +218,8 @@ def run_variant(variant, prompt, args, spec, ts, n):
         if result.get("is_error"):
             r["status"] = "error"
             notes.append(str(result.get("result") or "")[:160])
-    workers = diff_workers(before, snapshot(fx), fx, base_sha)
+    workers, cleaned_notes = collect_workers(fx, seen, base_sha)
+    notes.extend(cleaned_notes)
     r["workers"] = workers
     for w in workers:
         r["worker_tokens"][w["cli"]] = r["worker_tokens"].get(w["cli"], 0) + w["tokens"]
@@ -144,7 +227,7 @@ def run_variant(variant, prompt, args, spec, ts, n):
     r["worker_oks"] = sum(1 for w in workers if w["ok"])
     if any(w["denied"] for w in workers):
         notes.append(f"{sum(len(w['denied']) for w in workers)} worker tool denials")
-    r["verify"] = verify(fx)
+    r["verify"] = verify(fx, case_spec["verify"])
     if not r["verify"]["ok"]:
         r["status"] = "verify-failed"
         notes.append(f"verify exit {r['verify']['exit']}")
@@ -161,18 +244,21 @@ def report(runs, ts, args):
     os.makedirs(f"{BENCH}/results", exist_ok=True)
     md, js = f"{BENCH}/results/{ts}-compare.md", f"{BENCH}/results/{ts}-compare.json"
     json.dump({"timestamp": ts, "args": vars(args), "runs": runs}, open(js, "w"), indent=2)
-    grouped = {v: [r for r in runs if r["variant"] == v] for v in args.variants}
+    grouped = {}
+    for row in runs:
+        grouped.setdefault((row["case"], row["variant"]), []).append(row)
     lines = [f"# Claude Code variant comparison ({ts})", "",
-             "| variant | wall_s | duration_s | turns | input | output | cache_read | cache_creation | cost_usd | worker_tokens | verify | workers | notes |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
-    for v in args.variants:
-        rows = grouped[v]
+             "| case | variant | wall_s | duration_s | turns | input | output | cache_read | cache_creation | cost_usd | worker_tokens | verify | workers | notes |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for key in grouped:
+        rows = grouped[key]
         if not rows:
             continue
+        case, v = key
         if args.repeat == 1:
             r = rows[0]
             wt = ", ".join(f"{k}={r['worker_tokens'][k]}" for k in sorted(r["worker_tokens"])) or "-"
-            lines.append(f"| {v} | {r['wall_s']} | {r['duration_s']} | {r['turns']} | {r['input_tokens']} | "
+            lines.append(f"| {case} | {v} | {r['wall_s']} | {r['duration_s']} | {r['turns']} | {r['input_tokens']} | "
                          f"{r['output_tokens']} | {r['cache_read']} | {r['cache_creation']} | {r.get('cost_usd')} | "
                          f"{wt} | {'pass' if r['verify'].get('ok') else 'FAIL'} | {r['worker_tasks']}/{r['worker_oks']} | "
                          f"{'; '.join(r['notes']) or '-'} |")
@@ -181,7 +267,7 @@ def report(runs, ts, args):
                            for k in sorted({k for r in rows for k in r["worker_tokens"]})) or "-"
             pass_rate = sum(1 for r in rows if r["verify"].get("ok")) / len(rows)
             notes = "; ".join(sorted({n for r in rows for n in r["notes"]})) or "-"
-            lines.append(f"| {v} (mean) | {avg(rows,'wall_s')} | {avg(rows,'duration_s')} | {avg(rows,'turns')} | "
+            lines.append(f"| {case} | {v} (mean) | {avg(rows,'wall_s')} | {avg(rows,'duration_s')} | {avg(rows,'turns')} | "
                          f"{avg(rows,'input_tokens')} | {avg(rows,'output_tokens')} | {avg(rows,'cache_read')} | "
                          f"{avg(rows,'cache_creation')} | {avg(rows,'cost_usd')} | {wt} | {pass_rate:.0%} pass | "
                          f"{avg(rows,'worker_tasks')}/{avg(rows,'worker_oks')} | {notes} |")
@@ -191,11 +277,11 @@ def report(runs, ts, args):
               f"Lowest Claude-side spend among runs shown: inspect the cost_usd column above."]
     if args.repeat > 1:
         lines += ["", "## Per-run details", "",
-                  "| variant | # | wall_s | duration_s | turns | cost_usd | verify | notes |",
-                  "|---|---|---|---|---|---|---|---|"]
+                  "| case | variant | # | wall_s | duration_s | turns | cost_usd | verify | notes |",
+                  "|---|---|---|---|---|---|---|---|---|"]
         for r in runs:
-            lines.append(f"| {r['variant']} | {r['repeat']} | {r['wall_s']} | {r['duration_s']} | {r['turns']} | "
-                         f"{r.get('cost_usd')} | {'pass' if r['verify'].get('ok') else 'FAIL'} | "
+            lines.append(f"| {r['case']} | {r['variant']} | {r['repeat']} | {r['wall_s']} | {r['duration_s']} | "
+                         f"{r['turns']} | {r.get('cost_usd')} | {'pass' if r['verify'].get('ok') else 'FAIL'} | "
                          f"{'; '.join(r['notes']) or '-'} |")
     open(md, "w").write("\n".join(lines) + "\n")
     return md, js
@@ -204,6 +290,7 @@ def report(runs, ts, args):
 def main():
     ap = argparse.ArgumentParser(description="Compare Claude Code variants on the same implementation task.")
     ap.add_argument("--yes", action="store_true", help="confirm spending model quota")
+    ap.add_argument("--case", default="all", help="comma-separated case key(s): small, big, features")
     ap.add_argument("--repeat", type=int, default=1)
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--budget", type=float, default=10.0)
@@ -216,37 +303,49 @@ def main():
     args.variants = [v.strip() for v in args.variants.split(",") if v.strip()]
     if not args.variants:
         ap.error("--variants must list at least one variant")
+    if args.case == "all":
+        args.cases = list(CASES.keys())
+    else:
+        args.cases = [k.strip() for k in args.case.split(",") if k.strip()]
+    bad = [k for k in args.cases if k not in CASES]
+    if bad:
+        ap.error(f"unknown case(s): {', '.join(bad)}; known: {', '.join(CASES)}")
 
     spec = json.loads(run.read(os.path.join(BENCH, "cases.json")))
-    prompt = next(c["prompt"] for c in spec["cases"] if c["id"] == "delegate-after-plan") + "\n\n" + SUFFIX
     ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
     if args.dry_run:
-        fx = run.make_fixture(spec, "plan", None, "claude")
         modes = help_modes()
-        print(f"fixture: {fx}")
-        print("worker roots:")
-        for name, env, home in BACKENDS:
-            print(f"  {name}: {worker_root(env, home, fx)}")
-        for v in args.variants:
-            cmd, note = build_cmd(v, prompt, args, modes)
-            print(f"\n{v}:\n  {' '.join(cmd)}")
-            if note:
-                print(f"  # {note}")
-        shutil.rmtree(fx, ignore_errors=True)
+        for case_key in args.cases:
+            case_spec = CASES[case_key]
+            fx = run.make_fixture(spec, case_spec["fixture"], None, "claude")
+            prompt = case_prompt(case_spec, spec)
+            print(f"\ncase: {case_key}")
+            print(f"fixture: {fx}")
+            print("worker roots:")
+            for name, env, home in BACKENDS:
+                print(f"  {name}: {worker_root(env, home, fx)}")
+            for v in args.variants:
+                cmd, note = build_cmd(v, prompt, args, modes)
+                print(f"\n{v}:\n  {' '.join(cmd)}")
+                if note:
+                    print(f"  # {note}")
+            shutil.rmtree(fx, ignore_errors=True)
         return 0
 
-    n = len(args.variants) * args.repeat
-    print(f"Estimate: {len(args.variants)} variants x {args.repeat} repeat(s) x ~$1+ = ~${n}; "
+    n = len(args.cases) * len(args.variants) * args.repeat
+    print(f"Estimate: {len(args.cases)} case(s) x {len(args.variants)} variants x {args.repeat} repeat(s) x ~$1+ = ~${n}; "
           f"--max-budget-usd {args.budget} is a soft cap.")
     if not args.yes:
         print("Re-run with --yes to spend model quota.")
         return 2
 
     runs = []
-    for v in args.variants:
-        for i in range(1, args.repeat + 1):
-            runs.append(run_variant(v, prompt, args, spec, ts, i))
+    for case_key in args.cases:
+        case_spec = CASES[case_key]
+        for v in args.variants:
+            for i in range(1, args.repeat + 1):
+                runs.append(run_variant(case_key, case_spec, v, args, spec, ts, i))
     md, js = report(runs, ts, args)
     print(f"\nreport: {md}\njson:   {js}")
     if args.json:
