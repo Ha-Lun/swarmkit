@@ -104,6 +104,8 @@ python3 bench/compare.py --yes --repeat 3       # per-(case,variant) means over 
 
 Options: `--case small,big,features` (default `all`), `--variants stock,lead-dev,hybrid`, `--timeout 1800`, `--budget 10.0`, `--model`, `--permission-mode`, `--json PATH`.
 
+First findings from the 2026-10-14 live runs: see [FINDINGS.md](FINDINGS.md).
+
 ## Adding a case
 
 Append to `cases` in `cases.json`:
