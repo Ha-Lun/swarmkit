@@ -4,7 +4,8 @@
 # Options:
 #   --opencode    Install OpenCode config
 #   --agy         Install Antigravity (agy) Swarm config
-#   --claude      Install Claude Code Swarm config
+#   --claude      Install Claude Code Swarm config (also installs the swarm pack
+#                 orchestrators + coordination agents globally)
 #   --codex       Install Codex config (optional, not in --all)
 #   --n8n         Configure local self-hosted n8n credentials (optional add-on, not in --all)
 #   --cloudflare  Install Cloudflare skills and configure auth (optional add-on, not in --all)
@@ -12,7 +13,9 @@
 #   --free        Enable free mode for OpenCode (uses default models, no keys)
 #   --pack <name> [project]  Link a Claude Code specialist pack (agents + skills)
 #                 into <project>/.claude/ (default: current dir) and hide the links
-#                 via .git/info/exclude. Packs: web ops mobile n8n backend creative swarm
+#                 via .git/info/exclude. Packs: web ops mobile n8n backend creative swarm.
+#                 The swarm pack is also installed globally by --claude, so per-project
+#                 --pack swarm is optional
 #   --uninstall   Uninstall all configurations (with --pack: remove only that pack
 #                 from the project)
 #   --help        Show this help message
@@ -153,7 +156,8 @@ link_files() {
 # Skills Claude Code gets globally; the rest come with a pack (--pack).
 CLAUDE_SKILLS="release-testing security-review caveman caveman-commit caveman-compress
 caveman-help caveman-review ponytail ponytail-audit ponytail-debt ponytail-help
-ponytail-review curated-resources agy-delegate delegate-implementation hybrid-delegate diagnosing-bugs"
+ponytail-review curated-resources agy-delegate delegate-implementation hybrid-delegate
+diagnosing-bugs swarm-handoff git-workflow writing-for-agents"
 
 # Skills that ship with each Claude Code pack (agents come from claude/packs/<pack>/agents).
 pack_skills() {
@@ -370,6 +374,7 @@ install_claude() {
 
   link "$REPO_DIR/claude/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
   link_files "$REPO_DIR/claude/agents" "$CLAUDE_DIR/agents"
+  link_files "$REPO_DIR/claude/packs/swarm/agents" "$CLAUDE_DIR/agents"
   link "$REPO_DIR/claude/hooks/guard.py" "$CLAUDE_DIR/hooks/guard.py"
   # plan-gate.py was dropped; clean up its link and settings entry from old installs.
   prune_dead_repo_links "$CLAUDE_DIR/hooks"

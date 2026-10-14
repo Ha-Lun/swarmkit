@@ -2,7 +2,7 @@
 
 **A multi-agent specialist swarm and modular skills for Claude Code, OpenCode, Antigravity and Codex, all built from one source.**
 
-You write every agent, skill and rule once in `core/`. A small compiler turns them into each CLI's native format. The installer links the results into place. All four CLIs get the same team of 33 specialists and the same short working rules. In Claude Code only five core agents load globally; domain specialists come as opt-in per-project packs, so a default session costs little more than stock.
+You write every agent, skill and rule once in `core/`. A small compiler turns them into each CLI's native format. The installer links the results into place. All four CLIs get the same team of 33 specialists and the same short working rules. In Claude Code only five core agents and the swarm orchestration pack load globally; other domain specialists come as opt-in per-project packs, so a default session costs little more than stock.
 
 ---
 
@@ -47,7 +47,7 @@ Codex agents keep the session's model; the tier sets `model_reasoning_effort` in
 
 ## 🤖 Agent roster
 
-In Claude Code, `--claude` installs the five quality and review agents below plus the `release-testing`, `security-review`, `diagnosing-bugs`, `caveman*`, `ponytail*` and `curated-resources` skills (the last three groups are slash-command only, so they cost no context). Everything else is a pack you link into a project with `./install.sh --pack <name> [project]`:
+In Claude Code, `--claude` installs the five quality and review agents below, the swarm orchestration pack (`lead-dev`, `lead-dev-hybrid`, `swarm-architect`, `junior-dev`, `git-specialist`), and the `release-testing`, `security-review`, `diagnosing-bugs`, `swarm-handoff`, `git-workflow`, `writing-for-agents`, `caveman*`, `ponytail*` and `curated-resources` skills (the last three groups are slash-command only, so they cost no context). Everything else is a pack you link into a project with `./install.sh --pack <name> [project]`:
 
 | Pack | Agents | Skills |
 |---|---|---|
@@ -57,7 +57,7 @@ In Claude Code, `--claude` installs the five quality and review agents below plu
 | `mobile` | android-capacitor, ios-capacitor, electron | capacitor-mobile-quality |
 | `n8n` | n8n-workflow-builder, n8n-debugger | n8n-api, n8n-debugging |
 | `creative` | blender, showroom + 5 workers, linkedin | showroom, img2threejs |
-| `swarm` | swarm-architect, lead-dev, lead-dev-hybrid, junior-dev, git-specialist | swarm-handoff, git-workflow, writing-for-agents, hybrid-delegate |
+| `swarm` | swarm-architect, lead-dev, lead-dev-hybrid, junior-dev, git-specialist | swarm-handoff, git-workflow, writing-for-agents, hybrid-delegate (global) |
 
 OpenCode, Antigravity and Codex get every agent and skill globally.
 
@@ -121,7 +121,7 @@ The installer symlinks everything into each CLI's config directory. The agents a
 
 | Flag | Description |
 |---|---|
-| `--claude` | Install the Claude Code config (rules, core agents, hooks, core skills, MCP servers). Removes the old `plan-gate.py` hook entry from `~/.claude/settings.json` if present |
+| `--claude` | Install the Claude Code config (rules, core agents, hooks, core skills, MCP servers) plus the swarm pack orchestrators and coordination agents/skills globally. Removes the old `plan-gate.py` hook entry from `~/.claude/settings.json` if present |
 | `--pack <name> [project]` | Link a Claude Code pack's agents and skills into `<project>/.claude/` (default: current dir) and list the links in the repo's `.git/info/exclude`. Packs: `web`, `backend`, `ops`, `mobile`, `n8n`, `creative`, `swarm`. With `--uninstall`, removes that pack from the project |
 | `--opencode` | Install the OpenCode config (rules, agents, commands, skills, `opencode.jsonc`) |
 | `--agy` | Install the Antigravity config (`swarmkit` plugin, skills, MCP servers) and `agyw` |
