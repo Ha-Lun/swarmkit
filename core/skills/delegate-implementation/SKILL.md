@@ -46,7 +46,7 @@ For agy, add "use your file view, search and edit tools, not the shell".
 
 ## 4. Run
 
-Commit first: workers only see committed state. Start each task with Bash `run_in_background`, then do the parts you kept for yourself while they run. Don't poll; the background run reports when it exits.
+Commit first: workers only see committed state. Use `--setup` only to link or install dependencies; it runs as you, unrestricted. Start each task with Bash `run_in_background`, then do the parts you kept for yourself while they run. Don't poll; the background run reports when it exits.
 
 ## 5. Review and merge
 

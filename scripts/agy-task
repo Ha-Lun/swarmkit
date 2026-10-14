@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one agy (or Codex) task headlessly in an isolated git worktree and report honestly.
+"""Run one agy (or Codex, or OpenCode) task headlessly in an isolated git worktree and report honestly.
 
   agy-task start  SLUG [--model M] [--effort E] [--timeout 20m] [--base REF] [--setup CMD] [--review] [--yolo] PROMPT|-
   agy-task resume SLUG [--timeout 20m] [--review] [--yolo] PROMPT|-
@@ -22,7 +22,8 @@ $OPENCODE_TASK_DIR (default ~/.opencode-tasks). A per-run config overlay (OPENCO
 process only) allows edits, limits the shell to test/build runners and read-only git, and turns off
 subagents; the user's own OpenCode config is untouched. --yolo lifts the shell limit (not sandboxed).
 
-The running-task limit is shared: agy, codex and opencode tasks together never exceed it.
+The running-task limit is shared: agy, codex and opencode tasks together never exceed it (the limit
+itself is read from the invoked backend's *_TASK_MAX).
 
 Invoked as codex-task (a symlink to this file) it drives `codex exec` instead: branches
 codex/<slug>, tasks under $CODEX_TASK_DIR (default ~/.codex-tasks), at most $CODEX_TASK_MAX.
@@ -33,8 +34,8 @@ but only writes inside the worktree and has no network. --model defaults to the 
 import argparse, hashlib, json, os, re, shutil, signal, subprocess, sys
 from pathlib import Path
 
-PROG = Path(sys.argv[0]).name  # codex-task and opencode-task are symlinks to this file
-PROG = PROG if PROG in ("codex-task", "opencode-task") else "agy-task"
+# codex-task and opencode-task are symlinks to this file; the name picks the backend
+PROG = n if (n := Path(sys.argv[0]).name) in ("codex-task", "opencode-task") else "agy-task"
 
 
 def seconds(s):
@@ -109,17 +110,17 @@ def codex_parse(out, err):
 
 
 # Applied only to the delegated run (OPENCODE_CONFIG_CONTENT), so the user's own OpenCode config is
-# untouched: edits allowed, the shell limited to test/build runners and read-only git, no subagents.
+# untouched: edits allowed, the shell limited to common test/build runners and read-only git, no subagents.
+# A guard against accidents, not a sandbox: a test runner executes code the worker can write itself.
+RUNNERS = ("npm test", "npm run test", "npm run lint", "npm run build", "npm run typecheck", "pnpm test",
+           "pnpm run test", "pnpm run lint", "pnpm run build", "yarn test", "yarn lint", "yarn build",
+           "bun test", "python3 -m pytest", "python -m pytest", "pytest", "python3 -m unittest",
+           "python -m unittest", "go test", "go vet", "cargo test", "cargo check", "make test",
+           "git status", "git diff", "git log", "git show")
 OPENCODE_OVERLAY = {
-    "default_agent": "build",
     "permission": {
         "edit": "allow", "webfetch": "deny", "task": "deny",
-        "bash": {"*": "deny", **{c: "allow" for c in (
-            "npm test*", "npm run *", "pnpm test*", "pnpm run *", "yarn test*", "yarn run *", "bun test*",
-            "bun run *", "npx tsc*", "npx vitest*", "npx jest*", "python3 -m pytest*", "python -m pytest*",
-            "pytest*", "python3 -m unittest*", "python -m unittest*", "go test*", "go build*", "go vet*",
-            "cargo test*", "cargo build*", "cargo check*", "make test*", "make check*",
-            "git status*", "git diff*", "git log*", "git show*", "ls*")}},
+        "bash": {"*": "deny", **{p: "allow" for c in RUNNERS for p in (c, c + " *")}},
     },
 }
 
@@ -137,16 +138,18 @@ def opencode_cmd(task, prompt, a, resume_id):
 
 
 def opencode_env(a):
-    overlay = json.loads(json.dumps(OPENCODE_OVERLAY))
+    perm = dict(OPENCODE_OVERLAY["permission"])
     if a.yolo:
-        overlay["permission"]["bash"] = "allow"
-    return {**os.environ, "OPENCODE_CONFIG_CONTENT": json.dumps(overlay)}
+        perm["bash"] = "allow"
+    if a.review:  # a review answers in text and must not edit
+        perm["edit"] = "deny"
+    return {**os.environ, "OPENCODE_CONFIG_CONTENT": json.dumps({"permission": perm})}
 
 
 def opencode_parse(out, err):
     r = {"done": False, "conversation_id": None, "usage": None, "response": "", "denied": [],
          "timed_out": False}
-    failed, usage = False, {}
+    failed, usage = False, {}  # failed: an error with no finished step after it (retries can recover)
     for line in out.splitlines():
         try:
             e = json.loads(line)
@@ -159,14 +162,15 @@ def opencode_parse(out, err):
         elif t == "text" and part.get("text", "").strip():
             r["response"] = part["text"]
         elif t == "step_finish":
-            r["done"] = True
+            r["done"], failed = True, False
             tok = part.get("tokens") or {}
             for k in ("input", "output", "reasoning"):
                 usage[k] = usage.get(k, 0) + tok.get(k, 0)
             usage["cache_read"] = usage.get("cache_read", 0) + (tok.get("cache") or {}).get("read", 0)
         elif t == "tool_use":
             st = part.get("state") or {}
-            if st.get("status") == "error" and "rule which prevents" in str(st.get("error", "")):
+            if st.get("status") == "error" and re.search(r"rule which prevents|permission|rejected",
+                                                         str(st.get("error", "")), re.I):
                 inp = st.get("input") or {}
                 r["denied"].append(inp.get("command") or part.get("tool", "tool"))
     r["done"] = r["done"] and not failed
@@ -210,12 +214,26 @@ def spec(task):
     return ["--", ".", *[f":(exclude){x}" for x in (f.read_text().split("\n") if f.exists() else []) if x]]
 
 
-def run_task(task, prompt, a, resume_id=None, warnings=()):
+def main_state(repo):
+    """Changed and untracked paths of the main checkout, with a content hash for each."""
+    out = subprocess.run(["git", "status", "--porcelain", "-uall", "-z"], cwd=repo, text=True,
+                         capture_output=True).stdout  # not sh(): stripping would eat the status column
+    state, fields = {}, iter(out.split("\0"))
+    for entry in fields:
+        if not entry:
+            continue
+        if entry[0] in "RC":  # a rename or copy is followed by its source path
+            next(fields, None)
+        f = repo / entry[3:]
+        state[entry[3:]] = hashlib.sha1(f.read_bytes()).hexdigest() if f.is_file() else entry[:2]
+    return state
+
+
+def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     wt = task / "worktree"
     (task / "pid").write_text(str(os.getpid()))
     cmd = BACKEND["cmd"](task, prompt, a, resume_id)
-    main = Path(sh("git", "rev-parse", "--path-format=absolute", "--git-common-dir", cwd=wt)).parent
-    main_before = sh("git", "status", "--porcelain", cwd=main, check=False)
+    main_before = main_state(repo)
     # Own process group so a SIGTERM/SIGINT to us (or a timeout) takes the agent and its tools down too.
     env = BACKEND["proc_env"](a) if "proc_env" in BACKEND else None
     p = subprocess.Popen(cmd, cwd=wt, env=env, text=True, stdin=subprocess.DEVNULL, start_new_session=True,
@@ -256,8 +274,10 @@ def run_task(task, prompt, a, resume_id=None, warnings=()):
     (task / f"{CLI}.log").write_text(f"{err}\n{out}")
     res = BACKEND["parse"](out, err)
     warnings = list(warnings)
-    if sh("git", "status", "--porcelain", cwd=main, check=False) != main_before:
-        warnings.append(f"main checkout changed during the run ({main}): check `git status` there")
+    after = main_state(repo)
+    moved = sorted(k for k in main_before.keys() | after.keys() if main_before.get(k) != after.get(k))
+    if moved:  # advisory: you may have edited or merged there yourself meanwhile
+        warnings.append(f"main checkout changed during the run, not by you? {', '.join(moved[:5])}")
     if interrupted:
         warnings.append(f"interrupted: {CLI} was stopped before it finished")
     if res["timed_out"]:
@@ -274,7 +294,7 @@ def run_task(task, prompt, a, resume_id=None, warnings=()):
         changed = "uncommitted changes"
     denied = res["denied"]
     review = a.review
-    incomplete = any(w.startswith(("interrupted", "timed out", "commit failed", "main checkout changed")) for w in warnings)
+    incomplete = any(w.startswith(("interrupted", "timed out", "commit failed")) for w in warnings)
     produced = bool(res["response"].strip()) if review else changed != "no changes"
     ok = res["done"] and not denied and code == 0 and not incomplete and produced
     result = {"ok": ok, "slug": task.name, "branch": f"{CLI}/{task.name}", "worktree": str(wt), "review": review,
@@ -369,7 +389,7 @@ def main():
             # that file is shared with the main checkout.
             (task / "setup-artifacts").write_text(
                 sh("git", "ls-files", "--others", "--exclude-standard", "--directory", cwd=wt))
-        return run_task(task, prompt, a, warnings=warn)
+        return run_task(task, prompt, a, repo, warnings=warn)
     if alive(task / "pid"):
         sys.exit(f"{PROG}: {a.slug} is still running; wait for it before resuming")
     if not (task / "result.json").exists():
@@ -378,7 +398,7 @@ def main():
     if not prev.get("conversation_id"):
         sys.exit(f"{PROG}: previous run has no conversation_id to resume")
     a.review = a.review or prev.get("review", False)  # a resumed review stays a review
-    return run_task(task, prompt, a, prev["conversation_id"])
+    return run_task(task, prompt, a, repo, prev["conversation_id"])
 
 
 if __name__ == "__main__":

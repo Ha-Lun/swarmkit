@@ -210,7 +210,7 @@ All three workers are the same script (`scripts/agy-task`; the others are symlin
 | Worker | Runs | Can run tests? | Notes |
 |---|---|---|---|
 | `agy-task` | `agy -p`, Gemini on agy's quota | No: edit-only, Claude runs the tests | `agy-delegate` skill. `--yolo` allows shell, unsandboxed |
-| `opencode-task` | `opencode run`, free models | Yes: shell limited to test/build runners and read-only git | `opencode-delegate` skill. A per-run config overlay; your own OpenCode config is untouched |
+| `opencode-task` | `opencode run`, free models (not yet: they refuse headless calls, so agy for now) | Yes: shell limited to test/build runners and read-only git, a guard against accidents rather than a sandbox | `opencode-delegate` skill. A per-run config overlay; your own OpenCode config is untouched |
 | `codex-task` | `codex exec` (opt-in: `./install.sh --codex --claude`) | Yes, in Codex's `workspace-write` sandbox (no network) | `codex-delegate` skill. `--yolo` lifts the sandbox |
 
 ```bash
@@ -218,7 +218,7 @@ agy-task start diff-review "Review the auth refactor for regressions" --review
 opencode-task start api-retry "Add retry to fetchJson in src/api.js ... verify with: npm test" --setup "ln -s $PWD/node_modules node_modules"
 ```
 
-Workers see only committed state and get no network for installs (use `--setup`). `ok` in `result.json` is recomputed by the wrapper (agy reports success even when blocked), and a run that touches your main checkout instead of its worktree is flagged and never `ok`. Never merge a branch you haven't reviewed.
+Workers see only committed state and get no network for installs (use `--setup`). `ok` in `result.json` is recomputed by the wrapper (agy reports success even when blocked), and files that change in your main checkout during a run are listed as a warning (a worker that wrote outside its worktree, or your own edits meanwhile). Never merge a branch you haven't reviewed.
 
 **Running alongside your own OpenCode.** Delegated runs set their config through an environment variable for that one process, so your interactive OpenCode keeps its own agents, rules and permissions. They share your account's quota and rate limits, your login, and the session history (titled `delegate: <slug>`).
 
