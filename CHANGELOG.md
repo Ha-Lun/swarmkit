@@ -5,6 +5,7 @@ All notable changes to the opencode-config repository.
 ## [Unreleased]
 
 ### Added
+- feat: Codex as an opt-in fourth build target (`codex/agents/*.toml`, `codex/AGENTS.md`, `./install.sh --codex`, not in `--all`) and `codex-task` + `codex-delegate` skill for headless delegation from Claude Code; `agy-task` now picks its backend from the program name
 - animation-specialist agent for 2D/3D web animation (Motion, GSAP, Anime.js, React Spring; Three.js, R3F, Drei) — model opencode-go/hy3 at temperature 0.3
 - Task complexity classification and cost-aware routing in lead-dev
 - Interactive install.sh with API key setup and existing config detection

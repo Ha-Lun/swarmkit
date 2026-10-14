@@ -5,6 +5,7 @@
 #   --opencode    Install OpenCode config
 #   --agy         Install Antigravity (agy) Swarm config
 #   --claude      Install Claude Code Swarm config
+#   --codex       Install Codex config (optional, not in --all)
 #   --n8n         Configure local self-hosted n8n credentials (optional add-on, not in --all)
 #   --cloudflare  Install Cloudflare skills and configure auth (optional add-on, not in --all)
 #   --all         Install all agent configs (opencode, agy, claude)
@@ -26,6 +27,7 @@ CREATED_BACKUP=false
 INSTALL_OPENCODE=false
 INSTALL_AGY=false
 INSTALL_CLAUDE=false
+INSTALL_CODEX=false
 INSTALL_N8N=false
 INSTALL_CLOUDFLARE=false
 FREE_MODE=false
@@ -47,6 +49,7 @@ else
       --opencode) INSTALL_OPENCODE=true ;;
       --agy)      INSTALL_AGY=true ;;
       --claude)   INSTALL_CLAUDE=true ;;
+      --codex)    INSTALL_CODEX=true ;;
       --n8n)      INSTALL_N8N=true ;;
       --cloudflare) INSTALL_CLOUDFLARE=true ;;
       --all)      
@@ -62,7 +65,7 @@ else
         if [ $# -gt 0 ] && [[ "$1" != --* ]]; then PACK_DIR="$1"; shift; fi
         ;;
       --help)
-        sed -n '2,17p' "$0" | sed 's/^# //'
+        sed -n '2,18p' "$0" | sed 's/^# //'
         exit 0
         ;;
       *)
@@ -76,6 +79,8 @@ fi
 OPENCODE_DIR="$HOME/.config/opencode"
 GEMINI_DIR="$HOME/.gemini/config"
 CLAUDE_DIR="$HOME/.claude"
+CODEX_DIR="$HOME/.codex"
+AGENTS_SKILLS_DIR="$HOME/.agents/skills"  # Codex's user skill dir (shared with other tools)
 
 # Remove symlinks in a directory that point into this repo but no longer resolve
 # (e.g. after files moved inside the repo).
@@ -225,8 +230,8 @@ banner() {
   printf '%s%s%s\n' "$c" '   __    __' "$r"
   printf '%s%s%s     %s%s%s\n' "$c" '  /  \__/  \' "$r" "$b" '█▀▀ █ █ █ ▄▀█ █▀█ █▀▄▀█ █▄▀ █ ▀█▀' "$r"
   printf '%s%s%s     %s%s%s\n' "$c" '  \__/  \__/' "$r" "$b" '▄▄█ ▀▄▀▄▀ █▀█ █▀▄ █ ▀ █ █ █ █  █' "$r"
-  printf '%s%s%s     %sone config, three CLIs%s\n' "$c" '  /  \__/  \' "$r" "$d" "$r"
-  printf '%s%s%s     %sClaude Code · OpenCode · Antigravity%s\n' "$c" '  \__/  \__/' "$r" "$d" "$r"
+  printf '%s%s%s     %sone config, four CLIs%s\n' "$c" '  /  \__/  \' "$r" "$d" "$r"
+  printf '%s%s%s     %sClaude Code · OpenCode · Antigravity · Codex%s\n' "$c" '  \__/  \__/' "$r" "$d" "$r"
   echo ""
 }
 
@@ -277,14 +282,17 @@ if [ "$UNINSTALL_MODE" = true ]; then
   echo "Uninstalling configurations..."
   for d in "$OPENCODE_DIR" "$OPENCODE_DIR/agents" "$OPENCODE_DIR/command" "$OPENCODE_DIR/skills" \
            "$CLAUDE_DIR" "$CLAUDE_DIR/agents" "$CLAUDE_DIR/skills" "$CLAUDE_DIR/hooks" \
-           "$GEMINI_DIR/plugins" "$GEMINI_DIR/skills" "$HOME/.opencode"; do
+           "$GEMINI_DIR/plugins" "$GEMINI_DIR/skills" "$HOME/.opencode" \
+           "$CODEX_DIR" "$CODEX_DIR/agents" "$AGENTS_SKILLS_DIR"; do
     remove_repo_links "$d"
   done
   plan_gate_settings remove
   # only our own shim: ~/.local/bin also holds other tools' links
-  [[ "$(readlink "$HOME/.local/bin/agy-task" 2>/dev/null)" == "$REPO_DIR"/* ]] && rm -f "$HOME/.local/bin/agy-task"
+  for shim in agy-task codex-task; do
+    [[ "$(readlink "$HOME/.local/bin/$shim" 2>/dev/null)" == "$REPO_DIR"/* ]] && rm -f "$HOME/.local/bin/$shim"
+  done
   rm -f "$GEMINI_DIR/mcp_config.json"
-  echo "Uninstall complete. MCP servers registered with 'claude mcp' are left in place."
+  echo "Uninstall complete. MCP servers registered with 'claude mcp' and 'codex mcp' are left in place."
   exit 0
 fi
 
@@ -366,9 +374,12 @@ install_claude() {
   # plan-gate.py was dropped; clean up its link and settings entry from old installs.
   prune_dead_repo_links "$CLAUDE_DIR/hooks"
   plan_gate_settings remove
-  link_skills "$CLAUDE_DIR/skills" "$CLAUDE_SKILLS"
+  local skills="$CLAUDE_SKILLS"
+  command -v codex &>/dev/null && skills+=" codex-delegate"  # only once Codex is installed
+  link_skills "$CLAUDE_DIR/skills" "$skills"
   mkdir -p "$HOME/.local/bin"
   link "$REPO_DIR/scripts/agy-task" "$HOME/.local/bin/agy-task"
+  link "$REPO_DIR/scripts/codex-task" "$HOME/.local/bin/codex-task"
 
   # MCP servers: register each one at user scope unless it already exists.
   if command -v claude &>/dev/null; then
@@ -386,6 +397,39 @@ install_claude() {
   fi
 
   echo "✓ Claude Code installation complete"
+}
+
+install_codex() {
+  echo "=== Installing Codex Config ==="
+  mkdir -p "$CODEX_DIR"
+
+  link_files "$REPO_DIR/codex/agents" "$CODEX_DIR/agents"
+  link "$REPO_DIR/codex/AGENTS.md" "$CODEX_DIR/AGENTS.md"
+  link_skills "$AGENTS_SKILLS_DIR"
+
+  # MCP servers: `codex mcp add` each one into config.toml unless it already exists.
+  if command -v codex &>/dev/null; then
+    local name
+    local -a args
+    for name in $(python3 -c "import json;print(' '.join(json.load(open('$REPO_DIR/core/mcp.json'))['mcpServers']))"); do
+      if codex mcp get "$name" &>/dev/null; then
+        echo "  MCP '$name' already registered, skipping"
+        continue
+      fi
+      mapfile -t args < <(python3 -c "import json;s=json.load(open('$REPO_DIR/core/mcp.json'))['mcpServers']['$name'];print('\\n'.join(['--url',s['url']] if 'url' in s else ['--',s['command'],*s.get('args',[])]))")
+      # For an OAuth server, add starts a browser login and waits; the entry is already saved by then.
+      timeout 20 codex mcp add "$name" "${args[@]}" </dev/null &>/dev/null || true
+      if ! codex mcp get "$name" &>/dev/null; then
+        echo "  ! MCP '$name' could not be added"
+      elif [ "${args[0]:-}" = --url ]; then
+        echo "  MCP '$name' added; if it needs a login, run: codex mcp login $name"
+      fi
+    done
+  else
+    echo "⚠ codex CLI not found — skipping MCP registration"
+  fi
+
+  echo "✓ Codex installation complete"
 }
 
 install_n8n() {
@@ -450,6 +494,7 @@ install_cloudflare() {
 if [ "$INSTALL_OPENCODE" = true ]; then install_opencode; fi
 if [ "$INSTALL_AGY" = true ]; then install_agy; fi
 if [ "$INSTALL_CLAUDE" = true ]; then install_claude; fi
+if [ "$INSTALL_CODEX" = true ]; then install_codex; fi
 if [ "$INSTALL_N8N" = true ]; then install_n8n; fi
 if [ "$INSTALL_CLOUDFLARE" = true ]; then install_cloudflare; fi
 
