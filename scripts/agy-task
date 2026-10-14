@@ -187,7 +187,7 @@ BACKENDS = {
     "codex-task": {"cli": "codex", "env": "CODEX_TASK", "home": ".codex-tasks",
                    "model": None, "cmd": codex_cmd, "parse": codex_parse, "grace": 0},
     "opencode-task": {"cli": "opencode", "env": "OPENCODE_TASK", "home": ".opencode-tasks",
-                      "model": "opencode-go/cat-jam-free", "cmd": opencode_cmd,
+                      "model": "opencode-go/cat-jam-free", "effort": "max", "cmd": opencode_cmd,
                       "parse": opencode_parse, "grace": 0, "proc_env": opencode_env},
 }
 BACKEND = BACKENDS[PROG]
@@ -318,7 +318,7 @@ def main():
     ap.add_argument("slug", nargs="?")
     ap.add_argument("prompt", nargs="?", help="task text, or - to read it from stdin")
     ap.add_argument("--model", default=BACKEND["model"])
-    ap.add_argument("--effort")
+    ap.add_argument("--effort", default=BACKEND.get("effort"))
     ap.add_argument("--timeout", default="20m")
     ap.add_argument("--base", default="HEAD")
     ap.add_argument("--setup", help="shell command run in the worktree before agy (start only)")
