@@ -40,6 +40,16 @@ CASES = {
         "verify": ("node test/slugify.test.js && node test/email.test.js && node test/range.test.js && "
                    "node test/pad.test.js && node test/unique.test.js"),
     },
+    "scaffold": {
+        "fixture": "scaffold",
+        "prompt": ("Implement the eight modules whose test files already exist and currently fail: "
+                   "src/csv.js, src/semver.js, src/lru.js, src/expr.js, src/cron.js, src/template.js, "
+                   "src/diff.js, src/wrap.js. They are independent of each other; each is a real "
+                   "implementation of 30 to 70 lines. Do NOT modify any test file (tests define the contract). "
+                   "Behavior must match the tests exactly."),
+        "verify": " && ".join(f"node test/{m}.test.js" for m in
+                              ("csv", "semver", "lru", "expr", "cron", "template", "diff", "wrap")),
+    },
 }
 SUFFIX = ("Non-interactive bench run: the plan is already approved, so do not enter plan mode, ask questions or "
           "wait for approval; decide and proceed. Done when `{verify}` exits 0.")
@@ -352,7 +362,7 @@ def report(runs, ts, args):
 def main():
     ap = argparse.ArgumentParser(description="Compare Claude Code variants on the same implementation task.")
     ap.add_argument("--yes", action="store_true", help="confirm spending model quota")
-    ap.add_argument("--case", default="all", help="comma-separated case key(s): small, big, features")
+    ap.add_argument("--case", default="all", help="comma-separated case key(s): small, big, features, scaffold")
     ap.add_argument("--repeat", type=int, default=1)
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--budget", type=float, default=10.0)
