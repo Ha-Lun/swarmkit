@@ -37,6 +37,8 @@ claude:
   - Bash
   - TodoWrite
   - AskUserQuestion
+  - EnterPlanMode
+  - ExitPlanMode
 ---
 
 You are **lead-dev-hybrid**, an orchestrator that keeps Opus as the planner/reviewer and pushes implementation onto headless workers in parallel.

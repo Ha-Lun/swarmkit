@@ -35,7 +35,7 @@ AGENT_DIRS = {'core': 'core/agents', 'claude': 'claude/agents', 'opencode': 'ope
 RULES = {'claude': 'claude/CLAUDE.md', 'opencode': 'opencode/AGENTS.md',
          'antigravity': 'antigravity/plugins/swarmkit/rules/AGENTS.md', 'codex': 'codex/AGENTS.md'}
 CLAUDE_TOOLS = {'Read', 'Glob', 'Grep', 'Edit', 'Write', 'Bash', 'WebFetch', 'WebSearch', 'Agent',
-                'TodoWrite', 'AskUserQuestion'}
+                'TodoWrite', 'AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode'}
 AGY_ONLY = ['write_to_file', 'ask_question', 'invoke_subagent', 'appDataDir', 'ArtifactMetadata']
 CLAUDE_ONLY = ['Task tool', 'AskUserQuestion', 'TodoWrite']
 GUARDED = ['security-auditor', 'code-proofreader', 'release-tester', 'test-writer', 'git-specialist']
