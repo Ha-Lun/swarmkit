@@ -104,6 +104,13 @@ cd swarmkit
             <div class="mx-auto max-w-[360px] md:hidden"><RoutingDiagram vertical /></div>
             <figcaption class="ref-note">Explore is for non-trivial work or uncertain context. It can be skipped when the task is self-contained.</figcaption>
           </figure>
+          <h4 class="ref-sub">Hybrid orchestration</h4>
+          <p class="ref-p">
+            <code>claude --agent lead-dev-hybrid</code> keeps your Claude session as planner and reviewer and spreads the writing across other quotas.
+            It follows your <code>opusplan</code> setting: it plans in plan mode on Opus, then works on Sonnet. It has no edit tool of its own. After you approve the plan it splits
+            the work into file-disjoint tasks, starts up to three headless <code>agy-task</code> (Antigravity) and <code>opencode-task</code> (OpenCode) workers at once, each in its own
+            git worktree, then reads every diff, reruns the tests and merges. It pays off when a job writes a lot of new code; for small edits it only adds overhead.
+          </p>
           <h4 class="ref-sub">Example routes</h4>
           <p class="ref-p">Illustrative: the actual route depends on what the change touches, which packs are linked, and the main agent's call on delegating.</p>
           <ul class="ref-cards ref-cards-3">

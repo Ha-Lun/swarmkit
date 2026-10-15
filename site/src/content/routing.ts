@@ -7,7 +7,7 @@ export const tiers = [
   { id: 'ask', label: 'Question', title: 'Questions', body: 'Answered directly. Listed in the table only: no example task is a question.' },
   { id: 'direct', label: 'Direct', title: 'Small and medium work', body: 'The main agent does it itself: no plan, no approval.' },
   { id: 'planned', label: 'Planned', title: 'Large or risky work', body: 'More than about 3 files, or auth, data, CI or infra: you approve a plan first.' },
-  { id: 'orchestrated', label: 'Orchestrated', title: 'Multi-specialist jobs', body: 'Optional: lead-dev plans and dispatches specialists, in an isolated git worktree.' },
+  { id: 'orchestrated', label: 'Orchestrated', title: 'Multi-specialist jobs', body: 'Optional: lead-dev-hybrid plans (on Opus, in plan mode), then dispatches specialists and headless agy and OpenCode workers in parallel, each in an isolated git worktree. lead-dev dispatches specialists only.' },
 ] as const;
 
 export const gates = [
@@ -47,10 +47,11 @@ export const examples: ExampleTask[] = [
     task: 'Refactor auth',
     tier: 'orchestrated',
     route: [
-      { label: 'Optional: lead-dev, in a worktree', status: 'Orchestrator: lead-dev', why: 'Started with claude --agent lead-dev (swarm pack): it dispatches and works in .worktrees/<branch>.' },
+      { label: 'Optional: lead-dev-hybrid, in a worktree', status: 'Orchestrator: lead-dev-hybrid', why: 'Started with claude --agent lead-dev-hybrid (swarm pack): it plans on Opus, then dispatches and works in worktrees. claude --agent lead-dev is the specialist-only variant.' },
       { label: 'If the codebase is unfamiliar', agent: 'explore', why: 'The codebase is unfamiliar, so it is mapped before anything is planned.' },
       { label: 'Plan and approval', why: 'Nothing is built until you approve the plan.' },
       { label: 'Implement', agent: 'backend-specialist', why: 'With its pack linked, the domain specialist writes the code; otherwise the main agent does.' },
+      { label: 'File-disjoint parts to workers', status: 'Workers: agy-task, opencode-task', why: 'Independent parts run in parallel on their own quotas; each branch is reviewed, tested and merged before the gates.' },
       { label: 'If auth changed', agent: 'security-auditor' },
       { label: 'If the diff is large', agent: 'code-proofreader' },
     ],
@@ -71,8 +72,8 @@ export const examples: ExampleTask[] = [
   },
 ];
 
-/** The order the page tells the tasks in when nobody picks one: the first loop flies to the moon, each loop after it tells the next (world.ts, at the wrap). */
-export const tellingOrder = ['Build a product page', 'Add an API route', 'Refactor auth', 'Fix a typo'];
+/** The order the page tells the tasks in when nobody picks one: the first loop tells the hybrid orchestrator's route (Refactor auth), each loop after it tells the next (world.ts, at the wrap). */
+export const tellingOrder = ['Refactor auth', 'Build a product page', 'Add an API route', 'Fix a typo'];
 for (const t of tellingOrder) if (!examples.some((e) => e.task === t)) throw new Error(`routing.ts tellingOrder names unknown task "${t}"`);
 
 const names = new Set(facts.agents.map((a) => a.name));

@@ -10,6 +10,7 @@ const { platforms, flags, mcpServers, skills, commands, agents } = facts;
 const installCmd = './install.sh --all';
 const platformFlags = new Set(platforms.map((p) => p.flag));
 const otherFlags = flags.filter((f) => !platformFlags.has(f.flag));
+const hybrid = agents.find((a) => a.name === 'lead-dev-hybrid');
 const counts = [
   [agents.length, 'agents'],
   [skills.length, 'skills'],
@@ -38,6 +39,7 @@ const halfVh = ((look.particles.textWidth / 2) / viewH) * 100;
       <ul class="chips chips-center" aria-label="Installer platforms, flags and what it installs">
         {platforms.map((p) => <li class="chip" data-chip-in data-fx title={p.summary}>{p.name} {p.flag}</li>)}
         {counts.map(([n, label]) => <li class="chip" data-chip-in data-fx>{n} {label}</li>)}
+        {hybrid && <li class="chip" data-chip-in data-fx title={hybrid.description}>claude --agent {hybrid.name}</li>}
         {otherFlags.map((f) => <li class="chip" data-chip-in data-fx title={f.description}>{f.flag}</li>)}
       </ul>
     </div>
