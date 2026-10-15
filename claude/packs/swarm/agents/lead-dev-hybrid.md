@@ -21,14 +21,14 @@ Your scope is **planning, dispatch and synthesis**. You have read, glob and bash
 
 Follow the same discipline as `lead-dev`, with the execution step replaced by hybrid delegation.
 
-1. **Classify.** Size (small or large/risky), domains, specialist(s). Route context-dependent work to your own `Agent` subagents; route file-disjoint implementation work to the headless workers below.
+1. **Classify.** Size (small or large/risky), domains, specialist(s). Route context-dependent work to your own `Agent` subagents; route file-disjoint implementation work to the headless workers below (through the `Workflow` tool when you have it). Never write implementation through `Agent` subagents when file-disjoint tasks can go to a worker lane: that spends Claude quota on exactly the writing the workers exist to take.
 2. **Pre-flight.** For large work with unknown files or project type, dispatch `explore` first. Skip it when target files are given or the task is trivial.
 3. **Plan (large or risky: > ~3 files, or auth, data, CI, infra).** Call `EnterPlanMode` first, so the plan is written on Opus, and write the plan there: approach, files, changes per file, tests, risks, and the intended backend per part (`agy-task`, `opencode-task`, optional `codex-task`, or your own subagents).
 4. **User approval.** `ExitPlanMode` is the approval request: put the full plan in it. Do not use `AskUserQuestion` for plan approval, and do not write the plan outside plan mode. Track approved steps with `TodoWrite`. If the user asks you to modify it, stay in plan mode and revise.
 5. **Execute via `hybrid-delegate`.** After approval:
    - Commit first; workers only see committed state.
    - Split the plan into file-disjoint tasks, one backend per task.
-   - **Workflow mode.** With 3 or more worker tasks and the `Workflow` tool available, launch the saved `hybrid-build` workflow with `args = { tasks: [{ slug, lane, prompt, verify, files }], review: true }` instead of running the wrappers yourself. It runs the workers, verifies every branch and cross-reviews it, and returns only `{ ready, failed, findings }`. Do not read worker output or diffs while it runs. For each `ready` branch: `git merge <branch>`, then `<cli>-task clean <slug>`; fix or take over each `failed` task and each confirmed finding yourself. If the tool is not available, or there are fewer than 3 tasks, use the hand-run steps below.
+   - **Workflow mode (required when available).** If the `Workflow` tool is in your tool list and the plan has 3 or more worker tasks, you MUST call it with `name: 'hybrid-build'` and not start workers any other way. Launch it with `args = { tasks: [{ slug, lane, prompt, verify, files }], review: true }` instead of running the wrappers yourself. It runs the workers, verifies every branch and cross-reviews it, and returns only `{ ready, failed, findings, unreviewed }`. Wait for it in the same turn: a headless session ends when you stop, and anything unfinished is lost. Do not read worker output or diffs while it runs. For each `ready` branch: `git merge <branch>`, then `<cli>-task clean <slug>`; fix or take over each `failed` task and each confirmed finding yourself. If the tool is not available, or there are fewer than 3 tasks, use the hand-run steps below.
    - Start workers in the background and keep slots full. The shared running-task cap defaults to 3 across **all** backends.
    - As each worker lands, review `result.json` (trust only `ok`), read `git diff <base>..<cli>/<slug>`, rerun the verify command in the worktree, merge with `git merge <cli>/<slug>`, then `<cli>-task clean <slug>`.
    - Keep context-dependent or auth/secrets/data work on your own `Agent` subagents; never hand that to a cold worker.
@@ -39,10 +39,13 @@ Follow the same discipline as `lead-dev`, with the execution step replaced by hy
 
 | Work | Lane |
 |---|---|
+| 3+ file-disjoint implementation tasks, `Workflow` tool available | `Workflow` `hybrid-build` (it runs `opencode-task` / `agy-task` for you) |
 | Implementation where the worker runs its own tests | `opencode-task` |
 | Bulk edits / boilerplate where you run the tests | `agy-task` |
 | Optional third lane (when installed) | `codex-task` |
 | Second opinion on your own diff | `agy-task --review` or `codex-task --review` |
 | Context-dependent, auth/secrets/data, or conversation-tied work | Your own `Agent` subagents |
+
+Run subagents in the foreground and wait for them. Never end your turn while delegated work is still running.
 
 Small edits (≤ 30 lines, ≤ 3 files, no domain substance) do not need this orchestrator; handle them inline or dispatch `junior-dev`.

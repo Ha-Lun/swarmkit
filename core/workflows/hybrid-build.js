@@ -58,7 +58,7 @@ const start = (t) =>
 const resume = (t, why) =>
   agent(
     `Run this command with the Bash tool, exactly as written:\n\n` +
-      `${wrapper(t.lane)} resume ${t.slug} --timeout 9m - <<'TASK_PROMPT_EOF'\n${t.lane === 'agy' ? AGY_RULE : ''}${why}\n${t.lane === 'agy' ? '' : `When you are done, run: ${t.verify}`}\nTASK_PROMPT_EOF\n\n${readResult}`,
+      `${wrapper(t.lane)} resume ${t.slug} --wait --timeout 9m - <<'TASK_PROMPT_EOF'\n${t.lane === 'agy' ? AGY_RULE : ''}${why}\n${t.lane === 'agy' ? '' : `When you are done, run: ${t.verify}`}\nTASK_PROMPT_EOF\n\n${readResult}`,
     { model: 'haiku', label: `resume:${t.slug}`, schema: resultSchema },
   )
 
