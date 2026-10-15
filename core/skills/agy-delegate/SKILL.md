@@ -9,7 +9,7 @@ description: Use when handing a self-contained task to a headless Antigravity (a
 
 ## When
 
-- Independent review of your own diff by a different model family (`--model gemini-3.1-pro-high`).
+- Independent review of your own diff by a different model family (`--model claude-sonnet-4-6`; run `agy models` for what is installed).
 - Bulk mechanical edits or test writing, on agy's quota instead of yours (default `gemini-3.8-flash-high`).
 - 2-3 independent tasks at once. Never more: the box has 8 cores and little spare RAM.
 

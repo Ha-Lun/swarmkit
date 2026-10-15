@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run one agy (or Codex, or OpenCode) task headlessly in an isolated git worktree and report honestly.
 
-  agy-task start  SLUG [--model M] [--effort E] [--timeout 20m] [--base REF] [--setup CMD] [--review] [--yolo] PROMPT|-
+  agy-task start  SLUG [--model M] [--effort E] [--timeout 20m] [--base REF] [--setup CMD] [--review] [--yolo] [--wait] PROMPT|-
   agy-task resume SLUG [--timeout 20m] [--review] [--yolo] PROMPT|-
   agy-task list
   agy-task clean  SLUG [--force]
@@ -9,7 +9,7 @@
 --review is for tasks that answer in text: ok then means "no tool denied and a non-empty
 response", not "files changed". --setup CMD runs in the worktree before agy (e.g. installing
 or linking dependencies; a fresh worktree has tracked files only). At most $AGY_TASK_MAX
-(default 3) tasks run at once.
+(default 3) tasks run at once; --wait queues for a free slot instead of refusing.
 Edit-only by default: agy can read and edit files but shell commands are denied, so run
 tests yourself on the branch. --yolo auto-approves every tool and is NOT sandboxed (agy
 can then write outside the worktree and reach the network); use it only for trusted work.
@@ -31,7 +31,7 @@ Codex runs in its own workspace-write sandbox, so it CAN run shell commands (tes
 but only writes inside the worktree and has no network. --model defaults to the Codex config;
 --yolo switches the sandbox to danger-full-access.
 """
-import argparse, hashlib, json, os, re, shutil, signal, subprocess, sys
+import argparse, fcntl, hashlib, json, os, re, shutil, signal, subprocess, sys, time
 from pathlib import Path
 
 # codex-task and opencode-task are symlinks to this file; the name picks the backend
@@ -332,6 +332,7 @@ def main():
     ap.add_argument("--review", action="store_true")
     ap.add_argument("--yolo", action="store_true")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--wait", action="store_true", help="queue for a free slot instead of refusing at the limit")
     a = ap.parse_args()
 
     # The first `git worktree list` entry is the main working tree, also when run from inside a
@@ -365,10 +366,22 @@ def main():
         sh("git", "branch", "-D", branch, cwd=repo, check=False)
         return 0
 
-    # One limit for all backends: they share the box.
-    running = [f for b in BACKENDS.values() for f in home(b).glob("*/pid") if alive(f)]
-    if len(running) >= int(os.environ.get(f"{BACKEND['env']}_MAX", 3)):
-        sys.exit(f"{PROG}: {len(running)} delegated tasks already running (all backends); wait for one")
+    # One limit for all backends: they share the box. The lock makes check-and-claim atomic, so queued
+    # --wait callers cannot all see the same free slot; the claim is the pid file written below.
+    cap = int(os.environ.get(f"{BACKEND['env']}_MAX", 3))
+    lock = open(Path.home() / ".swarmkit-task.lock", "a")
+    while True:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        running = [f for b in BACKENDS.values() for f in home(b).glob("*/pid") if alive(f)]
+        if len(running) < cap:
+            break
+        fcntl.flock(lock, fcntl.LOCK_UN)
+        if not a.wait:
+            sys.exit(f"{PROG}: {len(running)} delegated tasks already running (all backends); wait for one, or pass --wait")
+        time.sleep(10)
+    def claim(task):
+        (task / "pid").write_text(str(os.getpid()))
+        fcntl.flock(lock, fcntl.LOCK_UN)
     prompt = sys.stdin.read() if a.prompt == "-" else a.prompt
     if not prompt:
         sys.exit(f"{PROG}: a prompt (or -) is required")
@@ -379,6 +392,7 @@ def main():
             task.mkdir(parents=True)
         except FileExistsError:
             sys.exit(f"{PROG}: {task} exists; pick another slug or run clean")
+        claim(task)
         (task / "base").write_text(sh("git", "rev-parse", a.base, cwd=repo))
         try:
             sh("git", "worktree", "add", "-q", "-b", branch, str(task / "worktree"), a.base, cwd=repo)
@@ -408,6 +422,7 @@ def main():
     if not prev.get("conversation_id"):
         sys.exit(f"{PROG}: previous run has no conversation_id to resume")
     a.review = a.review or prev.get("review", False)  # a resumed review stays a review
+    claim(task)
     return run_task(task, prompt, a, repo, prev["conversation_id"])
 
 

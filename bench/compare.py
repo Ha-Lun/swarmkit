@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 """Compare Claude Code variants on one implementation task.
 
+Variants (--variants, comma-separated; default is all five):
+  vanilla          Claude Code with no agents, skills or rules: a temp config dir with auth and settings only
+  slim             your installed config (slim core + swarm pack), plain session, no --agent (alias: stock)
+  lead-dev         installed config, --agent lead-dev
+  hybrid           installed config, --agent lead-dev-hybrid, dynamic workflows off: it runs the wrappers by hand
+  hybrid-workflow  as hybrid, dynamic workflows on and the saved hybrid-build workflow in the fixture
+
   python3 bench/compare.py --dry-run
-  python3 bench/compare.py --yes
+  python3 bench/compare.py --yes --case features
 """
 import argparse, datetime, hashlib, json, os, pathlib, re, shutil, subprocess, sys, tempfile, threading, time
 
@@ -34,8 +41,11 @@ CASES = {
                    "node test/pad.test.js && node test/unique.test.js"),
     },
 }
-SUFFIX = ("Non-interactive bench run: do not ask questions or wait for approval; "
-          "decide and proceed. Done when `{verify}` exits 0.")
+SUFFIX = ("Non-interactive bench run: the plan is already approved, so do not enter plan mode, ask questions or "
+          "wait for approval; decide and proceed. Done when `{verify}` exits 0.")
+VARIANTS = ["vanilla", "slim", "lead-dev", "hybrid", "hybrid-workflow"]
+ALIASES = {"stock": "slim"}
+REPO = os.path.dirname(BENCH)
 BACKENDS = [("agy", "AGY_TASK_DIR", ".agy-tasks"), ("opencode", "OPENCODE_TASK_DIR", ".opencode-tasks"),
             ("codex", "CODEX_TASK_DIR", ".codex-tasks")]
 
@@ -158,12 +168,40 @@ def build_cmd(variant, prompt, args, modes):
            "--no-session-persistence", "--max-budget-usd", str(args.budget)]
     if args.model:
         cmd += ["--model", args.model]
-    if variant != "stock":
+    if variant in ("lead-dev", "hybrid", "hybrid-workflow"):
         cmd += ["--agent", "lead-dev" if variant == "lead-dev" else "lead-dev-hybrid"]
+    if variant == "hybrid-workflow":
+        cmd += ["--settings", json.dumps({"enableWorkflows": True})]
     mode = args.permission_mode
     if modes and mode not in modes:
         return cmd + ["--permission-mode", "acceptEdits", "--allowedTools", "Bash"], f"{mode!r} unavailable, using acceptEdits+Bash"
     return cmd + ["--permission-mode", mode], None
+
+
+def variant_env(variant, tmp):
+    """Environment for one run. Session variables of the shell that launched us (CLAUDE_CODE_AGENT and friends)
+    would silently turn every variant into that agent, so they are dropped. Workflows are forced on or off so the
+    hybrid and hybrid-workflow variants differ in exactly that."""
+    env = {k: v for k, v in os.environ.items() if not (k.startswith("CLAUDE_CODE_") or k == "CLAUDECODE")}
+    env["CLAUDE_CODE_WORKFLOWS"] = "1" if variant == "hybrid-workflow" else "0"
+    if variant != "vanilla":
+        return env, None
+    import types
+    cfg_env, label = run.claude_env(types.SimpleNamespace(config="none"), REPO, tmp)
+    if isinstance(cfg_env, str):  # claude_env returns (error text, None) when it cannot authenticate
+        return None, cfg_env
+    return {**env, "CLAUDE_CONFIG_DIR": cfg_env["CLAUDE_CONFIG_DIR"]}, None
+
+
+def seed_workflow(fx):
+    """Commit the saved workflow into the fixture's project .claude/workflows (the benchmark runs this checkout's
+    copy, not whatever happens to be installed)."""
+    dst = os.path.join(fx, ".claude", "workflows")
+    os.makedirs(dst, exist_ok=True)
+    for f in os.listdir(os.path.join(REPO, "core", "workflows")):
+        shutil.copy2(os.path.join(REPO, "core", "workflows", f), dst)
+    run.run(["git", "-C", fx, "add", ".claude"], timeout=30)
+    run.run(["git", "-C", fx, "-c", "user.email=b@b", "-c", "user.name=bench", "commit", "-qm", "add hybrid-build workflow"], timeout=30)
 
 
 def verify(fx, verify_cmd):
@@ -184,15 +222,27 @@ def case_prompt(case_spec, spec):
 def run_variant(case_key, case_spec, variant, args, spec, ts, n):
     prompt = case_prompt(case_spec, spec)
     fx = run.make_fixture(spec, case_spec["fixture"], None, "claude")
+    if variant == "hybrid-workflow":
+        seed_workflow(fx)
     base_sha = run.run(["git", "-C", fx, "rev-parse", "HEAD"], timeout=30)[1].strip()
     cmd, note = build_cmd(variant, prompt, args, help_modes())
+    tmp = tempfile.mkdtemp(prefix="compare-cfg-")
+    env, env_err = variant_env(variant, tmp)
+    if env_err:
+        shutil.rmtree(fx, ignore_errors=True)
+        shutil.rmtree(tmp, ignore_errors=True)
+        return {"case": case_key, "variant": variant, "repeat": n, "status": "skipped", "wall_s": 0, "duration_s": 0,
+                "turns": None, "input_tokens": 0, "output_tokens": 0, "cache_read": 0, "cache_creation": 0,
+                "raw": None, "notes": [env_err], "workers": [], "worker_tokens": {}, "worker_tasks": 0,
+                "worker_oks": 0, "verify": {}}
     print(f"  [{case_key} {variant}#{n}] {fx}")
     seen = {}
     stop = threading.Event()
     sampler = threading.Thread(target=sample_workers, args=(fx, stop, seen), daemon=True)
     sampler.start()
     t0 = time.time()
-    rc, out, err, timed_out = run.run(cmd, cwd=fx, env=None, timeout=args.timeout)
+    rc, out, err, timed_out = run.run(cmd, cwd=fx, env=env, timeout=args.timeout)
+    shutil.rmtree(tmp, ignore_errors=True)
     wall = round(time.time() - t0, 1)
     stop.set()
     sampler.join(timeout=30)
@@ -237,7 +287,7 @@ def run_variant(case_key, case_spec, variant, args, spec, ts, n):
 
 def avg(rows, key):
     vals = [r[key] for r in rows if r.get(key) is not None]
-    return round(sum(vals) / len(vals), 1) if vals else None
+    return round(sum(vals) / len(vals), 4 if key == "cost_usd" else 1) if vals else None
 
 
 def report(runs, ts, args):
@@ -271,10 +321,22 @@ def report(runs, ts, args):
                          f"{avg(rows,'input_tokens')} | {avg(rows,'output_tokens')} | {avg(rows,'cache_read')} | "
                          f"{avg(rows,'cache_creation')} | {avg(rows,'cost_usd')} | {wt} | {pass_rate:.0%} pass | "
                          f"{avg(rows,'worker_tasks')}/{avg(rows,'worker_oks')} | {notes} |")
+    lines += ["", "## Claude-side cost per case, relative to vanilla", "",
+              "| case | " + " | ".join(args.variants) + " |", "|---|" + "---|" * len(args.variants)]
+    for case in dict.fromkeys(r["case"] for r in runs):
+        base = avg(grouped.get((case, "vanilla"), []), "cost_usd")
+        cells = []
+        for v in args.variants:
+            rows = grouped.get((case, v), [])
+            c = avg(rows, "cost_usd")
+            ok = rows and all(r["verify"].get("ok") for r in rows)
+            cells.append("-" if c is None else f"${c:.3f}" + (f" ({c / base:.0%})" if base else "") + ("" if ok else " FAIL"))
+        lines.append(f"| {case} | " + " | ".join(cells) + " |")
     lines += ["", "## Verdict", "",
-              "A fair read requires every variant to complete and pass verification.",
+              "A fair read requires every variant to complete and pass verification (a FAIL above voids that cell).",
               "Worker tokens are backend-specific quota and are not converted to USD.",
-              f"Lowest Claude-side spend among runs shown: inspect the cost_usd column above."]
+              "One run per cell is directional only; use --repeat 3 for medians.",
+              "Cost is Claude Code's list-price total for the run; a cold prompt cache makes the first run of a session costlier."]
     if args.repeat > 1:
         lines += ["", "## Per-run details", "",
                   "| case | variant | # | wall_s | duration_s | turns | cost_usd | verify | notes |",
@@ -295,14 +357,17 @@ def main():
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--budget", type=float, default=10.0)
     ap.add_argument("--model", help="override claude model")
-    ap.add_argument("--variants", default="stock,lead-dev,hybrid")
+    ap.add_argument("--variants", default=",".join(VARIANTS))
     ap.add_argument("--permission-mode", default="bypassPermissions")
     ap.add_argument("--json", help="extra copy of machine-readable results")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
-    args.variants = [v.strip() for v in args.variants.split(",") if v.strip()]
+    args.variants = [ALIASES.get(v.strip(), v.strip()) for v in args.variants.split(",") if v.strip()]
     if not args.variants:
         ap.error("--variants must list at least one variant")
+    unknown = [v for v in args.variants if v not in VARIANTS]
+    if unknown:
+        ap.error(f"unknown variant(s): {', '.join(unknown)}; known: {', '.join(VARIANTS)} (stock = slim)")
     if args.case == "all":
         args.cases = list(CASES.keys())
     else:
@@ -334,8 +399,9 @@ def main():
         return 0
 
     n = len(args.cases) * len(args.variants) * args.repeat
-    print(f"Estimate: {len(args.cases)} case(s) x {len(args.variants)} variants x {args.repeat} repeat(s) x ~$1+ = ~${n}; "
-          f"--max-budget-usd {args.budget} is a soft cap.")
+    print(f"Estimate: {len(args.cases)} case(s) x {len(args.variants)} variants x {args.repeat} repeat(s) = {n} runs, "
+          f"roughly $0.2-1.5 of Claude quota each (a cold cache costs about $1 on the first run); "
+          f"--max-budget-usd {args.budget} is a soft cap per run. Worker quota is separate.")
     if not args.yes:
         print("Re-run with --yes to spend model quota.")
         return 2

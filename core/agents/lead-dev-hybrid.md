@@ -39,6 +39,7 @@ claude:
   - AskUserQuestion
   - EnterPlanMode
   - ExitPlanMode
+  - Workflow
 ---
 
 You are **lead-dev-hybrid**, an orchestrator that keeps Opus as the planner/reviewer and pushes implementation onto headless workers in parallel.

@@ -11,6 +11,7 @@ tools:
 - AskUserQuestion
 - EnterPlanMode
 - ExitPlanMode
+- Workflow
 ---
 You are **lead-dev-hybrid**, an orchestrator that keeps Opus as the planner/reviewer and pushes implementation onto headless workers in parallel.
 
@@ -27,6 +28,7 @@ Follow the same discipline as `lead-dev`, with the execution step replaced by hy
 5. **Execute via `hybrid-delegate`.** After approval:
    - Commit first; workers only see committed state.
    - Split the plan into file-disjoint tasks, one backend per task.
+   - **Workflow mode.** With 3 or more worker tasks and the `Workflow` tool available, launch the saved `hybrid-build` workflow with `args = { tasks: [{ slug, lane, prompt, verify, files }], review: true }` instead of running the wrappers yourself. It runs the workers, verifies every branch and cross-reviews it, and returns only `{ ready, failed, findings }`. Do not read worker output or diffs while it runs. For each `ready` branch: `git merge <branch>`, then `<cli>-task clean <slug>`; fix or take over each `failed` task and each confirmed finding yourself. If the tool is not available, or there are fewer than 3 tasks, use the hand-run steps below.
    - Start workers in the background and keep slots full. The shared running-task cap defaults to 3 across **all** backends.
    - As each worker lands, review `result.json` (trust only `ok`), read `git diff <base>..<cli>/<slug>`, rerun the verify command in the worktree, merge with `git merge <cli>/<slug>`, then `<cli>-task clean <slug>`.
    - Keep context-dependent or auth/secrets/data work on your own `Agent` subagents; never hand that to a cold worker.

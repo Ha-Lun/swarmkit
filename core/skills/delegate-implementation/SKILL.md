@@ -27,8 +27,8 @@ Everything else in the plan goes to a worker.
 | Task | Worker |
 |---|---|
 | Implementation where the worker should run the tests itself | `opencode-task` (free `opencode-go/` model), see `opencode-delegate` |
-| Edits and boilerplate where you run the tests | `agy-task` (default `gemini-3.8-flash-high`; `--model gemini-3.1-pro-high` for harder logic), see `agy-delegate` |
-| Second opinion on your own diff | `agy-task --review --model gemini-3.1-pro-high`, or `codex-task --review` if Codex is installed |
+| Edits and boilerplate where you run the tests | `agy-task` (default `gemini-3.8-flash-high`; `--model claude-sonnet-4-6` for harder logic), see `agy-delegate` |
+| Second opinion on your own diff | `agy-task --review --model claude-sonnet-4-6`, or `codex-task --review` if Codex is installed |
 
 If the preferred worker fails twice on the same kind of task, use another one. If none is available, Claude's own `junior-dev` (mechanical edits) and `test-writer` (tests) subagents are the fallback.
 
