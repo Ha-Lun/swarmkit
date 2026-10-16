@@ -15,4 +15,4 @@
 - Animate transform and opacity only in the DOM. Every animation (DOM and scene) needs a `prefers-reduced-motion` path.
 - Responsive at 1440, 1024, 768 and 390.
 - Dev server binds to 0.0.0.0 (`astro dev --host 0.0.0.0`).
-- Logging, all under `.buildlog/`: gate approvals to `human.jsonl`, art-direction rounds to `artdirection.jsonl`, and every dispatch to a worker or subagent to `dispatch.jsonl`, with a `lane` field (`agy`, `opencode` or `codex`) when it went to one of those.
+- Logging, all under `.buildlog/`: gate approvals to `human.jsonl`, art-direction rounds to `artdirection.jsonl`, and every dispatch to a worker or subagent to `dispatch.jsonl`, with a `lane` field (`agy` or `opencode`) when it went to one of those.

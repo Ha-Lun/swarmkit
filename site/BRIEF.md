@@ -6,16 +6,16 @@
 
 One site, two jobs.
 
-1. **Explain SwarmKit.** A developer understands what it is, which mode to use when, how the config reaches four CLIs, and how to install it in under 90 seconds.
+1. **Explain SwarmKit.** A developer understands what it is, which mode to use when, how the config reaches three CLIs, and how to install it in under 90 seconds.
 2. **Prove SwarmKit.** One real `lead-dev-hybrid` run is acted out in 3D, with its real numbers, and the site shows that the swarm built it.
 
-Story, in one line: **Opus plans. Cheaper models build, in parallel. One config, four CLIs.**
+Story, in one line: **Opus plans. Cheaper models build, in parallel. One config, three CLIs.**
 
 Core idea: a tilt-shift miniature-city diorama on a drafting table. **The city is the codebase.** The run builds new lots into it. The part that impresses and the part that explains are the same thing.
 
 ## 2. Audience and tone
 
-- **Audience:** developers evaluating agent setups (Claude Code, OpenCode, Antigravity, Codex). They read docs, distrust hype, and will check numbers.
+- **Audience:** developers evaluating agent setups (Claude Code, OpenCode, Antigravity). They read docs, distrust hype, and will check numbers.
 - **Tone:** precise, confident, no hype. Short declarative sentences. Say what it does and what it costs. No superlatives, no "revolutionary", no crypto/luxury register.
 - **Copy rule:** all copy lives in the DOM. Nothing is rendered as text in WebGL (labels pinned to 3D objects are DOM elements positioned from the projected point). During the pinned run, text stays at the edges and short; below the run the page is normal readable sections.
 - **Derived facts only:** agent, skill, pack, MCP server and slash command counts and the roster are computed at build time from `../core/agents` and `../core/skills`. Nothing is hardcoded and nothing is invented.
@@ -72,7 +72,7 @@ Core idea: a tilt-shift miniature-city diorama on a drafting table. **The city i
 
 1. **Which mode when.** direct / plan / lead-dev / lead-dev-hybrid. Bench rule: value scales with writing volume, not file count.
 2. **Numbers.** Cells with n >= 3 only: min / median / max, losses shown, harness and model from the data file.
-3. **One source, four CLIs.** `core/` -> `scripts/build.py` -> four outputs (Claude Code, OpenCode, Antigravity, Codex).
+3. **One source, three CLIs.** `core/` -> `scripts/build.py` -> three outputs (Claude Code, OpenCode, Antigravity).
 4. **Roster as a city map.** Packs are districts, agents are buildings; hover and focus cards. Derived from `../core/agents`. A hidden focusable list gives keyboard users the same cards.
 5. **Safety.** Worktrees, the RUNNERS allowlist, no secrets to cold workers; the guards are a speed bump, not a sandbox.
 6. **Install.** `./install.sh --all` and the flags, copy button.
