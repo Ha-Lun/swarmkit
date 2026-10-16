@@ -162,6 +162,29 @@ def parse_usage(u):
     return total, inp, out, cr, cc
 
 
+def merge_results(events):
+    """One result for the whole session. A session that resumes after background work emits a result event
+    per segment: total_cost_usd and modelUsage are cumulative (take the last), while usage (main thread
+    tokens), num_turns and duration_ms are per segment (sum them). None if there is no result event."""
+    results = [e for e in events if e.get("type") == "result"]
+    if not results:
+        return None
+    merged = dict(results[-1])
+    merged["total_cost_usd"] = max((e.get("total_cost_usd") or 0 for e in results), default=0)
+    merged["num_turns"] = sum(e.get("num_turns") or 0 for e in results)
+    merged["duration_ms"] = sum(e.get("duration_ms") or 0 for e in results)
+    usage = {}
+    for e in results:
+        for k, v in (e.get("usage") or {}).items():
+            if isinstance(v, int):
+                usage[k] = usage.get(k, 0) + v
+    merged["usage"] = usage
+    merged["segments"] = len(results)
+    merged["errors"] = [str(e.get("result") or "")[:160] for e in results[:-1] if e.get("is_error")]
+    merged["budget_hit"] = any(e.get("subtype") == "error_max_budget_usd" for e in results)
+    return merged
+
+
 def help_modes():
     try:
         text = subprocess.run(["claude", "--help"], capture_output=True, text=True, timeout=30).stdout
@@ -260,7 +283,7 @@ def run_variant(case_key, case_spec, variant, args, spec, ts, n):
     os.makedirs(os.path.dirname(raw), exist_ok=True)
     with open(raw, "w") as f:
         f.write(out)
-    result = next((e for e in run.events(out) if e.get("type") == "result"), None)
+    result = merge_results(run.events(out))
     notes = ([note] if note else []) + (["timed out"] if timed_out else [])
     r = {"case": case_key, "variant": variant, "repeat": n, "status": "ok", "wall_s": wall,
          "raw": raw, "notes": notes, "workers": [], "worker_tokens": {}, "verify": {}}
@@ -273,7 +296,10 @@ def run_variant(case_key, case_spec, variant, args, spec, ts, n):
                   "input_tokens": inp, "output_tokens": outt, "cache_read": cr, "cache_creation": cc,
                   "total_tokens": total, "cost_usd": result.get("total_cost_usd"),
                   "model_usage": result.get("modelUsage") or {}})
-        if result.get("subtype") == "error_max_budget_usd":
+        if result["segments"] > 1:
+            notes.append(f"{result['segments']} result segments merged (cost from the last, turns and duration summed)")
+        notes.extend(f"earlier segment error: {m}" for m in result["errors"])
+        if result["budget_hit"]:
             notes.append("budget cap hit")
         if result.get("is_error"):
             r["status"] = "error"
