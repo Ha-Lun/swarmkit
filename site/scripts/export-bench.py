@@ -16,7 +16,7 @@ are quota on the opencode-go / Gemini subscriptions and are never converted to U
 
 Usage: export-bench.py [--results DIR] [--out FILE]   (stdlib only)
 """
-import argparse, datetime, glob, json, os, statistics, subprocess, sys
+import argparse, datetime, glob, json, os, re, statistics, subprocess, sys
 
 MIN_RUNS = 3
 CASE_ORDER = ["small", "big", "features", "scaffold"]
