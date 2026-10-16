@@ -51,7 +51,10 @@ for s in e1 e2 e3 e4; do "$TASK" clean $s --force; done
 
 # --- worker shell: test files in a subdirectory are allowed, node -e is not (only the default deny covers it)
 "$TASK" start rg1 "p" >/dev/null 2>&1 || true
-[ "$(jq -r '.permission.bash["node */test/*"]' "$STUB_ARGS.cfg")" = allow ] || fail "node */test/* not allowed"
+[ "$(jq -r '.permission.bash["node site/test/*"]' "$STUB_ARGS.cfg")" = allow ] || fail "node site/test/* not allowed"
+# fixed prefixes only: a leading wildcard would also match node -e
+[ "$(jq -r '[.permission.bash | to_entries[] | select(.value == "allow") | .key | select(startswith("node *") or contains("-e"))] | length' "$STUB_ARGS.cfg")" = 0 ] \
+  || fail "an allow key starts with 'node *' or contains -e"
 [ "$(jq -r '.permission.bash["node *"] // "none"' "$STUB_ARGS.cfg")" = none ] || fail "node * must not be allowed"
 [ "$(jq -r '.permission.bash["node -e *"] // "none"' "$STUB_ARGS.cfg")" = none ] || fail "node -e * must not be allowed"
 "$TASK" clean rg1 --force

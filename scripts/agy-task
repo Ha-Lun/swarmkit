@@ -100,7 +100,9 @@ RUNNERS = ("npm test", "npm run test", "npm run lint", "npm run build", "npm run
 # reach for to look around (ls, pwd, echo, wc for line counts, cat of source and test paths only, so
 # `cat .env` stays denied). Not `cd`: the worker already starts in the worktree, and
 # `cd <elsewhere> && npm test` would test a different checkout.
-RUNNER_GLOBS = ("node test/*", "node tests/*", "node __tests__/*", "node */test/*", "node */tests/*",
+# Fixed prefixes only, never a leading wildcard: `*` also matches flags such as `-e`, so `node */test/*`
+# would allow `node -e "<code>" x/test/y`. Add one entry per extra project directory if needed.
+RUNNER_GLOBS = ("node test/*", "node tests/*", "node __tests__/*", "node site/test/*", "node site/tests/*",
                 "python3 test/*", "python3 tests/*",
                 "pwd", "ls", "ls *", "echo *", "wc *",
                 "cat src/*", "cat test/*", "cat tests/*", "cat package.json", "cat README.md")
