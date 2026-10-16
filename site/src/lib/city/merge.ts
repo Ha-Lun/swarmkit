@@ -65,7 +65,7 @@ export const createMerge: CreateMerge = (layout: LotLayout, palette: CityPalette
 
   const footprintMeshes: PlateMesh[] = [];
   const tickMeshes: PlateMesh[] = [];
-  const flagMeshes: PlateMesh[] = [];
+  const flagMeshes: Array<Mesh<ConeGeometry, MeshLambertMaterial>> = [];
   for (let f = 0; f < origIndex.length; f++) {
     const lot = layout.lots[origIndex[f]];
     const geo = new BoxGeometry(lot.w, PLATE_H, lot.d);
@@ -78,7 +78,7 @@ export const createMerge: CreateMerge = (layout: LotLayout, palette: CityPalette
     tick.rotation.y = Math.PI / 4;
     tick.position.y = PLATE_H / 2 + 0.03;
     tick.visible = false;
-    const flag: PlateMesh = new Mesh(flagGeo, failMat);
+    const flag: Mesh<ConeGeometry, MeshLambertMaterial> = new Mesh(flagGeo, failMat);
     flag.position.y = PLATE_H / 2 + 0.3;
     flag.visible = false;
     mesh.add(tick, flag);
