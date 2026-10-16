@@ -34,17 +34,17 @@ res() { jq -r "$2" "$OPENCODE_TASK_DIR"/$1-*/"$3"/result.json; }
 mkrepo r1; cd "$T/r1"
 
 # --- effort per model
-D=opencode-go/cat-jam-free
+D=opencode-go/muse-spark-1.3-contributor
 "$TASK" start e1 "p" >/dev/null 2>&1 || true
-[ "$(last_model)" = "$D#max" ] || fail "default model should get #max, got $(last_model)"
+[ "$(last_model)" = "$D" ] || fail "default model should get no effort suffix, got $(last_model)"
 "$TASK" start e2 --model opencode-go/other "p" >/dev/null 2>&1 || true
 [ "$(last_model)" = "opencode-go/other" ] || fail "unknown model should get no effort, got $(last_model)"
 "$TASK" start e3 --model "$D" --effort "" "p" >/dev/null 2>&1 || true
 [ "$(last_model)" = "$D" ] || fail "empty --effort should mean none, got $(last_model)"
 "$TASK" start e4 --model opencode-go/other --effort high "p" >/dev/null 2>&1 || true
 [ "$(last_model)" = "opencode-go/other#high" ] || fail "explicit effort ignored, got $(last_model)"
-"$TASK" resume e1 --effort "" "again" >/dev/null 2>&1 || true
-[ "$(last_model)" = "$D#max" ] || fail "resume must keep start's effort, got $(last_model)"
+"$TASK" resume e1 --effort high "again" >/dev/null 2>&1 || true
+[ "$(last_model)" = "$D" ] || fail "resume must keep start's (empty) effort, got $(last_model)"
 "$TASK" resume e2 --effort max "again" >/dev/null 2>&1 || true
 [ "$(last_model)" = "opencode-go/other" ] || fail "resume must keep start's (empty) effort, got $(last_model)"
 for s in e1 e2 e3 e4; do "$TASK" clean $s --force; done
