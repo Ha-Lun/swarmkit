@@ -172,7 +172,7 @@ with tempfile.TemporaryDirectory() as t:
     with open(compare, "w") as f:
         json.dump({"timestamp": "t", "args": {}, "runs": [record]}, f)
     exported = export_run.export(compare, "features", "hybrid", 1, t)
-    assert all(e.get("slug") != "beta" for e in exported["events"]), exported["events"}
+    assert all(e.get("slug") != "beta" for e in exported["events"]), exported["events"]
     assert sum(e.get("type") == "dispatch" for e in exported["events"]) == 1
 
 # a failed privacy check leaves an --out target untouched
