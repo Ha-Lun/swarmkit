@@ -338,8 +338,10 @@ def main():
     a = ap.parse_args()
 
     # The first `git worktree list` entry is the main working tree, also when run from inside a
-    # task worktree or a submodule.
+    # task worktree or a submodule: it keys the task dirs, so every worktree shares one list and cap.
+    # `here` is the checkout we were invoked from: HEAD (default base, merged check) means its HEAD.
     repo = Path(sh("git", "worktree", "list", "--porcelain").splitlines()[0].split(" ", 1)[1])
+    here = Path(sh("git", "rev-parse", "--show-toplevel"))
     key = f"{repo.name}-{hashlib.sha1(str(repo).encode()).hexdigest()[:6]}"
     def home(b):
         return Path(os.environ.get(f"{b['env']}_DIR", Path.home() / b["home"])) / key
@@ -356,7 +358,7 @@ def main():
 
     if a.cmd == "clean":
         wt = task / "worktree"
-        merged = subprocess.run(["git", "merge-base", "--is-ancestor", branch, "HEAD"], cwd=repo).returncode == 0
+        merged = subprocess.run(["git", "merge-base", "--is-ancestor", branch, "HEAD"], cwd=here).returncode == 0
         if not a.force:
             if wt.exists() and sh("git", "status", "--porcelain", *spec(task), cwd=wt, check=False):
                 sys.exit(f"{PROG}: {wt} has uncommitted changes; inspect them or pass --force to discard")
@@ -395,16 +397,17 @@ def main():
         except FileExistsError:
             sys.exit(f"{PROG}: {task} exists; pick another slug or run clean")
         claim(task)
-        (task / "base").write_text(sh("git", "rev-parse", a.base, cwd=repo))
+        base = sh("git", "rev-parse", a.base, cwd=here)
+        (task / "base").write_text(base)
         try:
-            sh("git", "worktree", "add", "-q", "-b", branch, str(task / "worktree"), a.base, cwd=repo)
+            sh("git", "worktree", "add", "-q", "-b", branch, str(task / "worktree"), base, cwd=repo)
         except SystemExit:
             for f in task.iterdir():
                 f.unlink()
             task.rmdir()
             raise
-        dirty = sh("git", "status", "--porcelain", "--untracked-files=no", cwd=repo)
-        warn = [f"the main checkout has uncommitted changes; {CLI} sees only the committed state "
+        dirty = sh("git", "status", "--porcelain", "--untracked-files=no", cwd=here)
+        warn = [f"{here} has uncommitted changes; {CLI} sees only the committed state "
                 f"of {a.base}"] if dirty and a.base == "HEAD" else []
         for w in warn:
             print(f"{PROG}: WARNING: {w}", file=sys.stderr)
