@@ -1,0 +1,8 @@
+{"ts": "2026-10-16T19:47:18Z", "cli": "opencode", "slug": "city-buildings", "ok": true, "denied": 0, "tokens": 408594, "wall_s": 233, "stopped_by": null}
+{"ts": "2026-10-16T19:47:31Z", "cli": "opencode", "slug": "city-scan", "ok": false, "denied": 1, "tokens": 338258, "wall_s": 246, "stopped_by": null}
+{"ts": "2026-10-16T19:48:04Z", "cli": "opencode", "slug": "city-merge", "ok": false, "denied": 1, "tokens": 427454, "wall_s": 279, "stopped_by": null}
+{"ts": "2026-10-16T19:49:52Z", "cli": "opencode", "slug": "city-blueprint", "ok": true, "denied": 0, "tokens": 330215, "wall_s": 137, "stopped_by": null}
+{"ts": "2026-10-16T19:50:18Z", "cli": "opencode", "slug": "city-tiltshift", "ok": false, "denied": 1, "tokens": 395660, "wall_s": 133, "stopped_by": null}
+{"ts": "2026-10-16T19:50:23Z", "cli": "opencode", "slug": "city-drones", "ok": false, "denied": 1, "tokens": 333634, "wall_s": 177, "stopped_by": null}
+{"ts": "2026-10-16T19:51:45Z", "cli": "opencode", "slug": "city-merge", "ok": true, "denied": 0, "tokens": 198471, "wall_s": 19, "stopped_by": null}
+{"ts": "2026-10-16T19:51:53Z", "cli": "opencode", "slug": "city-buildings", "ok": true, "denied": 0, "tokens": 278820, "wall_s": 27, "stopped_by": null}
