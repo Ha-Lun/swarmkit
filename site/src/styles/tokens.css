@@ -38,10 +38,9 @@
   --light-warm-low: #ff9a4d; /* low sun, long-shadow side */
   --light-cool: #9cc3ee;     /* sky fill */
 
-  /* one accent per lane (colour-vision safe: yellow-orange, blue-green, blue-violet/magenta) */
+  /* one accent per lane (colour-vision safe: yellow-orange, blue-green) */
   --lane-agy: #e69f00;       /* amber */
   --lane-opencode: #1aa7a1;  /* teal */
-  --lane-codex: #b04fd0;     /* magenta-violet */
 
   /* status: always paired with a shape (tick, cross, flag), never colour alone */
   --status-ok: #4f9d2f;

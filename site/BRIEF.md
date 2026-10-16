@@ -36,7 +36,7 @@ Core idea: a tilt-shift miniature-city diorama on a drafting table. **The city i
 - **Losses stay visible.** Where SwarmKit is slower or costs more (for example hybrid wall time against stock), the cell says so, in the same size as the wins.
 - **Harness and model are disclosed from the data file** (`model_usage`), per number. The scaffold data was recorded with `claude-sonnet-5-5`; the site states exactly that, never "Opus" for a measured result. When there is no data, the disclosure reads "pending".
 - **The featured run is one run.** The replay (lots, order, costs, tokens, wall time, verify result) comes only from `public/data/featured-run.json` and is labelled **"one real run, not a median"**. The Numbers section carries the statistics.
-- **Worker tokens are quota, never USD.** agy, opencode and codex tokens are shown as tokens or as share of a quota. They are never converted to dollars. Only the Claude side shows USD, with the stock run beside it.
+- **Worker tokens are quota, never USD.** agy and opencode tokens are shown as tokens or as share of a quota. They are never converted to dollars. Only the Claude side shows USD, with the stock run beside it.
 - **Allowlisted run export.** `featured-run.json` holds only task title, workers `{slug, lane, ok, tokens, deniedCount}`, event order, cost, wall time and verify result. No paths, commands or code.
 - **Asset claim:** "hand-modelled in Blender plus procedural, no AI-generated media". If that changes, the claim changes with it.
 - **Build log:** separate what agents did from what the human did (gate approvals, art-direction rounds, manual edits). Show the human-intervention count. The headline reads "built by lead-dev-hybrid: N opencode tasks, M agy tasks, K Claude subagents, H human interventions", every number from `.buildlog/*.jsonl`.
@@ -48,7 +48,7 @@ Core idea: a tilt-shift miniature-city diorama on a drafting table. **The city i
 | The city, its blocks and roads | The codebase |
 | An empty blueprint plot beside the city | The task |
 | Lots on the plot, each with a worker slug | The file-disjoint parts of the approved plan |
-| A hangar per lane (agy, opencode, codex); unused lanes stay dark | A vendor lane; which CLIs the run really used |
+| A hangar per lane (agy, opencode); unused lanes stay dark | A vendor lane; which CLIs the run really used |
 | Drone cranes and rising buildings | Workers building in parallel; height and build time scale with real tokens and order |
 | Scan beam over each building | Verify (tests re-run) plus cross-model review |
 | Flag on a building, a crane returns | A real `ok:false` worker: resumed, or Opus finishes it |
@@ -63,7 +63,7 @@ Core idea: a tilt-shift miniature-city diorama on a drafting table. **The city i
 | 0 Hero | "Opus plans. Cheaper models build, in parallel." + `claude --agent lead-dev-hybrid` + install | Finished miniature city at golden hour, drones idling, slow parallax |
 | 1 Task | The real task prompt (short) | Camera tilts down to an empty blueprint plot beside the city |
 | 2 Plan | "Plan mode on Opus, you approve" | Blueprint lines draw themselves; the plot splits into N lots labelled with the real worker slugs (DOM labels pinned to 3D) |
-| 3 Lanes | Lane legend: agy, opencode, codex | Drone cranes leave per-vendor hangars (unused lanes stay dark); buildings rise in parallel |
+| 2 Lanes | Lane legend: agy, opencode | Drone cranes leave per-vendor hangars (unused lanes stay dark); buildings rise in parallel |
 | 4 Verify + review | "Every branch re-tested, then reviewed by a different model" | A scan beam sweeps each building. Real `ok:false` workers get a flag and a crane returns (resume), or Opus finishes it |
 | 5 Merge | "Merged into main" | Lots lift and slot into the city block; roads connect |
 | 6 The bill | Claude USD vs stock, worker tokens (quota, never USD), wall time, pass | City recedes; DOM counters from the data file |
@@ -96,7 +96,7 @@ Art-direction rounds are judged against this. Verdicts should be short and name 
 
 **Light.** Warm golden-hour key from low on one side with long soft shadows, a cool sky fill from the other. The light is warm; the paper stays paper. Nothing glows or blooms; the lit things are lit by the sun.
 
-**Palette.** Paper and blueprint neutrals carry the page: a warm off-white paper, a deep blueprint navy ink, hairline blueprint blue for line work and the blueprint plot. **One accent per lane**: agy amber, opencode teal, codex magenta-violet. The three are distinct for common colour-vision deficiencies and readable on both paper and navy. A status pair (ok green, fail red) is used only for verify and review results, and never as the only cue (a flag shape, a tick or a cross always goes with it). Exact values live in `src/styles/tokens.css`.
+**Palette.** Paper and blueprint neutrals carry the page: a warm off-white paper, a deep blueprint navy ink, hairline blueprint blue for line work and the blueprint plot. **One accent per lane**: agy amber, opencode teal. The two are distinct for common colour-vision deficiencies and readable on both paper and navy; the magenta-violet hue is free for a future lane. A status pair (ok green, fail red) is used only for verify and review results, and never as the only cue (a flag shape, a tick or a cross always goes with it). Exact values live in `src/styles/tokens.css`.
 
 **Models.** Matte low-poly shapes, flat shading with soft ambient occlusion baked into the one shared palette texture. Small bevels catch the sun. No glossy surfaces, no reflections.
 
@@ -124,5 +124,4 @@ Art-direction rounds are judged against this. Verdicts should be short and name 
 - Whether the featured run's `ok:false` worker (if any) is shown as a resume or an Opus finish, whichever the run actually did.
 - Domain (subdomain vs dedicated).
 - Build log presentation: raw vs curated (recommended: curated timeline plus raw JSONL link).
-- Whether codex appears as a live lane in the replay or only as a dark hangar, depending on whether the featured run used it.
 - Merging `site/city` to `main` deploys to production. It happens only when the human says so.

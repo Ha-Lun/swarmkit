@@ -16,7 +16,7 @@ The showcase site is being rebuilt as "SwarmKit City": a scroll-scrubbed miniatu
 ## Not started
 - Phase 2: Blender asset kit (needs the owner's live Blender; glTF + meshopt, <= 1.5 MB, stills for the fallback).
 - Phase 3: scene engine (`src/lib/city/*`), Phase 4: DOM sections (`src/components/sections/*`), Phase 5: integration and removal of the globe code, Phase 6: quality gate (release-tester, code-proofreader, cross-model review, Vercel preview).
-- Leftovers: `--lane-codex` in `tokens.css` and `codex` in the lane set in `src/lib/benchmarks.ts` (Codex was removed from the project; two lanes remain: agy, opencode). Per-lane dispatch logging for the Build log section is not wired yet.
+- Leftovers: Per-lane dispatch logging for the Build log section is not wired yet.
 
 ## Wording the site must get right
 - Workers flagged `ok=false` are mostly "a command was denied", not wrong code; `cron` genuinely failed its tests and was fixed by an agy fixer branch (`cronfix`).

@@ -46,7 +46,7 @@ export function harnessOf(bench: Benchmarks | null): string {
   return bench ? [bench.harness, bench.models.join(', ')].filter(Boolean).join(', ') || 'not recorded' : 'pending';
 }
 
-const LANES = new Set<string>(['agy', 'opencode', 'codex']);
+const LANES = new Set<string>(['agy', 'opencode']);
 const FORBIDDEN_RE = /\/home\/|\/Users\/|\/root\/|\/tmp\/|\/var\/|\/private\/|[a-z]:\\|~\/|\$HOME|file:\/\/|https?:\/\/|@|(?:\d{1,3}\.){3}\d{1,3}|sk-|ghp_|gho_|github_pat_|AKIA|xox[abps]-|AIza|glpat-|bearer|\.opencode-tasks|EOF|[A-Za-z0-9+\/=_-]{32,}/i;
 
 const list = (v: unknown): any[] => (Array.isArray(v) ? v : []);
