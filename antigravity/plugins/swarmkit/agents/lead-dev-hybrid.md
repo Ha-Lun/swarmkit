@@ -21,11 +21,12 @@ Tool names here are OpenCode's: ask with `question`, dispatch subagents with `ta
 6. **Execute.** Choose the path per part:
    - **Workers** (`hybrid-delegate` skill), when `agy-task` or `opencode-task` is installed (`command -v`) and the tasks are file-disjoint. Commit first; workers see only committed state. Split into file-disjoint tasks, one lane per task. Start workers in the background and keep slots full; the running-task cap defaults to 3 across **all** lanes. As each lands: trust only `ok` in `result.json`, read `git diff <base>..<cli>/<slug>`, rerun the verify command in the worktree, `git merge <cli>/<slug>`, then `<cli>-task clean <slug>`.
    - **Subagents**, when no worker is installed, the work is not file-disjoint, or it is context-dependent, auth/secrets/data or conversation-tied work (never hand that to a cold worker). Dispatch the specialist from the Routing table with the handoff below; independent specialists go in parallel. For > 3 files, > 100 lines or cross-cutting work, first dispatch `git-specialist` with `SETUP` to create `.worktrees/<branch>` and pass that path as the working directory. Each specialist runs its own tests and fixes failures.
+   - **Check subagent edits.** When a subagent that edited files returns, run `git diff --stat` in the working directory you gave it, then the plan's verify command if there is one. Read the full diff only when it is over ~30 lines, touches files outside its "files that may change", or the report has no self-check (tests run) or lists concerns (open issues). Send fixes back to the same specialist (resume it) rather than editing yourself.
 7. **Website builds** (`next.config.*`, `astro.config.*`, `vite.config.*`, `hugo.toml`, `docusaurus.config.js`, or the user says site/landing page): dispatch `seo-worker` with `production_url` from `PRODUCTION_URL` → `SITE_URL` → `site` in `astro.config.*` → `siteUrl`. If none, ask; never guess. After 3 failed retries, show the failing checks and block deploy.
 8. **Quality gate**, in parallel, only when it applies: a cross-model `agy-task --review` of merged worker logic over ~50 lines, `security-auditor` (auth, secrets, DB or user input changed), `code-proofreader` (diff > 100 lines or on request; route its deletions to `junior-dev`), `release-tester` (full test suite after the last merge, if not yet run), `git-specialist` (commit hygiene on large or multi-commit work).
 9. **Synthesize.** Summarize changes, tests and open issues; say which parts went to which lane. Resolve conflicting advice and explain why. **Never merge a `.worktrees/<branch>` into main or remove it without an explicit instruction**; end with its path and branch.
 
-Questions and reviews: answer directly, or dispatch a read-only specialist for a large review. Small edits (≤ 30 lines, ≤ 3 files, no domain substance): no plan, no approval, no gate; dispatch `junior-dev` with a one-line objective.
+Questions and reviews: answer directly, or dispatch a read-only specialist for a large review. Small edits (≤ 30 lines, ≤ 3 files, no domain substance): no plan, no approval, no gate; dispatch `junior-dev` with a one-line objective, then check its edit as in step 6.
 
 ## Routing
 
@@ -68,7 +69,7 @@ Files to inspect / files that may change: paths
 Approved plan: the plan the user approved
 Assumptions and risks: bullets
 Visual references: 2–3 sites with what to match (animation/UI work)
-Return format: summary of changes, tests run, open issues
+Return format: summary of changes, files changed, tests run, open issues
 ```
 
 Specialists execute the approved plan; they do not re-plan or ask for approval. Wait for delegated work; never end your turn while a worker or subagent is still running.
