@@ -1,0 +1,332 @@
+{
+  "label": "One real run, not a median",
+  "task": "Implement five independent modules against their failing tests",
+  "case": "features",
+  "variant": "hybrid",
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.4116,
+  "wall_s": 110.2,
+  "duration_s": 81.3,
+  "turns": 23,
+  "verify_ok": true,
+  "worker_tokens": {
+    "opencode": 395897,
+    "agy": 297898
+  },
+  "lanes": [
+    "opencode",
+    "agy"
+  ],
+  "workers": [
+    {
+      "slug": "slugify",
+      "lane": "opencode",
+      "ok": false,
+      "tokens": 70241,
+      "denied_count": 2,
+      "files": [
+        "src/slugify.js"
+      ]
+    },
+    {
+      "slug": "email",
+      "lane": "opencode",
+      "ok": false,
+      "tokens": 265253,
+      "denied_count": 3,
+      "files": [
+        "src/email.js"
+      ]
+    },
+    {
+      "slug": "unique",
+      "lane": "opencode",
+      "ok": false,
+      "tokens": 60403,
+      "denied_count": 3,
+      "files": [
+        "src/unique.js"
+      ]
+    },
+    {
+      "slug": "range",
+      "lane": "agy",
+      "ok": false,
+      "tokens": 98466,
+      "denied_count": 1,
+      "files": [
+        "src/range.js"
+      ]
+    },
+    {
+      "slug": "pad",
+      "lane": "agy",
+      "ok": true,
+      "tokens": 199432,
+      "denied_count": 0,
+      "files": [
+        "src/pad.js"
+      ]
+    }
+  ],
+  "events": [
+    {
+      "type": "task",
+      "t": 0.0,
+      "order": 0
+    },
+    {
+      "type": "dispatch",
+      "slug": "slugify",
+      "lane": "opencode",
+      "t": 9.1,
+      "order": 1
+    },
+    {
+      "type": "dispatch",
+      "slug": "email",
+      "lane": "opencode",
+      "t": 11.3,
+      "order": 2
+    },
+    {
+      "type": "dispatch",
+      "slug": "unique",
+      "lane": "opencode",
+      "t": 13.3,
+      "order": 3
+    },
+    {
+      "type": "worker_done",
+      "slug": "unique",
+      "lane": "opencode",
+      "ok": false,
+      "t": 26.8,
+      "order": 4
+    },
+    {
+      "type": "worker_done",
+      "slug": "slugify",
+      "lane": "opencode",
+      "ok": false,
+      "t": 28.0,
+      "order": 5
+    },
+    {
+      "type": "review",
+      "slug": "unique",
+      "lane": "opencode",
+      "by": "orchestrator",
+      "t": 33.6,
+      "order": 6
+    },
+    {
+      "type": "review",
+      "slug": "slugify",
+      "lane": "opencode",
+      "by": "orchestrator",
+      "t": 33.6,
+      "order": 7
+    },
+    {
+      "type": "verify",
+      "slug": "unique",
+      "t": 33.7,
+      "order": 8
+    },
+    {
+      "type": "verify",
+      "slug": "slugify",
+      "t": 33.7,
+      "order": 9
+    },
+    {
+      "type": "dispatch",
+      "slug": "range",
+      "lane": "agy",
+      "t": 34.9,
+      "order": 10
+    },
+    {
+      "type": "dispatch",
+      "slug": "pad",
+      "lane": "agy",
+      "t": 37.3,
+      "order": 11
+    },
+    {
+      "type": "merge",
+      "slug": "unique",
+      "lane": "opencode",
+      "ok": true,
+      "t": 40.6,
+      "order": 12
+    },
+    {
+      "type": "merge",
+      "slug": "slugify",
+      "lane": "opencode",
+      "ok": true,
+      "t": 40.6,
+      "order": 13
+    },
+    {
+      "type": "verify",
+      "slug": "unique",
+      "ok": true,
+      "t": 40.6,
+      "order": 14
+    },
+    {
+      "type": "verify",
+      "slug": "slugify",
+      "ok": true,
+      "t": 40.6,
+      "order": 15
+    },
+    {
+      "type": "worker_done",
+      "slug": "email",
+      "lane": "opencode",
+      "ok": false,
+      "t": 47.3,
+      "order": 16
+    },
+    {
+      "type": "review",
+      "slug": "email",
+      "lane": "opencode",
+      "by": "orchestrator",
+      "t": 50.0,
+      "order": 17
+    },
+    {
+      "type": "merge",
+      "slug": "email",
+      "lane": "opencode",
+      "ok": true,
+      "t": 52.0,
+      "order": 18
+    },
+    {
+      "type": "verify",
+      "slug": "email",
+      "ok": true,
+      "t": 52.0,
+      "order": 19
+    },
+    {
+      "type": "worker_done",
+      "slug": "range",
+      "lane": "agy",
+      "ok": false,
+      "t": 56.1,
+      "order": 20
+    },
+    {
+      "type": "review",
+      "slug": "range",
+      "lane": "agy",
+      "by": "orchestrator",
+      "t": 58.7,
+      "order": 21
+    },
+    {
+      "type": "merge",
+      "slug": "range",
+      "lane": "agy",
+      "ok": true,
+      "t": 60.6,
+      "order": 22
+    },
+    {
+      "type": "verify",
+      "slug": "range",
+      "ok": true,
+      "t": 60.6,
+      "order": 23
+    },
+    {
+      "type": "worker_done",
+      "slug": "pad",
+      "lane": "agy",
+      "ok": false,
+      "t": 67.5,
+      "order": 24
+    },
+    {
+      "type": "review",
+      "slug": "pad",
+      "lane": "agy",
+      "by": "orchestrator",
+      "t": 70.0,
+      "order": 25
+    },
+    {
+      "type": "resume",
+      "slug": "pad",
+      "lane": "agy",
+      "t": 73.1,
+      "order": 26
+    },
+    {
+      "type": "review",
+      "slug": "pad",
+      "lane": "agy",
+      "by": "orchestrator",
+      "t": 73.1,
+      "order": 27
+    },
+    {
+      "type": "worker_done",
+      "slug": "pad",
+      "lane": "agy",
+      "ok": true,
+      "t": 94.5,
+      "order": 28
+    },
+    {
+      "type": "merge",
+      "slug": "pad",
+      "lane": "agy",
+      "t": 97.2,
+      "order": 29
+    },
+    {
+      "type": "verify",
+      "slug": "slugify",
+      "t": 97.2,
+      "order": 30
+    },
+    {
+      "type": "verify",
+      "slug": "email",
+      "t": 97.2,
+      "order": 31
+    },
+    {
+      "type": "verify",
+      "slug": "range",
+      "t": 97.2,
+      "order": 32
+    },
+    {
+      "type": "verify",
+      "slug": "pad",
+      "t": 97.2,
+      "order": 33
+    },
+    {
+      "type": "verify",
+      "slug": "unique",
+      "t": 97.2,
+      "order": 34
+    },
+    {
+      "type": "done",
+      "ok": true,
+      "t": 104.7,
+      "order": 35
+    }
+  ]
+}
