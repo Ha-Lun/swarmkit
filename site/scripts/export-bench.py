@@ -298,7 +298,7 @@ def main():
         sys.exit(f"no runs found in {results}")
     data = build(runs)
     try:
-        check_private(data)
+        check_private(data, max_str=300)
     except PrivacyError as e:
         sys.exit(f"privacy check failed: {e}")
     os.makedirs(os.path.dirname(a.out), exist_ok=True)

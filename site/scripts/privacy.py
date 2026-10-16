@@ -31,13 +31,13 @@ def _pattern():
     return re.compile("|".join(parts), re.IGNORECASE)
 
 
-def check_private(obj):
+def check_private(obj, max_str=MAX_STR):
     """Raise PrivacyError if any string in *obj* matches the forbidden pattern."""
     pattern = _pattern()
 
     def check_str(value):
-        if len(value) > MAX_STR:
-            raise PrivacyError(f"string longer than {MAX_STR} chars")
+        if len(value) > max_str:
+            raise PrivacyError(f"string longer than {max_str} chars")
         if pattern.search(value):
             raise PrivacyError("forbidden string in output")
 
