@@ -10,6 +10,15 @@ Variants (--variants, comma-separated; default is all five):
 
   python3 bench/compare.py --dry-run
   python3 bench/compare.py --yes --case features
+
+--showcase records a session for the site replay instead of measuring cost: the prompt is what a user would type
+(plan first, use both worker lanes, get a cross-model review) and the suffix no longer forbids plan mode.
+Headless `claude -p` has no EnterPlanMode/ExitPlanMode/AskUserQuestion unless a permission prompt tool is
+configured, and ExitPlanMode asks that tool for approval. --showcase therefore passes
+`--permission-prompt-tool` pointing at bench/plan_approver.py (a tiny MCP server): ExitPlanMode is approved
+automatically, anything else is denied, and every answer is logged to results/raw/<ts>-...approvals.jsonl.
+No human approves the plan in such a run; say "approval was automatic in this headless run" wherever it is shown.
+  python3 bench/compare.py --yes --showcase --case scaffold --variants hybrid --model opus --budget 1.5
 """
 import argparse, datetime, hashlib, json, os, pathlib, re, shutil, subprocess, sys, tempfile, threading, time
 
@@ -53,6 +62,12 @@ CASES = {
 }
 SUFFIX = ("Non-interactive bench run: the plan is already approved, so do not enter plan mode, ask questions or "
           "wait for approval; decide and proceed. Done when `{verify}` exits 0.")
+SHOWCASE_ASK = ("Plan this first and get approval, then implement it using your headless worker lanes (both opencode "
+                "and agy, whichever fits each module), and have the result cross-reviewed by a different model "
+                "before you finish.")
+SHOWCASE_SUFFIX = ("This is a recorded non-interactive run: nobody is at the keyboard, so your plan is approved "
+                   "automatically when you submit it with ExitPlanMode (do not use AskUserQuestion, nobody can answer; "
+                   "decide and proceed). Done when `{verify}` exits 0.")
 VARIANTS = ["vanilla", "slim", "lead-dev", "hybrid", "hybrid-workflow"]
 ALIASES = {"stock": "slim"}
 REPO = os.path.dirname(BENCH)
@@ -196,7 +211,7 @@ def help_modes():
     return None
 
 
-def build_cmd(variant, prompt, args, modes):
+def build_cmd(variant, prompt, args, modes, approvals_log=None):
     cmd = ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose",
            "--no-session-persistence", "--max-budget-usd", str(args.budget)]
     if args.model:
@@ -205,6 +220,10 @@ def build_cmd(variant, prompt, args, modes):
         cmd += ["--agent", "lead-dev" if variant == "lead-dev" else "lead-dev-hybrid"]
     if variant == "hybrid-workflow":
         cmd += ["--settings", json.dumps({"enableWorkflows": True})]
+    if args.showcase:
+        server = {"mcpServers": {"approver": {"command": sys.executable, "args": [os.path.join(BENCH, "plan_approver.py")],
+                                              "env": {"PLAN_APPROVER_LOG": approvals_log or "/dev/null"}}}}
+        cmd += ["--mcp-config", json.dumps(server), "--permission-prompt-tool", "mcp__approver__approve"]
     mode = args.permission_mode
     if modes and mode not in modes:
         return cmd + ["--permission-mode", "acceptEdits", "--allowedTools", "Bash"], f"{mode!r} unavailable, using acceptEdits+Bash"
@@ -245,20 +264,24 @@ def verify(fx, verify_cmd):
     return {"ok": rc == 0, "exit": rc, "last": last, "logs": log, "dirty": dirty}
 
 
-def case_prompt(case_spec, spec):
+def case_prompt(case_spec, spec, showcase=False):
     prompt = case_spec["prompt"]
     if prompt is None:
         prompt = next(c["prompt"] for c in spec["cases"] if c["id"] == "delegate-after-plan")
+    if showcase:
+        return prompt + " " + SHOWCASE_ASK + "\n\n" + SHOWCASE_SUFFIX.format(verify=case_spec["verify"])
     return prompt + "\n\n" + SUFFIX.format(verify=case_spec["verify"])
 
 
 def run_variant(case_key, case_spec, variant, args, spec, ts, n):
-    prompt = case_prompt(case_spec, spec)
+    prompt = case_prompt(case_spec, spec, args.showcase)
     fx = run.make_fixture(spec, case_spec["fixture"], None, "claude")
     if variant == "hybrid-workflow":
         seed_workflow(fx)
     base_sha = run.run(["git", "-C", fx, "rev-parse", "HEAD"], timeout=30)[1].strip()
-    cmd, note = build_cmd(variant, prompt, args, help_modes())
+    approvals = f"{BENCH}/results/raw/{ts}-compare-{case_key}-{variant}-{n}.approvals.jsonl"
+    os.makedirs(os.path.dirname(approvals), exist_ok=True)
+    cmd, note = build_cmd(variant, prompt, args, help_modes(), approvals)
     tmp = tempfile.mkdtemp(prefix="compare-cfg-")
     env, env_err = variant_env(variant, tmp)
     if env_err:
@@ -285,6 +308,10 @@ def run_variant(case_key, case_spec, variant, args, spec, ts, n):
         f.write(out)
     result = merge_results(run.events(out))
     notes = ([note] if note else []) + (["timed out"] if timed_out else [])
+    if args.showcase:
+        asked = [json.loads(x) for x in open(approvals).read().splitlines()] if os.path.exists(approvals) else []
+        notes.append("showcase: " + (", ".join(f"{a['tool_name']} {a['answer']}" for a in asked) or "no permission prompts")
+                     + " (automatic, via plan_approver.py)")
     r = {"case": case_key, "variant": variant, "repeat": n, "status": "ok", "wall_s": wall,
          "raw": raw, "notes": notes, "workers": [], "worker_tokens": {}, "verify": {}}
     if not result:
@@ -396,6 +423,9 @@ def main():
     ap.add_argument("--variants", default=",".join(VARIANTS))
     ap.add_argument("--permission-mode", default="bypassPermissions")
     ap.add_argument("--json", help="extra copy of machine-readable results")
+    ap.add_argument("--showcase", action="store_true",
+                    help="record a plan-first session for the site: user-style prompt, plan mode allowed, "
+                         "ExitPlanMode auto-approved through bench/plan_approver.py (see the module docstring)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
     args.variants = [ALIASES.get(v.strip(), v.strip()) for v in args.variants.split(",") if v.strip()]
@@ -420,7 +450,7 @@ def main():
         for case_key in args.cases:
             case_spec = CASES[case_key]
             fx = run.make_fixture(spec, case_spec["fixture"], None, "claude")
-            prompt = case_prompt(case_spec, spec)
+            prompt = case_prompt(case_spec, spec, args.showcase)
             print(f"\ncase: {case_key}")
             print(f"fixture: {fx}")
             print("worker roots:")
