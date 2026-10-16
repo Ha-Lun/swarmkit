@@ -97,7 +97,7 @@ for bad in ({"task": "see /home/x/file"}, {"a": ["/tmp/y"]}, {"k": "sk-abc"}, {"
 export_run.check_private({"ok": "a short and clean string", "n": 3})
 
 # max_str is overridable for long benign prose such as the bench notes
-harmless = "a" * 150
+harmless = "Small tasks cost more with the swarm. " * 4
 export_run.check_private({"s": harmless}, max_str=300)
 try:
     export_run.check_private({"s": harmless})
@@ -105,12 +105,12 @@ try:
 except export_run.PrivacyError:
     pass
 try:
-    export_run.check_private({"s": "a" * 301}, max_str=300)
+    export_run.check_private({"s": ("word " * 60)[:301]}, max_str=300)
     raise AssertionError("301-char string should be rejected even with max_str=300")
 except export_run.PrivacyError:
     pass
 try:
-    export_run.check_private({"s": "a" * 143 + "ghp_abc"}, max_str=300)
+    export_run.check_private({"s": ("word " * 29)[:143] + "ghp_abc"}, max_str=300)
     raise AssertionError("ghp token should be rejected even with max_str=300")
 except export_run.PrivacyError:
     pass
