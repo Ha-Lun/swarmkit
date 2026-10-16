@@ -24,7 +24,7 @@ opencode:
     websearch: deny
 claude:
   model: sonnet
-  description: 'Fast, cheap agent for batches of mechanical edits (typos, renames, version bumps, doc touch-ups). Use proactively when there are many trivial edits to apply; the main agent may do a single small edit itself instead.'
+  description: 'Agent for batches of mechanical edits (typos, renames, version bumps, doc touch-ups). Use proactively when there are many trivial edits to apply; the main agent may do a single small edit itself instead.'
 ---
 
 ## What you handle
