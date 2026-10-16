@@ -96,11 +96,12 @@ RUNNERS = ("npm test", "npm run test", "npm run lint", "npm run build", "npm run
            "python -m unittest", "go test", "go vet", "cargo test", "cargo check", "make test",
            "node --test", "node test.js", "node --version", "git status", "git diff", "git log", "git show")
 # Patterns that need their own shape (the loop below only adds "<cmd>" and "<cmd> *"): plain-node and
-# plain-python test files (not `python3 *`: that runs arbitrary code), and the read-only commands models
+# plain-python test files, test files in a subdirectory too (not `python3 *`: that runs arbitrary code), and the read-only commands models
 # reach for to look around (ls, pwd, echo, wc for line counts, cat of source and test paths only, so
 # `cat .env` stays denied). Not `cd`: the worker already starts in the worktree, and
 # `cd <elsewhere> && npm test` would test a different checkout.
-RUNNER_GLOBS = ("node test/*", "node tests/*", "node __tests__/*", "python3 test/*", "python3 tests/*",
+RUNNER_GLOBS = ("node test/*", "node tests/*", "node __tests__/*", "node */test/*", "node */tests/*",
+                "python3 test/*", "python3 tests/*",
                 "pwd", "ls", "ls *", "echo *", "wc *",
                 "cat src/*", "cat test/*", "cat tests/*", "cat package.json", "cat README.md")
 OPENCODE_OVERLAY = {

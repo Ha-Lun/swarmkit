@@ -49,6 +49,13 @@ D=opencode-go/muse-spark-1.3-contributor
 [ "$(last_model)" = "opencode-go/other" ] || fail "resume must keep start's (empty) effort, got $(last_model)"
 for s in e1 e2 e3 e4; do "$TASK" clean $s --force; done
 
+# --- worker shell: test files in a subdirectory are allowed, node -e is not (only the default deny covers it)
+"$TASK" start rg1 "p" >/dev/null 2>&1 || true
+[ "$(jq -r '.permission.bash["node */test/*"]' "$STUB_ARGS.cfg")" = allow ] || fail "node */test/* not allowed"
+[ "$(jq -r '.permission.bash["node *"] // "none"' "$STUB_ARGS.cfg")" = none ] || fail "node * must not be allowed"
+[ "$(jq -r '.permission.bash["node -e *"] // "none"' "$STUB_ARGS.cfg")" = none ] || fail "node -e * must not be allowed"
+"$TASK" clean rg1 --force
+
 # --- edit scope: no file tool outside the worktree, also with --yolo
 "$TASK" start sc1 "p" >/dev/null 2>&1 || true
 [ "$(jq -r .permission.external_directory "$STUB_ARGS.cfg")" = deny ] || fail "external_directory not denied"
