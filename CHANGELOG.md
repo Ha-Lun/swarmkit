@@ -4,6 +4,12 @@ All notable changes to the opencode-config repository.
 
 ## [Unreleased]
 
+### Removed
+- 2026-10-16: the `lead-dev` agent and the whole Codex target (the `codex-task` worker lane and `codex-delegate` skill, the `codex/` build outputs and `codex/rules.md`, `./install.sh --codex`). Why: `lead-dev-hybrid` is now the single orchestrator (OpenCode's default primary agent too) and also covers the no-worker case by dispatching specialist subagents; there is no Codex subscription. To get them back: the last commit before the removal is tagged `archive/lead-dev-and-codex-task` (a local tag; the same commit, `f3afa6c`, is in main's history).
+  - Read a file: `git show archive/lead-dev-and-codex-task:core/agents/lead-dev.md`; list what was there: `git ls-tree -r --name-only archive/lead-dev-and-codex-task -- codex core/skills/codex-delegate`
+  - Restore: `git checkout archive/lead-dev-and-codex-task -- core/agents/lead-dev.md core/agents/claude/lead-dev.md core/agents/opencode/lead-dev.md core/skills/codex-delegate scripts/codex-task codex`, then `python3 scripts/build.py`.
+  - `scripts/build.py`, `install.sh`, `scripts/agy-task` (Codex backend), `bench/run.py` and `bench/compare.py` have had other changes since, so don't check them out whole from the tag: diff them (`git diff archive/lead-dev-and-codex-task HEAD -- scripts/build.py install.sh scripts/agy-task`) and merge the Codex/lead-dev parts back by hand. `opencode/opencode.jsonc` `default_agent` and the README rows need the same.
+
 ### Added
 - feat: `opencode-task` (headless `opencode run` on free models, shell limited by a per-run config overlay) and the `delegate-implementation` skill: after an approved plan, Claude hands implementation to agy/OpenCode and reviews, tests and merges the branches; one running-task limit across all workers; files changed in the main checkout during a run are reported
 - feat: Codex as an opt-in fourth build target (`codex/agents/*.toml`, `codex/AGENTS.md`, `./install.sh --codex`, not in `--all`) and `codex-task` + `codex-delegate` skill for headless delegation from Claude Code; `agy-task` now picks its backend from the program name
