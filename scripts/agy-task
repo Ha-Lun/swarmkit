@@ -19,7 +19,7 @@ result.json carries a recomputed "ok".
 
 Invoked as opencode-task (a symlink) it drives `opencode run`: branches opencode/<slug>, tasks under
 $OPENCODE_TASK_DIR (default ~/.opencode-tasks). A per-run config overlay (OPENCODE_CONFIG_CONTENT, this
-process only) allows edits, limits the shell to test/build runners and read-only git, and turns off
+process only) allows edits (file tools denied outside the worktree), limits the shell to test/build runners and read-only git, and turns off
 subagents; the user's own OpenCode config is untouched. --yolo lifts the shell limit (not sandboxed).
 Circuit breaker (opencode): the JSON stream is watched while the worker runs. At --max-denied denied
 commands (a worker that keeps trying shell workarounds) or --max-tool-errors failed tool calls its process
@@ -84,7 +84,8 @@ def remembered_opts(task, a, resume_id):
 
 
 # Applied only to the delegated run (OPENCODE_CONFIG_CONTENT), so the user's own OpenCode config is
-# untouched: edits allowed, the shell limited to common test/build runners and read-only git, no subagents.
+# untouched: edits allowed, the shell limited to common test/build runners and read-only git, no subagents,
+# no file tool outside the worktree (external_directory; the shell is limited by its allowlist instead).
 # A guard against accidents, not a sandbox: a test runner executes code the worker can write itself.
 RUNNERS = ("npm test", "npm run test", "npm run lint", "npm run build", "npm run typecheck", "pnpm test",
            "pnpm run test", "pnpm run lint", "pnpm run build", "yarn test", "yarn lint", "yarn build",
@@ -101,7 +102,7 @@ RUNNER_GLOBS = ("node test/*", "node tests/*", "node __tests__/*", "python3 test
                 "cat src/*", "cat test/*", "cat tests/*", "cat package.json", "cat README.md")
 OPENCODE_OVERLAY = {
     "permission": {
-        "edit": "allow", "webfetch": "deny", "task": "deny",
+        "edit": "allow", "webfetch": "deny", "task": "deny", "external_directory": "deny",
         "bash": {"*": "deny", **{p: "allow" for c in RUNNERS for p in (c, c + " *")},
                  **{g: "allow" for g in RUNNER_GLOBS}},
     },

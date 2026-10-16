@@ -11,6 +11,7 @@ mkdir -p "$T/bin"
 cat > "$T/bin/opencode" <<'S'
 #!/bin/sh
 printf '%s\n' "$*" >> "$STUB_ARGS"
+printf '%s' "$OPENCODE_CONFIG_CONTENT" > "$STUB_ARGS.cfg"
 echo stub > stub.txt
 case "${STUB_MODE:-ok}" in
   deny) i=0
@@ -47,6 +48,13 @@ D=opencode-go/cat-jam-free
 "$TASK" resume e2 --effort max "again" >/dev/null 2>&1 || true
 [ "$(last_model)" = "opencode-go/other" ] || fail "resume must keep start's (empty) effort, got $(last_model)"
 for s in e1 e2 e3 e4; do "$TASK" clean $s --force; done
+
+# --- edit scope: no file tool outside the worktree, also with --yolo
+"$TASK" start sc1 "p" >/dev/null 2>&1 || true
+[ "$(jq -r .permission.external_directory "$STUB_ARGS.cfg")" = deny ] || fail "external_directory not denied"
+"$TASK" start sc2 --yolo "p" >/dev/null 2>&1 || true
+[ "$(jq -r .permission.external_directory "$STUB_ARGS.cfg")" = deny ] || fail "--yolo lifted external_directory"
+for s in sc1 sc2; do "$TASK" clean $s --force; done
 
 # --- circuit breaker: the stub sends 12 denied calls, then hangs for 60 s
 t0=$SECONDS

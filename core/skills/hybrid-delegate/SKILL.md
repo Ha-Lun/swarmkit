@@ -50,6 +50,7 @@ With the `Workflow` tool available (dynamic workflows on) and 3 or more tasks, r
 ## Safety facts
 
 - The wrappers are guards, not sandboxes. `agy --yolo` and `opencode --yolo` are unsandboxed.
+- `opencode-task` denies file-tool access outside the worktree (`external_directory`), but its allowed shell runners can still write anywhere: a guard against stray edits, not a boundary.
 - Never copy `.env` or other secrets into a worktree.
 - Only send client repos to a provider the user has OK'd.
 - Use `--setup` only for linking or installing dependencies.
