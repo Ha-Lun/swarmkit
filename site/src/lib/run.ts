@@ -15,13 +15,36 @@ export interface RunEvent {
   /** Position in the transcript; always present. */
   order: number;
   slug?: string;
-  lane?: string;
+  lane?: Lane;
   ok?: boolean;
   /** Review events only: who read the diff. */
   by?: 'orchestrator' | 'cross-model';
+  /** A branch no original worker owns (a fixer stacked on a worker branch, a review-fix pass) that was merged. */
+  extra?: boolean;
+  /** Dispatch of an extra only: the worker whose branch it was stacked on. */
+  base?: string;
 }
 
-export interface RunWorker { slug: string; lane: string; ok: boolean; tokens: number; denied_count: number; files: string[] }
+export interface RunWorker {
+  slug: string;
+  /** The final lane. */
+  lane: Lane;
+  /** The worker's own self-check as recorded by its wrapper (a denied command makes it false). Not whether the code was right. */
+  ok: boolean;
+  tokens: number;
+  denied_count: number;
+  files: string[];
+  /** Every lane a start was recorded on, in order; the last is `lane`. */
+  lanes_tried: Lane[];
+  /** How many times the orchestrator resumed this worker. */
+  resumes: number;
+  /** Its work reached the merged result: its own branch merged, or a fixer stacked on it did (`merged_via`). */
+  merged: boolean;
+  merged_via?: string;
+}
+
+export type Lane = 'agy' | 'opencode';
+export type PlanApproval = 'automatic' | 'human';
 
 export interface FeaturedRun {
   label: string;
@@ -36,13 +59,21 @@ export interface FeaturedRun {
   verify_ok: boolean;
   /** Quota on the worker subscriptions, never USD. */
   worker_tokens: Record<string, number>;
-  lanes: string[];
+  lanes: Lane[];
+  /** Which try of the showcase this is, how many there were, and what happened in the others. */
+  attempt: number;
+  attempts: number;
+  earlier_attempts: string[];
+  /** Present when attempts > 1, e.g. "Run 2 of 2". */
+  attempt_label?: string;
+  plan_approval?: PlanApproval;
   workers: RunWorker[];
   events: RunEvent[];
 }
 
 const KINDS = new Set<string>(['task', 'plan_mode', 'plan_approved', 'dispatch', 'worker_done', 'verify', 'review', 'merge', 'resume', 'done']);
-const LANES = new Set<string>(['agy', 'opencode', 'codex']);
+const LANES = new Set<string>(['agy', 'opencode']);
+const APPROVALS = new Set<string>(['automatic', 'human']);
 const SLUG_RE = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 const FORBIDDEN_RE = /\/home\/|\/Users\/|\/root\/|\/tmp\/|\/var\/|\/private\/|[a-z]:\\|~\/|\$HOME|file:\/\/|https?:\/\/|@|(?:\d{1,3}\.){3}\d{1,3}|sk-|ghp_|gho_|github_pat_|AKIA|xox[abps]-|AIza|glpat-|bearer|\.opencode-tasks|EOF|[A-Za-z0-9+\/=_-]{32,}/i;
 
@@ -79,13 +110,35 @@ export function loadFeaturedRun(): FeaturedRun | null {
   if (!Array.isArray(run.lanes) || run.lanes.some((lane: unknown) => typeof lane !== 'string' || !LANES.has(lane))) {
     throw new Error('featured-run.json has an invalid lane');
   }
+  const isCount = (n: unknown) => Number.isInteger(n) && (n as number) >= 0;
+  if (!Number.isInteger(run.attempt) || !Number.isInteger(run.attempts) || run.attempt < 1 || run.attempt > run.attempts) {
+    throw new Error('featured-run.json has an invalid attempt/attempts');
+  }
+  if (!Array.isArray(run.earlier_attempts) || run.earlier_attempts.length > 5
+    || run.earlier_attempts.some((n: unknown) => typeof n !== 'string' || n.length === 0 || n.length > 100)) {
+    throw new Error('featured-run.json has invalid earlier_attempts');
+  }
+  if (run.attempt_label !== undefined && (typeof run.attempt_label !== 'string' || run.attempts < 2)) {
+    throw new Error('featured-run.json has an invalid attempt_label');
+  }
+  if (run.plan_approval !== undefined && !APPROVALS.has(run.plan_approval)) throw new Error('featured-run.json has an invalid plan_approval');
   for (const worker of run.workers) {
     if (typeof worker?.slug !== 'string' || !SLUG_RE.test(worker.slug)) throw new Error('featured-run.json has an invalid worker slug');
     if (typeof worker?.lane !== 'string' || !LANES.has(worker.lane)) throw new Error('featured-run.json has an invalid worker lane');
+    if (!Array.isArray(worker.lanes_tried) || worker.lanes_tried.length === 0
+      || worker.lanes_tried.some((lane: unknown) => typeof lane !== 'string' || !LANES.has(lane))) {
+      throw new Error('featured-run.json has an invalid worker lanes_tried');
+    }
+    if (!isCount(worker.resumes) || typeof worker.merged !== 'boolean') throw new Error('featured-run.json has an invalid worker resumes/merged');
+    if (worker.merged_via !== undefined && (typeof worker.merged_via !== 'string' || !SLUG_RE.test(worker.merged_via))) {
+      throw new Error('featured-run.json has an invalid worker merged_via');
+    }
   }
   for (const e of run.events) {
     if (!KINDS.has(e.type) || typeof e.order !== 'number') throw new Error(`featured-run.json has a bad event: ${JSON.stringify(e).slice(0, 80)}`);
     if (typeof e.lane === 'string' && !LANES.has(e.lane)) throw new Error(`featured-run.json has a bad event: ${JSON.stringify(e).slice(0, 80)}`);
+    if (e.extra !== undefined && e.extra !== true) throw new Error(`featured-run.json has a bad event: ${JSON.stringify(e).slice(0, 80)}`);
+    if (e.base !== undefined && (typeof e.base !== 'string' || !SLUG_RE.test(e.base))) throw new Error(`featured-run.json has a bad event: ${JSON.stringify(e).slice(0, 80)}`);
   }
   return run as FeaturedRun;
 }

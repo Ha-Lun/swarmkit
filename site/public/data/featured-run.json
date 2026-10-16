@@ -1,72 +1,136 @@
 {
   "label": "One real run, not a median",
-  "task": "Implement five independent modules against their failing tests",
-  "case": "features",
+  "task": "Implement eight independent modules against their failing tests",
+  "case": "scaffold",
   "variant": "hybrid",
   "model": "claude-opus-5-5",
-  "cost_usd": 0.4116,
-  "wall_s": 110.2,
-  "duration_s": 81.3,
-  "turns": 23,
+  "cost_usd": 0.5436,
+  "wall_s": 1396.0,
+  "duration_s": 1388.7,
+  "turns": 18,
   "verify_ok": true,
   "worker_tokens": {
-    "opencode": 395897,
-    "agy": 297898
+    "opencode": 1147624,
+    "agy": 1511015
   },
   "lanes": [
     "opencode",
     "agy"
   ],
+  "attempt": 2,
+  "attempts": 2,
+  "earlier_attempts": [
+    "attempt 1 was cut off by an account usage limit; its verify had passed"
+  ],
+  "attempt_label": "Run 2 of 2",
+  "plan_approval": "automatic",
   "workers": [
     {
-      "slug": "slugify",
+      "slug": "expr",
       "lane": "opencode",
       "ok": false,
-      "tokens": 70241,
-      "denied_count": 2,
-      "files": [
-        "src/slugify.js"
-      ]
-    },
-    {
-      "slug": "email",
-      "lane": "opencode",
-      "ok": false,
-      "tokens": 265253,
+      "tokens": 400172,
       "denied_count": 3,
-      "files": [
-        "src/email.js"
-      ]
+      "files": [],
+      "lanes_tried": [
+        "opencode"
+      ],
+      "resumes": 0,
+      "merged": true
     },
     {
-      "slug": "unique",
+      "slug": "cron",
       "lane": "opencode",
       "ok": false,
-      "tokens": 60403,
-      "denied_count": 3,
-      "files": [
-        "src/unique.js"
-      ]
-    },
-    {
-      "slug": "range",
-      "lane": "agy",
-      "ok": false,
-      "tokens": 98466,
-      "denied_count": 1,
-      "files": [
-        "src/range.js"
-      ]
-    },
-    {
-      "slug": "pad",
-      "lane": "agy",
-      "ok": true,
-      "tokens": 199432,
+      "tokens": 0,
       "denied_count": 0,
       "files": [
-        "src/pad.js"
-      ]
+        "src/cron.js"
+      ],
+      "lanes_tried": [
+        "opencode"
+      ],
+      "resumes": 2,
+      "merged": true,
+      "merged_via": "cronfix"
+    },
+    {
+      "slug": "semver",
+      "lane": "opencode",
+      "ok": false,
+      "tokens": 486150,
+      "denied_count": 6,
+      "files": [],
+      "lanes_tried": [
+        "opencode"
+      ],
+      "resumes": 0,
+      "merged": true
+    },
+    {
+      "slug": "diff",
+      "lane": "opencode",
+      "ok": false,
+      "tokens": 261302,
+      "denied_count": 6,
+      "files": [],
+      "lanes_tried": [
+        "opencode"
+      ],
+      "resumes": 0,
+      "merged": true
+    },
+    {
+      "slug": "csv",
+      "lane": "agy",
+      "ok": false,
+      "tokens": 226680,
+      "denied_count": 1,
+      "files": [],
+      "lanes_tried": [
+        "agy"
+      ],
+      "resumes": 0,
+      "merged": true
+    },
+    {
+      "slug": "lru",
+      "lane": "agy",
+      "ok": false,
+      "tokens": 207703,
+      "denied_count": 1,
+      "files": [],
+      "lanes_tried": [
+        "agy"
+      ],
+      "resumes": 0,
+      "merged": true
+    },
+    {
+      "slug": "template",
+      "lane": "agy",
+      "ok": true,
+      "tokens": 812370,
+      "denied_count": 0,
+      "files": [],
+      "lanes_tried": [
+        "agy"
+      ],
+      "resumes": 1,
+      "merged": true
+    },
+    {
+      "slug": "wrap",
+      "lane": "agy",
+      "ok": true,
+      "tokens": 264262,
+      "denied_count": 0,
+      "files": [],
+      "lanes_tried": [
+        "agy"
+      ],
+      "resumes": 1,
+      "merged": true
     }
   ],
   "events": [
@@ -76,257 +140,626 @@
       "order": 0
     },
     {
-      "type": "dispatch",
-      "slug": "slugify",
-      "lane": "opencode",
-      "t": 9.1,
+      "type": "plan_mode",
+      "t": 2.5,
       "order": 1
     },
     {
-      "type": "dispatch",
-      "slug": "email",
-      "lane": "opencode",
-      "t": 11.3,
+      "type": "plan_approved",
+      "t": 11.9,
       "order": 2
     },
     {
       "type": "dispatch",
-      "slug": "unique",
+      "slug": "expr",
       "lane": "opencode",
-      "t": 13.3,
+      "t": 20.6,
       "order": 3
     },
     {
-      "type": "worker_done",
-      "slug": "unique",
+      "type": "dispatch",
+      "slug": "cron",
       "lane": "opencode",
-      "ok": false,
-      "t": 26.8,
+      "t": 20.6,
       "order": 4
     },
     {
-      "type": "worker_done",
-      "slug": "slugify",
+      "type": "dispatch",
+      "slug": "semver",
       "lane": "opencode",
-      "ok": false,
-      "t": 28.0,
+      "t": 20.6,
       "order": 5
     },
     {
-      "type": "review",
-      "slug": "unique",
+      "type": "dispatch",
+      "slug": "diff",
       "lane": "opencode",
-      "by": "orchestrator",
-      "t": 33.6,
+      "t": 20.6,
       "order": 6
     },
     {
-      "type": "review",
-      "slug": "slugify",
-      "lane": "opencode",
-      "by": "orchestrator",
-      "t": 33.6,
+      "type": "dispatch",
+      "slug": "csv",
+      "lane": "agy",
+      "t": 20.6,
       "order": 7
     },
     {
-      "type": "verify",
-      "slug": "unique",
-      "t": 33.7,
+      "type": "dispatch",
+      "slug": "lru",
+      "lane": "agy",
+      "t": 20.6,
       "order": 8
     },
     {
-      "type": "verify",
-      "slug": "slugify",
-      "t": 33.7,
+      "type": "dispatch",
+      "slug": "template",
+      "lane": "agy",
+      "t": 20.6,
       "order": 9
     },
     {
       "type": "dispatch",
-      "slug": "range",
+      "slug": "wrap",
       "lane": "agy",
-      "t": 34.9,
+      "t": 20.6,
       "order": 10
     },
     {
-      "type": "dispatch",
-      "slug": "pad",
-      "lane": "agy",
-      "t": 37.3,
-      "order": 11
+      "type": "worker_done",
+      "slug": "expr",
+      "lane": "opencode",
+      "t": 221.6,
+      "order": 11,
+      "ok": false
     },
     {
-      "type": "merge",
-      "slug": "unique",
+      "type": "worker_done",
+      "slug": "cron",
       "lane": "opencode",
-      "ok": true,
-      "t": 40.6,
+      "ok": false,
+      "t": 221.6,
       "order": 12
     },
     {
-      "type": "merge",
-      "slug": "slugify",
+      "type": "worker_done",
+      "slug": "semver",
       "lane": "opencode",
-      "ok": true,
-      "t": 40.6,
-      "order": 13
+      "t": 221.6,
+      "order": 13,
+      "ok": false
     },
     {
-      "type": "verify",
-      "slug": "unique",
-      "ok": true,
-      "t": 40.6,
-      "order": 14
+      "type": "worker_done",
+      "slug": "diff",
+      "lane": "opencode",
+      "t": 221.6,
+      "order": 14,
+      "ok": false
     },
     {
-      "type": "verify",
-      "slug": "slugify",
-      "ok": true,
-      "t": 40.6,
+      "type": "worker_done",
+      "slug": "csv",
+      "lane": "agy",
+      "ok": false,
+      "t": 221.6,
       "order": 15
     },
     {
       "type": "worker_done",
-      "slug": "email",
-      "lane": "opencode",
+      "slug": "lru",
+      "lane": "agy",
       "ok": false,
-      "t": 47.3,
+      "t": 221.6,
       "order": 16
     },
     {
-      "type": "review",
-      "slug": "email",
-      "lane": "opencode",
-      "by": "orchestrator",
-      "t": 50.0,
+      "type": "worker_done",
+      "slug": "template",
+      "lane": "agy",
+      "ok": false,
+      "t": 221.6,
       "order": 17
     },
     {
-      "type": "merge",
-      "slug": "email",
-      "lane": "opencode",
-      "ok": true,
-      "t": 52.0,
+      "type": "worker_done",
+      "slug": "wrap",
+      "lane": "agy",
+      "ok": false,
+      "t": 221.6,
       "order": 18
     },
     {
       "type": "verify",
-      "slug": "email",
+      "slug": "expr",
       "ok": true,
-      "t": 52.0,
+      "t": 227.4,
       "order": 19
     },
     {
-      "type": "worker_done",
-      "slug": "range",
-      "lane": "agy",
+      "type": "verify",
+      "slug": "cron",
       "ok": false,
-      "t": 56.1,
+      "t": 227.4,
       "order": 20
     },
     {
-      "type": "review",
-      "slug": "range",
-      "lane": "agy",
-      "by": "orchestrator",
-      "t": 58.7,
+      "type": "verify",
+      "slug": "semver",
+      "ok": true,
+      "t": 227.4,
       "order": 21
     },
     {
-      "type": "merge",
-      "slug": "range",
-      "lane": "agy",
+      "type": "verify",
+      "slug": "diff",
       "ok": true,
-      "t": 60.6,
+      "t": 227.4,
       "order": 22
     },
     {
       "type": "verify",
-      "slug": "range",
+      "slug": "csv",
       "ok": true,
-      "t": 60.6,
+      "t": 227.4,
       "order": 23
     },
     {
-      "type": "worker_done",
-      "slug": "pad",
-      "lane": "agy",
-      "ok": false,
-      "t": 67.5,
+      "type": "verify",
+      "slug": "lru",
+      "ok": true,
+      "t": 227.4,
       "order": 24
     },
     {
-      "type": "review",
-      "slug": "pad",
-      "lane": "agy",
-      "by": "orchestrator",
-      "t": 70.0,
+      "type": "verify",
+      "slug": "template",
+      "ok": false,
+      "t": 227.4,
       "order": 25
     },
     {
-      "type": "resume",
-      "slug": "pad",
-      "lane": "agy",
-      "t": 73.1,
+      "type": "verify",
+      "slug": "wrap",
+      "ok": false,
+      "t": 227.4,
       "order": 26
     },
     {
       "type": "review",
-      "slug": "pad",
-      "lane": "agy",
+      "slug": "expr",
+      "lane": "opencode",
       "by": "orchestrator",
-      "t": 73.1,
+      "t": 235.0,
       "order": 27
     },
     {
-      "type": "worker_done",
-      "slug": "pad",
-      "lane": "agy",
-      "ok": true,
-      "t": 94.5,
+      "type": "review",
+      "slug": "semver",
+      "lane": "opencode",
+      "by": "orchestrator",
+      "t": 235.0,
       "order": 28
     },
     {
-      "type": "merge",
-      "slug": "pad",
-      "lane": "agy",
-      "t": 97.2,
+      "type": "review",
+      "slug": "diff",
+      "lane": "opencode",
+      "by": "orchestrator",
+      "t": 235.0,
       "order": 29
     },
     {
-      "type": "verify",
-      "slug": "slugify",
-      "t": 97.2,
+      "type": "review",
+      "slug": "csv",
+      "lane": "agy",
+      "by": "orchestrator",
+      "t": 235.0,
       "order": 30
     },
     {
-      "type": "verify",
-      "slug": "email",
-      "t": 97.2,
+      "type": "review",
+      "slug": "lru",
+      "lane": "agy",
+      "by": "orchestrator",
+      "t": 235.0,
       "order": 31
     },
     {
-      "type": "verify",
-      "slug": "range",
-      "t": 97.2,
+      "type": "resume",
+      "slug": "cron",
+      "lane": "opencode",
+      "t": 235.0,
       "order": 32
     },
     {
-      "type": "verify",
-      "slug": "pad",
-      "t": 97.2,
+      "type": "resume",
+      "slug": "template",
+      "lane": "agy",
+      "t": 235.0,
       "order": 33
     },
     {
-      "type": "verify",
-      "slug": "unique",
-      "t": 97.2,
+      "type": "resume",
+      "slug": "wrap",
+      "lane": "agy",
+      "t": 235.0,
       "order": 34
+    },
+    {
+      "type": "worker_done",
+      "slug": "cron",
+      "lane": "opencode",
+      "ok": false,
+      "t": 449.4,
+      "order": 35
+    },
+    {
+      "type": "worker_done",
+      "slug": "template",
+      "lane": "agy",
+      "ok": true,
+      "t": 449.4,
+      "order": 36
+    },
+    {
+      "type": "worker_done",
+      "slug": "wrap",
+      "lane": "agy",
+      "ok": true,
+      "t": 449.4,
+      "order": 37
+    },
+    {
+      "type": "verify",
+      "slug": "cron",
+      "t": 449.4,
+      "order": 38
+    },
+    {
+      "type": "verify",
+      "slug": "template",
+      "ok": true,
+      "t": 449.4,
+      "order": 39
+    },
+    {
+      "type": "verify",
+      "slug": "wrap",
+      "ok": true,
+      "t": 449.4,
+      "order": 40
+    },
+    {
+      "type": "verify",
+      "slug": "cron",
+      "ok": false,
+      "t": 452.6,
+      "order": 41
+    },
+    {
+      "type": "resume",
+      "slug": "cron",
+      "lane": "opencode",
+      "t": 458.4,
+      "order": 42
+    },
+    {
+      "type": "worker_done",
+      "slug": "cron",
+      "lane": "opencode",
+      "ok": false,
+      "t": 464.0,
+      "order": 43
+    },
+    {
+      "type": "verify",
+      "slug": "cron",
+      "ok": false,
+      "t": 464.0,
+      "order": 44
+    },
+    {
+      "type": "dispatch",
+      "slug": "cronfix",
+      "lane": "agy",
+      "t": 469.2,
+      "order": 45,
+      "extra": true,
+      "base": "cron"
+    },
+    {
+      "type": "worker_done",
+      "slug": "cronfix",
+      "lane": "agy",
+      "ok": true,
+      "t": 530.0,
+      "order": 46,
+      "extra": true
+    },
+    {
+      "type": "verify",
+      "slug": "cron",
+      "ok": true,
+      "t": 530.0,
+      "order": 47
+    },
+    {
+      "type": "merge",
+      "slug": "expr",
+      "lane": "opencode",
+      "t": 534.9,
+      "order": 48
+    },
+    {
+      "type": "merge",
+      "slug": "semver",
+      "lane": "opencode",
+      "t": 534.9,
+      "order": 49
+    },
+    {
+      "type": "merge",
+      "slug": "diff",
+      "lane": "opencode",
+      "t": 534.9,
+      "order": 50
+    },
+    {
+      "type": "merge",
+      "slug": "csv",
+      "lane": "agy",
+      "t": 534.9,
+      "order": 51
+    },
+    {
+      "type": "merge",
+      "slug": "lru",
+      "lane": "agy",
+      "t": 534.9,
+      "order": 52
+    },
+    {
+      "type": "merge",
+      "slug": "template",
+      "lane": "agy",
+      "t": 534.9,
+      "order": 53
+    },
+    {
+      "type": "merge",
+      "slug": "wrap",
+      "lane": "agy",
+      "t": 534.9,
+      "order": 54
+    },
+    {
+      "type": "merge",
+      "slug": "cronfix",
+      "lane": "agy",
+      "t": 534.9,
+      "order": 55,
+      "extra": true
+    },
+    {
+      "type": "verify",
+      "slug": "csv",
+      "ok": true,
+      "t": 534.9,
+      "order": 56
+    },
+    {
+      "type": "verify",
+      "slug": "semver",
+      "ok": true,
+      "t": 534.9,
+      "order": 57
+    },
+    {
+      "type": "verify",
+      "slug": "lru",
+      "ok": true,
+      "t": 534.9,
+      "order": 58
+    },
+    {
+      "type": "verify",
+      "slug": "expr",
+      "ok": true,
+      "t": 534.9,
+      "order": 59
+    },
+    {
+      "type": "verify",
+      "slug": "cron",
+      "ok": true,
+      "t": 534.9,
+      "order": 60
+    },
+    {
+      "type": "verify",
+      "slug": "template",
+      "ok": true,
+      "t": 534.9,
+      "order": 61
+    },
+    {
+      "type": "verify",
+      "slug": "diff",
+      "ok": true,
+      "t": 534.9,
+      "order": 62
+    },
+    {
+      "type": "verify",
+      "slug": "wrap",
+      "ok": true,
+      "t": 534.9,
+      "order": 63
+    },
+    {
+      "type": "review",
+      "lane": "agy",
+      "by": "cross-model",
+      "t": 542.0,
+      "order": 64
+    },
+    {
+      "type": "review",
+      "lane": "agy",
+      "by": "cross-model",
+      "t": 563.2,
+      "order": 65
+    },
+    {
+      "type": "review",
+      "lane": "opencode",
+      "by": "cross-model",
+      "t": 563.2,
+      "order": 66
+    },
+    {
+      "type": "dispatch",
+      "slug": "review-fixes",
+      "lane": "agy",
+      "t": 1102.1,
+      "order": 67,
+      "extra": true
+    },
+    {
+      "type": "worker_done",
+      "slug": "review-fixes",
+      "lane": "agy",
+      "ok": true,
+      "t": 1370.5,
+      "order": 68,
+      "extra": true
+    },
+    {
+      "type": "verify",
+      "slug": "csv",
+      "ok": true,
+      "t": 1370.5,
+      "order": 69
+    },
+    {
+      "type": "verify",
+      "slug": "semver",
+      "ok": true,
+      "t": 1370.5,
+      "order": 70
+    },
+    {
+      "type": "verify",
+      "slug": "lru",
+      "ok": true,
+      "t": 1370.5,
+      "order": 71
+    },
+    {
+      "type": "verify",
+      "slug": "expr",
+      "ok": true,
+      "t": 1370.5,
+      "order": 72
+    },
+    {
+      "type": "verify",
+      "slug": "cron",
+      "ok": true,
+      "t": 1370.5,
+      "order": 73
+    },
+    {
+      "type": "verify",
+      "slug": "template",
+      "ok": true,
+      "t": 1370.5,
+      "order": 74
+    },
+    {
+      "type": "verify",
+      "slug": "diff",
+      "ok": true,
+      "t": 1370.5,
+      "order": 75
+    },
+    {
+      "type": "verify",
+      "slug": "wrap",
+      "ok": true,
+      "t": 1370.5,
+      "order": 76
+    },
+    {
+      "type": "merge",
+      "slug": "review-fixes",
+      "lane": "agy",
+      "t": 1377.2,
+      "order": 77,
+      "extra": true
+    },
+    {
+      "type": "verify",
+      "slug": "csv",
+      "ok": true,
+      "t": 1377.2,
+      "order": 78
+    },
+    {
+      "type": "verify",
+      "slug": "semver",
+      "ok": true,
+      "t": 1377.2,
+      "order": 79
+    },
+    {
+      "type": "verify",
+      "slug": "lru",
+      "ok": true,
+      "t": 1377.2,
+      "order": 80
+    },
+    {
+      "type": "verify",
+      "slug": "expr",
+      "ok": true,
+      "t": 1377.2,
+      "order": 81
+    },
+    {
+      "type": "verify",
+      "slug": "cron",
+      "ok": true,
+      "t": 1377.2,
+      "order": 82
+    },
+    {
+      "type": "verify",
+      "slug": "template",
+      "ok": true,
+      "t": 1377.2,
+      "order": 83
+    },
+    {
+      "type": "verify",
+      "slug": "diff",
+      "ok": true,
+      "t": 1377.2,
+      "order": 84
+    },
+    {
+      "type": "verify",
+      "slug": "wrap",
+      "ok": true,
+      "t": 1377.2,
+      "order": 85
     },
     {
       "type": "done",
       "ok": true,
-      "t": 104.7,
-      "order": 35
+      "t": 1387.0,
+      "order": 86
     }
   ]
 }
