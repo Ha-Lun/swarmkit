@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one agy (or Codex, or OpenCode) task headlessly in an isolated git worktree and report honestly.
+"""Run one agy (or OpenCode) task headlessly in an isolated git worktree and report honestly.
 
   agy-task start  SLUG [--model M] [--effort E] [--timeout 20m] [--base REF] [--setup CMD] [--review] [--yolo] [--wait] PROMPT|-
   agy-task resume SLUG [--timeout 20m] [--review] [--yolo] PROMPT|-
@@ -22,20 +22,14 @@ $OPENCODE_TASK_DIR (default ~/.opencode-tasks). A per-run config overlay (OPENCO
 process only) allows edits, limits the shell to test/build runners and read-only git, and turns off
 subagents; the user's own OpenCode config is untouched. --yolo lifts the shell limit (not sandboxed).
 
-The running-task limit is shared: agy, codex and opencode tasks together never exceed it (the limit
+The running-task limit is shared: agy and opencode tasks together never exceed it (the limit
 itself is read from the invoked backend's *_TASK_MAX).
-
-Invoked as codex-task (a symlink to this file) it drives `codex exec` instead: branches
-codex/<slug>, tasks under $CODEX_TASK_DIR (default ~/.codex-tasks), at most $CODEX_TASK_MAX.
-Codex runs in its own workspace-write sandbox, so it CAN run shell commands (tests, builds),
-but only writes inside the worktree and has no network. --model defaults to the Codex config;
---yolo switches the sandbox to danger-full-access.
 """
 import argparse, fcntl, hashlib, json, os, re, shutil, signal, subprocess, sys, time
 from pathlib import Path
 
-# codex-task and opencode-task are symlinks to this file; the name picks the backend
-PROG = n if (n := Path(sys.argv[0]).name) in ("codex-task", "opencode-task") else "agy-task"
+# opencode-task is a symlink to this file; the name picks the backend
+PROG = "opencode-task" if Path(sys.argv[0]).name == "opencode-task" else "agy-task"
 
 
 def seconds(s):
@@ -68,45 +62,13 @@ def agy_parse(out, err):
 
 
 def remembered_opts(task, a, resume_id):
-    """Model and effort of the first run: codex and opencode forget them on resume."""
+    """Model and effort of the first run: opencode forgets them on resume."""
     f = task / "opts.json"
     if resume_id:
         return json.loads(f.read_text()) if f.exists() else {}
     o = {"model": a.model, "effort": a.effort}
     f.write_text(json.dumps(o))
     return o
-
-
-def codex_cmd(task, prompt, a, resume_id):
-    o = remembered_opts(task, a, resume_id)
-    sandbox = "danger-full-access" if a.yolo else "workspace-write"
-    if a.yolo:
-        print("codex-task: --yolo, codex is unsandboxed", file=sys.stderr)
-    cmd = ["codex", "exec"] + (["resume", resume_id] if resume_id else [])
-    cmd += ["--json", "-c", f'sandbox_mode="{sandbox}"', "-c", 'approval_policy="never"']
-    cmd += (["-m", o["model"]] if o.get("model") else []) \
-        + (["-c", f'model_reasoning_effort="{o["effort"]}"'] if o.get("effort") else [])
-    return cmd + ["--", prompt]
-
-
-def codex_parse(out, err):
-    r = {"done": False, "conversation_id": None, "usage": None, "response": "", "denied": [],
-         "timed_out": False}
-    for line in out.splitlines():
-        try:
-            e = json.loads(line)
-        except ValueError:
-            continue
-        t, item = e.get("type"), e.get("item") or {}
-        if t == "thread.started":
-            r["conversation_id"] = e.get("thread_id")
-        elif t == "turn.completed":  # "error" events can be retries that recovered; only this outcome counts
-            r["done"], r["usage"] = True, e.get("usage")
-        elif t == "turn.failed":
-            r["done"] = False
-        elif t == "item.completed" and item.get("type") == "agent_message":
-            r["response"] = item.get("text", "")
-    return r  # sandbox blocks surface as failed commands in the response, not as denials
 
 
 # Applied only to the delegated run (OPENCODE_CONFIG_CONTENT), so the user's own OpenCode config is
@@ -193,8 +155,6 @@ def opencode_parse(out, err):
 BACKENDS = {
     "agy-task": {"cli": "agy", "env": "AGY_TASK", "home": ".agy-tasks",
                  "model": "gemini-3.8-flash-high", "cmd": agy_cmd, "parse": agy_parse, "grace": 30},
-    "codex-task": {"cli": "codex", "env": "CODEX_TASK", "home": ".codex-tasks",
-                   "model": None, "cmd": codex_cmd, "parse": codex_parse, "grace": 0},
     "opencode-task": {"cli": "opencode", "env": "OPENCODE_TASK", "home": ".opencode-tasks",
                       "model": "opencode-go/cat-jam-free", "effort": "max", "cmd": opencode_cmd,
                       "parse": opencode_parse, "grace": 0, "proc_env": opencode_env},

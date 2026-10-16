@@ -56,8 +56,7 @@ SUFFIX = ("Non-interactive bench run: the plan is already approved, so do not en
 VARIANTS = ["vanilla", "slim", "lead-dev", "hybrid", "hybrid-workflow"]
 ALIASES = {"stock": "slim"}
 REPO = os.path.dirname(BENCH)
-BACKENDS = [("agy", "AGY_TASK_DIR", ".agy-tasks"), ("opencode", "OPENCODE_TASK_DIR", ".opencode-tasks"),
-            ("codex", "CODEX_TASK_DIR", ".codex-tasks")]
+BACKENDS = [("agy", "AGY_TASK_DIR", ".agy-tasks"), ("opencode", "OPENCODE_TASK_DIR", ".opencode-tasks")]
 
 
 def task_key(fx):

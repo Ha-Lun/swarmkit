@@ -11,7 +11,7 @@ You write every agent, skill and rule once in `core/`. A small compiler turns th
 - **The main agent does the work.** Small and medium work happens directly. Large or risky work (more than ~3 files, or auth, data, CI or infra) gets a plan and your approval first (Claude Code: plan mode, so `opusplan` plans on Opus). A non-interactive session states the plan and continues instead of waiting.
 - **Delegation where it helps:** `explore` for wide read-only searches; `security-auditor`, `code-proofreader` or `release-tester` as an independent review after large changes. Domain specialists say in their descriptions when to use them.
 - **`lead-dev`** is an optional pure orchestrator for big multi-specialist jobs (`claude --agent lead-dev`, or the `lead-dev` primary agent in OpenCode).
-- **`lead-dev-hybrid`** is the same orchestration flow with implementation spread in parallel across `agy-task`, `opencode-task` and optional `codex-task` workers (`claude --agent lead-dev-hybrid`).
+- **`lead-dev-hybrid`** is the same orchestration flow with implementation spread in parallel across `agy-task` and `opencode-task` workers (`claude --agent lead-dev-hybrid`).
 
 ## 🧩 One source, four CLIs
 
@@ -126,7 +126,7 @@ The installer symlinks everything into each CLI's config directory. The agents a
 | `--opencode` | Install the OpenCode config (rules, agents, commands, skills, `opencode.jsonc`) |
 | `--agy` | Install the Antigravity config (`swarmkit` plugin, skills, MCP servers) and `agyw` |
 | `--all` | `--claude`, `--opencode` and `--agy`. This is also the default when no flag is given. |
-| `--codex` | Install the Codex config: rules, agents, skills in `~/.agents/skills/`, MCP servers via `codex mcp add` (optional, not included in `--all`). Run `--claude` afterwards to give Claude the `codex-delegate` skill |
+| `--codex` | Install the Codex config: rules, agents, skills in `~/.agents/skills/`, MCP servers via `codex mcp add` (optional, not included in `--all`). |
 | `--n8n` | Configure self-hosted n8n credentials (not included in `--all`) |
 | `--cloudflare` | Install Cloudflare skills and authenticate (not included in `--all`) |
 | `--free` | OpenCode free mode: copies `opencode.jsonc` with a free default model |
@@ -207,13 +207,12 @@ To link your own self-hosted n8n securely:
 
 Claude Code is meant to run on Opus for the thinking and hand the implementation to headless workers on their own quota. After a plan is approved, the `delegate-implementation` skill splits it into self-contained tasks (one per group of files), picks a worker, then reviews, tests and merges each branch. Small edits, context-heavy work and security-sensitive code stay with Claude.
 
-All three workers are the same script (`scripts/agy-task`; the others are symlinks to it) with the same commands (`start`, `resume`, `list`, `clean`), `result.json` and `--review`. Each task runs on its own git worktree and branch `<cli>/<slug>`, and at most 3 run at once across all of them.
+Both workers are the same script (`scripts/agy-task`; `opencode-task` is a symlink to it) with the same commands (`start`, `resume`, `list`, `clean`), `result.json` and `--review`. Each task runs on its own git worktree and branch `<cli>/<slug>`, and at most 3 run at once across both.
 
 | Worker | Runs | Can run tests? | Notes |
 |---|---|---|---|
 | `agy-task` | `agy -p`, Gemini on agy's quota | No: edit-only, Claude runs the tests | `agy-delegate` skill. `--yolo` allows shell, unsandboxed |
 | `opencode-task` | `opencode run --standalone`, free `opencode-go/` models (OpenCode Go subscription) | Yes: shell limited to test/build runners and read-only git, a guard against accidents rather than a sandbox | `opencode-delegate` skill. A per-run config overlay; your own OpenCode config is untouched |
-| `codex-task` | `codex exec` (opt-in: `./install.sh --codex --claude`) | Yes, in Codex's `workspace-write` sandbox (no network) | `codex-delegate` skill. `--yolo` lifts the sandbox |
 
 ```bash
 agy-task start diff-review "Review the auth refactor for regressions" --review

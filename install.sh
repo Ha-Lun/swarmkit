@@ -291,10 +291,8 @@ if [ "$UNINSTALL_MODE" = true ]; then
     remove_repo_links "$d"
   done
   plan_gate_settings remove
-  # only our own shim: ~/.local/bin also holds other tools' links
-  for shim in agy-task codex-task opencode-task; do
-    [[ "$(readlink "$HOME/.local/bin/$shim" 2>/dev/null)" == "$REPO_DIR"/* ]] && rm -f "$HOME/.local/bin/$shim"
-  done
+  # only links into this repo (our shims): ~/.local/bin also holds other tools' links
+  remove_repo_links "$HOME/.local/bin"
   rm -f "$GEMINI_DIR/mcp_config.json"
   echo "Uninstall complete. MCP servers registered with 'claude mcp' and 'codex mcp' are left in place."
   exit 0
@@ -384,13 +382,12 @@ install_claude() {
   prune_dead_repo_links "$CLAUDE_DIR/hooks"
   plan_gate_settings remove
   local skills="$CLAUDE_SKILLS"
-  command -v codex &>/dev/null && skills+=" codex-delegate"  # only for CLIs that are installed
-  command -v opencode &>/dev/null && skills+=" opencode-delegate"
+  command -v opencode &>/dev/null && skills+=" opencode-delegate"  # only for CLIs that are installed
   link_skills "$CLAUDE_DIR/skills" "$skills"
   mkdir -p "$HOME/.local/bin"
   link "$REPO_DIR/scripts/agy-task" "$HOME/.local/bin/agy-task"
-  link "$REPO_DIR/scripts/codex-task" "$HOME/.local/bin/codex-task"
   link "$REPO_DIR/scripts/opencode-task" "$HOME/.local/bin/opencode-task"
+  prune_dead_repo_links "$HOME/.local/bin"  # shims dropped from the repo
 
   # MCP servers: register each one at user scope unless it already exists.
   if command -v claude &>/dev/null; then

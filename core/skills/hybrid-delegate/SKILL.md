@@ -29,7 +29,7 @@ Everything else in the approved plan goes to a worker.
    |---|---|
    | Implementation where the worker should run its own tests | `opencode-task` (free `opencode-go/` model) |
    | Bulk edits / boilerplate where you run the tests | `agy-task` (default `gemini-3.8-flash-high`; `--model claude-sonnet-4-6` for harder logic) |
-   | Second opinion on your own diff | `agy-task --review --model claude-sonnet-4-6`, or `codex-task --review` if Codex is installed |
+   | Second opinion on your own diff | `agy-task --review --model claude-sonnet-4-6` |
    | Context-dependent work that cannot be handed off cold | Your own `Agent` subagents (Claude lane) |
 
    Prompt additions that avoid wasted resumes: tell opencode workers "you are already in the worktree; do not `cd`", give them the exact verify command (`node test/x.test.js`, `npm test -- src/x`), and tell agy workers "file view/search/edit tools only, no shell".
@@ -40,7 +40,7 @@ Everything else in the approved plan goes to a worker.
    - Rerun the verify command in the worktree yourself.
    - If something is wrong, `resume` once with concrete feedback (file, line, expected behaviour).
    - `git merge <cli>/<slug>`, then `<cli>-task clean <slug>`.
-7. **Cheap second opinion before you report.** Your own review reads diffs on Claude quota; a different model catches different mistakes on other quota. For merged logic of more than ~50 lines, run `agy-task start review-<n> --review --model claude-sonnet-4-6` on the merged diff (or `codex-task --review`) and read only its findings. Skip it for boilerplate and renames.
+7. **Cheap second opinion before you report.** Your own review reads diffs on Claude quota; a different model catches different mistakes on other quota. For merged logic of more than ~50 lines, run `agy-task start review-<n> --review --model claude-sonnet-4-6` on the merged diff and read only its findings. Skip it for boilerplate and renames.
 8. **After the last merge:** run the full test suite, then apply the usual quality gate (`security-auditor`, `code-proofreader`, `release-tester` as the change requires). Report to the user which parts went to which worker/backend.
 
 ## Workflow mode
