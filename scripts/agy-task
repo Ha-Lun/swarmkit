@@ -30,8 +30,8 @@ a max-denied worker; take the task over. 0 disables a limit; agy is not watched.
 from a small table (opencode-go/cat-jam-free: max); a model not in the table gets none, since a variant
 a model lacks fails the whole run. --effort "" forces none. Resume reuses the model and effort of start.
 
-The running-task limit is shared: agy and opencode tasks together never exceed it (the limit
-itself is read from the invoked backend's *_TASK_MAX).
+The running-task limit is shared: agy and opencode tasks of all repos together never exceed it
+(the limit itself is read from the invoked backend's *_TASK_MAX). list and clean stay per repo.
 """
 import argparse, fcntl, hashlib, json, os, re, shutil, signal, subprocess, sys, threading, time
 from pathlib import Path
@@ -362,9 +362,9 @@ def main():
     repo = Path(sh("git", "worktree", "list", "--porcelain").splitlines()[0].split(" ", 1)[1])
     here = Path(sh("git", "rev-parse", "--show-toplevel"))
     key = f"{repo.name}-{hashlib.sha1(str(repo).encode()).hexdigest()[:6]}"
-    def home(b):
-        return Path(os.environ.get(f"{b['env']}_DIR", Path.home() / b["home"])) / key
-    root = home(BACKEND)
+    def base(b):
+        return Path(os.environ.get(f"{b['env']}_DIR", Path.home() / b["home"]))
+    root = base(BACKEND) / key
     if a.cmd == "list":
         for d in sorted(root.glob("*/")) if root.exists() else []:
             r = json.loads((d / "result.json").read_text()) if (d / "result.json").exists() else {}
@@ -389,18 +389,18 @@ def main():
         sh("git", "branch", "-D", branch, cwd=repo, check=False)
         return 0
 
-    # One limit for all backends: they share the box. The lock makes check-and-claim atomic, so queued
+    # One limit for all backends and all repos: they share the box. The lock makes check-and-claim atomic, so queued
     # --wait callers cannot all see the same free slot; the claim is the pid file written below.
     cap = int(os.environ.get(f"{BACKEND['env']}_MAX", 3))
     lock = open(Path.home() / ".swarmkit-task.lock", "a")
     while True:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        running = [f for b in BACKENDS.values() for f in home(b).glob("*/pid") if alive(f)]
+        running = [f for b in BACKENDS.values() for f in base(b).glob("*/*/pid") if alive(f)]
         if len(running) < cap:
             break
         fcntl.flock(lock, fcntl.LOCK_UN)
         if not a.wait:
-            sys.exit(f"{PROG}: {len(running)} delegated tasks already running (all backends); wait for one, or pass --wait")
+            sys.exit(f"{PROG}: {len(running)} delegated tasks already running (all backends and repos); wait for one, or pass --wait")
         time.sleep(10)
     def claim(task):
         (task / "pid").write_text(str(os.getpid()))

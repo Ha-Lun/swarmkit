@@ -79,4 +79,23 @@ STUB_MODE=deny "$TASK" start cb4 --max-denied 0 --max-tool-errors 0 --timeout 3 
 [ "$(res r1 .stopped_by cb4)" = timeout ] || fail "breaker off should leave the timeout: $(res r1 .stopped_by cb4)"
 [ "$(res r1 '.denied_actions|length' cb4)" = 12 ] || fail "partial output lost on timeout"
 "$TASK" clean cb4 --force
+
+# --- global cap: two repos, cap 2, three starts; the third queues behind the other repo's task
+mkrepo r2
+export OPENCODE_TASK_MAX=2 STUB_MODE=slow STUB_SLEEP=5
+(cd "$T/r1" && "$TASK" start cap1 "p" >/dev/null 2>&1) &
+(cd "$T/r2" && "$TASK" start cap2 "p" >/dev/null 2>&1) &
+sleep 2
+cd "$T/r1"
+out=$("$TASK" start cap3 "p" 2>&1) && fail "a third task started past the cap across repos"
+echo "$out" | grep -q "2 delegated tasks already running" || fail "unexpected refusal: $out"
+[ ! -e "$OPENCODE_TASK_DIR"/r1-*/cap3 ] || fail "refused task left a dir"
+"$TASK" start cap3 --wait "p" >/dev/null 2>&1 &
+sleep 2
+[ ! -e "$OPENCODE_TASK_DIR"/r1-*/cap3 ] || fail "--wait task did not queue"
+wait
+[ "$(res r1 .ok cap3)" = true ] || fail "queued task did not run after a slot freed"
+for s in cap1 cap3; do (cd "$T/r1" && "$TASK" clean $s --force); done
+(cd "$T/r2" && "$TASK" clean cap2 --force)
+unset OPENCODE_TASK_MAX STUB_MODE STUB_SLEEP
 echo "ok"
