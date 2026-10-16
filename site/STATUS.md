@@ -26,5 +26,8 @@ The showcase site is being rebuilt as "SwarmKit City": a scroll-scrubbed miniatu
 ## Related branches (all local, unmerged, unpushed)
 - `bench/showcase`: `--showcase` flag in `bench/compare.py` and `bench/plan_approver.py` (how the plan-first run was recorded).
 - `swarm/cut-lead-dev-codex-task`: removes the `lead-dev` agent and the whole Codex target; `lead-dev-hybrid` becomes the single orchestrator. Recovery tag: `archive/lead-dev-and-codex-task`; restore steps in `CHANGELOG.md` on that branch.
-- `main` (local) has the bench cost and `agy-task` worktree fixes (4 commits, not pushed).
+- Local `main` is 7 commits ahead of `origin/main`, none pushed: the 4 bench cost / `agy-task` worktree fixes from this session plus 3 earlier commits (hybrid-build workflow, scaffold bench case, steer fix for lead-dev-hybrid).
 - The site on `main` is the old globe site; it still lists `lead-dev` and will go stale once the cut merges.
+
+## Merging to production later
+Merging to `main` deploys to production (Vercel). The Vercel setup and the merge checklist are in `docs/archive/HANDOFF.md` (they were in `site/HANDOFF.md` before this branch moved it); the Vercel project is swarmkit-site with root directory `site`. Before merging site/city, also decide what to do about the unmerged branches above and push them in a deliberate order; the owner must say when.
