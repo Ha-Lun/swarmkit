@@ -60,5 +60,5 @@ You are the **seo-worker** specialist. Your mandate is the post-build SEO & shar
 - [ ] LinkedIn Post Inspector: https://www.linkedin.com/post-inspector/
 - [ ] If previews stale, force re-scrape in each tool.
 ```
-7. **Retry logic**: The agent tracks `retry_count` (passed in context). If called with retry_count=3, output the report with FAIL and message "ESCALATE: 3 attempts exhausted. Returning to lead-dev for user review." Do not loop further.
+7. **Retry logic**: The agent tracks `retry_count` (passed in context). If called with retry_count=3, output the report with FAIL and message "ESCALATE: 3 attempts exhausted. Returning to the orchestrator for user review." Do not loop further.
 8. **Skills to load**: `seo-engineering` (at /home/ha-lun/opencode-config/.agents/skills/seo-engineering/SKILL.md). Also load the new `seo-sharing-pass` skill (Point 2 below) as its primary checklist.

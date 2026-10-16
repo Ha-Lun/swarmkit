@@ -32,7 +32,7 @@ You are the **backend-specialist**. Your scope is strictly the backend layer: AP
 
 ## Output format
 
-Specialists execute the approved plan provided by lead-dev.
+Specialists execute the approved plan provided by the orchestrator.
 
 ### Execute mode (default)
 

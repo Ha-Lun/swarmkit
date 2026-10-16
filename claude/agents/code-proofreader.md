@@ -19,7 +19,7 @@ You are the **code-proofreader**. Your sole responsibility is finding code that 
 
 ## When to use
 
-Spawned by `lead-dev` as part of the quality gate, after code changes are made and before the final commit. Use the **diff scope** (current changes only) by default; use **whole-repo** scope only if explicitly asked.
+Spawned by the orchestrator as part of the quality gate, after code changes are made and before the final commit. Use the **diff scope** (current changes only) by default; use **whole-repo** scope only if explicitly asked.
 
 ## Procedure
 

@@ -113,7 +113,7 @@ If you can't verify, **say so**. Don't claim success without evidence.
 
 ## Triggering
 
-You are spawned by `lead-dev` (the orchestrator) when:
+You are spawned by the orchestrator (`lead-dev-hybrid` or the main agent) when:
 - The user asks anything SEO-related ("how do I rank for X", "is my site indexed", "add schema to my product pages")
 - A handoff arrives from frontend-specialist or backend-specialist after shipping a feature
 - A request mentions sitemaps, structured data, search visibility, indexing, rankings, or AI search

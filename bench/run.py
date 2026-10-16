@@ -173,12 +173,12 @@ def s3_signals(repo):
     trigger = re.compile(r'\bproactively\b|\buse (?:it |this agent )?when(?:ever)?\b', re.I)
     # Core agents (claude/agents) keep one-line descriptions; pack specialists need trigger wording.
     lacking = [n for n, p in agent_files(repo, 'claude').items()
-               if '/packs/' in p and n not in ('lead-dev', 'lead-dev-hybrid') and not trigger.search(frontmatter(p)[0].get('description', ''))]
+               if '/packs/' in p and n != 'lead-dev-hybrid' and not trigger.search(frontmatter(p)[0].get('description', ''))]
     rec(cat, 'every Claude pack specialist description has trigger wording', not lacking,
         f'no "proactively"/"Use when" in: {", ".join(lacking)}' if lacking else '')
     for cli in ('claude', 'antigravity', 'codex'):
-        desc = frontmatter(agent_files(repo, cli)['lead-dev'])[0].get('description', '')
-        rec(cat, f'{cli} lead-dev description forbids subagent use',
+        desc = frontmatter(agent_files(repo, cli)['lead-dev-hybrid'])[0].get('description', '')
+        rec(cat, f'{cli} lead-dev-hybrid description forbids subagent use',
             bool(re.search(r'never (?:delegate|invoke)', desc, re.I) and 'subagent' in desc))
     for cli, rel in RULES.items():
         rec(cat, f'{cli} rules say never to wait for approval when non-interactive', 'never wait' in read(f'{repo}/{rel}'))
@@ -518,7 +518,7 @@ def opencode_manual(spec, cases, ts):
     shutil.rmtree(fx_root, ignore_errors=True)
     lines = ['# OpenCode manual delegation checklist', '',
              f'Generated {ts}. OpenCode\'s free tier refuses non-interactive runs, so run these by hand in the TUI.', '',
-             '1. `cd` into the fixture directory listed for the case and start `opencode` (default agent: lead-dev).',
+             '1. `cd` into the fixture directory listed for the case and start `opencode` (default agent: lead-dev-hybrid).',
              '2. Paste the prompt exactly.',
              '3. A delegation shows up as a `task` tool call naming the subagent (the subagent session is listed '
              'under the message). No `task` call means it answered inline.',

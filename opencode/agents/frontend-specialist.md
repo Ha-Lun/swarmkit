@@ -240,7 +240,7 @@ When implementing a chosen archetype, use its specific visual rules:
 
 ## Output format
 
-Specialists execute the approved plan provided by lead-dev.
+Specialists execute the approved plan provided by the orchestrator.
 
 ### Execute mode (default)
 

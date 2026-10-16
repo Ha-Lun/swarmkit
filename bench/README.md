@@ -30,7 +30,7 @@ Every run ends with a scoreboard and exits non-zero on any failure. `--json PATH
 |---|---|
 | S1 build idempotent | `build.py` runs twice in a temp copy of the sources with identical output, and that output equals the committed `claude/`, `opencode/` and `antigravity/` files. Sources and outputs are in sync. |
 | S2 roster parity | The same agent names exist in `core/agents` and all three CLI outputs (Claude: `claude/agents` plus `claude/packs/*/agents`). Every frontmatter is valid YAML with a description. Claude models are haiku, sonnet or opus. |
-| S3 delegation signals | Every Claude pack specialist description says "proactively" or "Use when" (lead-dev and the one-line core agents are exempt). The lead-dev descriptions for Claude and agy forbid subagent use. All three rules files say never to wait for approval when non-interactive. The Claude rules send large or risky work to `EnterPlanMode` first and stay under 2200 bytes. |
+| S3 delegation signals | Every Claude pack specialist description says "proactively" or "Use when" (lead-dev-hybrid and the one-line core agents are exempt). The lead-dev-hybrid descriptions for Claude and agy forbid subagent use. All three rules files say never to wait for approval when non-interactive. The Claude rules send large or risky work to `EnterPlanMode` first and stay under 2200 bytes. |
 | S4 foreign-tool leakage | Claude bodies contain no agy tool names. OpenCode bodies contain no agy or Claude tool names. Claude `tools:` lists contain only real Claude tools or `mcp__<server>__*`, where `<server>` is in `core/mcp.json`. |
 | S5 hooks and guard | The five guarded agents have their `guard.py` PreToolUse hook. Then `claude/hooks/guard.py` is run directly on the stdin cases in `cases.json`: allowed commands, chaining, substitution and redirection bypasses, and test-writer and git-specialist file rules. |
 | S6 rules sanity | The agy rules file is under 24,000 bytes. Every skill that a rules file or agent body tells the model to load exists in `core/skills`. The match is conservative: `Load **\`x\`**`, `` `x` skill``, `Skills to load: \`x\``. Third-party skills are listed in `cases.json` under `static.external_skills`. |
@@ -78,11 +78,12 @@ OpenCode's free tier rejects non-interactive runs ("can only be used from within
 
 ## Cost comparison (compare.py)
 
-`bench/compare.py` runs one or more real implementation tasks under three Claude Code variants and measures Claude-side cost, wall time, and delegated-worker quota:
+`bench/compare.py` runs one or more real implementation tasks under four Claude Code variants and measures Claude-side cost, wall time, and delegated-worker quota:
 
-- `stock`: `claude -p` with no agent.
-- `lead-dev`: `claude -p --agent lead-dev`.
-- `hybrid`: `claude -p --agent lead-dev-hybrid`.
+- `vanilla`: `claude -p` with no agents, skills or rules (a temp config dir with auth and settings only).
+- `slim` (alias `stock`): `claude -p` with your installed config and no agent.
+- `hybrid`: `claude -p --agent lead-dev-hybrid`, dynamic workflows off.
+- `hybrid-workflow`: as `hybrid`, with dynamic workflows on and the saved `hybrid-build` workflow.
 
 Three cases are built in:
 
@@ -90,19 +91,19 @@ Three cases are built in:
 - `big`: a mechanical multi-file migration in the `migration` fixture. It renames `cents` to `toCents` across `src/format.js`, five callers, `src/index.js`, four tests, and the README. Verify: `node test.js && node test/cart.test.js && node test/orders.test.js && node test/inventory.test.js`.
 - `features`: five independent stub-to-implementation tasks (`src/slugify.js`, `src/email.js`, `src/range.js`, `src/pad.js`, `src/unique.js`), each with its own failing test file under `test/`. The fixture deliberately fails verification at creation time; implementations must be written from scratch and match the tests exactly. Verify: `node test/slugify.test.js && node test/email.test.js && node test/range.test.js && node test/pad.test.js && node test/unique.test.js`.
 
-The big case is intentionally larger and file-disjoint so that `lead-dev` and `hybrid` should dispatch `agy`/`opencode` workers, while the small task often finishes inline. Every variant gets a fresh fixture, the same prompt, and the same `--permission-mode` (default `bypassPermissions` because the fixture is disposable and contains no secrets). During each run a background sampler periodically reads worker task directories under `~/.agy-tasks`, `~/.opencode-tasks`, and `~/.codex-tasks` and keeps parsed `result.json` records in memory; after the run it aggregates token usage per backend from the sampler plus a final filesystem sweep. Workers that were cleaned up by `<backend>-task clean` during the run are still counted, and a note is added when this happens. Worker attribution and verification logic are otherwise unchanged from the single-case version.
+The big case is intentionally larger and file-disjoint so that the `hybrid` variants should dispatch `agy`/`opencode` workers, while the small task often finishes inline. Every variant gets a fresh fixture, the same prompt, and the same `--permission-mode` (default `bypassPermissions` because the fixture is disposable and contains no secrets). During each run a background sampler periodically reads worker task directories under `~/.agy-tasks`, `~/.opencode-tasks`, and `~/.codex-tasks` and keeps parsed `result.json` records in memory; after the run it aggregates token usage per backend from the sampler plus a final filesystem sweep. Workers that were cleaned up by `<backend>-task clean` during the run are still counted, and a note is added when this happens. Worker attribution and verification logic are otherwise unchanged from the single-case version.
 
 A fair cost read requires every variant to complete and pass the local verification for the selected case; runs that fail verification are marked invalid. Raw event streams are kept under `bench/results/raw/` with names like `<timestamp>-compare-<case>-<variant>-<n>.jsonl`, and a Markdown report plus JSON are written to `bench/results/<timestamp>-compare.*`.
 
 ```bash
 python3 bench/compare.py --dry-run              # resolve commands, build fixtures, run nothing
 python3 bench/compare.py --dry-run --case big   # dry-run the migration case only
-python3 bench/compare.py --yes                  # run both cases under all three variants (spends quota)
+python3 bench/compare.py --yes                  # run both cases under all four variants (spends quota)
 python3 bench/compare.py --yes --case small     # only the small task
 python3 bench/compare.py --yes --repeat 3       # per-(case,variant) means over 3 runs each
 ```
 
-Options: `--case small,big,features` (default `all`), `--variants stock,lead-dev,hybrid`, `--timeout 1800`, `--budget 10.0`, `--model`, `--permission-mode`, `--json PATH`.
+Options: `--case small,big,features` (default `all`), `--variants vanilla,slim,hybrid,hybrid-workflow`, `--timeout 1800`, `--budget 10.0`, `--model`, `--permission-mode`, `--json PATH`.
 
 First findings from the 2026-10-14 live runs: see [FINDINGS.md](FINDINGS.md).
 

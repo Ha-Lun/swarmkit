@@ -58,4 +58,4 @@ Refer to `seo-engineering` section 6 for commands to verify canonicals, robots d
 ```
 
 ### 6. Failure/Escalation protocol
-The agent tracks `retry_count` (passed in context). If called with retry_count=3, output the report with FAIL and message "ESCALATE: 3 attempts exhausted. Returning to lead-dev for user review." Do not loop further.
+The agent tracks `retry_count` (passed in context). If called with retry_count=3, output the report with FAIL and message "ESCALATE: 3 attempts exhausted. Returning to the orchestrator for user review." Do not loop further.
