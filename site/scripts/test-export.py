@@ -105,7 +105,7 @@ try:
 except export_run.PrivacyError:
     pass
 try:
-    export_run.check_private({"s": ("word " * 60)[:301]}, max_str=300)
+    export_run.check_private({"s": ("word " * 61)[:301]}, max_str=300)
     raise AssertionError("301-char string should be rejected even with max_str=300")
 except export_run.PrivacyError:
     pass
