@@ -21,6 +21,9 @@ Invoked as opencode-task (a symlink) it drives `opencode run`: branches opencode
 $OPENCODE_TASK_DIR (default ~/.opencode-tasks). A per-run config overlay (OPENCODE_CONFIG_CONTENT, this
 process only) allows edits, limits the shell to test/build runners and read-only git, and turns off
 subagents; the user's own OpenCode config is untouched. --yolo lifts the shell limit (not sandboxed).
+--effort sets the model variant (opencode: "provider/model#effort"). Left out, a model gets its default
+from a small table (opencode-go/cat-jam-free: max); a model not in the table gets none, since a variant
+a model lacks fails the whole run. --effort "" forces none. Resume reuses the model and effort of start.
 
 The running-task limit is shared: agy and opencode tasks together never exceed it (the limit
 itself is read from the invoked backend's *_TASK_MAX).
@@ -59,6 +62,10 @@ def agy_parse(out, err):
             "denied": [d.get("display_name", d.get("action")) for d in res.get("denied_actions", [])],
             # agy exits 0 with partial output when its own timeout hits
             "timed_out": bool(re.search(r"print timeout", err))}
+
+
+# Effort per model when --effort is not given. Not listed: no effort (a variant the model lacks is an error).
+EFFORT_DEFAULTS = {"opencode-go/cat-jam-free": "max"}
 
 
 def remembered_opts(task, a, resume_id):
@@ -156,7 +163,7 @@ BACKENDS = {
     "agy-task": {"cli": "agy", "env": "AGY_TASK", "home": ".agy-tasks",
                  "model": "gemini-3.8-flash-high", "cmd": agy_cmd, "parse": agy_parse, "grace": 30},
     "opencode-task": {"cli": "opencode", "env": "OPENCODE_TASK", "home": ".opencode-tasks",
-                      "model": "opencode-go/cat-jam-free", "effort": "max", "cmd": opencode_cmd,
+                      "model": "opencode-go/cat-jam-free", "cmd": opencode_cmd,
                       "parse": opencode_parse, "grace": 0, "proc_env": opencode_env},
 }
 BACKEND = BACKENDS[PROG]
@@ -287,7 +294,7 @@ def main():
     ap.add_argument("slug", nargs="?")
     ap.add_argument("prompt", nargs="?", help="task text, or - to read it from stdin")
     ap.add_argument("--model", default=BACKEND["model"])
-    ap.add_argument("--effort", default=BACKEND.get("effort"))
+    ap.add_argument("--effort", help="model variant; default per model, '' for none")
     ap.add_argument("--timeout", default="20m")
     ap.add_argument("--base", default="HEAD")
     ap.add_argument("--setup", help="shell command run in the worktree before agy (start only)")
@@ -296,6 +303,8 @@ def main():
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--wait", action="store_true", help="queue for a free slot instead of refusing at the limit")
     a = ap.parse_args()
+    if a.effort is None:
+        a.effort = EFFORT_DEFAULTS.get(a.model, "")
 
     # The first `git worktree list` entry is the main working tree, also when run from inside a
     # task worktree or a submodule: it keys the task dirs, so every worktree shares one list and cap.
