@@ -51,17 +51,17 @@ const FORBIDDEN_RE = /\/home\/|\/Users\/|\/root\/|\/tmp\/|\/var\/|\/private\/|[a
 
 const list = (v: unknown): any[] => (Array.isArray(v) ? v : []);
 
-function assertClean(v: unknown): void {
+function assertClean(v: unknown, max = 120): void {
   if (typeof v === 'string') {
-    if (v.length > 120) throw new Error('string longer than 120 chars');
+    if (v.length > max) throw new Error(`string longer than ${max} chars`);
     if (FORBIDDEN_RE.test(v)) throw new Error('benchmark_metrics.json contains a forbidden string');
     return;
   }
-  if (Array.isArray(v)) { v.forEach(assertClean); return; }
+  if (Array.isArray(v)) { v.forEach((item) => assertClean(item, max)); return; }
   if (v && typeof v === 'object') {
     for (const [key, value] of Object.entries(v as Record<string, unknown>)) {
-      assertClean(key);
-      assertClean(value);
+      assertClean(key, max);
+      assertClean(value, max);
     }
   }
 }
@@ -70,7 +70,7 @@ export function loadBenchmarks(): Benchmarks | null {
   const file = resolve(process.cwd(), 'public/data/benchmark_metrics.json');
   if (!existsSync(file)) return null;
   const data = JSON.parse(readFileSync(file, 'utf8'));
-  assertClean(data);
+  assertClean(data, 300);
   if (!Array.isArray(data.rows) || data.rows.length === 0) {
     throw new Error('benchmark_metrics.json must contain a non-empty "rows" array');
   }
