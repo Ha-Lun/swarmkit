@@ -98,4 +98,21 @@ wait
 for s in cap1 cap3; do (cd "$T/r1" && "$TASK" clean $s --force); done
 (cd "$T/r2" && "$TASK" clean cap2 --force)
 unset OPENCODE_TASK_MAX STUB_MODE STUB_SLEEP
+
+# --- dispatch log: allowlisted fields only
+export SWARMKIT_DISPATCH_LOG="$T/dispatch.jsonl"
+"$TASK" start dl1 "PROMPT-SECRET please" >/dev/null 2>&1 || true
+STUB_MODE=deny "$TASK" start dl2 "p" >/dev/null 2>&1 || true
+[ "$(wc -l < "$SWARMKIT_DISPATCH_LOG")" = 2 ] || fail "expected one log line per finished task"
+jq -e 'keys == ["cli","denied","ok","slug","stopped_by","tokens","ts","wall_s"]' "$SWARMKIT_DISPATCH_LOG" >/dev/null || fail "log fields not the allowlist"
+jq -es '.[0] | .cli == "opencode" and .slug == "dl1" and .denied == 0 and .tokens == 116 and .stopped_by == null
+        and (.ts | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$")) and (.wall_s | type == "number")' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
+  || fail "first log line: $(head -1 "$SWARMKIT_DISPATCH_LOG")"
+jq -es '.[1] | .ok == false and .slug == "dl2" and .denied >= 10 and .stopped_by == "max-denied"' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
+  || fail "second log line: $(tail -1 "$SWARMKIT_DISPATCH_LOG")"
+grep -Eq "PROMPT-SECRET|$T|/secret|cat >" "$SWARMKIT_DISPATCH_LOG" && fail "log leaks a prompt, path or command"
+unset SWARMKIT_DISPATCH_LOG
+"$TASK" start dl3 "p" >/dev/null 2>&1 || true
+[ "$(wc -l < "$T/dispatch.jsonl")" = 2 ] || fail "logged without SWARMKIT_DISPATCH_LOG"
+for s in dl1 dl2 dl3; do "$TASK" clean $s --force; done
 echo "ok"

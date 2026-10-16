@@ -30,6 +30,9 @@ a max-denied worker; take the task over. 0 disables a limit; agy is not watched.
 from a small table (opencode-go/cat-jam-free: max); a model not in the table gets none, since a variant
 a model lacks fails the whole run. --effort "" forces none. Resume reuses the model and effort of start.
 
+$SWARMKIT_DISPATCH_LOG=FILE: one JSON line is appended per finished task with only ts, cli, slug, ok,
+denied (count), tokens (total or null), wall_s and stopped_by (null | max-denied | max-tool-errors | timeout).
+
 The running-task limit is shared: agy and opencode tasks of all repos together never exceed it
 (the limit itself is read from the invoked backend's *_TASK_MAX). list and clean stay per repo.
 """
@@ -228,8 +231,23 @@ def main_state(repo):
     return state
 
 
+def dispatch_log(slug, ok, res, stopped_by, wall):
+    """Append one allowlisted line per finished task to $SWARMKIT_DISPATCH_LOG: no prompt, path or command."""
+    path, u = os.environ.get("SWARMKIT_DISPATCH_LOG"), res["usage"]
+    if not path:
+        return
+    tokens = u.get("total_tokens", sum(v for v in u.values() if isinstance(v, int))) if isinstance(u, dict) and u else None
+    line = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "cli": CLI, "slug": slug, "ok": ok,
+            "denied": len(res["denied"]), "tokens": tokens, "wall_s": round(wall), "stopped_by": stopped_by}
+    try:
+        with open(path, "a") as f:
+            f.write(json.dumps(line) + "\n")
+    except OSError as e:
+        print(f"{PROG}: WARNING: dispatch log not written: {e}", file=sys.stderr)
+
+
 def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
-    wt = task / "worktree"
+    wt, t0 = task / "worktree", time.monotonic()
     (task / "pid").write_text(str(os.getpid()))
     cmd = BACKEND["cmd"](task, prompt, a, resume_id)
     main_before = main_state(repo)
@@ -329,6 +347,7 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
               "conversation_id": res["conversation_id"], "stopped_by": stopped_by, "exit_code": code, "usage": res["usage"],
               "response": res["response"], "stderr": err.strip()[-500:]}
     (task / "result.json").write_text(json.dumps(result, indent=2))
+    dispatch_log(task.name, ok, res, stopped_by, time.monotonic() - t0)
     hint = " (resume it: use file view/edit tools only, no shell)" if CLI == "agy" else ""
     note = (f" DENIED: {', '.join(denied)}{hint}" if denied else "") \
         + "".join(f" WARNING: {w}" for w in warnings)
