@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Worker-only model comparison: drive `opencode-task` on the `scaffold` fixture, one worker per module.
 
-  python3 bench/worker_models.py --repeats 3                    scaffold fixture, all arms (spends model quota)
-  python3 bench/worker_models.py --arms cat-jam-default,beam    only the named arms
+  python3 bench/worker_models.py --repeats 3                    scaffold fixture, default arms muse,beam (spends model quota)
+  python3 bench/worker_models.py --arms muse                    only the named arms
   python3 bench/worker_models.py --fixture hard                 harder fixture (4 modules, 12m per worker)
   python3 bench/worker_models.py --summarize F1 [F2 ...]        one combined table; an arm is taken from the
                                                                 first file (in the order given) that has it
@@ -38,8 +38,6 @@ MODULES = FIXTURES['scaffold'][0]
 # label -> (model id, effort or None). Effort None = wrapper default ("max"); '' = the model's own default
 # (passed explicitly, which switches the wrapper default off). muse rejects "max" ("Variant unavailable").
 ARMS = {
-    'cat-jam': ('opencode-go/cat-jam-free', 'max'),
-    'cat-jam-default': ('opencode-go/cat-jam-free', ''),
     'muse': ('opencode-go/muse-spark-1.3-contributor', ''),
     'beam': ('opencode-go/beam-free', ''),
 }
@@ -241,7 +239,8 @@ def summarize(data):
                f"{meta.get('repeats', 3) * len(modules)} workers per arm, and only {meta.get('repeats', 3)} per module. "
                'Treat differences as indications, not proof.** Arms that differ in effort setting confound model '
                'and effort (muse rejects `max`).\n')
-    labels = [l for l in ARMS if any(w['model_label'] == l for w in ws)]
+    # arms of old result files (e.g. withdrawn cat-jam) are not in ARMS: keep them, labelled as found
+    labels = [l for l in dict.fromkeys([*ARMS, *(w['model_label'] for w in ws)]) if any(w['model_label'] == l for w in ws)]
     rows = {l: [w for w in ws if w['model_label'] == l] for l in labels}
     leaks = {l: [c for c in data['cells'] if c['model_label'] == l] for l in labels}
 
@@ -332,7 +331,7 @@ def main():
     ap.add_argument('--timeout', default=None, help='per-worker timeout passed to opencode-task (default: per fixture)')
     ap.add_argument('--hard-timeout', type=int, default=None, help='harness-side kill for one wrapper call')
     ap.add_argument('--tmp', default=tempfile.gettempdir(), help='where fixtures are created')
-    ap.add_argument('--arms', default=','.join(ARMS), help='comma list of arm labels')
+    ap.add_argument('--arms', default='muse,beam', help='comma list of arm labels')
     ap.add_argument('--modules', default=None, help='comma list (default: all of the fixture)')
     ap.add_argument('--summarize', metavar='FILE', nargs='+')
     args = ap.parse_args()
