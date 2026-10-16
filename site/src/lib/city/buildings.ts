@@ -165,7 +165,8 @@ export function createBuildings(layout: LotLayout, palette: CityPalette): CityPa
   const seeded: InstancedMesh[] = [mainMesh, reworkMesh, extraMesh];
   for (let i = 0; i < seeded.length; i++) {
     seeded[i].instanceMatrix.needsUpdate = true;
-    if (seeded[i].instanceColor !== null) seeded[i].instanceColor.needsUpdate = true;
+    const ic = seeded[i].instanceColor;
+    if (ic !== null) ic.needsUpdate = true;
   }
 
   // Scratch state reused every frame so update allocates nothing.
@@ -212,7 +213,8 @@ export function createBuildings(layout: LotLayout, palette: CityPalette): CityPa
     mainMesh.instanceMatrix.needsUpdate = true;
     reworkMesh.instanceMatrix.needsUpdate = true;
     extraMesh.instanceMatrix.needsUpdate = true;
-    if (reworkMesh.instanceColor !== null) reworkMesh.instanceColor.needsUpdate = true;
+    const ric = reworkMesh.instanceColor;
+    if (ric !== null) ric.needsUpdate = true;
   }
 
   let disposed = false;
