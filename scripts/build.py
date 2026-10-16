@@ -7,7 +7,6 @@
   opencode/agents/<name>.md                        OpenCode agents
   antigravity/plugins/swarmkit/agents/<name>.md    Antigravity plugin agents
                                                    (invoke_subagent types)
-  codex/agents/<name>.toml                         Codex custom agents
 
 Outputs are committed. Run after editing anything in core/agents.
 
@@ -16,13 +15,11 @@ agent's frontmatter, and a body file at core/agents/<cli>/<name>.md (claude or
 opencode) that replaces the shared body. Antigravity always uses the shared body.
 
 Every agent sets `pack:` (one of PACKS). It only decides where the Claude build
-goes; it is not emitted. OpenCode, Antigravity and Codex get every agent.
+goes; it is not emitted. OpenCode and Antigravity get every agent.
 """
 import glob
-import json
 import os
 import shutil
-import tomllib
 
 import yaml
 
@@ -37,8 +34,6 @@ TIER_MODELS = {
         'standard': 'opencode-go/qwen3.7-plus',
         'deep': 'opencode-go/kimi-k2.7-code',
     },
-    # Codex agents keep the session's model; the tier sets reasoning effort.
-    'codex': {'fast': 'low', 'standard': 'medium', 'deep': 'high'},
 }
 
 PACKS = ('core', 'web', 'ops', 'mobile', 'n8n', 'backend', 'creative', 'swarm')
@@ -96,7 +91,7 @@ def build_opencode(a, body):
 
 
 def capability_header(a):
-    # Neither agy nor Codex can restrict every tool per agent, so state the limits as instructions.
+    # agy can't restrict every tool per agent, so state the limits as instructions.
     caps = ', '.join(a['capabilities']) or 'none (conversation only)'
     kind = 'orchestrator' if a.get('role') == 'orchestrator' else 'subagent'
     return (f"> You are the **{a['name']}** {kind}. "
@@ -105,7 +100,7 @@ def capability_header(a):
 
 def delegating_description(cli, a):
     # Claude's descriptions are written for a delegating main agent, which is what
-    # agy's invoke_subagent and Codex's spawning need too, so fall back to them before the shared one.
+    # agy's invoke_subagent needs too, so fall back to them before the shared one.
     return a.get(cli, {}).get('description') or a.get('claude', {}).get('description') or a['description']
 
 
@@ -115,32 +110,10 @@ def build_antigravity(a, body):
           capability_header(a) + body)
 
 
-def toml_str(s, multiline=False):
-    # JSON string escapes are valid TOML basic-string escapes.
-    if multiline and "'''" not in s:
-        return f"'''\n{s}'''"
-    return json.dumps(s, ensure_ascii=False)
-
-
-def build_codex(a, body):
-    lines = [f"name = {toml_str(a['name'])}",
-             f"description = {toml_str(delegating_description('codex', a))}",
-             f"model_reasoning_effort = {toml_str(TIER_MODELS['codex'][a['tier']])}",
-             f"developer_instructions = {toml_str(capability_header(a) + body, multiline=True)}"]
-    if 'bash' not in a['capabilities']:
-        lines += ['', '[features]', 'shell_tool = false']
-    text = '\n'.join(lines) + '\n'
-    tomllib.loads(text)  # fail loudly on anything Codex couldn't parse
-    os.makedirs(f'{ROOT}/codex/agents', exist_ok=True)
-    with open(f"{ROOT}/codex/agents/{a['name']}.toml", 'w') as f:
-        f.write(text)
-
-
 RULES_OUT = {
     'claude': 'claude/CLAUDE.md',
     'opencode': 'opencode/AGENTS.md',
     'antigravity': 'antigravity/plugins/swarmkit/rules/AGENTS.md',
-    'codex': 'codex/AGENTS.md',
 }
 
 
@@ -162,17 +135,16 @@ def main():
             raise SystemExit(f"{a['name']}: unknown or missing pack {a.get('pack')!r} (expected one of {PACKS})")
     # The swarmkit skills dir is from the old layout (specialists as skills); kept so it gets removed.
     for d in ('claude/agents', 'claude/packs', 'opencode/agents', 'antigravity/plugins/swarmkit/agents',
-              'antigravity/plugins/swarmkit/skills', 'codex/agents'):
+              'antigravity/plugins/swarmkit/skills'):
         shutil.rmtree(os.path.join(ROOT, d), ignore_errors=True)
     for a, body in agents:
         build_claude(a, body)
         build_opencode(a, body)
         build_antigravity(a, body)
-        build_codex(a, body)
     with open(f'{ROOT}/antigravity/plugins/swarmkit/plugin.json', 'w') as f:
         f.write('{\n  "name": "swarmkit"\n}\n')
     build_rules()
-    print(f'Built {len(agents)} agents for claude, opencode, antigravity, codex.')
+    print(f'Built {len(agents)} agents for claude, opencode, antigravity.')
 
 
 if __name__ == '__main__':
