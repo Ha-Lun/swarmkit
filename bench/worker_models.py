@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Worker-only model comparison: drive `opencode-task` on the `scaffold` fixture, one worker per module.
 
-  python3 bench/worker_models.py --repeats 3          full run (48 workers, spends model quota)
-  python3 bench/worker_models.py --summarize FILE     rebuild the markdown summary from a results file
+  python3 bench/worker_models.py --repeats 3                    scaffold fixture, all arms (spends model quota)
+  python3 bench/worker_models.py --arms cat-jam-default,beam    only the named arms
+  python3 bench/worker_models.py --fixture hard                 harder fixture (4 modules, 12m per worker)
+  python3 bench/worker_models.py --summarize F1 [F2 ...]        one combined table; an arm is taken from the
+                                                                first file (in the order given) that has it
 
 Never starts a `claude` session. Only `opencode-go/*` models are accepted. Results are written
 incrementally to bench/results/worker-models-<UTC>.json (the directory is gitignored).
@@ -25,12 +28,20 @@ BENCH = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BENCH)
 import run  # noqa: E402  (make_fixture)
 
-MODULES = ['csv', 'semver', 'lru', 'expr', 'cron', 'template', 'diff', 'wrap']
-# label -> (model id, effort or None). The wrapper's default effort is "max"; muse rejects "max"
-# ("Variant unavailable"), so it runs at its default (effort '').
+# fixture -> (modules, default per-worker timeout). `scaffold` lives in cases.json; `hard` lives in
+# bench/fixtures/hard (its reference solutions are in bench/fixtures/hard-reference, never given to workers).
+FIXTURES = {
+    'scaffold': (['csv', 'semver', 'lru', 'expr', 'cron', 'template', 'diff', 'wrap'], '9m'),
+    'hard': (['ini', 'merge3', 'ratelimit', 'glob'], '12m'),
+}
+MODULES = FIXTURES['scaffold'][0]
+# label -> (model id, effort or None). Effort None = wrapper default ("max"); '' = the model's own default
+# (passed explicitly, which switches the wrapper default off). muse rejects "max" ("Variant unavailable").
 ARMS = {
     'cat-jam': ('opencode-go/cat-jam-free', 'max'),
+    'cat-jam-default': ('opencode-go/cat-jam-free', ''),
     'muse': ('opencode-go/muse-spark-1.3-contributor', ''),
+    'beam': ('opencode-go/beam-free', ''),
 }
 PROMPT = ("You are in a git worktree of a small Node project. Implement `src/{m}.js` so that "
           "`node test/{m}.test.js` passes. Read the test first. Edit only `src/{m}.js`; do not touch "
@@ -60,7 +71,7 @@ def bare(names):
 def parse_log(path):
     """Tool-call statistics from opencode.log (JSON lines, `type == tool_use`)."""
     st = {'tool_calls': 0, 'edit_write_calls': 0, 'edit_write_errors': 0, 'tools': {}, 'errors_by_tool': {},
-          'first_edit_error': None, 'log_events': 0}
+          'first_edit_error': None, 'log_events': 0, 'log_error': None}
     try:
         lines = open(path, errors='replace').read().splitlines()
     except OSError:
@@ -71,6 +82,9 @@ def parse_log(path):
         except ValueError:
             continue
         st['log_events'] += 1
+        if e.get('type') == 'error' and not st['log_error']:  # e.g. provider.no-route: Model unavailable
+            err = e.get('error') or {}
+            st['log_error'] = f"{err.get('type', '')}: {err.get('message', '')}"[:200]
         if e.get('type') != 'tool_use':
             continue
         part = e.get('part') or {}
@@ -173,10 +187,22 @@ def save(state, path):
     os.replace(tmp, path)
 
 
+def load_spec(fixture):
+    spec = json.loads(run.read(os.path.join(BENCH, 'cases.json')))
+    if fixture == 'hard':
+        root = os.path.join(BENCH, 'fixtures', 'hard')
+        files = {}
+        for d, _, names in os.walk(root):
+            for n in names:
+                files[os.path.relpath(os.path.join(d, n), root)] = run.read(os.path.join(d, n))
+        spec['fixtures']['hard'] = files
+    return spec
+
+
 def make_cell(model_label, rep, spec, args):
-    fx = run.make_fixture(spec, 'scaffold', BENCH, 'opencode', tempfile.mkdtemp(prefix='wm-', dir=args.tmp))
+    fx = run.make_fixture(spec, args.fixture, BENCH, 'opencode', tempfile.mkdtemp(prefix='wm-', dir=args.tmp))
     base = sh('git', 'rev-parse', 'HEAD', cwd=fx).stdout.strip()
-    return {'model_label': model_label, 'rep': rep, 'fx': fx, 'base': base, 'left': len(MODULES), 'init': False}
+    return {'model_label': model_label, 'rep': rep, 'fx': fx, 'base': base, 'left': len(args.modules), 'init': False}
 
 
 def med(xs):
@@ -187,16 +213,34 @@ def pct(n, d):
     return f'{100 * n / d:.0f}%' if d else 'n/a'
 
 
+def merge_results(datas):
+    """Combine several results files: an arm comes from the first file that has it (cells likewise)."""
+    seen, workers, cells, arms = set(), [], [], {}
+    for d in datas:
+        for l in {w['model_label'] for w in d['workers']} - seen:
+            workers += [w for w in d['workers'] if w['model_label'] == l]
+            cells += [c for c in d['cells'] if c['model_label'] == l]
+            arms[l] = d['meta'].get('arms', {}).get(l) or list(ARMS.get(l, ('?', None)))
+            seen.add(l)
+    meta = dict(datas[0]['meta'])
+    meta['arms'] = arms
+    meta['sources'] = [d['meta'].get('started_utc') for d in datas]
+    return {'meta': meta, 'cells': cells, 'workers': workers}
+
+
 def summarize(data):
     ws, out = data['workers'], []
     meta = data['meta']
-    out.append(f"# Worker model comparison ({meta.get('started_utc')})\n")
-    out.append(f"Fixture `scaffold` (8 independent modules), 1 worker per module, per-worker timeout "
+    fixture = meta.get('fixture', 'scaffold')
+    modules = meta.get('modules') or FIXTURES.get(fixture, FIXTURES['scaffold'])[0]
+    out.append(f"# Worker model comparison ({', '.join(str(x) for x in meta.get('sources') or [meta.get('started_utc')])})\n")
+    out.append(f"Fixture `{fixture}` ({len(modules)} independent modules), 1 worker per module, per-worker timeout "
                f"{meta.get('timeout')}. Arms: " + '; '.join(
-                   f"`{m}` effort `{e or '(model default)'}`" for m, e in meta.get('arms', {}).values()) + '.')
-    out.append('\n**n is small: 3 repeats x 8 modules = at most 24 workers per model, and only 3 per module. '
-               'Treat differences as indications, not proof.** The two arms also differ in effort setting '
-               '(muse rejects `max`), so model and effort are confounded.\n')
+                   f"`{l}` = `{m}` effort `{e or '(model default)'}`" for l, (m, e) in meta.get('arms', {}).items()) + '.')
+    out.append(f"\n**n is small: {meta.get('repeats', 3)} repeats x {len(modules)} modules = at most "
+               f"{meta.get('repeats', 3) * len(modules)} workers per arm, and only {meta.get('repeats', 3)} per module. "
+               'Treat differences as indications, not proof.** Arms that differ in effort setting confound model '
+               'and effort (muse rejects `max`).\n')
     labels = [l for l in ARMS if any(w['model_label'] == l for w in ws)]
     rows = {l: [w for w in ws if w['model_label'] == l] for l in labels}
     leaks = {l: [c for c in data['cells'] if c['model_label'] == l] for l in labels}
@@ -207,47 +251,57 @@ def summarize(data):
     def rng(xs):
         return f'{med(xs):g} (max {max(xs):g})' if xs else 'n/a'
 
+    def p90(xs):
+        if not xs:
+            return 'n/a'
+        xs = sorted(xs)
+        return f'{xs[min(len(xs) - 1, int(0.9 * len(xs)))]:g}'
+
     out.append('| metric | ' + ' | '.join(f'{l} (n={len(rows[l])})' for l in labels) + ' |')
     out.append('|---|' + '---|' * len(labels))
     table = [
         ('tests pass (original test, independent run)', lambda r: pct(sum(w['pass'] for w in r), len(r))),
         ('tests pass (test file as left by worker)', lambda r: pct(sum(w['pass_as_found'] for w in r), len(r))),
         ('wrapper ok', lambda r: pct(sum(w['ok'] for w in r), len(r))),
-        ('timed out', lambda r: str(sum(w['timed_out'] for w in r))),
+        ('hit the timeout (workers)', lambda r: str(sum(w['timed_out'] for w in r))),
         ('denied commands, median (max)', lambda r: rng([w['denied_n'] for w in r])),
         ('workers with >=1 denied', lambda r: str(sum(w['denied_n'] > 0 for w in r))),
         ('tool calls, median (max)', lambda r: rng([w['tool_calls'] for w in r])),
+        ('tool calls p90', lambda r: p90([w['tool_calls'] for w in r])),
+        ('workers with >50 tool calls', lambda r: str(sum(w['tool_calls'] > 50 for w in r))),
         ('edit/write error rate', lambda r: (lambda e, c: f'{e}/{c} = {pct(e, c)}')(
             sum(w['edit_write_errors'] for w in r), sum(w['edit_write_calls'] for w in r))),
         ('workers with scope violation', lambda r: str(sum(bool(w['scope_violation']) for w in r))),
-        ('main-checkout leaks (cells of 3 / workers saw dirty main)', lambda r: '{} / {}'.format(
+        ('main-checkout leaks (cells / workers saw dirty main)', lambda r: '{} / {}'.format(
             sum(bool(c['main_leak_files']) for c in leaks[r[0]['model_label']]),
             sum(bool(w['main_dirty_now']) for w in r)) if r else 'n/a'),
         ('wall seconds, median (max)', lambda r: rng([w['wall_s'] for w in r])),
+        ('wall seconds p90', lambda r: p90([w['wall_s'] for w in r])),
         ('tokens in+out+reasoning, median (max)', lambda r: rng([w['tokens_total'] for w in r])),
         ('cache-read tokens, median (max)', lambda r: rng([w['cache_read'] for w in r])),
     ]
     for name, fn in table:
         out.append(f'| {name} | ' + cols(fn) + ' |')
 
-    out.append('\n## Pass % per module (original test; n=3 per cell)\n')
+    out.append('\n## Pass count per module (original test)\n')
     out.append('| module | ' + ' | '.join(labels) + ' |')
     out.append('|---|' + '---|' * len(labels))
-    for m in MODULES:
+    for m in modules:
         cells = []
         for l in labels:
             sub = [w for w in rows[l] if w['module'] == m]
             cells.append(f"{sum(w['pass'] for w in sub)}/{len(sub)}")
         out.append(f'| {m} | ' + ' | '.join(cells) + ' |')
 
-    out.append('\n## Worst three workers per model\n')
+    out.append('\n## Worst three workers per arm\n')
     for l in labels:
         worst = sorted(rows[l], key=lambda w: (not w['pass'], w['denied_n'], w['edit_write_errors'], w['tool_calls']),
                        reverse=True)[:3]
         out.append(f'**{l}**')
         for w in worst:
-            out.append(f"- r{w['repeat']} `{w['module']}`: pass={w['pass']} ok={w['ok']} denied={w['denied_n']} "
-                       f"tool_calls={w['tool_calls']} edit/write errors={w['edit_write_errors']}/{w['edit_write_calls']} "
+            out.append(f"- r{w['repeat']} `{w['module']}`: pass={w['pass']} ok={w['ok']} timed_out={w['timed_out']} "
+                       f"denied={w['denied_n']} tool_calls={w['tool_calls']} "
+                       f"edit/write errors={w['edit_write_errors']}/{w['edit_write_calls']} "
                        f"wall={w['wall_s']}s tokens={w['tokens_total']} cache_read={w['cache_read']} "
                        f"scope={w['scope_violation'] or 'clean'}")
             for d in w['denied_first']:
@@ -274,27 +328,35 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--repeats', type=int, default=3)
     ap.add_argument('--concurrency', type=int, default=3)
-    ap.add_argument('--timeout', default='9m', help='per-worker timeout passed to opencode-task')
-    ap.add_argument('--hard-timeout', type=int, default=15 * 60, help='harness-side kill for one wrapper call')
+    ap.add_argument('--fixture', default='scaffold', choices=sorted(FIXTURES))
+    ap.add_argument('--timeout', default=None, help='per-worker timeout passed to opencode-task (default: per fixture)')
+    ap.add_argument('--hard-timeout', type=int, default=None, help='harness-side kill for one wrapper call')
     ap.add_argument('--tmp', default=tempfile.gettempdir(), help='where fixtures are created')
     ap.add_argument('--arms', default=','.join(ARMS), help='comma list of arm labels')
-    ap.add_argument('--modules', default=','.join(MODULES))
-    ap.add_argument('--summarize', metavar='FILE')
+    ap.add_argument('--modules', default=None, help='comma list (default: all of the fixture)')
+    ap.add_argument('--summarize', metavar='FILE', nargs='+')
     args = ap.parse_args()
     if args.summarize:
-        sys.stdout.write(summarize(json.load(open(args.summarize))))
+        sys.stdout.write(summarize(merge_results([json.load(open(f)) for f in args.summarize])))
         return 0
+    fx_modules, fx_timeout = FIXTURES[args.fixture]
+    args.timeout = args.timeout or fx_timeout
+    if args.hard_timeout is None:  # harness-side kill: the per-worker timeout plus slack
+        args.hard_timeout = (int(args.timeout.rstrip('m')) + 6) * 60
+    args.modules = args.modules.split(',') if args.modules else fx_modules
     arms = args.arms.split(',')
     for l in arms:
+        if l not in ARMS:
+            sys.exit(f'unknown arm {l}; known: {", ".join(ARMS)}')
         if not ARMS[l][0].startswith('opencode-go/'):
             sys.exit(f'refusing non opencode-go model {ARMS[l][0]}')
-    modules = args.modules.split(',')
-    spec = json.loads(run.read(os.path.join(BENCH, 'cases.json')))
+    modules = args.modules
+    spec = load_spec(args.fixture)
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     os.makedirs(os.path.join(BENCH, 'results'), exist_ok=True)
     path = os.path.join(BENCH, 'results', f'worker-models-{stamp}.json')
     state = {'meta': {'started_utc': stamp, 'timeout': args.timeout, 'repeats': args.repeats,
-                      'arms': {l: ARMS[l] for l in arms}, 'prompt': PROMPT, 'stopped_early': None},
+                      'arms': {l: ARMS[l] for l in arms}, 'fixture': args.fixture, 'modules': modules, 'prompt': PROMPT, 'stopped_early': None},
              'cells': [], 'workers': []}
     jobs, cells = [], {}
     for rep in range(1, args.repeats + 1):
@@ -321,13 +383,14 @@ def main():
             if streak[0] >= 5 and not stop.is_set():
                 stop.set()
                 state['meta']['stopped_early'] = (f'5 workers in a row failed before any tool call; last: '
-                                                  f"{rec['wrapper_stdout'][-200:]} {rec.get('stderr_tail', '')}")
+                                                  f"{rec.get('log_error') or rec['wrapper_stdout'][-200:]} {rec.get('stderr_tail', '')}")
             cell['left'] -= 1
             if cell['left'] == 0:
                 finish_cell(cell, args, state)
                 save(state, path)
         print(f"[{time.time() - t_start:6.0f}s] {l} r{rep} {m}: pass={rec['pass']} ok={rec['ok']} "
-              f"tools={rec['tool_calls']} denied={rec['denied_n']} wall={rec['wall_s']}s", flush=True)
+              f"tools={rec['tool_calls']} denied={rec['denied_n']} wall={rec['wall_s']}s "
+              f"{rec['log_error'] or ''}", flush=True)
 
     with ThreadPoolExecutor(args.concurrency) as ex:
         list(ex.map(work, jobs))
@@ -339,6 +402,8 @@ def main():
     md = path.replace('.json', '.md')
     with open(md, 'w') as f:
         f.write(summarize(state))
+    if state['meta']['stopped_early']:
+        print('STOPPED EARLY:', state['meta']['stopped_early'])
     print(f'results: {path}\nsummary: {md}')
     return 2 if stop.is_set() else 0
 
