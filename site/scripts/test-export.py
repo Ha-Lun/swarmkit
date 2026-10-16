@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Checks for export-bench.py and export-run.py on synthetic data only. Run: python3 site/scripts/test-export.py"""
-import importlib.util, json, os, tempfile
+import importlib.util, json, os, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -116,5 +116,95 @@ assert out[1]["slug"] == "alpha" and out[1]["lane"] == "agy" and out[-1]["t"] ==
 assert files == {"alpha": ["src/alpha.js"]}
 export_run.check_private(out)  # the secret path from the prompt must not have leaked
 assert secret not in json.dumps(out) and "node test" not in json.dumps(out)
+
+# privacy: newly listed leaks are rejected (case-insensitive)
+import getpass
+for bad in ("x@y.example", "1.2.3.4", "ghp_" + "a" * 36, "bearer secret",
+            "0" * 40, "file:///tmp/x", "https://example.invalid/x"):
+    try:
+        export_run.check_private({"s": bad})
+    except export_run.PrivacyError:
+        continue
+    raise AssertionError(f"privacy check missed {bad!r}")
+try:
+    username = getpass.getuser()
+except Exception:
+    username = ""
+if len(username) >= 3:
+    try:
+        export_run.check_private({"s": username})
+    except export_run.PrivacyError:
+        pass
+    else:
+        raise AssertionError("privacy check missed username")
+
+# validation: unknown cases, variants and models are rejected
+def expect_rejected(make):
+    try:
+        make()
+    except Exception:
+        return
+    raise AssertionError("expected rejection")
+
+expect_rejected(lambda: build([run(case="not-a-case")]))
+expect_rejected(lambda: build([run(variant="not-a-variant")]))
+expect_rejected(lambda: build([run(model="not-claude-model")]))
+try:
+    export_run.export(os.path.join(tempfile.gettempdir(), "nope-compare.json"), "features", "hybrid", 1, tempfile.gettempdir())
+    raise AssertionError("expected rejection")
+except Exception:
+    pass
+
+# foreign worker slug in an event is dropped during export
+with tempfile.TemporaryDirectory() as t:
+    raw = os.path.join(t, "foreign.jsonl")
+    command = 'agy-task start alpha "x" && agy-task start beta "y"'
+    with open(raw, "w") as f:
+        f.write(json.dumps({"type": "assistant", "timestamp": "2026-01-01T00:00:00.000Z",
+                            "message": {"content": [{"type": "tool_use", "id": "u1", "name": "Bash",
+                                                     "input": {"command": command, "run_in_background": False}}]}}) + "\n")
+        f.write(json.dumps({"type": "user", "timestamp": "2026-01-01T00:00:01.000Z",
+                            "message": {"content": [{"type": "tool_result", "tool_use_id": "u1", "content": "ok"}]}}) + "\n")
+    record = run(case="features", variant="hybrid", repeat=1, model="claude-sonnet-5-5", raw=raw,
+                 status="ok", verify={"ok": True},
+                 workers=[{"slug": "alpha", "cli": "agy", "ok": True, "tokens": 1, "denied": [], "files": []}])
+    compare = os.path.join(t, "x-compare.json")
+    with open(compare, "w") as f:
+        json.dump({"timestamp": "t", "args": {}, "runs": [record]}, f)
+    exported = export_run.export(compare, "features", "hybrid", 1, t)
+    assert all(e.get("slug") != "beta" for e in exported["events"]), exported["events"}
+    assert sum(e.get("type") == "dispatch" for e in exported["events"]) == 1
+
+# a failed privacy check leaves an --out target untouched
+with tempfile.TemporaryDirectory() as t:
+    raw = os.path.join(t, "privacy.jsonl")
+    with open(raw, "w") as f:
+        f.write(json.dumps({"type": "assistant", "timestamp": "2026-01-01T00:00:00.000Z",
+                            "message": {"content": [{"type": "tool_use", "id": "u1", "name": "Bash",
+                                                     "input": {"command": 'agy-task start alpha "x"', "run_in_background": False}}]}}) + "\n")
+        f.write(json.dumps({"type": "user", "timestamp": "2026-01-01T00:00:01.000Z",
+                            "message": {"content": [{"type": "tool_result", "tool_use_id": "u1", "content": "ok"}]}}) + "\n")
+    record = run(case="features", variant="hybrid", repeat=1, model="claude-sonnet-5-5", raw=raw,
+                 status="ok", verify={"ok": True},
+                 workers=[{"slug": "alpha", "cli": "agy", "ok": True, "tokens": 1, "denied": [], "files": []}])
+    compare = os.path.join(t, "x-compare.json")
+    with open(compare, "w") as f:
+        json.dump({"timestamp": "t", "args": {}, "runs": [record]}, f)
+    target = os.path.join(t, "target.json")
+    with open(target, "w") as f:
+        f.write("ORIGINAL")
+    old_argv = sys.argv
+    sys.argv = ["export-run.py", compare, "features", "hybrid", "1", "--out", target]
+    original_check = export_run.check_private
+    export_run.check_private = lambda obj: (_ for _ in ()).throw(export_run.PrivacyError("forced"))
+    try:
+        try:
+            export_run.main()
+        except SystemExit:
+            pass
+    finally:
+        export_run.check_private = original_check
+        sys.argv = old_argv
+    assert open(target).read() == "ORIGINAL", open(target).read()
 
 print("export checks passed")

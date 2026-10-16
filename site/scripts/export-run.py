@@ -12,9 +12,13 @@ code, denied command text and worker warnings never reach the output. A final ch
 printed) when the JSON contains a home or tmp path, a key-looking token, a task directory or an overlong string.
 Stdlib only.
 """
-import argparse, datetime, importlib.util, json, os, re, sys
+import argparse, datetime, importlib.util, json, os, re, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+import privacy
+from privacy import check_private, PrivacyError
 LANES = ("agy", "opencode", "codex")
 SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 # Hand-written titles per bench case (the case prompt itself is not in the transcript).
@@ -24,35 +28,19 @@ TITLES = {
     "features": "Implement five independent modules against their failing tests",
     "scaffold": "Implement eight independent modules against their failing tests",
 }
-FORBIDDEN = ("/home/", "/tmp/", "sk-", "Bearer", ".opencode-tasks", "EOF")
-MAX_STR = 120
+CASES = set(TITLES)
+VARIANTS = {"vanilla", "slim", "lead-dev", "hybrid", "hybrid-workflow"}
+MODEL_RE = re.compile(r"^claude-[a-z0-9.-]{1,40}$")
+MAX_STR = privacy.MAX_STR
+
+
+class ValidationError(SystemExit, ValueError):
+    pass
+
 
 _bench = importlib.util.spec_from_file_location("export_bench", os.path.join(HERE, "export-bench.py"))
 bench = importlib.util.module_from_spec(_bench)
 _bench.loader.exec_module(bench)
-
-
-class PrivacyError(Exception):
-    pass
-
-
-def check_private(obj):
-    """Raise PrivacyError if the serialized object could leak a path, a secret or a prompt."""
-    text = json.dumps(obj, ensure_ascii=False)
-    for bad in FORBIDDEN:
-        if bad in text:
-            raise PrivacyError(f"forbidden string {bad!r} in output")
-
-    def walk(x):
-        if isinstance(x, str) and len(x) > MAX_STR:
-            raise PrivacyError(f"string longer than {MAX_STR} chars")
-        elif isinstance(x, dict):
-            for k, v in x.items():
-                walk(k), walk(v)
-        elif isinstance(x, list):
-            for v in x:
-                walk(v)
-    walk(obj)
 
 
 # --- transcript parsing -------------------------------------------------------------------------
@@ -93,14 +81,14 @@ def tool_failed(block):
 
 DISPATCH = re.compile(r"(?<![\w/.-])(agy|opencode|codex)-task\s+(start|resume)\s+([A-Za-z0-9_$-]+)")
 REF = re.compile(r"(?<![\w/~-])(agy|opencode|codex)/(\$\{?\w+\}?|[A-Za-z0-9_-]+)")
-FILE = re.compile(r"(?<![\w/.~-])((?:src|lib)/[A-Za-z0-9_.-]+\.(?:js|mjs|cjs|ts|py))")
+FILE = re.compile(r"(?<![\w/.~-])((?:src|lib)/[a-z0-9_-]{1,40}\.(?:js|mjs|cjs|ts|py))")
 TESTING = re.compile(r"\bnode\s+test|\bnpm\s+(?:run\s+)?test|\bpytest\b")
 
 
 def bash_events(cmd, known):
     """Command text -> [(type, slug|None, lane|None, extra)] in textual order. Reads only structure."""
-    out, loops = [], loop_vars(cmd)
     q = strip_quotes(cmd)
+    out, loops = [], loop_vars(q)
     masked = re.search(r"\becho\b|\|\||\bexit\b|;\s*$", q) is not None  # exit status unreliable
     for seg in re.split(r"&&|\|\||;|\n|\|", q):
         for m in DISPATCH.finditer(seg):
@@ -237,7 +225,13 @@ def find_run(compare, case, variant, repeat, results_dir):
 
 
 def export(compare, case, variant, repeat, results_dir):
+    if case not in CASES:
+        raise ValidationError(f"unknown case: {case}")
     run, rec = find_run(compare, case, variant, repeat, results_dir)
+    if rec["variant"] not in VARIANTS:
+        raise ValidationError(f"unknown variant: {rec['variant']}")
+    if not MODEL_RE.fullmatch(rec.get("model") or ""):
+        raise ValidationError(f"weird model string: {rec.get('model')}")
     path = bench.raw_path(run, results_dir)
     if not path:
         raise SystemExit("transcript missing; cannot build events")
@@ -250,11 +244,23 @@ def export(compare, case, variant, repeat, results_dir):
     for w in sorted(run.get("workers") or [], key=lambda w: order.index(w["slug"]) if w.get("slug") in order else 99):
         if not SLUG.match(w.get("slug") or "") or w.get("cli") not in LANES:
             continue
+        record_files = set()
+        for key in ("files", "changed_files", "touched_files", "file_list"):
+            value = w.get(key)
+            if isinstance(value, list):
+                record_files.update(str(item) for item in value)
+        allowed = sorted({f for f in files.get(w["slug"], [])
+                         if os.path.splitext(os.path.basename(f))[0] == w["slug"]
+                         or f in record_files
+                         or os.path.basename(f) in record_files})
         workers.append({"slug": w["slug"], "lane": w["cli"], "ok": bool(w.get("ok")), "tokens": int(w.get("tokens") or 0),
-                        "denied_count": len(w.get("denied") or []), "files": sorted(set(files.get(w["slug"], [])))})
+                        "denied_count": len(w.get("denied") or []), "files": allowed})
+    real_slugs = {w["slug"] for w in workers}
+    evs = [e for e in evs
+           if not (isinstance(e, dict) and isinstance(e.get("slug"), str) and e["slug"] not in real_slugs)]
     out = {
         "label": "One real run, not a median",
-        "task": TITLES.get(case, f"Benchmark case: {case}")[:90],
+        "task": TITLES[case][:90],
         "case": case, "variant": rec["variant"], "model": rec["model"],
         "cost_usd": round(rec["cost"], 4), "wall_s": round(rec["wall"], 1), "duration_s": round(rec["duration"], 1),
         "turns": rec["turns"], "verify_ok": rec["verify_ok"],
@@ -273,13 +279,31 @@ def main():
     ap.add_argument("case", nargs="?", default="features")
     ap.add_argument("variant", nargs="?", default="hybrid")
     ap.add_argument("repeat", nargs="?", type=int, default=1)
+    ap.add_argument("--out", default=None, help="write the JSON to PATH atomically")
     a = ap.parse_args()
     try:
         out = export(a.compare, a.case, a.variant, a.repeat, os.path.dirname(os.path.abspath(a.compare)))
     except PrivacyError as e:
         sys.exit(f"privacy check failed: {e}")
-    json.dump(out, sys.stdout, indent=2, ensure_ascii=False)
-    sys.stdout.write("\n")
+    except ValidationError as e:
+        sys.exit(f"export failed: {e}")
+    text = json.dumps(out, indent=2, ensure_ascii=False) + "\n"
+    if a.out:
+        out_dir = os.path.dirname(os.path.abspath(a.out))
+        os.makedirs(out_dir, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=out_dir)
+        try:
+            with os.fdopen(fd, "w", encoding="utf8") as f:
+                f.write(text)
+            os.replace(tmp, a.out)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+    else:
+        sys.stdout.write(text)
 
 
 if __name__ == "__main__":

@@ -25,6 +25,21 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SITE = os.path.dirname(HERE)
 DEFAULT_OUT = os.path.join(SITE, "public", "data", "benchmark_metrics.json")
 
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+import privacy
+from privacy import check_private, PrivacyError
+
+VALID_CASES = set(CASE_ORDER)
+VALID_VARIANTS = {"vanilla", "slim", "lead-dev", "hybrid", "hybrid-workflow"}
+MODEL_RE = re.compile(r"^claude-[a-z0-9.-]{1,40}$")
+VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
+VALID_STATUS = {"ok", "verify-failed", "timeout", "error"}
+
+
+class ValidationError(SystemExit, ValueError):
+    pass
+
 
 def default_results_dir():
     """bench/results of this checkout, else of the main checkout (worktrees do not carry gitignored data)."""
@@ -110,6 +125,16 @@ def normalise(run, args, results_dir):
         rec["turns"] = sum(r.get("num_turns") or 0 for r in t["results"])
         rec["duration"] = sum((r.get("duration_ms") or 0) for r in t["results"]) / 1000
     rec["model"] = main_model(rec["usage"])
+    if rec["version"] is not None and not VERSION_RE.fullmatch(str(rec["version"])):
+        rec["version"] = None
+    if rec["status"] not in VALID_STATUS:
+        rec["status"] = "failed"
+    if rec["case"] not in VALID_CASES:
+        raise ValidationError(f"unknown case: {rec['case']}")
+    if rec["variant"] not in VALID_VARIANTS:
+        raise ValidationError(f"unknown variant: {rec['variant']}")
+    if rec["model"] is not None and not MODEL_RE.fullmatch(rec["model"]):
+        raise ValidationError(f"weird model string: {rec['model']}")
     rec["counted"] = rec["status"] == "ok" and rec["verify_ok"]
     return rec
 
@@ -212,7 +237,8 @@ def build(runs):
         else:
             cells.append(cell_of(key, ok))
     versions = sorted({r["version"] for k, g in groups.items() for r in g["ok"]
-                       if r["version"] and any(c["case"] == k[0] and c["variant"] == k[1] and c["model"] == k[2] for c in cells)})
+                       if r["version"] and VERSION_RE.fullmatch(str(r["version"]))
+                       and any(c["case"] == k[0] and c["variant"] == k[1] and c["model"] == k[2] for c in cells)})
     harness = (f"Claude Code {', '.join(versions)} (headless, claude -p)" if versions
                else "headless Claude Code (claude -p)")
     rows = rows_of(cells)
@@ -271,6 +297,10 @@ def main():
     if not runs:
         sys.exit(f"no runs found in {results}")
     data = build(runs)
+    try:
+        check_private(data)
+    except PrivacyError as e:
+        sys.exit(f"privacy check failed: {e}")
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     with open(a.out, "w", encoding="utf8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
