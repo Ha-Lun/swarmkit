@@ -1,6 +1,10 @@
 # SwarmKit City showcase: status (started 2026-10-16)
 
-The showcase site is being rebuilt as "SwarmKit City": a scroll-scrubbed miniature-city 3D scene that replays one real `lead-dev-hybrid` run (the city is the codebase). The old honeycomb-globe site is archived in `docs/archive/`. Everything lives on branch `site/city` (worktree `.worktrees/site-city`). Nothing is merged to `main` and nothing is pushed: merging to `main` deploys to production, and the owner said to keep it off production until City is done.
+The showcase site is being rebuilt as "SwarmKit City": a scroll-scrubbed miniature-city 3D scene that replays one real `lead-dev-hybrid` run (the city is the codebase). The old honeycomb-globe site is archived in `docs/archive/`. Everything lives on branch `site/city` (worktree `.worktrees/site-city`). It is released: merged to `main` and deployed to production (main bc0170f, https://swarmkit-site.vercel.app).
+
+## 2026-10-17 (released)
+- City is live on production as the homepage (main bc0170f). The globe is retired.
+- Follow-ups: (1) the no-WebGL path logs 3 console errors and downloads the GLB models before falling back to stills; load the kit only after a WebGL context succeeds. (2) The frozen benchmark (Track C) is still pending for more Numbers cells.
 
 ## 2026-10-17
 - Blender asset kit approved at gate G2 (c13e3cd) and integrated.
@@ -19,9 +23,14 @@ The showcase site is being rebuilt as "SwarmKit City": a scroll-scrubbed miniatu
 - Featured run exported to `public/data/featured-run.json`: scaffold case, `lead-dev-hybrid`, opus-5-5, "Run 2 of 2" (run 1 was cut off by an account usage limit), plan approval automatic via a hook, 8 workers on the opencode and agy lanes, 3 cross-model reviews, 9 merges, final tests green, $0.5436, 1396 s.
 - Benchmark data in `public/data/benchmark_metrics.json`: 5 published cells, 1 voided, 19 pending.
 
-## Not started
-- Phase 2: Blender asset kit (needs the owner's live Blender; glTF + meshopt, <= 1.5 MB, stills for the fallback).
-- Phase 3: scene engine (`src/lib/city/*`), Phase 4: DOM sections (`src/components/sections/*`), Phase 5: integration and removal of the globe code, Phase 6: quality gate (release-tester, code-proofreader, cross-model review, Vercel preview).
+## Released (Phases 2-6 done)
+- Phase 2: Blender asset kit approved at gate G2 (c13e3cd) and integrated (71d139e).
+- Phases 3-5: scene engine, DOM sections, integration and removal of the globe code (428602b).
+- Phase 6: quality gate passed; release branch `release/city` merged to `main` (bc0170f).
+
+## Follow-ups
+- No-WebGL path: 3 console errors, and the GLB models download before the still fallback. Load the kit only after a WebGL context succeeds.
+- Frozen benchmark (Track C): more Numbers cells still pending.
 - Leftovers: Per-lane dispatch logging for the Build log section is not wired yet.
 
 ## Wording the site must get right
