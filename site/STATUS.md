@@ -2,6 +2,12 @@
 
 The showcase site is being rebuilt as "SwarmKit City": a scroll-scrubbed miniature-city 3D scene that replays one real `lead-dev-hybrid` run (the city is the codebase). The old honeycomb-globe site is archived in `docs/archive/`. Everything lives on branch `site/city` (worktree `.worktrees/site-city`). Nothing is merged to `main` and nothing is pushed: merging to `main` deploys to production, and the owner said to keep it off production until City is done.
 
+## 2026-10-17
+- Blender asset kit approved at gate G2 (c13e3cd) and integrated.
+- Art rounds 3-5 done (latest 38a1ffd): drafting table, blueprint sheet, scaffold cage, drone pad, phone drones, warmer light.
+- Globe retired: the City is the homepage (428602b). The old globe code is gone.
+- Next: Phase 6 quality gate, a release branch, a Vercel preview, then merge to `main` on the owner's OK.
+
 ## Where to start
 - Read `BRIEF.md` (approved at gate G1 on 2026-10-16, logged in `.buildlog/human.jsonl`) and `CLAUDE.md` (rules).
 - Plan: `/home/ha-lun/.claude/plans/i-believe-the-showcase-peppy-hartmanis.md` (outside the repo; the brief mirrors it).

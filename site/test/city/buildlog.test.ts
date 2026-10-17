@@ -77,8 +77,17 @@ assert.equal(publicLabel({ agent: 'code-proofreader' }, 'dispatch'), 'code-proof
 // URLs are stripped.
 const artUrl = publicLabel({ round: 1, element: 'hero https://x.vercel.app canvas' }, 'art');
 assert.ok(artUrl && !artUrl.includes('https://') && !artUrl.includes('x.vercel.app'));
-const slashRow = publicLabel({ round: 1, element: 'hero a/b canvas' }, 'art');
-assert.ok(slashRow && !slashRow.includes('a/b'));
+const homePath = publicLabel({ round: 1, element: 'hero /home/ha-lun/x canvas' }, 'art');
+assert.ok(homePath && !homePath.includes('/home') && !homePath.includes('ha-lun'));
+const winPath = publicLabel({ round: 1, element: 'hero C:\\Users\\x canvas' }, 'art');
+assert.ok(winPath && !winPath.includes('Users'));
+const fileRow = publicLabel({ round: 1, element: 'hero core/agents/x.md canvas' }, 'art');
+assert.ok(fileRow && !fileRow.includes('x.md'));
+// Branch names keep their slash.
+assert.equal(
+  publicLabel({ gate: 'G1 (branch site/city, commit ebb1e8b)', verdict: 'approved' }, 'human'),
+  'Gate approved: G1 (branch site/city, commit ebb1e8b)',
+);
 const atRow = publicLabel({ round: 1, element: 'hero me@example.com canvas' }, 'art');
 assert.ok(atRow && !atRow.includes('@') && !atRow.includes('example.com'));
 

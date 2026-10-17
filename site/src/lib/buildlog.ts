@@ -24,10 +24,14 @@ function read(name: string): Row[] {
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
+// Real filesystem paths: absolute, home-relative, Windows drive or backslash, file:// and ./ ../ forms, and a
+// slash-separated name ending in a file extension (core/agents/x.md). Branch names such as site/city survive.
+const FS_PATH = /^(\/|~|\.{1,2}\/|file:|[A-Za-z]:[\\/])|\\|\/[^/]*\.[A-Za-z0-9]{1,6}$/;
+
 // Curated allowlisted labels for the public timeline. Only structured fields.
 function sanitizeLabel(s: string): string {
   const noUrls = s.replace(/https?:\/\/\S+/gi, ' ');
-  const tokens = noUrls.split(/\s+/).filter((t) => t && !t.includes('/') && !t.includes('@'));
+  const tokens = noUrls.split(/\s+/).filter((t) => t && !FS_PATH.test(t) && !t.includes('@'));
   const joined = tokens.join(' ').replace(/\s+/g, ' ').trim();
   return joined.length > 90 ? joined.slice(0, 90).trim() : joined;
 }

@@ -70,7 +70,7 @@ Core idea: a tilt-shift miniature-city diorama on a drafting table. **The city i
 
 **After the run**, normal scrolling sections with small 3D accents (one small canvas moment each, or none):
 
-1. **Which mode when.** direct / plan / lead-dev / lead-dev-hybrid. Bench rule: value scales with writing volume, not file count.
+1. **Which mode when.** direct / plan / lead-dev-hybrid. Bench rule: value scales with writing volume, not file count.
 2. **Numbers.** Cells with n >= 3 only: min / median / max, losses shown, harness and model from the data file.
 3. **One source, three CLIs.** `core/` -> `scripts/build.py` -> three outputs (Claude Code, OpenCode, Antigravity).
 4. **Roster as a city map.** Packs are districts, agents are buildings; hover and focus cards. Derived from `../core/agents`. A hidden focusable list gives keyboard users the same cards.
