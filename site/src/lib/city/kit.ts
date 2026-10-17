@@ -1,6 +1,6 @@
 // SwarmKit City kit: the approved Blender modules in site/public/models/*.glb.
 //
-// loadKit fetches buildings/drone/depot/props in parallel (table.glb is not used yet), keeps one shared palette
+// loadKit fetches buildings/drone/depot/props/table in parallel, keeps one shared palette
 // material for every neutral mesh, and records the template nodes by name. Parts clone() whole nodes (drones,
 // depots) or bake named meshes into instanced geometry via kitPartGeometries; they must never dispose the shared
 // templates (see Kit.dispose, owned by the scene).
@@ -28,7 +28,7 @@ export interface Kit {
   dispose(): void;
 }
 
-const KIT_FILES = ['buildings.glb', 'drone.glb', 'depot.glb', 'props.glb'];
+const KIT_FILES = ['buildings.glb', 'drone.glb', 'depot.glb', 'props.glb', 'table.glb'];
 
 /** Load the kit files in parallel and unify them onto one shared material. Never throws for missing nodes. */
 export async function loadKit(base = '/models/'): Promise<Kit> {

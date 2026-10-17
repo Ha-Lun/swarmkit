@@ -164,12 +164,20 @@ const HOOK_PARK_K = 0.05;
 const HOOK_PARK_HEAD_Y = 0.126;
 /** Hook extension while fully hovering: the head touches the building top (hover gap paid out). */
 const HOOK_K_HOVER = (HOOK_PIVOT_Y + HOVER_GAP / DRONE_SCALE) / HOOK_LEN;
-/** Parked drones sit on the pad ring, in depot space (y is the pad top). */
-const PAD_RING_X = 0;
+/** Parked drones sit on the pad, in depot space (y is the pad top). */
 const PAD_RING_Y = 0.06;
-const PAD_RING_Z = 1.1;
-/** Parked drones stand in a row across the pad, this far apart (m): wider than the 1.5x rotor span (1.35 m) so the rotors never overlap. */
-const PAD_PITCH = 1.4;
+/**
+ * Parked drones stand across the pad, in depot space. The pad is 3.4 m wide and 1.4 m deep (z 0.4..1.8) and a drone
+ * is 1.35 m across the rotors (1.5x) and 0.93 m across the body, so three cannot sit in a row: the outer two stand
+ * PAD_PITCH either side of the centre line and the middle one steps PAD_STAGGER toward the open end, which tucks
+ * its rotors between theirs (hub-to-hub distance 0.477 m for 0.45 m rotor discs, so they never touch). All three
+ * bodies stand on the pad (the outer ones flush with its side edges, the middle one with its front edge); only the
+ * outer rotor tips reach 0.21 m past the pad's sides and the outer rear rotors 0.075 m toward the hangar door.
+ */
+const PAD_PITCH = 1.235;
+const PAD_STAGGER = 0.335;
+/** The outer drones' z in depot space. */
+const PAD_ROW_Z = 1.0;
 const ROTOR_NAMES = ['rotor_fl', 'rotor_fr', 'rotor_bl', 'rotor_br'];
 
 /** A per-lane copy of the shared kit material, tinted to one colour. */
@@ -248,8 +256,8 @@ function createKitDrones(layout: LotLayout, palette: CityPalette, kit: Kit): Cit
 
     for (let d = 0; d < DRONES_PER_DEPOT; d++) {
       // Parking slots in a row across the pad, in depot space, so they follow the depot yaw.
-      const lx = PAD_RING_X + (d - (DRONES_PER_DEPOT - 1) / 2) * PAD_PITCH;
-      const lz = PAD_RING_Z;
+      const lx = (d - (DRONES_PER_DEPOT - 1) / 2) * PAD_PITCH;
+      const lz = PAD_ROW_Z + (d % 2 === 1 ? PAD_STAGGER : 0);
       const cf = Math.cos(depot.facing);
       const sf = Math.sin(depot.facing);
       const px = depot.x + lx * cf + lz * sf;

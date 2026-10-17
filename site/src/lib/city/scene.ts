@@ -23,6 +23,7 @@ import { createDrones } from './drones.ts';
 import { buildLayout, lotPoseAt } from './lots.ts';
 import { createMerge } from './merge.ts';
 import { createScan } from './scan.ts';
+import { createTable, SLAB_DEPTH, SLAB_TOP } from './table.ts';
 import { createTiltShift } from './tiltshift.ts';
 import { buildTimeline } from './timeline.ts';
 import { kitPartGeometries, loadKit } from './kit.ts';
@@ -281,15 +282,17 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
   const hemi = new HemisphereLight(new Color(1, 1, 1).lerp(new Color(lightCool), SKY_COOLNESS), paper, HEMI_INTENSITY);
   scene.add(hemi);
 
-  // Drafting table: a large paper plane just under the ground; fog fades its edge into the paper background.
+  // Drafting table. Plain look: a large paper plane just under the ground (fog fades its edge into the paper
+  // background) with a faint blueprint grid. With the kit the table is a real slab (table.ts: tan top, wooden lip,
+  // blueprint sheet) and this plane becomes the paper floor under it, below the slab's fascia, so the slab reads as
+  // a table standing on the same paper as the backdrop and the tone never parts; the grid is left out.
   const tableGeo = new PlaneGeometry(R * 10, R * 10);
   const tableMat = new MeshLambertMaterial({ color: paper.clone().multiplyScalar(TABLE_SHADE) });
   const table = new Mesh(tableGeo, tableMat);
   table.rotation.x = -Math.PI / 2;
-  table.position.set(b.x, -0.01, b.z);
+  table.position.set(b.x, kit ? SLAB_TOP - SLAB_DEPTH - 0.02 : -0.01, b.z);
   table.receiveShadow = true;
   scene.add(table);
-  // A faint blueprint grid ruled on the table (hairline blue, fogged out with distance; drawn under every plate).
   const gridSize = R * 6;
   const gridDiv = Math.max(4, Math.round(gridSize / (layout.cell * GRID_CELLS)));
   const grid = new GridHelper(gridSize, gridDiv, new Color(palette.line), new Color(palette.line));
@@ -298,10 +301,11 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
   gridMat.opacity = GRID_OPACITY;
   gridMat.depthWrite = false;
   grid.position.set(b.x, -0.005, b.z);
-  scene.add(grid);
+  if (!kit) scene.add(grid);
 
   // --- The five parts. Shadows are a scene decision: every mesh in a part casts and receives.
   const parts: CityPart[] = [
+    ...(kit ? [createTable(layout, palette, kit)] : []),
     createMerge(layout, palette),
     createBlueprint(layout, palette),
     createBuildings(layout, palette, kit),

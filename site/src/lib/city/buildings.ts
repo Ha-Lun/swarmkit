@@ -4,9 +4,9 @@
 //   lane colour (palette.laneAgy / palette.laneOpencode via setColorAt), standing
 //   where lotPoseAt(layout, i, merge) says (shared with the merge part, so the two
 //   never drift apart);
-// - rework: a thin wider band on top of each main box, height rising with
-//   workers[i].rework in the rework lane's colour (the worker's own lane once the
-//   pass ends and reworkLane clears);
+// - rework: with the kit, the scaffold cage around the body while a pass runs (reworkLane set), top rail in the
+//   rework lane's colour; without the kit, a thin wider band on top of each main box, height rising with
+//   workers[i].rework in the rework lane's colour (the worker's own lane once the pass ends and reworkLane clears);
 // - existing: the code that existed before the run (layout.existing), decorative and always visible, one static
 //   instance per building in a neutral warm grey derived from palette.paper and palette.ink (never a lane colour);
 // - main boxes stand on a setback footprint (FOOTPRINT of the lot, centred); the lot plates (merge part) keep the
@@ -48,6 +48,17 @@ const REWORK_FRACTION = 0.2;
 const MIN_H = 1e-3;
 /** Rework band footprint overhang relative to the main box, so it reads as a cap. */
 const REWORK_OVERHANG = 1.08;
+/** Rework scaffold (kit path): the share of a pass over which the cage rises at the start and comes down at the end. */
+export const CAGE_EDGE = 0.2;
+/** Rework scaffold height as a fraction of the body height at rework progress `p` (0..1): rises, holds, comes down. */
+export function cageEnvelope(p: number): number {
+  const up = p / CAGE_EDGE;
+  const down = (1 - p) / CAGE_EDGE;
+  const x = up < down ? up : down;
+  if (!(x > 0)) return 0;
+  if (x >= 1) return 1;
+  return x * x * (3 - 2 * x);
+}
 /** Annex geometry (unit height, base at y = 0): body takes this fraction, roof the rest. */
 const ANNEX_BODY = 0.82;
 const ANNEX_ROOF = 0.18;
@@ -537,10 +548,12 @@ function createKitBuildings(layout: LotLayout, palette: CityPalette, kit: Kit): 
       mat.compose(posV, quat, sclV);
       if (rb) rb.setMatrixAt(mainRoofSub[k], mat);
       if (rl) rl.setMatrixAt(mainRoofSub[k], mat);
-      // The rework scaffold caps the body like the old band, rising with rework in the rework lane's colour.
-      const bandH = mainH[k] * REWORK_FRACTION * rework;
-      posV.set(pose.x, pose.y + h, pose.z);
-      if (bandH > MIN_H) sclV.set(s, bandH, s);
+      // The rework scaffold: the kit's cage around the body while a rework pass runs (reworkLane set), stretched to
+      // the body's height like the body itself. It rises over the first CAGE_EDGE of the pass and comes down over the
+      // last, so it is gone (and hidden, zero scale) before reworkLane clears.
+      const cage = worker.reworkLane !== null ? cageEnvelope(rework) : 0;
+      posV.set(pose.x, pose.y, pose.z);
+      if (h * cage > MIN_H) sclV.set(s, h * cage, s);
       else sclV.set(0, 0, 0);
       mat.compose(posV, quat, sclV);
       if (scaf.base) scaf.base.setMatrixAt(k, mat);
