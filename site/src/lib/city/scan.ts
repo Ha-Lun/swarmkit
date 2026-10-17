@@ -2,30 +2,31 @@
 //
 // Indicator over state.activeScan.target (a lot slug; over layout.cityBlock when
 // the target is null), driven by activeScan.progress:
-// - verify: a thin ring that sweeps up the lot;
-// - orchestrator-review: a larger thin ring;
+// - verify: a thick flat ring that sweeps up the lot;
+// - orchestrator-review: a larger thick ring;
 // - cross-model-review: a wide flat bar sweeping across the whole block;
 // - kind null: the indicator is invisible.
-// Per original lot a marker floats above the lot (position via lotPoseAt):
-// - scan passed: a tick-like shape (two line segments, palette.ok);
-// - scan flagged: a flag-like shape (a pole plus a triangle, palette.fail);
+// Per original lot a marker floats above the building top (position via lotPoseAt):
+// - scan passed: a tick-like shape (two narrow box bars, palette.ok);
+// - scan flagged: a flag-like shape (a pole plus a triangular pennant, palette.fail);
 // - scanning / none: nothing extra. Status is always a shape, never colour alone.
+// Markers are meshes only (no lines: WebGL lines are 1px and vanish at distance),
+// sized relative to the lot foot, standing upright and yawed ~45deg for the
+// three-quarter camera.
 import {
   BoxGeometry,
-  BufferAttribute,
-  BufferGeometry,
   DoubleSide,
   Group,
-  LineBasicMaterial,
-  LineSegments,
   Mesh,
   MeshLambertMaterial,
+  Shape,
+  ShapeGeometry,
   TorusGeometry,
 } from 'three';
 import { lotPoseAt } from './lots.ts';
 import type { CityPalette, CityPart, CreateScan, LotLayout, StageState } from './types.ts';
 
-/** Marker float height above the lot top (m). */
+/** Marker float margin above the building top (m). */
 const MARKER_LIFT = 0.55;
 /** Sweep ring base height above the lot base (m). */
 const RING_BASE = 0.06;
@@ -33,6 +34,8 @@ const RING_BASE = 0.06;
 const BAR_LIFT = 0.6;
 /** Idle bob amplitude (m); phase comes from state.runTime so a state always draws the same. */
 const BOB_AMP = 0.06;
+/** Marker yaw (rad) so flat shapes read from the three-quarter camera. */
+const MARKER_YAW = Math.PI / 4;
 
 export const createScan: CreateScan = (layout: LotLayout, palette: CityPalette): CityPart => {
   const root = new Group();
@@ -69,32 +72,37 @@ export const createScan: CreateScan = (layout: LotLayout, palette: CityPalette):
   if (maxH <= 0) maxH = 1;
 
   // --- Shared geometries and materials (disposed once in dispose()).
-  const verifyGeo = new TorusGeometry(foot * 0.32, 0.045, 6, 40);
-  const orchGeo = new TorusGeometry(foot * 0.55, 0.05, 6, 48);
+  // Thick sweep rings: torus tubes with visible width, laid flat.
+  const verifyGeo = new TorusGeometry(foot * 0.32, Math.max(0.09, foot * 0.028), 8, 40);
+  const orchGeo = new TorusGeometry(foot * 0.55, Math.max(0.1, foot * 0.034), 8, 48);
   const blockD = layout.cityBlock.d > 0.1 ? layout.cityBlock.d : 1;
-  const barGeo = new BoxGeometry(0.35, 0.14, blockD);
-  // Tick: two line segments sharing a corner (4 vertices).
-  const tickGeo = new BufferGeometry();
-  tickGeo.setAttribute(
-    'position',
-    new BufferAttribute(
-      new Float32Array([-0.21, 0, 0, -0.08, 0.15, 0, -0.08, 0.15, 0, 0.21, 0.46, 0]),
-      3,
-    ),
-  );
-  const poleGeo = new BoxGeometry(0.05, 0.7, 0.05);
-  // Flag cloth: one triangle (3 vertices), a different count from the tick.
-  const flagGeo = new BufferGeometry();
-  flagGeo.setAttribute(
-    'position',
-    new BufferAttribute(new Float32Array([0.03, 0.66, 0, 0.03, 0.38, 0, 0.42, 0.52, 0]), 3),
-  );
-  flagGeo.computeVertexNormals();
+  // Flat wide bar: wide in x, thin in y, spanning the block in z.
+  const barGeo = new BoxGeometry(Math.max(0.7, foot * 0.25), 0.22, blockD);
+  // Tick: two narrow box bars forming a check; overall height ~0.45 x foot.
+  const tickShortLen = foot * 0.32;
+  const tickLongLen = foot * 0.6;
+  const tickThick = Math.max(0.08, foot * 0.035);
+  const tickShortGeo = new BoxGeometry(tickThick, tickShortLen, tickThick);
+  const tickLongGeo = new BoxGeometry(tickThick, tickLongLen, tickThick);
+  // Flag: pole ~0.6 x foot plus a triangular pennant.
+  const poleH = foot * 0.6;
+  const poleT = Math.max(0.06, foot * 0.025);
+  const poleGeo = new BoxGeometry(poleT, poleH, poleT);
+  const pennW = foot * 0.38;
+  const pennH = foot * 0.22;
+  const pennTop = poleH;
+  const pennBot = poleH - pennH;
+  const pennShape = new Shape();
+  pennShape.moveTo(poleT / 2, pennTop);
+  pennShape.lineTo(poleT / 2, pennBot);
+  pennShape.lineTo(poleT / 2 + pennW, (pennTop + pennBot) / 2);
+  pennShape.closePath();
+  const flagGeo = new ShapeGeometry(pennShape);
 
   const verifyMat = new MeshLambertMaterial({ color: palette.line });
   const orchMat = new MeshLambertMaterial({ color: palette.lightWarm });
   const barMat = new MeshLambertMaterial({ color: palette.ink });
-  const okMat = new LineBasicMaterial({ color: palette.ok });
+  const okMat = new MeshLambertMaterial({ color: palette.ok });
   const failMat = new MeshLambertMaterial({ color: palette.fail, side: DoubleSide });
 
   // --- Sweeping indicator meshes (exactly one kind visible at a time, none when idle).
@@ -116,8 +124,9 @@ export const createScan: CreateScan = (layout: LotLayout, palette: CityPalette):
   // --- Per-original-lot markers.
   const n = origIdx.length;
   const markers: Group[] = [];
-  const ticks: LineSegments[] = [];
+  const ticks: Group[] = [];
   const flags: Group[] = [];
+  const q = Math.SQRT1_2;
   for (let k = 0; k < n; k++) {
     const li = origIdx[k];
     if (li === undefined) continue;
@@ -125,13 +134,22 @@ export const createScan: CreateScan = (layout: LotLayout, palette: CityPalette):
     if (lot === undefined) continue;
     const g = new Group();
     g.name = 'scan-marker-' + lot.slug;
-    const tick = new LineSegments(tickGeo, okMat);
+    g.rotation.y = MARKER_YAW;
+    const tick = new Group();
     tick.name = 'scan-tick-' + lot.slug;
+    const shortBar = new Mesh(tickShortGeo, okMat);
+    shortBar.rotation.z = Math.PI / 4;
+    shortBar.position.set((-q * tickShortLen) / 2, (q * tickShortLen) / 2, 0);
+    const longBar = new Mesh(tickLongGeo, okMat);
+    longBar.rotation.z = -Math.PI / 4;
+    longBar.position.set((q * tickLongLen) / 2, (q * tickLongLen) / 2, 0);
+    tick.add(shortBar);
+    tick.add(longBar);
     tick.visible = false;
     const flag = new Group();
     flag.name = 'scan-flag-' + lot.slug;
     const pole = new Mesh(poleGeo, failMat);
-    pole.position.y = 0.35;
+    pole.position.y = poleH / 2;
     const cloth = new Mesh(flagGeo, failMat);
     cloth.name = 'scan-flag-cloth-' + lot.slug;
     flag.add(pole);
@@ -212,7 +230,10 @@ export const createScan: CreateScan = (layout: LotLayout, palette: CityPalette):
       const lot = layout.lots[li];
       if (lot === undefined) continue;
       lotPoseAt(layout, li, w.merge, pose);
-      g.position.set(pose.x, pose.y + lot.height + MARKER_LIFT + bob, pose.z);
+      let b = w.build;
+      if (!(b >= 0)) b = 0;
+      else if (b > 1) b = 1;
+      g.position.set(pose.x, pose.y + lot.height * b + MARKER_LIFT + bob, pose.z);
       const sc = w.scan;
       tick.visible = sc === 'passed';
       flag.visible = sc === 'flagged';
@@ -225,7 +246,8 @@ export const createScan: CreateScan = (layout: LotLayout, palette: CityPalette):
     verifyGeo.dispose();
     orchGeo.dispose();
     barGeo.dispose();
-    tickGeo.dispose();
+    tickShortGeo.dispose();
+    tickLongGeo.dispose();
     poleGeo.dispose();
     flagGeo.dispose();
     verifyMat.dispose();
