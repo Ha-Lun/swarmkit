@@ -1,0 +1,418 @@
+// SwarmKit City scene: mounts the replay on a fixed canvas. Builds layout + timeline from the run, reads the palette
+// from CSS custom properties, lights a matte golden-hour diorama, adds the five visual parts, drives one continuous
+// camera path, and projects DOM labels onto the lots. It reads scroll progress (written by scroll.ts) and never
+// touches scroll or copy itself: text is DOM, the page gets each frame's StageState through onState.
+//
+// Tiers: high = antialias, DPR <= 2, shadows 2048, EffectComposer with the tilt-shift passes; medium = plain render,
+// DPR <= 1.5, shadows 1024; low = no animation loop (a single static frame at the current beat's pose, re-rendered
+// when scrolling stops). Reduced motion starts on low. An fps probe on the first frames steps high -> medium -> low.
+// The loop only runs while the stage is on screen.
+import {
+  Color, DirectionalLight, Fog, HalfFloatType, HemisphereLight, Mesh, MeshLambertMaterial, NoToneMapping,
+  PCFShadowMap, PerspectiveCamera, PlaneGeometry, Scene, Vector3, WebGLRenderer, WebGLRenderTarget,
+} from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import type { FeaturedRun } from '../run.ts';
+import { createBlueprint } from './blueprint.ts';
+import { createBuildings } from './buildings.ts';
+import { beatPoseU, buildCameraKeys, CAMERA_FOV, createCameraPath, smoothDamp } from './camera.ts';
+import { createDrones } from './drones.ts';
+import { buildLayout, lotPoseAt } from './lots.ts';
+import { createMerge } from './merge.ts';
+import { createScan } from './scan.ts';
+import { createTiltShift } from './tiltshift.ts';
+import { buildTimeline } from './timeline.ts';
+import type { CityPalette, CityPart, StageState } from './types.ts';
+
+export type CityTier = 'high' | 'medium' | 'low';
+
+export interface MountCityOptions {
+  canvas: HTMLCanvasElement;
+  run: FeaturedRun;
+  /** Written by scroll.ts; the scene only reads it. */
+  progress: { u: number };
+  /** Holds one pre-created `[data-slug]` element per lot; the scene writes transform and opacity only. */
+  labelLayer: HTMLElement;
+  /** Every rendered frame's state, for DOM counters and captions. */
+  onState?: (state: StageState) => void;
+  /** A forced tier (e.g. ?tier=high): the fps probe is skipped. */
+  tier?: CityTier;
+  reducedMotion?: boolean;
+  /** Subscribe to "scrolling stopped" (scroll.ts); static frames re-render then. */
+  onScrollEnd?: (cb: () => void) => () => void;
+  /** The tier in use, whenever it is decided or changes. */
+  onTier?: (tier: CityTier, reason: string) => void;
+  /** WebGL failed after mount (context lost): the page should switch to its fallback. */
+  onFail?: (reason: string) => void;
+  /** Element whose visibility gates the loop (the stage section). Defaults to the canvas. */
+  visibilityTarget?: Element;
+}
+
+export interface LabelPosition {
+  slug: string;
+  /** Pixels from the label layer's top-left. */
+  x: number;
+  y: number;
+  visible: boolean;
+}
+
+export interface CityHandle {
+  readonly tier: CityTier;
+  /** Updated every rendered frame, one per lot in layout order. */
+  labelPositions: LabelPosition[];
+  dispose(): void;
+}
+
+const TOKENS: Record<keyof CityPalette, [string, string]> = {
+  paper: ['--paper', '#f3ebd9'],
+  ink: ['--blueprint-ink', '#0b1b33'],
+  line: ['--blueprint-line', '#3d79c6'],
+  lightWarm: ['--light-warm', '#ffc77a'],
+  laneAgy: ['--lane-agy', '#e69f00'],
+  laneOpencode: ['--lane-opencode', '#1aa7a1'],
+  ok: ['--status-ok', '#4f9d2f'],
+  fail: ['--status-fail', '#d6443b'],
+};
+
+function readToken(css: CSSStyleDeclaration, name: string, fallback: string): string {
+  const v = css.getPropertyValue(name).trim();
+  return v || fallback;
+}
+
+/** The City palette from :root custom properties, falling back to the token values when a property is empty. */
+export function readPalette(): CityPalette {
+  const css = getComputedStyle(document.documentElement);
+  const out = {} as CityPalette;
+  for (const key of Object.keys(TOKENS) as (keyof CityPalette)[]) out[key] = readToken(css, TOKENS[key][0], TOKENS[key][1]);
+  return out;
+}
+
+/** Damping time of the scroll follow (s): critically damped, so scrubbing glides without overshoot. */
+const DAMP_TIME = 0.15;
+/** fps probe: warm-up frames skipped (shader compile), then at least this long and this many frames. */
+const PROBE = { warmup: 10, ms: 800, minFrames: 20, stepDownBelow: 45, lowBelow: 30 };
+const SUN_INTENSITY = 2.4;
+const HEMI_INTENSITY = 1.1;
+/** How much the bill beat dims the lights (the city recedes and dims). */
+const BILL_DIM = 0.45;
+/** Bill progress past which the lot labels hide. */
+const BILL_LABELS_OFF = 0.35;
+/** Label anchor above the building top (m). */
+const LABEL_LIFT = 0.6;
+
+export function mountCity(opts: MountCityOptions): CityHandle {
+  const { canvas, run, progress, labelLayer } = opts;
+  const layout = buildLayout(run);
+  const timeline = buildTimeline(run);
+  const palette = readPalette();
+  const lightCool = readToken(getComputedStyle(document.documentElement), '--light-cool', '#9cc3ee');
+
+  const reduced = !!opts.reducedMotion;
+  const cores = navigator.hardwareConcurrency || 4;
+  const coarse = matchMedia('(pointer: coarse)').matches;
+  let tier: CityTier = opts.tier ?? (reduced ? 'low' : cores >= 8 && !coarse ? 'high' : 'medium');
+  let tierReason = opts.tier ? `forced ${opts.tier}` : reduced ? 'prefers-reduced-motion' : `${cores} cores${coarse ? ', coarse pointer' : ''}`;
+
+  // --- Renderer, scene, camera, lights.
+  const renderer = new WebGLRenderer({ canvas, antialias: tier === 'high', powerPreference: 'high-performance' });
+  renderer.toneMapping = NoToneMapping; // the palette stays the palette
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = PCFShadowMap;
+
+  const scene = new Scene();
+  const ink = new Color(palette.ink);
+  scene.background = ink;
+  scene.fog = new Fog(ink, 60, 200);
+
+  const b = layout.bounds;
+  const R = 0.5 * Math.hypot(b.w, b.d);
+  const centre = new Vector3(b.x, 0, b.z);
+
+  const camera = new PerspectiveCamera(CAMERA_FOV, 16 / 9, 0.5, R * 20);
+
+  // Warm low key from one side (long soft shadows), cool sky fill from the other. Matte: Lambert everywhere.
+  const sun = new DirectionalLight(new Color(palette.lightWarm), SUN_INTENSITY);
+  sun.position.set(b.x + R * 1.3, R * 0.75, b.z + R * 0.9);
+  sun.target.position.copy(centre);
+  sun.castShadow = true;
+  const sc = sun.shadow.camera;
+  sc.left = -R * 1.3; sc.right = R * 1.3; sc.top = R * 1.3; sc.bottom = -R * 1.3;
+  sc.near = 0.5; sc.far = R * 4;
+  sun.shadow.bias = -0.0004;
+  sun.shadow.normalBias = 0.03;
+  sun.shadow.radius = 4;
+  scene.add(sun, sun.target);
+  const hemi = new HemisphereLight(new Color(lightCool), new Color(palette.paper), HEMI_INTENSITY);
+  scene.add(hemi);
+
+  // Drafting table: a large paper plane just under the ground; fog fades its edge into the ink background.
+  const tableGeo = new PlaneGeometry(R * 10, R * 10);
+  const tableMat = new MeshLambertMaterial({ color: new Color(palette.paper) });
+  const table = new Mesh(tableGeo, tableMat);
+  table.rotation.x = -Math.PI / 2;
+  table.position.set(b.x, -0.01, b.z);
+  table.receiveShadow = true;
+  scene.add(table);
+
+  // --- The five parts. Shadows are a scene decision: every mesh in a part casts and receives.
+  const parts: CityPart[] = [
+    createMerge(layout, palette),
+    createBlueprint(layout, palette),
+    createBuildings(layout, palette),
+    createDrones(layout, palette),
+    createScan(layout, palette),
+  ];
+  for (const p of parts) {
+    p.object.traverse((o) => {
+      if ((o as Mesh).isMesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+      }
+    });
+    scene.add(p.object);
+  }
+
+  // --- Post (high tier only): RenderPass -> tilt-shift (two passes) -> OutputPass.
+  const tilt = createTiltShift();
+  let composer: EffectComposer | null = null;
+  function buildComposer() {
+    if (composer) return;
+    const target = new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples: 4 });
+    composer = new EffectComposer(renderer, target);
+    composer.addPass(new RenderPass(scene, camera));
+    tilt.install(composer);
+    composer.addPass(new OutputPass());
+  }
+  function dropComposer() {
+    if (!composer) return;
+    tilt.setEnabled(false);
+    composer.dispose();
+    composer = null;
+  }
+
+  // --- Camera path (rebuilt when the aspect changes).
+  let path = createCameraPath(buildCameraKeys(layout, timeline.beats, 16 / 9));
+  const camPos = new Vector3();
+  const camTgt = new Vector3();
+
+  // --- Labels: pre-created DOM elements, one per lot, found by slug.
+  const nWorkers = layout.lots.filter((l) => !l.extra).length;
+  const labels = layout.lots.map((lot, i) => ({
+    i,
+    lot,
+    el: labelLayer.querySelector<HTMLElement>(`[data-slug="${CSS.escape(lot.slug)}"]`),
+    x: NaN,
+    y: NaN,
+    on: false,
+  }));
+  const labelPositions: LabelPosition[] = layout.lots.map((l) => ({ slug: l.slug, x: 0, y: 0, visible: false }));
+  for (const l of labels) if (l.el) l.el.style.opacity = '0';
+  const pose = { x: 0, y: 0, z: 0 };
+  const ndc = new Vector3();
+  let viewW = 1, viewH = 1;
+
+  function placeLabels(state: StageState) {
+    for (const l of labels) {
+      const k = l.i;
+      let build: number, merge: number, shown: boolean;
+      if (k < nWorkers) {
+        const w = state.workers[k];
+        build = w.build; merge = w.merge; shown = state.split >= 0.5;
+      } else {
+        const x = state.extras[k - nWorkers];
+        build = x.build; merge = 0; shown = x.build > 0;
+      }
+      lotPoseAt(layout, k, merge, pose);
+      ndc.set(pose.x, pose.y + l.lot.height * build + LABEL_LIFT, pose.z).project(camera);
+      const onScreen = ndc.z < 1 && ndc.x > -1.05 && ndc.x < 1.05 && ndc.y > -1.05 && ndc.y < 1.05;
+      // In the bill the city recedes and the labels would pile up: they leave with it.
+      const vis = shown && onScreen && state.bill < BILL_LABELS_OFF;
+      const px = Math.round((ndc.x * 0.5 + 0.5) * viewW * 4) / 4;
+      const py = Math.round((-ndc.y * 0.5 + 0.5) * viewH * 4) / 4;
+      const out = labelPositions[k];
+      out.x = px; out.y = py; out.visible = vis;
+      if (!l.el) continue;
+      if (vis && (px !== l.x || py !== l.y)) {
+        l.el.style.transform = `translate3d(${px}px, ${py}px, 0) translate(-50%, -100%)`;
+        l.x = px; l.y = py;
+      }
+      if (vis !== l.on) {
+        l.el.style.opacity = vis ? '1' : '0';
+        l.on = vis;
+      }
+    }
+  }
+
+  // --- One frame at scroll progress u.
+  function drawAt(u: number, dt: number) {
+    const state = timeline.stateAt(u);
+    for (const p of parts) p.update(state, dt);
+    path.poseAt(u, camPos, camTgt);
+    camera.position.copy(camPos);
+    camera.lookAt(camTgt);
+    camera.updateMatrixWorld();
+    const dim = 1 - BILL_DIM * state.bill;
+    sun.intensity = SUN_INTENSITY * dim;
+    hemi.intensity = HEMI_INTENSITY * dim;
+    const dist = camPos.distanceTo(camTgt);
+    const fog = scene.fog as Fog;
+    fog.near = dist + R * 0.8;
+    fog.far = fog.near + R * 3.5;
+    if (composer && tier === 'high') composer.render(dt);
+    else renderer.render(scene, camera);
+    placeLabels(state);
+    opts.onState?.(state);
+  }
+
+  // --- Static frames (low tier, reduced motion): the current beat's pose, no loop.
+  function drawStatic() {
+    if (disposed) return;
+    drawAt(beatPoseU(timeline.beats, progress.u), 0);
+  }
+
+  // --- Loop (high / medium), only while the stage is on screen.
+  let raf = 0;
+  let last = 0;
+  let du = progress.u;
+  const damp = { v: 0 };
+  let visible = false;
+  let disposed = false;
+  let probe: ((dtMs: number) => void) | null = null;
+
+  function frame(now: number) {
+    raf = requestAnimationFrame(frame);
+    const dtMs = last ? now - last : 0;
+    last = now;
+    const dt = Math.min(0.1, dtMs / 1000);
+    du = smoothDamp(du, progress.u, damp, DAMP_TIME, dt);
+    drawAt(du, dt);
+    if (probe && dtMs > 0) probe(dtMs);
+  }
+  function start() {
+    if (raf || disposed || tier === 'low') return;
+    last = 0;
+    du = progress.u; // resume where the page is, no glide from a stale value
+    damp.v = 0;
+    raf = requestAnimationFrame(frame);
+  }
+  function stop() {
+    if (raf) cancelAnimationFrame(raf);
+    raf = 0;
+  }
+
+  function makeProbe(): (dtMs: number) => void {
+    let seen = 0, frames = 0, elapsed = 0;
+    return (dtMs) => {
+      if (++seen <= PROBE.warmup) return;
+      frames++;
+      elapsed += dtMs;
+      if (elapsed < PROBE.ms || frames < PROBE.minFrames) return;
+      const fps = (frames * 1000) / elapsed;
+      probe = null;
+      if (fps < PROBE.lowBelow) setTier('low', `fps probe ${fps.toFixed(0)}`);
+      else if (fps < PROBE.stepDownBelow && tier === 'high') {
+        setTier('medium', `fps probe ${fps.toFixed(0)}`);
+        probe = makeProbe(); // one more probe on the lower tier
+      } else {
+        tierReason += `, fps probe ${fps.toFixed(0)} ok`;
+        opts.onTier?.(tier, tierReason);
+      }
+    };
+  }
+
+  // --- Size: the canvas box is fixed by CSS; the drawing buffer follows it.
+  function pixelRatio() {
+    return Math.min(window.devicePixelRatio || 1, tier === 'high' ? 2 : 1.5);
+  }
+  function resize() {
+    const w = Math.max(1, canvas.clientWidth), h = Math.max(1, canvas.clientHeight);
+    const pr = pixelRatio();
+    viewW = w; viewH = h;
+    renderer.setPixelRatio(pr);
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    path = createCameraPath(buildCameraKeys(layout, timeline.beats, w / h));
+    if (composer) {
+      composer.setPixelRatio(pr);
+      composer.setSize(w, h);
+      tilt.setSize(Math.round(w * pr), Math.round(h * pr));
+    }
+    if (tier === 'low') drawStatic();
+  }
+
+  function applyTier() {
+    const size = tier === 'high' ? 2048 : 1024;
+    if (sun.shadow.mapSize.x !== size) {
+      sun.shadow.mapSize.set(size, size);
+      sun.shadow.map?.dispose();
+      sun.shadow.map = null;
+    }
+    if (tier === 'high') {
+      buildComposer();
+      tilt.setEnabled(true);
+    } else dropComposer();
+    resize();
+  }
+
+  function setTier(next: CityTier, reason: string) {
+    tier = next;
+    tierReason = reason;
+    applyTier();
+    if (tier === 'low') {
+      stop();
+      drawStatic();
+    } else if (visible) start();
+    opts.onTier?.(tier, tierReason);
+  }
+
+  // --- Wiring.
+  const ro = new ResizeObserver(() => resize());
+  ro.observe(canvas);
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      visible = e.isIntersecting;
+      if (visible) start();
+      else stop();
+    }
+  });
+  io.observe(opts.visibilityTarget ?? canvas);
+  // Re-render in the next frame, not inside the scroll event itself.
+  const unsubEnd = opts.onScrollEnd?.(() => { if (tier === 'low') requestAnimationFrame(drawStatic); });
+  const onLost = (e: Event) => {
+    e.preventDefault();
+    stop();
+    opts.onFail?.('webgl context lost');
+  };
+  canvas.addEventListener('webglcontextlost', onLost);
+
+  applyTier();
+  if (!opts.tier && tier !== 'low') probe = makeProbe();
+  opts.onTier?.(tier, tierReason);
+
+  return {
+    get tier() { return tier; },
+    labelPositions,
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      stop();
+      ro.disconnect();
+      io.disconnect();
+      unsubEnd?.();
+      canvas.removeEventListener('webglcontextlost', onLost);
+      for (const p of parts) {
+        scene.remove(p.object);
+        p.dispose();
+      }
+      tilt.dispose();
+      dropComposer();
+      tableGeo.dispose();
+      tableMat.dispose();
+      sun.shadow.map?.dispose();
+      renderer.dispose();
+    },
+  };
+}
