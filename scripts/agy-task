@@ -24,8 +24,8 @@ subagents; the user's own OpenCode config is untouched. --yolo lifts the shell l
 Circuit breaker (opencode): the JSON stream is watched while the worker runs. At --max-denied denied
 commands (a worker that keeps trying shell workarounds) or --max-tool-errors failed tool calls its process
 group is killed, its edits are kept and committed, and result.json gets ok false, a "stopped: ..." warning
-and "stopped_by": "max-denied" | "max-tool-errors" (also "timeout" on a timeout). Do not resume
-a max-denied worker; take the task over. 0 disables a limit; agy is not watched.
+and "stopped_by": "max-denied" | "max-tool-errors" (also "timeout" on a timeout). Resume a
+stopped worker at most once (only if its edits are worth keeping); then take the task over. 0 disables a limit; agy is not watched.
 --effort sets the model variant (opencode: "provider/model#effort"). Left out, a model gets its default
 from a small table (currently empty); a model not in the table gets no effort suffix, since a variant
 a model lacks fails the whole run (muse rejects `max`). --effort "" forces none. Resume reuses the model and effort of start.
