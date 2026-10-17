@@ -31,6 +31,8 @@ import {
   Quaternion,
   Vector3,
 } from 'three';
+import { kitPartGeometries } from './kit.ts';
+import type { Kit } from './kit.ts';
 import { lotPoseAt } from './lots.ts';
 import type { CityPalette, CityPart, LotLayout, StageState } from './types.ts';
 
@@ -93,7 +95,35 @@ function buildAnnexGeometry(): BufferGeometry {
   return out;
 }
 
-export function createBuildings(layout: LotLayout, palette: CityPalette): CityPart {
+/** Seeded 32-bit hash of a slug (FNV-1a): the only randomness source, deterministic per slug. */
+export function hashSlug(slug: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < slug.length; i++) {
+    h ^= slug.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/** Pick one of `count` variants from a slug's hash. Pure: the same slug always picks the same variant. */
+export function pickVariant(slug: string, count: number): number {
+  if (!(count > 0)) return 0;
+  return hashSlug(slug) % count;
+}
+
+/** Authored kit module sizes (m, from public/models/README.md). */
+const BODY_AUTHOR = 2.52;
+const ANNEX_AUTHOR = 1.5;
+/** Kit body/roof module names in variant order. */
+const BODY_NAMES = ['body_a', 'body_b', 'body_c'];
+const ROOF_NAMES = ['roof_flat', 'roof_pitched'];
+/** Height of the kit annex at build = 1 (m): extras hide below MIN_H of it. */
+const ANNEX_H = 1.44;
+/** Salt separating the roof pick from the body pick of the same slug. */
+const ROOF_SALT = '#roof';
+
+export function createBuildings(layout: LotLayout, palette: CityPalette, kit?: Kit | null): CityPart {
+  if (kit) return createKitBuildings(layout, palette, kit);
   const mainIndex: number[] = [];
   const extraIndex: number[] = [];
   for (let i = 0; i < layout.lots.length; i++) {
@@ -269,6 +299,281 @@ export function createBuildings(layout: LotLayout, palette: CityPalette): CityPa
     mainMat.dispose();
     reworkMat.dispose();
     extraMat.dispose();
+  }
+
+  return { object: root, update, dispose };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Kit path: the same lots and merge poses, dressed with the Blender modules. Every module is two InstancedMeshes
+// sharing matrices: the neutral part with the shared kit material, and the `<name>_lane` part with a white-base
+// clone tinted per instance. With no kit the placeholder path above keeps working unchanged.
+
+function createKitBuildings(layout: LotLayout, palette: CityPalette, kit: Kit): CityPart {
+  const mainIndex: number[] = [];
+  const extraIndex: number[] = [];
+  for (let i = 0; i < layout.lots.length; i++) {
+    if (layout.lots[i].extra) extraIndex.push(i);
+    else mainIndex.push(i);
+  }
+  const nMain: number = mainIndex.length;
+  const nExtra: number = extraIndex.length;
+
+  const agyHex: string = palette.laneAgy;
+  const opencodeHex: string = palette.laneOpencode;
+  const agyCol = new Color(agyHex);
+  const opencodeCol = new Color(opencodeHex);
+  const oldBase = new Color(palette.paper).multiplyScalar(OLD_DARKEN).lerp(new Color(palette.ink), OLD_INK);
+
+  // White base so per-instance lane colours show unmodified (white map swatch times instanceColor).
+  const laneMat = kit.material.clone();
+  (laneMat as unknown as { color: Color }).color.set(0xffffff);
+
+  const root = new Group();
+  root.name = 'buildings';
+  const geometries: BufferGeometry[] = [];
+  const meshes: InstancedMesh[] = [];
+  // Lanes whose instanceColor changes per frame (the scaffold top rails).
+  const dynamicLanes: InstancedMesh[] = [];
+
+  function pair(name: string, base: BufferGeometry | null, lane: BufferGeometry | null, count: number): { base: InstancedMesh | null; lane: InstancedMesh | null } {
+    let baseMesh: InstancedMesh | null = null;
+    let laneMesh: InstancedMesh | null = null;
+    if (base) {
+      baseMesh = new InstancedMesh(base, kit.material, count > 0 ? count : 1);
+      baseMesh.name = name;
+      baseMesh.count = count;
+      baseMesh.frustumCulled = false;
+      root.add(baseMesh);
+      meshes.push(baseMesh);
+    }
+    if (lane) {
+      laneMesh = new InstancedMesh(lane, laneMat, count > 0 ? count : 1);
+      laneMesh.name = `${name}-lane`;
+      laneMesh.count = count;
+      laneMesh.frustumCulled = false;
+      laneMesh.instanceMatrix.setUsage(DynamicDrawUsage);
+      root.add(laneMesh);
+      meshes.push(laneMesh);
+    }
+    if (baseMesh) baseMesh.instanceMatrix.setUsage(DynamicDrawUsage);
+    return { base: baseMesh, lane: laneMesh };
+  }
+
+  // Per-lot dressing, fixed at creation: body variant + roof pick from the slug hash, setback scale.
+  const mainS: number[] = [];
+  const mainH: number[] = [];
+  const mainV: number[] = [];
+  const mainR: number[] = [];
+  const mainSub: number[] = [];
+  const mainRoofSub: number[] = [];
+  const mainLaneIsAgy: boolean[] = [];
+  const bodyCounts = [0, 0, 0];
+  const roofCounts = [0, 0];
+  for (let k = 0; k < nMain; k++) {
+    const lot = layout.lots[mainIndex[k]];
+    mainS.push((lot.w * FOOTPRINT) / BODY_AUTHOR);
+    mainH.push(lot.height);
+    const v = pickVariant(lot.slug, 3);
+    const r = pickVariant(lot.slug + ROOF_SALT, 2);
+    mainV.push(v);
+    mainR.push(r);
+    mainSub.push(bodyCounts[v]++);
+    mainRoofSub.push(roofCounts[r]++);
+    mainLaneIsAgy.push(lot.lane === 'agy');
+  }
+  const extraS: number[] = [];
+  const extraLaneIsAgy: boolean[] = [];
+  for (let j = 0; j < nExtra; j++) {
+    const lot = layout.lots[extraIndex[j]];
+    extraS.push(lot.w / ANNEX_AUTHOR);
+    extraLaneIsAgy.push(lot.lane === 'agy');
+  }
+
+  // Bake each module once; several InstancedMeshes may share one baked geometry (disposed once).
+  const bodyGeos = BODY_NAMES.map((n) => kitPartGeometries(kit, n));
+  const roofGeos = ROOF_NAMES.map((n) => kitPartGeometries(kit, n));
+  const scafGeos = kitPartGeometries(kit, 'scaffold');
+  const anxGeos = kitPartGeometries(kit, 'annex');
+  const boxGeos = kitPartGeometries(kit, 'roof_box');
+  for (const g of [...bodyGeos, ...roofGeos, scafGeos, anxGeos, boxGeos]) {
+    if (g.base && !geometries.includes(g.base)) geometries.push(g.base);
+    if (g.lane && !geometries.includes(g.lane)) geometries.push(g.lane);
+  }
+
+  // Bodies (3 variants), roofs (flat / pitched), the rework scaffold, the annex extras.
+  const bodyBase: (InstancedMesh | null)[] = [];
+  const bodyLane: (InstancedMesh | null)[] = [];
+  for (let v = 0; v < 3; v++) {
+    const p = pair(`buildings-body-${BODY_NAMES[v]}`, bodyGeos[v].base, bodyGeos[v].lane, bodyCounts[v]);
+    bodyBase.push(p.base);
+    bodyLane.push(p.lane);
+  }
+  const roofBase: (InstancedMesh | null)[] = [];
+  const roofLane: (InstancedMesh | null)[] = [];
+  for (let r = 0; r < 2; r++) {
+    const p = pair(`buildings-${ROOF_NAMES[r]}`, roofGeos[r].base, roofGeos[r].lane, roofCounts[r]);
+    roofBase.push(p.base);
+    roofLane.push(p.lane);
+  }
+  const scaf = pair('buildings-scaffold', scafGeos.base, scafGeos.lane, nMain);
+  if (scaf.lane) dynamicLanes.push(scaf.lane);
+  const anx = pair('buildings-annex', anxGeos.base, anxGeos.lane, nExtra);
+
+  // Static per-instance lane colours: bodies, roofs and annexes keep their lot's lane.
+  const col = new Color();
+  for (let k = 0; k < nMain; k++) {
+    col.copy(mainLaneIsAgy[k] ? agyCol : opencodeCol);
+    const bl = bodyLane[mainV[k]];
+    if (bl) bl.setColorAt(mainSub[k], col);
+    const rl = roofLane[mainR[k]];
+    if (rl) rl.setColorAt(mainRoofSub[k], col);
+    if (scaf.lane) scaf.lane.setColorAt(k, col);
+  }
+  for (let j = 0; j < nExtra; j++) {
+    if (anx.lane) anx.lane.setColorAt(j, extraLaneIsAgy[j] ? agyCol : opencodeCol);
+  }
+
+  // The existing city: the same bodies (variant seeded from the index) with roof_flat or roof_box caps, always
+  // visible, in a warm grey on the lane part (never a lane colour).
+  const nOld: number = layout.existing.length;
+  const oldV: number[] = [];
+  const oldFlat: boolean[] = [];
+  const oldBodyCounts = [0, 0, 0];
+  let oldFlatCount = 0;
+  let oldBoxCount = 0;
+  for (let i = 0; i < nOld; i++) {
+    const v = pickVariant(`existing:${i}`, 3);
+    oldV.push(v);
+    oldBodyCounts[v]++;
+    const flat = pickVariant(`exroof:${i}`, 2) === 0;
+    oldFlat.push(flat);
+    if (flat) oldFlatCount++;
+    else oldBoxCount++;
+  }
+  const oldBodyBase: (InstancedMesh | null)[] = [];
+  const oldBodyLane: (InstancedMesh | null)[] = [];
+  for (let v = 0; v < 3; v++) {
+    const p = pair(`buildings-old-${BODY_NAMES[v]}`, bodyGeos[v].base, bodyGeos[v].lane, oldBodyCounts[v]);
+    oldBodyBase.push(p.base);
+    oldBodyLane.push(p.lane);
+  }
+  // roof_flat is roofGeos[0]: the existing city shares the new lots' baked cap.
+  const oldFlatP = pair('buildings-old-roof_flat', roofGeos[0].base, roofGeos[0].lane, oldFlatCount);
+  const oldBoxP = pair('buildings-old-roof_box', boxGeos.base, null, oldBoxCount);
+  {
+    const p = new Vector3(), sc = new Vector3(), q = new Quaternion(), m = new Matrix4();
+    const bodySubs = [0, 0, 0];
+    let flatSub = 0;
+    let boxSub = 0;
+    for (let i = 0; i < nOld; i++) {
+      const b = layout.existing[i];
+      const sx = b.w / BODY_AUTHOR;
+      const sz = b.d / BODY_AUTHOR;
+      p.set(b.x, 0, b.z);
+      sc.set(sx, b.height, sz);
+      const bb = oldBodyBase[oldV[i]];
+      if (bb) bb.setMatrixAt(bodySubs[oldV[i]], m.compose(p, q, sc));
+      // Warm grey with a seeded lightness spread (from the index, like the placeholder path).
+      const f = (Math.imul(i + 1, 2654435761) >>> 0) / 4294967296;
+      const bl = oldBodyLane[oldV[i]];
+      if (bl) bl.setColorAt(bodySubs[oldV[i]], col.copy(oldBase).multiplyScalar(1 - OLD_SPREAD / 2 + OLD_SPREAD * f));
+      bodySubs[oldV[i]]++;
+      // Caps sit on the deck unscaled in Y; the rooftop box keeps its authored offset near the roof centre.
+      p.set(b.x, b.height, b.z);
+      sc.set(sx, 1, sz);
+      if (oldFlat[i]) {
+        if (oldFlatP.base) oldFlatP.base.setMatrixAt(flatSub, m.compose(p, q, sc));
+        if (oldFlatP.lane) {
+          oldFlatP.lane.setMatrixAt(flatSub, m);
+          oldFlatP.lane.setColorAt(flatSub, col.copy(oldBase).multiplyScalar(1 - OLD_SPREAD / 2 + OLD_SPREAD * f));
+        }
+        flatSub++;
+      } else {
+        p.set(b.x, b.height + 0.08, b.z);
+        if (oldBoxP.base) oldBoxP.base.setMatrixAt(boxSub, m.compose(p, q, sc));
+        boxSub++;
+      }
+    }
+  }
+  for (const mesh of meshes) {
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }
+
+  // Scratch state reused every frame so update allocates nothing.
+  const pose: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 };
+  const posV = new Vector3();
+  const sclV = new Vector3();
+  const quat = new Quaternion();
+  const mat = new Matrix4();
+
+  function update(state: StageState, dt: number): void {
+    void dt;
+    for (let k = 0; k < nMain; k++) {
+      const worker = state.workers[k];
+      const build = worker.build <= 0 ? 0 : worker.build >= 1 ? 1 : worker.build;
+      const merge = worker.merge <= 0 ? 0 : worker.merge >= 1 ? 1 : worker.merge;
+      const rework = worker.rework <= 0 ? 0 : worker.rework >= 1 ? 1 : worker.rework;
+      lotPoseAt(layout, mainIndex[k], merge, pose);
+      const s = mainS[k];
+      const h = mainH[k] * build;
+      const bb = bodyBase[mainV[k]];
+      const bl = bodyLane[mainV[k]];
+      const rb = roofBase[mainR[k]];
+      const rl = roofLane[mainR[k]];
+      posV.set(pose.x, pose.y, pose.z);
+      if (h > MIN_H) sclV.set(s, h, s);
+      else sclV.set(0, 0, 0);
+      mat.compose(posV, quat, sclV);
+      if (bb) bb.setMatrixAt(mainSub[k], mat);
+      if (bl) bl.setMatrixAt(mainSub[k], mat);
+      // The roof cap rides the body top unscaled in Y; hidden with the body.
+      posV.set(pose.x, pose.y + h, pose.z);
+      if (h > MIN_H) sclV.set(s, 1, s);
+      else sclV.set(0, 0, 0);
+      mat.compose(posV, quat, sclV);
+      if (rb) rb.setMatrixAt(mainRoofSub[k], mat);
+      if (rl) rl.setMatrixAt(mainRoofSub[k], mat);
+      // The rework scaffold caps the body like the old band, rising with rework in the rework lane's colour.
+      const bandH = mainH[k] * REWORK_FRACTION * rework;
+      posV.set(pose.x, pose.y + h, pose.z);
+      if (bandH > MIN_H) sclV.set(s, bandH, s);
+      else sclV.set(0, 0, 0);
+      mat.compose(posV, quat, sclV);
+      if (scaf.base) scaf.base.setMatrixAt(k, mat);
+      if (scaf.lane) {
+        scaf.lane.setMatrixAt(k, mat);
+        const lane = worker.reworkLane !== null ? worker.reworkLane : worker.lane;
+        scaf.lane.setColorAt(k, lane === 'agy' ? agyCol : opencodeCol);
+      }
+    }
+    for (let j = 0; j < nExtra; j++) {
+      const extra = state.extras[j];
+      const build = extra.build <= 0 ? 0 : extra.build >= 1 ? 1 : extra.build;
+      const merge = extra.merge <= 0 ? 0 : extra.merge >= 1 ? 1 : extra.merge;
+      lotPoseAt(layout, extraIndex[j], merge, pose);
+      posV.set(pose.x, pose.y, pose.z);
+      if (build * ANNEX_H > MIN_H) sclV.set(extraS[j], build, extraS[j]);
+      else sclV.set(0, 0, 0);
+      mat.compose(posV, quat, sclV);
+      if (anx.base) anx.base.setMatrixAt(j, mat);
+      if (anx.lane) anx.lane.setMatrixAt(j, mat);
+    }
+    for (let mi = 0; mi < meshes.length; mi++) meshes[mi].instanceMatrix.needsUpdate = true;
+    for (let li = 0; li < dynamicLanes.length; li++) {
+      const ic = dynamicLanes[li].instanceColor;
+      if (ic !== null) ic.needsUpdate = true;
+    }
+  }
+
+  let disposed = false;
+  function dispose(): void {
+    if (disposed) return;
+    disposed = true;
+    root.clear();
+    for (const g of geometries) g.dispose();
+    laneMat.dispose();
   }
 
   return { object: root, update, dispose };

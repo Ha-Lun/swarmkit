@@ -8,13 +8,13 @@
 // when scrolling stops). Reduced motion starts on low. An fps probe on the first frames steps high -> medium -> low.
 // The loop only runs while the stage is on screen.
 import {
-  Color, DirectionalLight, Fog, GridHelper, HalfFloatType, HemisphereLight, Mesh, MeshLambertMaterial, NoToneMapping,
-  PCFShadowMap, PerspectiveCamera, PlaneGeometry, Scene, SRGBColorSpace, Vector3, WebGLRenderer, WebGLRenderTarget,
+  Color, DirectionalLight, Fog, GridHelper, Group, HalfFloatType, HemisphereLight, InstancedMesh, Matrix4, Mesh, MeshLambertMaterial, NoToneMapping,
+  PCFShadowMap, PerspectiveCamera, PlaneGeometry, Quaternion, Scene, SRGBColorSpace, Vector3, WebGLRenderer, WebGLRenderTarget,
 } from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import type { LineBasicMaterial } from 'three';
+import type { BufferGeometry, LineBasicMaterial } from 'three';
 import type { FeaturedRun } from '../run.ts';
 import { createBlueprint } from './blueprint.ts';
 import { createBuildings } from './buildings.ts';
@@ -25,7 +25,9 @@ import { createMerge } from './merge.ts';
 import { createScan } from './scan.ts';
 import { createTiltShift } from './tiltshift.ts';
 import { buildTimeline } from './timeline.ts';
-import type { CityPalette, CityPart, StageState } from './types.ts';
+import { kitPartGeometries, loadKit } from './kit.ts';
+import type { Kit } from './kit.ts';
+import type { CityPalette, CityPart, LotLayout, StageState } from './types.ts';
 
 export type CityTier = 'high' | 'medium' | 'low';
 
@@ -130,12 +132,112 @@ const LABEL_GAP_HIDE = -1;
 const LABEL_GAP_SHOW = 5;
 const LABEL_CLEAR_S = 0.3;
 
-export function mountCity(opts: MountCityOptions): CityHandle {
+/**
+ * A few kit trees along the city's outer edge: one InstancedMesh per tree type, static matrices set once. They
+ * stand on a rectangle outside `layout.bounds` (which frames everything), so they never land on the plot or a lot.
+ * Positions are seeded from the index, so the same layout always grows the same trees.
+ */
+const TREE_COUNT = 16;
+const TREE_MARGIN = 2.4;
+const TREE_NAMES = ['tree_round', 'tree_cone'];
+
+function createTrees(layout: LotLayout, kit: Kit): CityPart | null {
+  const geos = TREE_NAMES.map((n) => kitPartGeometries(kit, n).base);
+  const counts = [0, 0];
+  const kinds: number[] = [];
+  for (let i = 0; i < TREE_COUNT; i++) {
+    const kind = geos[1] ? i % 2 : 0;
+    if (!geos[kind]) {
+      kinds.push(-1);
+      continue;
+    }
+    kinds.push(kind);
+    counts[kind]++;
+  }
+  if (counts[0] + counts[1] === 0) {
+    for (const g of geos) if (g) g.dispose();
+    return null;
+  }
+  const root = new Group();
+  root.name = 'trees';
+  const owned: BufferGeometry[] = [];
+  for (const g of geos) if (g) owned.push(g);
+  const meshes: (InstancedMesh | null)[] = geos.map((g, kind) => {
+    if (!g) return null;
+    const mesh = new InstancedMesh(g, kit.material, counts[kind] > 0 ? counts[kind] : 1);
+    mesh.name = `trees-${TREE_NAMES[kind]}`;
+    mesh.count = counts[kind];
+    mesh.frustumCulled = false;
+    root.add(mesh);
+    return mesh;
+  });
+
+  // Walk the outside rectangle's perimeter; the per-tree offset along it is index-seeded.
+  const b = layout.bounds;
+  const x0 = b.x - b.w / 2 - TREE_MARGIN;
+  const x1 = b.x + b.w / 2 + TREE_MARGIN;
+  const z0 = b.z - b.d / 2 - TREE_MARGIN;
+  const z1 = b.z + b.d / 2 + TREE_MARGIN;
+  const w = Math.max(0.001, x1 - x0);
+  const d = Math.max(0.001, z1 - z0);
+  const per = 2 * (w + d);
+  const subs = [0, 0];
+  const p = new Vector3();
+  const sc = new Vector3(1, 1, 1);
+  const q = new Quaternion();
+  const m = new Matrix4();
+  for (let i = 0; i < TREE_COUNT; i++) {
+    const kind = kinds[i];
+    if (kind < 0) continue;
+    const mesh = meshes[kind];
+    if (!mesh) continue;
+    const f = (Math.imul(i + 1, 2654435761) >>> 0) / 4294967296;
+    let t = (((i + f) / TREE_COUNT) * per) % per;
+    if (t < 0) t += per;
+    let x: number;
+    let z: number;
+    if (t < w) {
+      x = x0 + t;
+      z = z0;
+    } else if (t < w + d) {
+      x = x1;
+      z = z0 + (t - w);
+    } else if (t < 2 * w + d) {
+      x = x1 - (t - w - d);
+      z = z1;
+    } else {
+      x = x0;
+      z = z1 - (t - 2 * w - d);
+    }
+    p.set(x, 0, z);
+    mesh.setMatrixAt(subs[kind]++, m.compose(p, q, sc));
+  }
+  for (const mesh of meshes) {
+    if (!mesh) continue;
+    mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  let disposed = false;
+  return {
+    object: root,
+    update(_state: StageState, _dt: number): void {},
+    dispose(): void {
+      if (disposed) return;
+      disposed = true;
+      root.clear();
+      for (const g of owned) g.dispose();
+    },
+  };
+}
+
+export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
   const { canvas, run, progress, labelLayer } = opts;
   const layout = buildLayout(run);
   const timeline = buildTimeline(run);
   const palette = readPalette();
   const lightCool = readToken(getComputedStyle(document.documentElement), '--light-cool', '#9cc3ee');
+  // The Blender kit is progressive enhancement: a failed load keeps the placeholder look working unchanged.
+  const kit: Kit | null = await loadKit().catch(() => null);
 
   const reduced = !!opts.reducedMotion;
   const cores = navigator.hardwareConcurrency || 4;
@@ -202,10 +304,12 @@ export function mountCity(opts: MountCityOptions): CityHandle {
   const parts: CityPart[] = [
     createMerge(layout, palette),
     createBlueprint(layout, palette),
-    createBuildings(layout, palette),
-    createDrones(layout, palette),
+    createBuildings(layout, palette, kit),
+    createDrones(layout, palette, kit),
     createScan(layout, palette),
   ];
+  const trees = kit ? createTrees(layout, kit) : null;
+  if (trees) parts.push(trees);
   for (const p of parts) {
     p.object.traverse((o) => {
       if ((o as Mesh).isMesh) {
@@ -501,6 +605,7 @@ export function mountCity(opts: MountCityOptions): CityHandle {
         scene.remove(p.object);
         p.dispose();
       }
+      if (kit) kit.dispose();
       tilt.dispose();
       dropComposer();
       tableGeo.dispose();

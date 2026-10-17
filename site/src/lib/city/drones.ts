@@ -10,8 +10,9 @@
 //
 // Children order (tests rely on it): per lane k, depot mesh then its 3 drone cones,
 // i.e. children[k * (1 + DRONES_PER_DEPOT) + 1 + d] is drone d of lane k.
-import { BoxGeometry, Color, ConeGeometry, Group, Mesh, MeshLambertMaterial } from 'three';
+import { BoxGeometry, Color, ConeGeometry, Group, Material, Mesh, MeshLambertMaterial, Object3D } from 'three';
 import type { CityPalette, CityPart, CreateDrones, LotLayout, StageState } from './types.ts';
+import type { Kit } from './kit.ts';
 
 /** Cones per depot. */
 export const DRONES_PER_DEPOT = 3;
@@ -38,7 +39,8 @@ function smooth(x: number): number {
   return c * c * (3 - 2 * c);
 }
 
-export const createDrones: CreateDrones = (layout: LotLayout, palette: CityPalette): CityPart => {
+export const createDrones: CreateDrones = (layout: LotLayout, palette: CityPalette, kit?: Kit | null): CityPart => {
+  if (kit) return createKitDrones(layout, palette, kit);
   const root = new Group();
   const laneCount = layout.depots.length;
 
@@ -144,3 +146,192 @@ export const createDrones: CreateDrones = (layout: LotLayout, palette: CityPalet
 
   return { object: root, update, dispose };
 };
+
+// ---------------------------------------------------------------------------------------------------------------
+// Kit path: cloned drone cranes and depot hangars from the Blender kit. Flight logic matches the placeholder path
+// (depot -> lot over the first 15% of progress, hover, home over the last 15%); the kit adds rotor spin, a hook
+// that pays out while hovering, and per-lane tinted canopies. With no kit the placeholder path above is unchanged.
+
+/** Whole-drone scale (authored span 0.62 m reads too small next to 3.6 m lots). */
+const DRONE_SCALE = 1.5;
+/** Rotor angular speed (rad/s): idle motion only, driven by dt. */
+const ROTOR_SPEED = 18;
+/** Hook winch pivot and cable length (m, from public/models/README.md). */
+const HOOK_PIVOT_Y = 0.13;
+const HOOK_LEN = 0.085;
+/** Parked hook: nearly fully retracted. */
+const HOOK_PARK_K = 0.05;
+const HOOK_PARK_HEAD_Y = 0.126;
+/** Hook extension while fully hovering: the head touches the building top (hover gap paid out). */
+const HOOK_K_HOVER = (HOOK_PIVOT_Y + HOVER_GAP / DRONE_SCALE) / HOOK_LEN;
+/** Parked drones sit on the pad ring, in depot space (y is the pad top). */
+const PAD_RING_X = 0;
+const PAD_RING_Y = 0.06;
+const PAD_RING_Z = 1.1;
+/** Parking spread around the ring centre so the three drones never overlap. */
+const PAD_SPREAD = 0.35;
+const ROTOR_NAMES = ['rotor_fl', 'rotor_fr', 'rotor_bl', 'rotor_br'];
+
+/** A per-lane copy of the shared kit material, tinted to one colour. */
+function tintedClone(base: Material, hex: string): Material {
+  const m = base.clone();
+  (m as unknown as { color: Color }).color.set(hex);
+  return m;
+}
+
+function createKitDrones(layout: LotLayout, palette: CityPalette, kit: Kit): CityPart {
+  const root = new Group();
+  root.name = 'drones';
+  const laneCount = layout.depots.length;
+
+  const lotBySlug = new Map<string, number>();
+  for (let i = 0; i < layout.lots.length; i++) lotBySlug.set(layout.lots[i].slug, i);
+
+  // One lane material per colour (white map swatch times colour), plus a dim one for the unused lane.
+  const laneMatAgy = tintedClone(kit.material, palette.laneAgy);
+  const laneMatOpencode = tintedClone(kit.material, palette.laneOpencode);
+  const laneMatDim = tintedClone(kit.material, palette.ink);
+  (laneMatDim as unknown as { color: Color }).color.multiplyScalar(0.6);
+  const laneMats = [laneMatAgy, laneMatOpencode];
+
+  const droneTpl = kit.templates.get('drone');
+  const depotTpl = kit.templates.get('depot');
+
+  const depotX: number[] = [];
+  const depotZ: number[] = [];
+  const depotFacing: number[] = [];
+  const parkX: number[] = [];
+  const parkZ: number[] = [];
+  const drones: Object3D[] = [];
+  const rotors: Object3D[] = [];
+  const cables: Object3D[] = [];
+  const heads: Object3D[] = [];
+  // Never in the scene: a stand-in when a named kit node is missing, so a missing rotor never spins a drone.
+  const dummy = new Object3D();
+
+  function dress(clone: Object3D, laneMat: Material): void {
+    clone.traverse((o) => {
+      const mesh = o as Mesh;
+      if (!mesh.isMesh) return;
+      let p: Object3D | null = mesh;
+      let isLane = false;
+      while (p && p !== clone) {
+        if (p.name.endsWith('_lane')) {
+          isLane = true;
+          break;
+        }
+        p = p.parent;
+      }
+      mesh.material = isLane ? laneMat : kit.material;
+    });
+  }
+
+  for (let k = 0; k < laneCount; k++) {
+    const depot = layout.depots[k];
+    depotX.push(depot.x);
+    depotZ.push(depot.z);
+    depotFacing.push(depot.facing);
+    const laneMat = depot.lane === 'agy' ? laneMatAgy : laneMatOpencode;
+
+    if (depotTpl) {
+      const hall = depotTpl.clone(true);
+      dress(hall, depot.used ? laneMat : laneMatDim);
+      hall.position.set(depot.x, 0, depot.z);
+      hall.rotation.y = depot.facing;
+      root.add(hall);
+    } else {
+      const fallback = new Group();
+      fallback.position.set(depot.x, 0, depot.z);
+      fallback.rotation.y = depot.facing;
+      root.add(fallback);
+    }
+
+    for (let d = 0; d < DRONES_PER_DEPOT; d++) {
+      // Parking slots on the pad ring, in depot space, so they follow the depot yaw.
+      const la = (d * Math.PI * 2) / DRONES_PER_DEPOT + Math.PI / 2;
+      const lx = PAD_RING_X + Math.cos(la) * PAD_SPREAD;
+      const lz = PAD_RING_Z + Math.sin(la) * PAD_SPREAD;
+      const cf = Math.cos(depot.facing);
+      const sf = Math.sin(depot.facing);
+      const px = depot.x + lx * cf + lz * sf;
+      const pz = depot.z - lx * sf + lz * cf;
+      parkX.push(px);
+      parkZ.push(pz);
+      const drone = droneTpl ? droneTpl.clone(true) : new Group();
+      dress(drone, depot.used ? laneMat : laneMatDim);
+      drone.scale.setScalar(DRONE_SCALE);
+      drone.position.set(px, PAD_RING_Y, pz);
+      drone.rotation.set(0, depot.facing, 0);
+      root.add(drone);
+      drones.push(drone);
+      for (let ri = 0; ri < ROTOR_NAMES.length; ri++) rotors.push(drone.getObjectByName(ROTOR_NAMES[ri]) ?? dummy);
+      cables.push(drone.getObjectByName('hook_cable') ?? dummy);
+      heads.push(drone.getObjectByName('hook_head') ?? dummy);
+      // Parked: hook nearly fully retracted.
+      cables[cables.length - 1].scale.y = HOOK_PARK_K;
+      heads[heads.length - 1].position.y = HOOK_PARK_HEAD_Y;
+    }
+  }
+
+  // Idle-motion clock only; base positions are a pure function of `state`.
+  let time = 0;
+
+  function update(state: StageState, dt: number): void {
+    time += dt;
+    for (let ri = 0; ri < rotors.length; ri++) rotors[ri].rotation.y += dt * ROTOR_SPEED;
+    for (let k = 0; k < laneCount; k++) {
+      const nJobs = k < state.drones.length ? state.drones[k].jobs.length : 0;
+      for (let d = 0; d < DRONES_PER_DEPOT; d++) {
+        const di = k * DRONES_PER_DEPOT + d;
+        const m = drones[di];
+        const cable = cables[di];
+        const head = heads[di];
+        if (d < nJobs) {
+          const job = state.drones[k].jobs[d];
+          const li = lotBySlug.get(job.slug);
+          if (li === undefined) {
+            m.position.set(parkX[di], PAD_RING_Y, parkZ[di]);
+            m.rotation.set(0, depotFacing[k], 0);
+            cable.scale.y = HOOK_PARK_K;
+            head.position.y = HOOK_PARK_HEAD_Y;
+          } else {
+            const lot = layout.lots[li];
+            const p = clamp01(job.progress);
+            let s: number;
+            if (p <= 0) s = 0;
+            else if (p < OUT_END) s = smooth(p / OUT_END);
+            else if (p <= HOME_START) s = 1;
+            else if (p >= 1) s = 0;
+            else s = 1 - smooth((p - HOME_START) / (1 - HOME_START));
+            const hoverY = lot.height + HOVER_GAP;
+            const x = depotX[k] + (lot.x - depotX[k]) * s;
+            const z = depotZ[k] + (lot.z - depotZ[k]) * s;
+            const bob = Math.sin(time * BOB_FREQ + di * 1.7) * BOB_AMP * s;
+            m.position.set(x, PAD_RING_Y + (hoverY - PAD_RING_Y) * s + bob, z);
+            m.rotation.set(0, Math.atan2(lot.x - depotX[k], lot.z - depotZ[k]), 0);
+            // Pay the hook out while hovering so the head drops towards the roof; retracted in transit.
+            const hk = HOOK_PARK_K + (HOOK_K_HOVER - HOOK_PARK_K) * s;
+            cable.scale.y = hk;
+            head.position.y = HOOK_PIVOT_Y - HOOK_LEN * hk;
+          }
+        } else {
+          m.position.set(parkX[di], PAD_RING_Y, parkZ[di]);
+          m.rotation.set(0, depotFacing[k], 0);
+          cable.scale.y = HOOK_PARK_K;
+          head.position.y = HOOK_PARK_HEAD_Y;
+        }
+      }
+    }
+  }
+
+  let disposed = false;
+  function dispose(): void {
+    if (disposed) return;
+    disposed = true;
+    root.clear();
+    for (const m of laneMats) m.dispose();
+    laneMatDim.dispose();
+  }
+
+  return { object: root, update, dispose };
+}

@@ -92,7 +92,7 @@ async function boot(stage: HTMLElement) {
     ]);
     scroll = createScrollProgress(stage);
     stage.classList.add('is-live');
-    city = mountCity({
+    city = await mountCity({
       canvas,
       run,
       progress: scroll.progress,
