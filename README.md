@@ -26,9 +26,9 @@ Each agent has a **tier** (`fast`, `standard`, `deep`). The model for each tier 
 
 | Tier | Claude Code | OpenCode | Used for |
 |---|---|---|---|
-| fast | `haiku` | muse-spark-1.3 | explore, junior-dev, git-specialist, release-tester, showroom-asset-processor, test-writer and seo-worker (Claude Code only; they stay on nemotron-3.5-lightning in OpenCode) |
-| standard | `sonnet` | nemotron-3.5-lightning | most specialists |
-| deep | `opus` | nemotron-3-ultra | db-specialist, security-auditor, swarm-architect, lead-dev-hybrid |
+| fast | `haiku` | `opencode-go/deepseek-v4.1-flash` | explore, junior-dev, git-specialist, release-tester, showroom-asset-processor, test-writer and seo-worker (fast in Claude Code only; they use `opencode-go/qwen3.7-plus` in OpenCode) |
+| standard | `sonnet` | `opencode-go/qwen3.7-plus` | most specialists |
+| deep | `opus` | `opencode-go/kimi-k2.7-code` | db-specialist, security-auditor, swarm-architect, lead-dev-hybrid |
 
 ## ✨ Key features
 

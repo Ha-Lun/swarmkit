@@ -246,7 +246,7 @@ def s7_native(repo):
     if shutil.which('agy'):
         rc, out, err, _ = run(['agy', 'plugin', 'validate', f'{repo}/antigravity/plugins/swarmkit'], timeout=60)
         text = re.sub(r'\x1b\[[0-9;]*m', '', out + err)
-        m = re.search(r'agents\s*:\s*(\d+) processed', text)
+        m = re.search(r'agents\s*:?\s*(\d+)', text)  # agy 2026 prints "agents 33 ·" (older builds: "agents: 33 processed")
         got = int(m.group(1)) if m else None
         rec(cat, 'agy plugin validate', rc == 0 and got == n_agents, f'agents {got} processed, expected {n_agents}')
     else:
