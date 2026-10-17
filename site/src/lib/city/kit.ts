@@ -129,7 +129,7 @@ const bakeRel = new Matrix4();
 export function kitPartGeometries(kit: Kit, name: string): KitPartGeos {
   const root = kit.templates.get(name);
   if (!root) return { base: null, lane: null };
-  const laneRoot: Object3D | null = root.getObjectByName(`${name}_lane`);
+  const laneRoot: Object3D | null = root.getObjectByName(`${name}_lane`) ?? null;
   let top: Object3D = root;
   while (top.parent) top = top.parent;
   top.updateMatrixWorld(true);

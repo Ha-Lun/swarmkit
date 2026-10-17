@@ -51,7 +51,7 @@ function fakeKit(): Kit {
   lane.name = 'mod_lane';
   lane.position.set(0, 2, 0);
   root.add(lane);
-  const templates = new Map([[root.name, root], [lane.name, lane]]);
+  const templates = new Map<string, Object3D>([[root.name, root], [lane.name, lane]]);
   return { material, templates, dispose() {} };
 }
 
@@ -159,8 +159,8 @@ function assertFiniteKit(root: Group, what: string): void {
     assert.ok(Number.isFinite(o.position.x) && Number.isFinite(o.position.y) && Number.isFinite(o.position.z), `${what} position finite`);
     const m = o as Group & { isInstancedMesh?: boolean; instanceMatrix?: { array: ArrayLike<number> }; instanceColor?: { array: ArrayLike<number> } | null };
     if (m.isInstancedMesh && m.instanceMatrix) {
-      for (const a of m.instanceMatrix.array) assert.ok(Number.isFinite(a), `${what} matrix finite`);
-      if (m.instanceColor) for (const a of m.instanceColor.array) assert.ok(Number.isFinite(a), `${what} color finite`);
+      for (const a of Array.from(m.instanceMatrix.array)) assert.ok(Number.isFinite(a), `${what} matrix finite`);
+      if (m.instanceColor) for (const a of Array.from(m.instanceColor.array)) assert.ok(Number.isFinite(a), `${what} color finite`);
     }
   });
 }
@@ -195,13 +195,13 @@ kitBuildings.update(timeline.stateAt(0.5), 0);
 const snapA: number[] = [];
 kitBuildings.object.traverse((o) => {
   const m = o as unknown as { isInstancedMesh?: boolean; instanceMatrix?: { array: ArrayLike<number> } };
-  if (m.isInstancedMesh && m.instanceMatrix) snapA.push(...m.instanceMatrix.array);
+  if (m.isInstancedMesh && m.instanceMatrix) snapA.push(...Array.from(m.instanceMatrix.array));
 });
 kitBuildings.update(timeline.stateAt(0.5), 0);
 const snapB: number[] = [];
 kitBuildings.object.traverse((o) => {
   const m = o as unknown as { isInstancedMesh?: boolean; instanceMatrix?: { array: ArrayLike<number> } };
-  if (m.isInstancedMesh && m.instanceMatrix) snapB.push(...m.instanceMatrix.array);
+  if (m.isInstancedMesh && m.instanceMatrix) snapB.push(...Array.from(m.instanceMatrix.array));
 });
 assert.deepEqual(snapB, snapA);
 kitBuildings.dispose();

@@ -11,6 +11,7 @@
 // by scene.ts) and map ids to colours there.
 
 import type { Object3D } from 'three';
+import type { Kit } from './kit.ts';
 
 /** A vendor lane that ran workers. Same ids as `Lane` in ../run.ts. */
 export type Lane = 'agy' | 'opencode';
@@ -293,7 +294,7 @@ export interface CityPart {
 /** Factory signatures every visual module exports (palette is passed so parts never read CSS themselves). */
 export type CreateBlueprint = (layout: LotLayout, palette: CityPalette) => CityPart;
 export type CreateBuildings = (layout: LotLayout, palette: CityPalette) => CityPart;
-export type CreateDrones = (layout: LotLayout, palette: CityPalette) => CityPart;
+export type CreateDrones = (layout: LotLayout, palette: CityPalette, kit?: Kit | null) => CityPart;
 export type CreateScan = (layout: LotLayout, palette: CityPalette) => CityPart;
 export type CreateMerge = (layout: LotLayout, palette: CityPalette) => CityPart;
 
