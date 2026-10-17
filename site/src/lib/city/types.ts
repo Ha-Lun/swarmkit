@@ -287,6 +287,8 @@ export interface CityPart {
   object: Object3D;
   /** `dt` = seconds since the last frame (for idle motion only; state drives everything else). */
   update(state: StageState, dt: number): void;
+  /** Optional: screen scale (px per metre at the look-at point) once per frame, so a part can drop fine detail that reads as noise. */
+  setDetail?(pxPerMetre: number): void;
   /** Free every geometry, material and texture the part created. */
   dispose(): void;
 }

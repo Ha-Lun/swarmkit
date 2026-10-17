@@ -46,6 +46,14 @@ const OLD_SPREAD = 0.1;
 const REWORK_FRACTION = 0.2;
 /** Below this height (m) an instance is collapsed to nothing rather than drawn flat. */
 const MIN_H = 1e-3;
+/**
+ * Scaffold poles and braces: a warm, darker steel multiplier (the kit steel is a cool light grey, #9ca5ae) pulled 40%
+ * of the way to the rework lane's colour, so the thin cage reads as a dark warm frame against the pale bodies instead
+ * of a light grey one. (Brighter gains or a larger lane mix washed out to grey again in testing: the dark steel
+ * swatch eats the saturation.)
+ */
+const SCAF_STEEL = new Color(0.78, 0.7, 0.6);
+const SCAF_LANE_MIX = 0.4;
 /** Rework band footprint overhang relative to the main box, so it reads as a cap. */
 const REWORK_OVERHANG = 1.08;
 /** Annex geometry (unit height, base at y = 0): body takes this fraction, roof the rest. */
@@ -323,6 +331,7 @@ function createKitBuildings(layout: LotLayout, palette: CityPalette, kit: Kit): 
   const opencodeHex: string = palette.laneOpencode;
   const agyCol = new Color(agyHex);
   const opencodeCol = new Color(opencodeHex);
+  const scafTint = new Color();
   const oldBase = new Color(palette.paper).multiplyScalar(OLD_DARKEN).lerp(new Color(palette.ink), OLD_INK);
 
   // White base so per-instance lane colours show unmodified (white map swatch times instanceColor).
@@ -418,6 +427,7 @@ function createKitBuildings(layout: LotLayout, palette: CityPalette, kit: Kit): 
   }
   const scaf = pair('buildings-scaffold', scafGeos.base, scafGeos.lane, nMain);
   if (scaf.lane) dynamicLanes.push(scaf.lane);
+  if (scaf.base) dynamicLanes.push(scaf.base);
   const anx = pair('buildings-annex', anxGeos.base, anxGeos.lane, nExtra);
 
   // Static per-instance lane colours: bodies, roofs and annexes keep their lot's lane.
@@ -429,6 +439,7 @@ function createKitBuildings(layout: LotLayout, palette: CityPalette, kit: Kit): 
     const rl = roofLane[mainR[k]];
     if (rl) rl.setColorAt(mainRoofSub[k], col);
     if (scaf.lane) scaf.lane.setColorAt(k, col);
+    if (scaf.base) scaf.base.setColorAt(k, col);
   }
   for (let j = 0; j < nExtra; j++) {
     if (anx.lane) anx.lane.setColorAt(j, extraLaneIsAgy[j] ? agyCol : opencodeCol);
@@ -547,6 +558,8 @@ function createKitBuildings(layout: LotLayout, palette: CityPalette, kit: Kit): 
         scaf.lane.setMatrixAt(k, mat);
         const lane = worker.reworkLane !== null ? worker.reworkLane : worker.lane;
         scaf.lane.setColorAt(k, lane === 'agy' ? agyCol : opencodeCol);
+        // The poles and braces take a warm steel tint pulled towards the lane colour, so the thin cage reads bold.
+        if (scaf.base) scaf.base.setColorAt(k, scafTint.copy(SCAF_STEEL).lerp(lane === 'agy' ? agyCol : opencodeCol, SCAF_LANE_MIX));
       }
     }
     for (let j = 0; j < nExtra; j++) {

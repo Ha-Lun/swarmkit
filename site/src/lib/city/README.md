@@ -58,8 +58,15 @@ lands near its token under `NoToneMapping` and sRGB output (see the constants in
 saturated; the existing city stays grey. The bill dims lights, background and fog by one factor, so the table and
 the backdrop never part in tone. Roads are a shade under the block ground with a hairline centre line. While a rework pass runs
 (`reworkLane` set) the kit scaffold, a full cage, stands around that lot's body, scaled like the body, its top rail in
-the rework lane's colour (kit builds only; the plain look keeps the rising top band). Parked drones stand on the depot
-pad in a staggered row (three across a 3.4 m pad, rotors never overlapping). New
+the rework lane's colour (kit builds only; the plain look keeps the rising top band); the poles and braces carry a
+warm dark steel instance tint (0.78, 0.7, 0.6, 40% towards the lane colour) so the cage reads as a bold frame. Parked
+drones stand on the depot pad in a staggered row (three across a 3.4 m pad, rotors never overlapping). Rotors are
+light steel grey, and `CityPart.setDetail(pxPerMetre)` (called once per frame from scene.ts with the screen scale at
+the look-at point) hides the blades below 26 px/m, so phone drones are clean bodies, not clusters of black crosses
+(a pure function of viewport and camera). The empty sheet carries a faint blueprint grid (half a lot pitch, plot
+only, `--blueprint-line` at 0.3 opacity) so it reads as a drawing waiting to be filled; the sheet material has a
+blue lift (0.97, 1.03, 1.08) to stay near #dce7f4 under the warm key. Light is warmer: sun 3.3 / sky 2.05, sun warmth
+0.6, sky coolness 0.2 (see scene.ts). New
 buildings run `H_MIN`..`H_MAX` (1.6..3.6 m, log of tokens), in scale with the old town core (~3.4 m).
 
 ## Camera

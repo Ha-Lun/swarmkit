@@ -101,11 +101,11 @@ const PROBE = { warmup: 10, ms: 800, minFrames: 20, stepDownBelow: 45, lowBelow:
 // sky ~ pi brings lit paper back to about its token value (no tone mapping, sRGB output). The sun is low (long soft
 // shadows) and warm but mixed towards white, the sky fill cool but mixed towards white, so the light is warm and the
 // paper stays paper: lit ground ~0.9 of the token, ground in shadow ~0.6, lane colours keep their saturation.
-const SUN_INTENSITY = 3.1;
-const HEMI_INTENSITY = 2.0;
+const SUN_INTENSITY = 3.3;
+const HEMI_INTENSITY = 2.05;
 /** How far the sun's colour moves from white towards --light-warm, and the sky's towards --light-cool. */
-const SUN_WARMTH = 0.45;
-const SKY_COOLNESS = 0.35;
+const SUN_WARMTH = 0.6;
+const SKY_COOLNESS = 0.2;
 /** The table: a shade under the paper token, so the unlit page background reads as the same paper beyond it. */
 const TABLE_SHADE = 0.97;
 /** Faint blueprint grid on the table: spacing in lot cells, opacity. */
@@ -450,6 +450,8 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
     const state = timeline.stateAt(u);
     for (const p of parts) p.update(state, dt);
     path.poseAt(u, camPos, camTgt);
+    const pxPerM = viewH / (2 * Math.tan((CAMERA_FOV * Math.PI) / 360) * camPos.distanceTo(camTgt));
+    for (const p of parts) if (p.setDetail) p.setDetail(pxPerM);
     camera.position.copy(camPos);
     camera.lookAt(camTgt);
     camera.updateMatrixWorld();

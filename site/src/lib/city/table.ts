@@ -7,8 +7,7 @@
 // Slab and sheet are boxes whose UVs are collapsed onto palette swatch centres (see public/models/README.md), so they
 // use the shared kit material and stay in the kit's palette. The kit pieces are cloned from the shared templates and
 // share their geometry and material: this part owns only the two box geometries.
-import { BoxGeometry, Group, Mesh, Object3D } from 'three';
-import type { BufferGeometry } from 'three';
+import { BoxGeometry, BufferAttribute, BufferGeometry, Group, Color, LineBasicMaterial, LineSegments, Mesh, Object3D } from 'three';
 import type { Kit } from './kit.ts';
 import type { CityPalette, CityPart, LotLayout, Rect } from './types.ts';
 
@@ -21,6 +20,10 @@ export const SLAB_TOP = -0.012;
 export const SLAB_DEPTH = 0.5;
 /** Blueprint sheet: top plane, above the slab and under the plot lines (y = 0.05). */
 export const SHEET_TOP = 0.02;
+/** Faint drafting grid on the sheet: lines every half lot pitch inside the plot, just above the sheet; opacity. */
+const GRID_Y = SHEET_TOP + 0.012;
+const GRID_OPACITY = 0.3;
+const SHEET_LIFT = [0.97, 1.03, 1.08] as const;
 /** Table pieces are 3.0 m corners; the slab must be at least this big in both directions. */
 const CORNER = 3.0;
 
@@ -74,7 +77,6 @@ function paintedBox(w: number, h: number, d: number, top: number, side: number, 
 }
 
 export function createTable(layout: LotLayout, palette: CityPalette, kit: Kit): CityPart {
-  void palette;
   const root = new Group();
   root.name = 'table';
   const geometries: BufferGeometry[] = [];
@@ -103,12 +105,39 @@ export function createTable(layout: LotLayout, palette: CityPalette, kit: Kit): 
   const sheetH = SHEET_TOP - SLAB_TOP + 0.01;
   const sheetGeo = paintedBox(layout.plot.w + 2 * SHEET_MARGIN, sheetH, layout.plot.d + 2 * SHEET_MARGIN, SW_SHEET_BLUE, SW_PAPER_LO, SW_PAPER_LO);
   geometries.push(sheetGeo);
-  const sheet = new Mesh(sheetGeo, kit.material);
+  // Own material: the kit's sheet swatch times a gentle blue lift (r 0.97, g 1.03, b 1.08), because the lit sheet came
+  // out a greyer lavender (about #d9dee9) than the swatch #dce7f4 under the warm key; the lift pulls it back to blue.
+  const sheetMat = kit.material.clone();
+  (sheetMat as unknown as { color: Color }).color.setRGB(SHEET_LIFT[0], SHEET_LIFT[1], SHEET_LIFT[2]);
+  const sheet = new Mesh(sheetGeo, sheetMat);
   sheet.name = 'table-sheet';
   // A receiver only: its own shadow on its top face would show as acne (scene.ts honours this flag).
   sheet.userData.noShadowCast = true;
   sheet.position.set(layout.plot.x, SHEET_TOP - sheetH / 2, layout.plot.z);
   root.add(sheet);
+
+  // A faint grid on the sheet inside the plot (static), so the sheet reads as a drawing waiting to be filled before
+  // the plan beat draws the outlines. Lines every half lot pitch, from the plot's min corner.
+  const gridMat = new LineBasicMaterial({ color: palette.line, transparent: true, opacity: GRID_OPACITY, depthWrite: false });
+  const step = layout.cell / 2;
+  const nx = Math.round(layout.plot.w / step);
+  const nz = Math.round(layout.plot.d / step);
+  const gx0 = layout.plot.x - layout.plot.w / 2;
+  const gz0 = layout.plot.z - layout.plot.d / 2;
+  const gridPos = new Float32Array((nx + 1 + nz + 1) * 6);
+  let gi = 0;
+  for (let i = 0; i <= nx; i++) {
+    gridPos.set([gx0 + i * step, GRID_Y, gz0, gx0 + i * step, GRID_Y, gz0 + layout.plot.d], gi);
+    gi += 6;
+  }
+  for (let j = 0; j <= nz; j++) {
+    gridPos.set([gx0, GRID_Y, gz0 + j * step, gx0 + layout.plot.w, GRID_Y, gz0 + j * step], gi);
+    gi += 6;
+  }
+  const gridGeo = new BufferGeometry();
+  gridGeo.setAttribute('position', new BufferAttribute(gridPos, 3));
+  geometries.push(gridGeo);
+  root.add(new LineSegments(gridGeo, gridMat));
 
   // T-square and pencil on the near (+z) margin, past the lane depot: clones sharing the kit's geometry.
   const nearZ = rect.z + rect.d / 2 - CORNER * 0.55;
@@ -135,6 +164,8 @@ export function createTable(layout: LotLayout, palette: CityPalette, kit: Kit): 
       disposed = true;
       root.clear();
       for (const g of geometries) g.dispose();
+      gridMat.dispose();
+      sheetMat.dispose();
     },
   };
 }

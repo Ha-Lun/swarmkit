@@ -178,6 +178,14 @@ const PAD_PITCH = 1.235;
 const PAD_STAGGER = 0.335;
 /** The outer drones' z in depot space. */
 const PAD_ROW_Z = 1.0;
+/**
+ * Rotor blades hide below this screen scale (px per metre at the look-at point): a 1.35 m rotor span is then under
+ * ~30 px, where the thin dark crossed blades only read as black crosses. Measured: phone hero ~12 px/m, desktop task
+ * beat ~30 px/m. A pure function of viewport and camera, so the same state gives the same picture.
+ */
+const ROTOR_MIN_PX_PER_M = 26;
+/** Rotor blades are a light steel grey instead of the kit's near-black ink, so tiny blades fade into the table instead of speckling it. */
+const ROTOR_GREY = '#aab2ba';
 const ROTOR_NAMES = ['rotor_fl', 'rotor_fr', 'rotor_bl', 'rotor_br'];
 
 /** A per-lane copy of the shared kit material, tinted to one colour. */
@@ -201,6 +209,12 @@ function createKitDrones(layout: LotLayout, palette: CityPalette, kit: Kit): Cit
   const laneMatDim = tintedClone(kit.material, palette.ink);
   (laneMatDim as unknown as { color: Color }).color.multiplyScalar(0.6);
   const laneMats = [laneMatAgy, laneMatOpencode];
+
+  // Rotor material: the kit material without its palette map, flat light grey (see ROTOR_GREY).
+  const rotorMat = kit.material.clone();
+  (rotorMat as unknown as { map: unknown }).map = null;
+  (rotorMat as unknown as { color: Color }).color.set(ROTOR_GREY);
+  rotorMat.needsUpdate = true;
 
   const droneTpl = kit.templates.get('drone');
   const depotTpl = kit.templates.get('depot');
@@ -230,7 +244,9 @@ function createKitDrones(layout: LotLayout, palette: CityPalette, kit: Kit): Cit
         }
         p = p.parent;
       }
-      mesh.material = isLane ? laneMat : kit.material;
+      let isRotor = false;
+      for (let q: Object3D | null = mesh; q && q !== clone; q = q.parent) if (q.name.startsWith('rotor_')) isRotor = true;
+      mesh.material = isLane ? laneMat : isRotor ? rotorMat : kit.material;
     });
   }
 
@@ -331,6 +347,14 @@ function createKitDrones(layout: LotLayout, palette: CityPalette, kit: Kit): Cit
     }
   }
 
+  let rotorsOn = true;
+  function setDetail(pxPerMetre: number): void {
+    const on = pxPerMetre >= ROTOR_MIN_PX_PER_M;
+    if (on === rotorsOn) return;
+    rotorsOn = on;
+    for (let ri = 0; ri < rotors.length; ri++) rotors[ri].visible = on;
+  }
+
   let disposed = false;
   function dispose(): void {
     if (disposed) return;
@@ -338,7 +362,8 @@ function createKitDrones(layout: LotLayout, palette: CityPalette, kit: Kit): Cit
     root.clear();
     for (const m of laneMats) m.dispose();
     laneMatDim.dispose();
+    rotorMat.dispose();
   }
 
-  return { object: root, update, dispose };
+  return { object: root, update, setDetail, dispose };
 }
