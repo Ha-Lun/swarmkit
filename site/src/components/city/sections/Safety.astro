@@ -1,0 +1,102 @@
+---
+---
+
+<section id="safety" class="city-section" aria-labelledby="safety-title">
+  <div class="safety-inner">
+    <h2 id="safety-title">What keeps workers in line</h2>
+    <ol class="safety-list">
+      <li>
+        <strong>Worktrees:</strong> every worker edits its own git worktree and branch; nothing reaches your branch until the orchestrator re-runs the tests and merges.
+      </li>
+      <li>
+        <strong>Shell allowlist:</strong> opencode workers may only run test and build runners and read-only commands; everything else is denied.
+      </li>
+      <li>
+        <strong>Edits stay inside the worktree:</strong> file edits outside it are denied (shell runners are not covered, so this is a guard, not a sandbox).
+      </li>
+      <li>
+        <strong>Circuit breaker:</strong> a worker that keeps hitting denied commands or failing tool calls is stopped and handed back to the orchestrator.
+      </li>
+      <li>
+        <strong>No secrets to cold workers:</strong> auth, secrets and data work stays on Claude subagents; <code>.env</code> files are never copied into a worktree.
+      </li>
+      <li>
+        <strong>Guards, not a sandbox:</strong> in Claude Code the guard hooks block obvious writes and fetch-and-run commands; a test runner can still run any code in your project.
+      </li>
+    </ol>
+    <p class="safety-source">Every claim here is in <code>scripts/agy-task</code> and <code>claude/hooks/guard.py</code>.</p>
+  </div>
+</section>
+
+<style>
+  .city-section {
+    background: var(--paper);
+    color: var(--blueprint-ink);
+    padding: var(--space-16) var(--space-6);
+    font-family: var(--font-display);
+  }
+  .safety-inner {
+    max-width: 62rem;
+    margin: 0 auto;
+  }
+  .city-section h2 {
+    margin: 0;
+    font-size: var(--text-xl);
+    line-height: var(--leading-tight);
+    letter-spacing: -0.01em;
+  }
+  .safety-list {
+    margin: var(--space-6) 0 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+  }
+  .safety-list li {
+    margin: 0;
+    padding: var(--space-4);
+    background: var(--blueprint-ink);
+    color: var(--paper);
+    border: 1px solid var(--blueprint-ink-2);
+    font-size: var(--text-base);
+    line-height: var(--leading-body);
+  }
+  .safety-list li strong {
+    font-weight: 700;
+  }
+  .safety-list li code,
+  .safety-source code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    white-space: nowrap;
+  }
+  .safety-source {
+    margin: var(--space-6) 0 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: var(--leading-body);
+  }
+  @media (max-width: 1024px) {
+    .safety-inner {
+      max-width: 44rem;
+    }
+  }
+  @media (max-width: 768px) {
+    .city-section {
+      padding: var(--space-12) var(--space-4);
+    }
+    .safety-list {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  @media (max-width: 390px) {
+    .city-section {
+      padding: var(--space-8) var(--space-4);
+    }
+    .safety-list li {
+      padding: var(--space-3);
+      font-size: var(--text-sm);
+    }
+  }
+</style>
