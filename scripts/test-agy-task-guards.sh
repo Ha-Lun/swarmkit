@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for the opencode-task guards: effort per model, circuit breaker, global cap, dispatch log.
+# Tests for the opencode-task guards: effort per model, circuit breaker, global cap, start banner, list, dispatch log.
 # A stub `opencode` on PATH emits the JSON-lines shape of `opencode run --format json` (no quota spent).
 set -euo pipefail
 TASK="$(cd "$(dirname "$0")" && pwd)/opencode-task"
@@ -66,6 +66,39 @@ for s in e1 e2 e3 e4; do "$TASK" clean $s --force; done
 [ "$(jq -r .permission.external_directory "$STUB_ARGS.cfg")" = deny ] || fail "--yolo lifted external_directory"
 for s in sc1 sc2; do "$TASK" clean $s --force; done
 
+# --- start banner on stderr, live list (model, elapsed, live denied count), finished list
+err=$("$TASK" start bn1 --effort high "PROMPT-SECRET" 2>&1 >/dev/null) || true
+echo "$err" | grep -q "^opencode-task ▶ bn1 · model $D · effort high · base $(git rev-parse --short HEAD) · log .*/bn1/opencode.log" \
+  || fail "start banner: $err"
+echo "$err" | grep -q PROMPT-SECRET && fail "banner leaks the prompt"
+err=$("$TASK" start bn2 "p" 2>&1 >/dev/null) || true
+echo "$err" | grep -q "· effort none ·" || fail "empty effort should print none: $err"
+err=$("$TASK" resume bn2 "again" 2>&1 >/dev/null) || true
+echo "$err" | grep -q "▶ bn2 · model $D · effort none .* · resume" || fail "resume banner: $err"
+"$TASK" list | grep -q "^bn1 .*muse-spark-1.3-contributor .*[0-9]s " || fail "list lacks model/wall: $("$TASK" list)"
+[ "$("$TASK" list | wc -l)" = 2 ] || fail "list is not one line per task"
+STUB_MODE=slow STUB_SLEEP=6 "$TASK" start bn3 --max-denied 0 "p" >/dev/null 2>&1 &
+sleep 3
+"$TASK" list | grep -Eq "^bn3 +running +muse-spark-1.3-contributor +0m0[0-9]s denied 0 " || fail "running list line: $("$TASK" list | grep bn3)"
+wait
+for s in bn1 bn2 bn3; do "$TASK" clean $s --force; done
+# live denied count: the deny stub hangs after 12 denied calls; with the breaker off the log shows them while it runs
+STUB_MODE=deny "$TASK" start bn4 --max-denied 0 --max-tool-errors 0 --timeout 8 "p" >/dev/null 2>&1 &
+sleep 4
+"$TASK" list | grep -Eq "^bn4 +running .* denied 12 " || fail "live denied count: $("$TASK" list | grep bn4)"
+wait
+"$TASK" clean bn4 --force
+# queueing prints once, then the banner when the slot frees
+export OPENCODE_TASK_MAX=1 STUB_MODE=slow STUB_SLEEP=3
+"$TASK" start q1 "p" >/dev/null 2>&1 &
+sleep 1
+err=$("$TASK" start q2 --wait "p" 2>&1 >/dev/null) || true
+wait
+[ "$(echo "$err" | grep -c 'q2 · queued (1 running)')" = 1 ] || fail "queued line: $err"
+echo "$err" | grep -q "▶ q2 · model" || fail "no banner after the queue: $err"
+for s in q1 q2; do "$TASK" clean $s --force; done
+unset OPENCODE_TASK_MAX STUB_MODE STUB_SLEEP
+
 # --- circuit breaker: the stub sends 12 denied calls, then hangs for 60 s
 t0=$SECONDS
 STUB_MODE=deny "$TASK" start cb1 "p" >/dev/null 2>&1 && fail "a stopped worker reported success"
@@ -113,16 +146,21 @@ unset OPENCODE_TASK_MAX STUB_MODE STUB_SLEEP
 export SWARMKIT_DISPATCH_LOG="$T/dispatch.jsonl"
 "$TASK" start dl1 "PROMPT-SECRET please" >/dev/null 2>&1 || true
 STUB_MODE=deny "$TASK" start dl2 "p" >/dev/null 2>&1 || true
-[ "$(wc -l < "$SWARMKIT_DISPATCH_LOG")" = 2 ] || fail "expected one log line per finished task"
-jq -e 'keys == ["cli","denied","ok","slug","stopped_by","tokens","ts","wall_s"]' "$SWARMKIT_DISPATCH_LOG" >/dev/null || fail "log fields not the allowlist"
-jq -es '.[0] | .cli == "opencode" and .slug == "dl1" and .denied == 0 and .tokens == 116 and .stopped_by == null
+[ "$(wc -l < "$SWARMKIT_DISPATCH_LOG")" = 4 ] || fail "expected a start and a finish line per task"
+jq -es '[.[] | select(.event == "start")] | length == 2 and all(.[]; keys == ["cli","effort","event","model","slug","ts"])' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
+  || fail "start lines not the allowlist"
+jq -es '[.[] | select(.event == "finish")] | length == 2 and all(.[]; keys == ["cli","denied","event","model","ok","slug","stopped_by","tokens","ts","wall_s"])' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
+  || fail "finish lines not the allowlist"
+jq -es '.[0] | .event == "start" and .cli == "opencode" and .slug == "dl1" and .model == "'"$D"'" and .effort == null' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
+  || fail "start log line: $(head -1 "$SWARMKIT_DISPATCH_LOG")"
+jq -es '[.[] | select(.event == "finish")] | .[0] | .cli == "opencode" and .slug == "dl1" and .model == "'"$D"'" and .denied == 0 and .tokens == 116 and .stopped_by == null
         and (.ts | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$")) and (.wall_s | type == "number")' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
-  || fail "first log line: $(head -1 "$SWARMKIT_DISPATCH_LOG")"
-jq -es '.[1] | .ok == false and .slug == "dl2" and .denied >= 10 and .stopped_by == "max-denied"' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
-  || fail "second log line: $(tail -1 "$SWARMKIT_DISPATCH_LOG")"
+  || fail "first finish line"
+jq -es '[.[] | select(.event == "finish")] | .[1] | .ok == false and .slug == "dl2" and .denied >= 10 and .stopped_by == "max-denied"' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
+  || fail "second finish line: $(tail -1 "$SWARMKIT_DISPATCH_LOG")"
 grep -Eq "PROMPT-SECRET|$T|/secret|cat >" "$SWARMKIT_DISPATCH_LOG" && fail "log leaks a prompt, path or command"
 unset SWARMKIT_DISPATCH_LOG
 "$TASK" start dl3 "p" >/dev/null 2>&1 || true
-[ "$(wc -l < "$T/dispatch.jsonl")" = 2 ] || fail "logged without SWARMKIT_DISPATCH_LOG"
+[ "$(wc -l < "$T/dispatch.jsonl")" = 4 ] || fail "logged without SWARMKIT_DISPATCH_LOG"
 for s in dl1 dl2 dl3; do "$TASK" clean $s --force; done
 echo "ok"

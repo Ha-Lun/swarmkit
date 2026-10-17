@@ -30,8 +30,12 @@ a max-denied worker; take the task over. 0 disables a limit; agy is not watched.
 from a small table (currently empty); a model not in the table gets no effort suffix, since a variant
 a model lacks fails the whole run (muse rejects `max`). --effort "" forces none. Resume reuses the model and effort of start.
 
-$SWARMKIT_DISPATCH_LOG=FILE: one JSON line is appended per finished task with only ts, cli, slug, ok,
-denied (count), tokens (total or null), wall_s and stopped_by (null | max-denied | max-tool-errors | timeout).
+start and resume print one banner line to stderr before the worker launches (slug, model, effort, base, log);
+the log is written live, and list shows model, elapsed time or wall seconds and (opencode) the live denied count.
+
+$SWARMKIT_DISPATCH_LOG=FILE: JSON lines with only allowlisted fields. At launch: ts, event "start", cli, slug,
+model, effort. Per finished task: ts, event "finish", cli, slug, model, ok, denied (count), tokens (total or
+null), wall_s and stopped_by (null | max-denied | max-tool-errors | timeout).
 
 The running-task limit is shared: agy and opencode tasks of all repos together never exceed it
 (the limit itself is read from the invoked backend's *_TASK_MAX). list and clean stay per repo.
@@ -234,14 +238,13 @@ def main_state(repo):
     return state
 
 
-def dispatch_log(slug, ok, res, stopped_by, wall):
-    """Append one allowlisted line per finished task to $SWARMKIT_DISPATCH_LOG: no prompt, path or command."""
-    path, u = os.environ.get("SWARMKIT_DISPATCH_LOG"), res["usage"]
+def dispatch_log(event, slug, model, **fields):
+    """Append one allowlisted line per event to $SWARMKIT_DISPATCH_LOG: no prompt, path or command."""
+    path = os.environ.get("SWARMKIT_DISPATCH_LOG")
     if not path:
         return
-    tokens = u.get("total_tokens", sum(v for v in u.values() if isinstance(v, int))) if isinstance(u, dict) and u else None
-    line = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "cli": CLI, "slug": slug, "ok": ok,
-            "denied": len(res["denied"]), "tokens": tokens, "wall_s": round(wall), "stopped_by": stopped_by}
+    line = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "event": event, "cli": CLI, "slug": slug,
+            "model": model, **fields}
     try:
         with open(path, "a") as f:
             f.write(json.dumps(line) + "\n")
@@ -249,10 +252,48 @@ def dispatch_log(slug, ok, res, stopped_by, wall):
         print(f"{PROG}: WARNING: dispatch log not written: {e}", file=sys.stderr)
 
 
+def list_extra(d, r, running):
+    """Model, elapsed (running) or wall seconds (finished) and the live denied count, as a column prefix."""
+    try:
+        o = json.loads((d / "opts.json").read_text())
+    except (OSError, ValueError):
+        o = {}
+    model = (r.get("model") or o.get("model") or "?").removeprefix("opencode-go/")  # other providers stay visible
+    if running:
+        n = int(time.time() - (d / "pid").stat().st_mtime)
+        t = f"{n // 3600}h{n % 3600 // 60:02}m" if n >= 3600 else f"{n // 60}m{n % 60:02}s"
+    else:
+        t = f"{r['wall_s']}s" if "wall_s" in r else "-"
+    denied = ""
+    if running and CLI == "opencode":  # the log is written live
+        try:
+            n = sum(tool_failure(line)[1] for line in (d / "opencode.log").read_text().splitlines())
+        except OSError:
+            n = 0
+        denied = f"denied {n} "
+    elif r.get("denied_actions"):
+        denied = f"denied {len(r['denied_actions'])} "
+    return f"{model:27.27} {t:>6} {denied}"
+
+
+def banner(task, o, resume_id):
+    """One stderr line when a worker launches, so the owner can see which model runs where."""
+    home = str(Path.home())
+    log = str(task / f"{CLI}.log")
+    log = "~" + log[len(home):] if log.startswith(home + "/") else log
+    base = (task / "base").read_text().strip()[:7]
+    print(f"{PROG} \u25b6 {task.name} \u00b7 model {o.get('model') or 'unknown'} \u00b7 effort {o.get('effort') or 'none'}"
+          f" \u00b7 base {base} \u00b7 log {log}" + (" \u00b7 resume" if resume_id else ""), file=sys.stderr)
+
+
 def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     wt, t0 = task / "worktree", time.monotonic()
     (task / "pid").write_text(str(os.getpid()))
+    o = remembered_opts(task, a, resume_id)
     cmd = BACKEND["cmd"](task, prompt, a, resume_id)
+    banner(task, o, resume_id)
+    dispatch_log("start", task.name, o.get("model"), effort=o.get("effort") or None)
+    logf = open(task / f"{CLI}.log", "w")  # live, so `tail -f` and `list` work; rewritten in order at the end
     main_before = main_state(repo)
     # Own process group so a SIGTERM/SIGINT to us (or a timeout) takes the agent and its tools down too.
     env = BACKEND["proc_env"](a, wt) if "proc_env" in BACKEND else None
@@ -284,6 +325,8 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     def pump(stream, buf, on_line=None):  # drain a pipe while the agent runs, so we can react mid-run
         for line in stream:
             buf.append(line)
+            logf.write(line)
+            logf.flush()
             if on_line:
                 on_line(line)
     readers = [threading.Thread(target=pump, args=(p.stdout, bufs["out"], watch if "watch" in BACKEND else None), daemon=True),
@@ -314,6 +357,7 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     out, err = "".join(bufs["out"]), "".join(bufs["err"])
     code = p.returncode
     (task / "pid").unlink(missing_ok=True)
+    logf.close()
     (task / f"{CLI}.log").write_text(f"{err}\n{out}")
     res = BACKEND["parse"](out, err)
     warnings = list(warnings)
@@ -345,12 +389,16 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     incomplete = any(w.startswith(("interrupted", "timed out", "stopped", "commit failed")) for w in warnings)
     produced = bool(res["response"].strip()) if review else changed != "no changes"
     ok = res["done"] and not denied and code == 0 and not incomplete and produced
-    result = {"ok": ok, "slug": task.name, "branch": f"{CLI}/{task.name}", "worktree": str(wt), "review": review,
+    wall = time.monotonic() - t0
+    result = {"ok": ok, "slug": task.name, "model": o.get("model"), "wall_s": round(wall), "branch": f"{CLI}/{task.name}", "worktree": str(wt), "review": review,
               "base": base, "changes": changed, "denied_actions": denied, "warnings": warnings,
               "conversation_id": res["conversation_id"], "stopped_by": stopped_by, "exit_code": code, "usage": res["usage"],
               "response": res["response"], "stderr": err.strip()[-500:]}
     (task / "result.json").write_text(json.dumps(result, indent=2))
-    dispatch_log(task.name, ok, res, stopped_by, time.monotonic() - t0)
+    u = res["usage"]
+    tokens = u.get("total_tokens", sum(v for v in u.values() if isinstance(v, int))) if isinstance(u, dict) and u else None
+    dispatch_log("finish", task.name, o.get("model"), ok=ok, denied=len(denied), tokens=tokens,
+                 wall_s=round(wall), stopped_by=stopped_by)
     hint = " (resume it: use file view/edit tools only, no shell)" if CLI == "agy" else ""
     note = (f" DENIED: {', '.join(denied)}{hint}" if denied else "") \
         + "".join(f" WARNING: {w}" for w in warnings)
@@ -390,8 +438,9 @@ def main():
     if a.cmd == "list":
         for d in sorted(root.glob("*/")) if root.exists() else []:
             r = json.loads((d / "result.json").read_text()) if (d / "result.json").exists() else {}
-            state = "running" if alive(d / "pid") else ("ok" if r.get("ok") else "NOT ok" if r else "unfinished")
-            print(f"{d.name:24} {state:10} {r.get('changes', '')}")
+            run = alive(d / "pid")
+            state = "running" if run else ("ok" if r.get("ok") else "NOT ok" if r else "unfinished")
+            print(f"{d.name:18} {state:10} {list_extra(d, r, run)}{r.get('changes', '')}")
         return 0
     if not a.slug or not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,40}", a.slug):
         sys.exit(f"{PROG}: slug must be lowercase letters, digits, . _ - (max 41 chars)")
@@ -415,6 +464,7 @@ def main():
     # --wait callers cannot all see the same free slot; the claim is the pid file written below.
     cap = int(os.environ.get(f"{BACKEND['env']}_MAX", 3))
     lock = open(Path.home() / ".swarmkit-task.lock", "a")
+    queued = False
     while True:
         fcntl.flock(lock, fcntl.LOCK_EX)
         running = [f for b in BACKENDS.values() for f in base(b).glob("*/*/pid") if alive(f)]
@@ -423,6 +473,9 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_UN)
         if not a.wait:
             sys.exit(f"{PROG}: {len(running)} delegated tasks already running (all backends and repos); wait for one, or pass --wait")
+        if not queued:
+            print(f"{PROG} \u25b6 {a.slug} \u00b7 queued ({len(running)} running)", file=sys.stderr)
+            queued = True
         time.sleep(10)
     def claim(task):
         (task / "pid").write_text(str(os.getpid()))
