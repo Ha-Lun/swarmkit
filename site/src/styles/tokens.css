@@ -1,7 +1,7 @@
-/* Design tokens for SwarmKit City (BRIEF section 8). Proposed at Phase 0, gate G1: pending human approval.
+/* Design tokens for SwarmKit City (BRIEF section 8).
    Paper and blueprint neutrals, warm golden-hour light, one accent per lane, a status pair.
-   The legacy names (--ink, --ink-2, --wax, --wax-dim, --text, --accent) are kept so existing
-   files keep building; they now map onto the City palette. Prefer the new names in new code. */
+   The legacy names (--ink, --wax, --text) map onto the City palette for the base layer
+   and the skip link; prefer the new names in new code. */
 
 @font-face {
   font-family: 'Space Grotesk';
@@ -35,7 +35,6 @@
   --blueprint-line-soft: #8fb4e3; /* secondary text and lines on navy */
   --blueprint-line-dim: #4f6d99;  /* disabled / quiet lines on navy */
   --light-warm: #ffc77a;     /* golden-hour key light colour */
-  --light-warm-low: #ff9a4d; /* low sun, long-shadow side */
   --light-cool: #9cc3ee;     /* sky fill */
 
   /* one accent per lane (colour-vision safe: yellow-orange, blue-green) */
@@ -46,13 +45,10 @@
   --status-ok: #4f9d2f;
   --status-fail: #d6443b;
 
-  /* legacy names, mapped onto the City palette (dark blueprint theme, as the current site uses) */
+  /* legacy names, mapped onto the City palette for the base layer and the skip link */
   --ink: var(--blueprint-ink);
-  --ink-2: var(--blueprint-ink-2);
   --wax: var(--blueprint-line-soft);
-  --wax-dim: var(--blueprint-line-dim);
   --text: var(--paper);
-  --accent: var(--lane-agy); /* only world/world.ts reads this; retired with the globe code */
 
   /* type */
   --font-display: 'Space Grotesk', system-ui, sans-serif;
@@ -63,7 +59,6 @@
   --text-lg: 1.25rem;
   --text-xl: 1.75rem;
   --text-2xl: 2.5rem;
-  --text-3xl: clamp(2.5rem, 6vw, 4.5rem);
   --leading-tight: 1.1;
   --leading-body: 1.5;
 

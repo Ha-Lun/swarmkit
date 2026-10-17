@@ -14,8 +14,6 @@ const NONE = 'not recorded yet';
 // The two vendor lanes always get a cell; a lane with no logged task says so instead of showing a bare 0.
 const laneCell = (lane: string): string => (!hasWorkers ? NONE : workers.byLane[lane] ? String(workers.byLane[lane]) : 'none logged');
 const lanes = ['opencode', 'agy'];
-const lastEvents = log.events.slice(-8).reverse();
-const clip = (t: string, max = 180): string => (t.length > max ? `${t.slice(0, max - 3).replace(/\s+\S*$/, '')}...` : t);
 const headline = hasWorkers && hasLog
   ? `${lanes.map((l) => (workers.byLane[l] ? `${workers.byLane[l]} ${l} tasks` : `no ${l} tasks logged`)).join(', ')}, ${log.dispatches} Claude subagents, ${log.interventions} human interventions`
   : null;
@@ -56,23 +54,6 @@ const headline = hasWorkers && hasLog
         </ul>
         <p>{workers.modelRecorded} of {workers.tasks} worker tasks name their model; earlier rows predate that field.</p>
       </>
-    ) : (
-      <p>{NONE}</p>
-    )}
-  </div>
-
-  <div class="buildlog-timeline">
-    <h3>Recent timeline</h3>
-    {lastEvents.length > 0 ? (
-      <ol>
-        {lastEvents.map((e) => (
-          <li>
-            {e.ts ? <time datetime={e.ts}>{e.ts.slice(0, 10)}</time> : <span>date unknown</span>}
-            <span class="buildlog-actor">{e.actor}</span>
-            <span class="buildlog-text">{clip(e.text)}</span>
-          </li>
-        ))}
-      </ol>
     ) : (
       <p>{NONE}</p>
     )}
@@ -127,12 +108,10 @@ const headline = hasWorkers && hasLog
   .buildlog-break {
     margin-top: var(--space-4);
   }
-  .buildlog-models,
-  .buildlog-timeline {
+  .buildlog-models {
     margin-top: var(--space-8);
   }
-  .buildlog-models h3,
-  .buildlog-timeline h3 {
+  .buildlog-models h3 {
     margin: 0;
     font-size: var(--text-base);
     line-height: var(--leading-tight);
@@ -153,43 +132,9 @@ const headline = hasWorkers && hasLog
     font-size: var(--text-sm);
     overflow-wrap: anywhere;
   }
-  .buildlog-models p,
-  .buildlog-timeline p {
+  .buildlog-models p {
     margin: var(--space-3) 0 0;
     font-size: var(--text-sm);
-  }
-  .buildlog-timeline ol {
-    display: grid;
-    gap: var(--space-2);
-    margin: var(--space-3) 0 0;
-    padding: 0;
-    list-style: none;
-  }
-  .buildlog-timeline li {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--space-2) var(--space-3);
-    padding: var(--space-3) var(--space-4);
-    background: var(--blueprint-ink);
-    color: var(--paper);
-    font-size: var(--text-sm);
-    line-height: var(--leading-body);
-  }
-  .buildlog-text {
-    flex: 1 1 18rem;
-    min-width: 0;
-  }
-  .buildlog-timeline time {
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    color: var(--blueprint-line-soft);
-  }
-  .buildlog-actor {
-    padding: 0 var(--space-2);
-    border: 1px solid var(--blueprint-line);
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
   }
   @media (max-width: 480px) {
     .buildlog-stats {

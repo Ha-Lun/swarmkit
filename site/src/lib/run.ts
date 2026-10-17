@@ -142,13 +142,3 @@ export function loadFeaturedRun(): FeaturedRun | null {
   }
   return run as FeaturedRun;
 }
-
-/** Event positions in 0..1: t / wall_s when every event has a time, else order index over length. */
-export function timelineOf(run: Pick<FeaturedRun, 'events' | 'wall_s'>): number[] {
-  const { events, wall_s } = run;
-  const timed = wall_s > 0 && events.every((e) => typeof e.t === 'number');
-  return events.map((e, i) => {
-    const p = timed ? (e.t as number) / wall_s : events.length > 1 ? i / (events.length - 1) : 0;
-    return Math.min(1, Math.max(0, p));
-  });
-}

@@ -18,10 +18,8 @@ import argparse, datetime, importlib.util, json, os, re, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
-import privacy
 from privacy import check_private, PrivacyError
 LANES = ("agy", "opencode")  # the Codex lane was removed from the project; its events never reach the file
-PARSE_LANES = LANES + ("codex",)  # still recognised in transcripts so they can be dropped on purpose
 PLAN_APPROVALS = ("automatic", "human")
 MAX_EARLIER, MAX_EARLIER_LEN = 5, 100
 SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
@@ -33,9 +31,6 @@ TITLES = {
     "scaffold": "Implement eight independent modules against their failing tests",
 }
 CASES = set(TITLES)
-VARIANTS = {"vanilla", "slim", "lead-dev", "hybrid", "hybrid-workflow"}
-MODEL_RE = re.compile(r"^claude-[a-z0-9.-]{1,40}$")
-MAX_STR = privacy.MAX_STR
 
 
 class ValidationError(SystemExit, ValueError):
@@ -410,9 +405,9 @@ def export(compare, case, variant, repeat, results_dir, meta=None):
         raise ValidationError(f"unknown case: {case}")
     meta = run_meta() if meta is None else meta
     run, rec = find_run(compare, case, variant, repeat, results_dir)
-    if rec["variant"] not in VARIANTS:
+    if rec["variant"] not in bench.VARIANT_ORDER:
         raise ValidationError(f"unknown variant: {rec['variant']}")
-    if not MODEL_RE.fullmatch(rec.get("model") or ""):
+    if not bench.MODEL_RE.fullmatch(rec.get("model") or ""):
         raise ValidationError(f"weird model string: {rec.get('model')}")
     path = bench.raw_path(run, results_dir)
     if not path:

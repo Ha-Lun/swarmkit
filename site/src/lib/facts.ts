@@ -2,7 +2,7 @@
 // number and list shown on the site.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { frontmatter, loadAgents, scalar } from './agents';
+import { loadAgents } from './agents';
 
 const root = resolve(process.cwd(), '..');
 
@@ -10,7 +10,6 @@ export const repoUrl = 'https://github.com/ha-lun/swarmkit';
 
 export interface Flag { flag: string; args: string; description: string }
 export interface Pack { name: string; count: number }
-export interface Command { name: string; description: string }
 export interface Platform { name: string; flag: string; summary: string }
 
 function skills(): string[] {
@@ -24,17 +23,6 @@ function skills(): string[] {
 function mcpServers(): string[] {
   const json = JSON.parse(readFileSync(resolve(root, 'core/mcp.json'), 'utf8'));
   return Object.keys(json.mcpServers).sort();
-}
-
-function commands(): Command[] {
-  const dir = resolve(root, 'opencode/command');
-  return readdirSync(dir)
-    .filter((f) => f.endsWith('.md'))
-    .sort()
-    .map((f) => ({
-      name: `/${f.replace(/\.md$/, '')}`,
-      description: scalar(frontmatter(readFileSync(resolve(dir, f), 'utf8')), 'description'),
-    }));
 }
 
 // Flags are documented in the header comment of install.sh: `#   --flag [<arg>] [arg]  Description`, continued on the
@@ -70,9 +58,7 @@ export const facts = {
   agents,
   skills: skills(),
   mcpServers: mcpServers(),
-  commands: commands(),
   flags: installFlags(),
   packs: packs(),
-  coreAgents: agents.filter((a) => a.pack === 'core').length,
   platforms,
 };
