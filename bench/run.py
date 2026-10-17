@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SwarmKit benchmark: prove the config works in Claude Code, Antigravity, OpenCode and Codex.
+"""SwarmKit benchmark: prove the config works in Claude Code, Antigravity and OpenCode.
 
   python3 bench/run.py                         static tier (free, deterministic)
   python3 bench/run.py --installed             + check the install symlinks
@@ -20,7 +20,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import tomllib
 
 import yaml
 
@@ -28,12 +27,12 @@ BENCH = os.path.dirname(os.path.abspath(__file__))
 TTY = sys.stdout.isatty()
 COLOURS = {'PASS': '32', 'FAIL': '31', 'SKIP': '33', 'WARN': '33'}
 GEN = ['claude/agents', 'claude/packs', 'claude/CLAUDE.md', 'opencode/agents', 'opencode/AGENTS.md',
-       'antigravity/plugins/swarmkit', 'codex/agents', 'codex/AGENTS.md']
-SRC = ['core', 'scripts', 'claude/rules.md', 'opencode/rules.md', 'antigravity/rules.md', 'codex/rules.md']
+       'antigravity/plugins/swarmkit']
+SRC = ['core', 'scripts', 'claude/rules.md', 'opencode/rules.md', 'antigravity/rules.md']
 AGENT_DIRS = {'core': 'core/agents', 'claude': 'claude/agents', 'opencode': 'opencode/agents',
-              'antigravity': 'antigravity/plugins/swarmkit/agents', 'codex': 'codex/agents'}
+              'antigravity': 'antigravity/plugins/swarmkit/agents'}
 RULES = {'claude': 'claude/CLAUDE.md', 'opencode': 'opencode/AGENTS.md',
-         'antigravity': 'antigravity/plugins/swarmkit/rules/AGENTS.md', 'codex': 'codex/AGENTS.md'}
+         'antigravity': 'antigravity/plugins/swarmkit/rules/AGENTS.md'}
 CLAUDE_TOOLS = {'Read', 'Glob', 'Grep', 'Edit', 'Write', 'Bash', 'WebFetch', 'WebSearch', 'Agent',
                 'TodoWrite', 'AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode', 'Workflow'}
 AGY_ONLY = ['write_to_file', 'ask_question', 'invoke_subagent', 'appDataDir', 'ArtifactMetadata']
@@ -60,9 +59,6 @@ def read(path):
 
 
 def frontmatter(path):
-    if path.endswith('.toml'):  # Codex agents: TOML, the body is developer_instructions
-        fm = tomllib.loads(read(path))
-        return fm, fm.get('developer_instructions', '')
     parts = read(path).split('---\n', 2)
     if len(parts) < 3 or parts[0].strip():
         raise ValueError('no frontmatter block')
@@ -74,8 +70,7 @@ def frontmatter(path):
 
 def agent_files(repo, cli):
     # Claude ships core agents in claude/agents and the rest in claude/packs/<pack>/agents.
-    ext = 'toml' if cli == 'codex' else 'md'
-    pats = [f'{repo}/{AGENT_DIRS[cli]}/*.{ext}'] + ([f'{repo}/claude/packs/*/agents/*.md'] if cli == 'claude' else [])
+    pats = [f'{repo}/{AGENT_DIRS[cli]}/*.md'] + ([f'{repo}/claude/packs/*/agents/*.md'] if cli == 'claude' else [])
     return {os.path.basename(p).rsplit('.', 1)[0]: p for pat in pats for p in sorted(glob.glob(pat))}
 
 
@@ -142,11 +137,11 @@ def s2_roster(repo):
     cat = 'S2 roster parity'
     files = {cli: agent_files(repo, cli) for cli in AGENT_DIRS}
     base = set(files['core'])
-    for cli in ('claude', 'opencode', 'antigravity', 'codex'):
+    for cli in ('claude', 'opencode', 'antigravity'):
         missing, extra = sorted(base - set(files[cli])), sorted(set(files[cli]) - base)
         rec(cat, f'{cli} roster == core ({len(base)} agents)', not missing and not extra,
             '; '.join(filter(None, [missing and f'missing {missing}', extra and f'extra {extra}'])))
-    for cli in ('claude', 'opencode', 'antigravity', 'codex'):
+    for cli in ('claude', 'opencode', 'antigravity'):
         errors = []
         for name, path in files[cli].items():
             try:
@@ -160,10 +155,6 @@ def s2_roster(repo):
                 errors.append(f'{name}: name field {fm.get("name")!r}')
             if cli == 'claude' and fm.get('model') not in ('haiku', 'sonnet', 'opus', 'inherit'):
                 errors.append(f'{name}: model {fm.get("model")!r}')
-            if cli == 'codex' and fm.get('model_reasoning_effort') not in ('low', 'medium', 'high'):
-                errors.append(f'{name}: effort {fm.get("model_reasoning_effort")!r}')
-            if cli == 'codex' and not str(fm.get('developer_instructions') or '').strip():
-                errors.append(f'{name}: empty developer_instructions')
         rec(cat, f'{cli} frontmatter valid, descriptions set' + (', models valid' if cli == 'claude' else ''),
             not errors, '; '.join(errors[:4]))
 
@@ -173,12 +164,12 @@ def s3_signals(repo):
     trigger = re.compile(r'\bproactively\b|\buse (?:it |this agent )?when(?:ever)?\b', re.I)
     # Core agents (claude/agents) keep one-line descriptions; pack specialists need trigger wording.
     lacking = [n for n, p in agent_files(repo, 'claude').items()
-               if '/packs/' in p and n not in ('lead-dev', 'lead-dev-hybrid') and not trigger.search(frontmatter(p)[0].get('description', ''))]
+               if '/packs/' in p and n != 'lead-dev-hybrid' and not trigger.search(frontmatter(p)[0].get('description', ''))]
     rec(cat, 'every Claude pack specialist description has trigger wording', not lacking,
         f'no "proactively"/"Use when" in: {", ".join(lacking)}' if lacking else '')
-    for cli in ('claude', 'antigravity', 'codex'):
-        desc = frontmatter(agent_files(repo, cli)['lead-dev'])[0].get('description', '')
-        rec(cat, f'{cli} lead-dev description forbids subagent use',
+    for cli in ('claude', 'antigravity'):
+        desc = frontmatter(agent_files(repo, cli)['lead-dev-hybrid'])[0].get('description', '')
+        rec(cat, f'{cli} lead-dev-hybrid description forbids subagent use',
             bool(re.search(r'never (?:delegate|invoke)', desc, re.I) and 'subagent' in desc))
     for cli, rel in RULES.items():
         rec(cat, f'{cli} rules say never to wait for approval when non-interactive', 'never wait' in read(f'{repo}/{rel}'))
@@ -241,7 +232,7 @@ def s6_rules(repo, cfg):
     known = skills | set(agent_files(repo, 'core')) | set(cfg.get('external_skills', [])) | {
         os.path.basename(p)[:-3] for p in glob.glob(f'{repo}/opencode/command/*.md')}
     texts = [read(f'{repo}/{r}') for r in RULES.values()]
-    texts += [frontmatter(p)[1] for cli in ('claude', 'opencode', 'antigravity', 'codex')
+    texts += [frontmatter(p)[1] for cli in ('claude', 'opencode', 'antigravity')
               for p in agent_files(repo, cli).values()]
     refs = set().union(*map(skill_refs, texts))
     dead = sorted(refs - known)
@@ -255,7 +246,7 @@ def s7_native(repo):
     if shutil.which('agy'):
         rc, out, err, _ = run(['agy', 'plugin', 'validate', f'{repo}/antigravity/plugins/swarmkit'], timeout=60)
         text = re.sub(r'\x1b\[[0-9;]*m', '', out + err)
-        m = re.search(r'agents\s*:\s*(\d+) processed', text)
+        m = re.search(r'agents\s*:?\s*(\d+)', text)  # agy 2026 prints "agents 33 ·" (older builds: "agents: 33 processed")
         got = int(m.group(1)) if m else None
         rec(cat, 'agy plugin validate', rc == 0 and got == n_agents, f'agents {got} processed, expected {n_agents}')
     else:
@@ -308,9 +299,7 @@ def s8_installed(repo):
              ('.config/opencode/agents', 'opencode/agents', 'opencode', True),
              ('.config/opencode/command', 'opencode/command', 'opencode', True),
              ('.config/opencode/opencode.jsonc', 'opencode/opencode.jsonc', 'opencode', False),
-             ('.gemini/config/plugins/swarmkit', 'antigravity/plugins/swarmkit', 'agy', False),
-             ('.codex/AGENTS.md', 'codex/AGENTS.md', 'codex', False),
-             ('.codex/agents', 'codex/agents', 'codex', True)]
+             ('.gemini/config/plugins/swarmkit', 'antigravity/plugins/swarmkit', 'agy', False)]
     real_repo = os.path.realpath(repo)
     for rel, target, flag, per_file in links:
         path = os.path.join(home, rel)
@@ -518,7 +507,7 @@ def opencode_manual(spec, cases, ts):
     shutil.rmtree(fx_root, ignore_errors=True)
     lines = ['# OpenCode manual delegation checklist', '',
              f'Generated {ts}. OpenCode\'s free tier refuses non-interactive runs, so run these by hand in the TUI.', '',
-             '1. `cd` into the fixture directory listed for the case and start `opencode` (default agent: lead-dev).',
+             '1. `cd` into the fixture directory listed for the case and start `opencode` (default agent: lead-dev-hybrid).',
              '2. Paste the prompt exactly.',
              '3. A delegation shows up as a `task` tool call naming the subagent (the subagent session is listed '
              'under the message). No `task` call means it answered inline.',

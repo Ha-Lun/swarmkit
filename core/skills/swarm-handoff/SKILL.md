@@ -1,6 +1,6 @@
 ---
 name: swarm-handoff
-description: Use when coordinating multi-agent workflows, passing context between specialist agents, or structuring handoff documentation between agents in a development swarm. The only skill used by the lead-dev orchestrator.
+description: Use when coordinating multi-agent workflows, passing context between specialist agents, or structuring handoff documentation between agents in a development swarm. The only skill used by the lead-dev-hybrid orchestrator.
 ---
 
 # Swarm Handoff
@@ -55,13 +55,13 @@ Actionable instructions for the receiving agent:
 Standard quality gate sequence before production:
 
 ```
-lead-dev (synthesis)
+orchestrator (synthesis)
   → security-auditor (review)
-  → lead-dev (apply security fixes if any)
+  → orchestrator (apply security fixes if any)
   → release-tester (validate)
-  → lead-dev (fix test failures if any)
+  → orchestrator (fix test failures if any)
   → git-specialist (verify readiness)
-  → lead-dev (final summary to user)
+  → orchestrator (final summary to user)
 ```
 
 ## Conflict resolution

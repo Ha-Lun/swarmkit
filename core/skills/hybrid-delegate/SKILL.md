@@ -29,8 +29,10 @@ Everything else in the approved plan goes to a worker.
    |---|---|
    | Implementation where the worker should run its own tests | `opencode-task` (free `opencode-go/` model) |
    | Bulk edits / boilerplate where you run the tests | `agy-task` (default `gemini-3.8-flash-high`; `--model claude-sonnet-4-6` for harder logic) |
-   | Second opinion on your own diff | `agy-task --review --model claude-sonnet-4-6`, or `codex-task --review` if Codex is installed |
+   | Second opinion on your own diff | `agy-task --review --model claude-sonnet-4-6` |
    | Context-dependent work that cannot be handed off cold | Your own `Agent` subagents (Claude lane) |
+
+   The wrapper prints a start banner (slug, model, effort, base, log) on stderr, and `list` shows each task's model, elapsed time and live denied count.
 
    Prompt additions that avoid wasted resumes: tell opencode workers "you are already in the worktree; do not `cd`", give them the exact verify command (`node test/x.test.js`, `npm test -- src/x`), and tell agy workers "file view/search/edit tools only, no shell".
 5. **Keep slots full.** Start workers with a background Bash call. The running-task limit is **shared across all backends**; the wrapper reads it from the invoked backend's `*_TASK_MAX` (default 3). Do not treat it as 3 per backend. When a task lands and is merged or discarded, immediately start the next queued task so both quotas stay busy.
@@ -38,9 +40,9 @@ Everything else in the approved plan goes to a worker.
    - Trust only `ok` in `result.json`; `agy` reports `SUCCESS` even when blocked.
    - Read `git diff <base>..<cli>/<slug>`; the diff is the truth. An agy task that is `NOT ok` only because it tried a shell command (denied `RunCommand`) but produced a diff is not a failure: review the diff and run the verify command yourself instead of resuming.
    - Rerun the verify command in the worktree yourself.
-   - If something is wrong, `resume` once with concrete feedback (file, line, expected behaviour).
+   - If something is wrong, `resume` once with concrete feedback (file, line, expected behaviour). `opencode-task` kills a worker at `--max-denied` (10) denied commands or `--max-tool-errors` (20) failed tool calls and records `stopped_by` in `result.json` (`max-denied`, `max-tool-errors`, `timeout`). One resume is allowed after any stop, `max-denied` included, when the worker's edits are worth keeping: the prompt lists the exact problems to fix and forbids the shell commands that were denied (only the plan's test command allowed). If the resumed worker fails or is stopped again, take the task over yourself (a subagent or another lane); never resume twice.
    - `git merge <cli>/<slug>`, then `<cli>-task clean <slug>`.
-7. **Cheap second opinion before you report.** Your own review reads diffs on Claude quota; a different model catches different mistakes on other quota. For merged logic of more than ~50 lines, run `agy-task start review-<n> --review --model claude-sonnet-4-6` on the merged diff (or `codex-task --review`) and read only its findings. Skip it for boilerplate and renames.
+7. **Cheap second opinion before you report.** Your own review reads diffs on Claude quota; a different model catches different mistakes on other quota. For merged logic of more than ~50 lines, run `agy-task start review-<n> --review --model claude-sonnet-4-6` on the merged diff and read only its findings. Skip it for boilerplate and renames.
 8. **After the last merge:** run the full test suite, then apply the usual quality gate (`security-auditor`, `code-proofreader`, `release-tester` as the change requires). Report to the user which parts went to which worker/backend.
 
 ## Workflow mode
@@ -50,6 +52,7 @@ With the `Workflow` tool available (dynamic workflows on) and 3 or more tasks, r
 ## Safety facts
 
 - The wrappers are guards, not sandboxes. `agy --yolo` and `opencode --yolo` are unsandboxed.
+- `opencode-task` denies file-tool access outside the worktree (`external_directory`), but its allowed shell runners can still write anywhere: a guard against stray edits, not a boundary.
 - Never copy `.env` or other secrets into a worktree.
 - Only send client repos to a provider the user has OK'd.
 - Use `--setup` only for linking or installing dependencies.

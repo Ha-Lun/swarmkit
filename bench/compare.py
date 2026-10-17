@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Compare Claude Code variants on one implementation task.
 
-Variants (--variants, comma-separated; default is all five):
+Variants (--variants, comma-separated; default is all four):
   vanilla          Claude Code with no agents, skills or rules: a temp config dir with auth and settings only
   slim             your installed config (slim core + swarm pack), plain session, no --agent (alias: stock)
-  lead-dev         installed config, --agent lead-dev
   hybrid           installed config, --agent lead-dev-hybrid, dynamic workflows off: it runs the wrappers by hand
   hybrid-workflow  as hybrid, dynamic workflows on and the saved hybrid-build workflow in the fixture
 
@@ -62,17 +61,16 @@ CASES = {
 }
 SUFFIX = ("Non-interactive bench run: the plan is already approved, so do not enter plan mode, ask questions or "
           "wait for approval; decide and proceed. Done when `{verify}` exits 0.")
-SHOWCASE_ASK = ("Plan this first and get approval, then implement it using your headless worker lanes (both opencode "
+SHOWCASE_ASK =("Plan this first and get approval, then implement it using your headless worker lanes (both opencode "
                 "and agy, whichever fits each module), and have the result cross-reviewed by a different model "
                 "before you finish.")
 SHOWCASE_SUFFIX = ("This is a recorded non-interactive run: nobody is at the keyboard, so your plan is approved "
                    "automatically when you submit it with ExitPlanMode (do not use AskUserQuestion, nobody can answer; "
                    "decide and proceed). Done when `{verify}` exits 0.")
-VARIANTS = ["vanilla", "slim", "lead-dev", "hybrid", "hybrid-workflow"]
+VARIANTS = ["vanilla", "slim", "hybrid", "hybrid-workflow"]
 ALIASES = {"stock": "slim"}
 REPO = os.path.dirname(BENCH)
-BACKENDS = [("agy", "AGY_TASK_DIR", ".agy-tasks"), ("opencode", "OPENCODE_TASK_DIR", ".opencode-tasks"),
-            ("codex", "CODEX_TASK_DIR", ".codex-tasks")]
+BACKENDS = [("agy", "AGY_TASK_DIR", ".agy-tasks"), ("opencode", "OPENCODE_TASK_DIR", ".opencode-tasks")]
 
 
 def task_key(fx):
@@ -216,8 +214,8 @@ def build_cmd(variant, prompt, args, modes, approvals_log=None):
            "--no-session-persistence", "--max-budget-usd", str(args.budget)]
     if args.model:
         cmd += ["--model", args.model]
-    if variant in ("lead-dev", "hybrid", "hybrid-workflow"):
-        cmd += ["--agent", "lead-dev" if variant == "lead-dev" else "lead-dev-hybrid"]
+    if variant in ("hybrid", "hybrid-workflow"):
+        cmd += ["--agent", "lead-dev-hybrid"]
     if variant == "hybrid-workflow":
         cmd += ["--settings", json.dumps({"enableWorkflows": True})]
     if args.showcase:

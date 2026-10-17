@@ -1,8 +1,8 @@
 # SwarmKit 🐝
 
-**A multi-agent specialist swarm and modular skills for Claude Code, OpenCode, Antigravity and Codex, all built from one source.**
+**A multi-agent specialist swarm and modular skills for Claude Code, OpenCode and Antigravity, all built from one source.**
 
-You write every agent, skill and rule once in `core/`. A small compiler turns them into each CLI's native format. The installer links the results into place. All four CLIs get the same team of 33 specialists and the same short working rules. In Claude Code only five core agents and the swarm orchestration pack load globally; other domain specialists come as opt-in per-project packs, so a default session costs little more than stock.
+You write every agent, skill and rule once in `core/`. A small compiler turns them into each CLI's native format. The installer links the results into place. All three CLIs get the same team of 33 agents (32 specialists and one orchestrator) and the same short working rules. In Claude Code only five core agents and the swarm orchestration pack load globally; other domain specialists come as opt-in per-project packs, so a default session costs little more than stock.
 
 ---
 
@@ -10,33 +10,30 @@ You write every agent, skill and rule once in `core/`. A small compiler turns th
 
 - **The main agent does the work.** Small and medium work happens directly. Large or risky work (more than ~3 files, or auth, data, CI or infra) gets a plan and your approval first (Claude Code: plan mode, so `opusplan` plans on Opus). A non-interactive session states the plan and continues instead of waiting.
 - **Delegation where it helps:** `explore` for wide read-only searches; `security-auditor`, `code-proofreader` or `release-tester` as an independent review after large changes. Domain specialists say in their descriptions when to use them.
-- **`lead-dev`** is an optional pure orchestrator for big multi-specialist jobs (`claude --agent lead-dev`, or the `lead-dev` primary agent in OpenCode).
-- **`lead-dev-hybrid`** is the same orchestration flow with implementation spread in parallel across `agy-task`, `opencode-task` and optional `codex-task` workers (`claude --agent lead-dev-hybrid`).
+- **`lead-dev-hybrid`** is the optional orchestrator for big multi-specialist jobs (`claude --agent lead-dev-hybrid`, `agy --agent lead-dev-hybrid`, or the default primary agent in OpenCode). It plans, gets approval, then spreads file-disjoint implementation in parallel across `agy-task` and `opencode-task` workers; with no worker installed, or work that isn't file-disjoint, it dispatches specialist subagents instead.
 
-## 🧩 One source, four CLIs
+## 🧩 One source, three CLIs
 
-| | Claude Code | OpenCode | Antigravity | Codex |
-|---|---|---|---|---|
-| Specialists | Core subagents in `~/.claude/agents/`, packs in `<project>/.claude/agents/` | Agents in `~/.config/opencode/agents/` | Agents in the `swarmkit` plugin (`invoke_subagent`) | Custom agents in `~/.codex/agents/*.toml` |
-| Rules | `~/.claude/CLAUDE.md` | `~/.config/opencode/AGENTS.md` | Plugin `rules/AGENTS.md` | `~/.codex/AGENTS.md` |
-| Tool limits | `tools:` enforced; `guard.py` hooks are a speed bump (see below) | Enforced (`permission:` blocks) | Stated in each agent's instructions | Shell off for agents without `bash`; the rest stated in instructions |
-| Skills | `~/.claude/skills/` (core), packs in `<project>/.claude/skills/` | `~/.config/opencode/skills/` | `~/.gemini/config/skills/` | `~/.agents/skills/` |
-| MCP servers | Registered with `claude mcp add-json` | `opencode.jsonc` | `~/.gemini/config/mcp_config.json` | Registered with `codex mcp add` |
+| | Claude Code | OpenCode | Antigravity |
+|---|---|---|---|
+| Specialists | Core subagents in `~/.claude/agents/`, packs in `<project>/.claude/agents/` | Agents in `~/.config/opencode/agents/` | Agents in the `swarmkit` plugin (`invoke_subagent`) |
+| Rules | `~/.claude/CLAUDE.md` | `~/.config/opencode/AGENTS.md` | Plugin `rules/AGENTS.md` |
+| Tool limits | `tools:` enforced; `guard.py` hooks are a speed bump (see below) | Enforced (`permission:` blocks) | Stated in each agent's instructions |
+| Skills | `~/.claude/skills/` (core), packs in `<project>/.claude/skills/` | `~/.config/opencode/skills/` | `~/.gemini/config/skills/` |
+| MCP servers | Registered with `claude mcp add-json` | `opencode.jsonc` | `~/.gemini/config/mcp_config.json` |
 
 Each agent has a **tier** (`fast`, `standard`, `deep`). The model for each tier is set once per CLI in `scripts/build.py`:
 
 | Tier | Claude Code | OpenCode | Used for |
 |---|---|---|---|
-| fast | `haiku` | muse-spark-1.3 | explore, junior-dev, git-specialist, release-tester, showroom-asset-processor, test-writer and seo-worker (Claude Code only; they stay on nemotron-3.5-lightning in OpenCode) |
-| standard | `sonnet` | nemotron-3.5-lightning | most specialists |
-| deep | `opus` | nemotron-3-ultra | db-specialist, security-auditor, swarm-architect, lead-dev |
-
-Codex agents keep the session's model; the tier sets `model_reasoning_effort` instead (`low`, `medium`, `high`).
+| fast | `haiku` | `opencode-go/deepseek-v4.1-flash` | explore, junior-dev, git-specialist, release-tester, showroom-asset-processor, test-writer and seo-worker (in OpenCode, explore, junior-dev, git-specialist, release-tester and showroom-asset-processor use `deepseek-v4.1-flash`; test-writer and seo-worker use `opencode-go/qwen3.7-plus`; all seven are in `opencode/agents/`, none is Claude-only) |
+| standard | `sonnet` | `opencode-go/qwen3.7-plus` | most specialists |
+| deep | `opus` | `opencode-go/kimi-k2.7-code` | db-specialist, security-auditor, swarm-architect, lead-dev-hybrid |
 
 ## ✨ Key features
 
 - **Doer, not advisor.** Agents carry out the fix instead of describing what you should do.
-- **Isolation for risky work.** `lead-dev` runs heavy, multi-file changes in `.worktrees/<branch>` (via `git-specialist`), and your main branch stays clean until you merge.
+- **Isolation for risky work.** `lead-dev-hybrid` runs heavy, multi-file changes in `.worktrees/<branch>` (via `git-specialist`), and your main branch stays clean until you merge.
 - **Ponytail discipline.** Simplicity is a core working rule; the `ponytail` skills add `lite`, `full` and `ultra` modes on demand.
 - **Caveman mode.** Terse output that cuts tokens without losing technical detail: `caveman`, `caveman-commit`, `caveman-review`, `caveman-compress` and `caveman-help`. MIT skills vendored from [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) v2.7.0 (`2fd153c`). `caveman-compress` needs the `claude` CLI or `ANTHROPIC_API_KEY`.
 - **Project-type routing.** Specialist descriptions name their project markers (Lovable, Capacitor, Electron, n8n, Cloudflare), so the main agent picks the right one once the pack is linked.
@@ -47,7 +44,7 @@ Codex agents keep the session's model; the tier sets `model_reasoning_effort` in
 
 ## 🤖 Agent roster
 
-In Claude Code, `--claude` installs the five quality and review agents below, the swarm orchestration pack (`lead-dev`, `lead-dev-hybrid`, `swarm-architect`, `junior-dev`, `git-specialist`), and the `release-testing`, `security-review`, `diagnosing-bugs`, `swarm-handoff`, `git-workflow`, `writing-for-agents`, `caveman*`, `ponytail*` and `curated-resources` skills (the last three groups are slash-command only, so they cost no context). Everything else is a pack you link into a project with `./install.sh --pack <name> [project]`:
+In Claude Code, `--claude` installs the five quality and review agents below, the swarm orchestration pack (`lead-dev-hybrid`, `swarm-architect`, `junior-dev`, `git-specialist`), and the `release-testing`, `security-review`, `diagnosing-bugs`, `swarm-handoff`, `git-workflow`, `writing-for-agents`, `caveman*`, `ponytail*` and `curated-resources` skills (the last three groups are slash-command only, so they cost no context). Everything else is a pack you link into a project with `./install.sh --pack <name> [project]`:
 
 | Pack | Agents | Skills |
 |---|---|---|
@@ -57,9 +54,9 @@ In Claude Code, `--claude` installs the five quality and review agents below, th
 | `mobile` | android-capacitor, ios-capacitor, electron | capacitor-mobile-quality |
 | `n8n` | n8n-workflow-builder, n8n-debugger | n8n-api, n8n-debugging |
 | `creative` | blender, showroom + 5 workers, linkedin | showroom, img2threejs |
-| `swarm` | swarm-architect, lead-dev, lead-dev-hybrid, junior-dev, git-specialist | swarm-handoff, git-workflow, writing-for-agents, hybrid-delegate (global) |
+| `swarm` | swarm-architect, lead-dev-hybrid, junior-dev, git-specialist | swarm-handoff, git-workflow, writing-for-agents, hybrid-delegate (global) |
 
-OpenCode, Antigravity and Codex get every agent and skill globally.
+OpenCode and Antigravity get every agent and skill globally.
 
 **The guards are a speed bump, not a sandbox.** In Claude Code, `guard.py` blocks obvious writes (redirections, `rm`, `sed -i`, `--fix`), fetch-and-run commands (`npx <package>`, `npm install <package>`, `pnpm dlx`) and, for `test-writer`, edits outside test files (never a manifest such as `package.json` or `Makefile`) or outside the project. `npm`, `pnpm`, `yarn` and `bun` may only install, `test`, or run a script that exists in `package.json`. A guard error blocks the call. A test runner can still run any code in your project (a `test-writer` can write a test that does, then run it), and `git-specialist` keeps an unrestricted shell. Antigravity only gets a line of instructions. OpenCode's `permission:` blocks match edit paths and command prefixes but have none of the runner rules above (its `test-writer` shell is unrestricted).
 
@@ -67,8 +64,7 @@ OpenCode, Antigravity and Codex get every agent and skill globally.
 
 | Agent | Tier | Role |
 |---|---|---|
-| **lead-dev** | deep | Optional pure orchestrator: plans, dispatches, synthesises |
-| **lead-dev-hybrid** | deep | Hybrid orchestrator: Opus plans, headless workers implement in parallel |
+| **lead-dev-hybrid** | deep | Orchestrator: plans, then headless workers (or specialist subagents) implement in parallel |
 | **explore** | fast | Read-only context gathering before non-trivial work |
 | **git-specialist** | fast | Worktrees, commit hygiene, branch state |
 | **junior-dev** | fast | Batches of mechanical edits |
@@ -126,7 +122,6 @@ The installer symlinks everything into each CLI's config directory. The agents a
 | `--opencode` | Install the OpenCode config (rules, agents, commands, skills, `opencode.jsonc`) |
 | `--agy` | Install the Antigravity config (`swarmkit` plugin, skills, MCP servers) and `agyw` |
 | `--all` | `--claude`, `--opencode` and `--agy`. This is also the default when no flag is given. |
-| `--codex` | Install the Codex config: rules, agents, skills in `~/.agents/skills/`, MCP servers via `codex mcp add` (optional, not included in `--all`). Run `--claude` afterwards to give Claude the `codex-delegate` skill |
 | `--n8n` | Configure self-hosted n8n credentials (not included in `--all`) |
 | `--cloudflare` | Install Cloudflare skills and authenticate (not included in `--all`) |
 | `--free` | OpenCode free mode: copies `opencode.jsonc` with a free default model |
@@ -154,7 +149,6 @@ core/
 claude/          rules.md addendum, hooks/, and generated agents/ (core), packs/ + CLAUDE.md
 opencode/        rules.md addendum, opencode.jsonc, command/, and generated agents/ + AGENTS.md
 antigravity/     rules.md addendum and the generated plugins/swarmkit/
-codex/           rules.md addendum and the generated agents/ + AGENTS.md
 scripts/build.py the compiler (and the tier → model table)
 ```
 
@@ -177,7 +171,7 @@ antigravity:              # optional; falls back to claude, then shared descript
   description: ...
 ```
 
-A file at `core/agents/claude/<name>.md` or `core/agents/opencode/<name>.md` replaces that agent's body in that CLI's build only (used by `lead-dev`).
+A file at `core/agents/claude/<name>.md` or `core/agents/opencode/<name>.md` replaces that agent's body in that CLI's build only (used by `lead-dev-hybrid`).
 
 After editing anything in `core/` or a `rules.md` addendum:
 
@@ -207,13 +201,12 @@ To link your own self-hosted n8n securely:
 
 Claude Code is meant to run on Opus for the thinking and hand the implementation to headless workers on their own quota. After a plan is approved, the `delegate-implementation` skill splits it into self-contained tasks (one per group of files), picks a worker, then reviews, tests and merges each branch. Small edits, context-heavy work and security-sensitive code stay with Claude.
 
-All three workers are the same script (`scripts/agy-task`; the others are symlinks to it) with the same commands (`start`, `resume`, `list`, `clean`), `result.json` and `--review`. Each task runs on its own git worktree and branch `<cli>/<slug>`, and at most 3 run at once across all of them.
+Both workers are the same script (`scripts/agy-task`; `opencode-task` is a symlink to it) with the same commands (`start`, `resume`, `list`, `clean`), `result.json` and `--review`. Each task runs on its own git worktree and branch `<cli>/<slug>`, and at most 3 run at once across both.
 
 | Worker | Runs | Can run tests? | Notes |
 |---|---|---|---|
 | `agy-task` | `agy -p`, Gemini on agy's quota | No: edit-only, Claude runs the tests | `agy-delegate` skill. `--yolo` allows shell, unsandboxed |
 | `opencode-task` | `opencode run --standalone`, free `opencode-go/` models (OpenCode Go subscription) | Yes: shell limited to test/build runners and read-only git, a guard against accidents rather than a sandbox | `opencode-delegate` skill. A per-run config overlay; your own OpenCode config is untouched |
-| `codex-task` | `codex exec` (opt-in: `./install.sh --codex --claude`) | Yes, in Codex's `workspace-write` sandbox (no network) | `codex-delegate` skill. `--yolo` lifts the sandbox |
 
 ```bash
 agy-task start diff-review "Review the auth refactor for regressions" --review
@@ -246,5 +239,5 @@ agyw status            # Check active profile + symlink health
 > **Important:** Quit any running `agy` or Antigravity IDE processes before switching profiles.
 
 ## 🎬 Showroom Specialist Swarm
-- **`showroom`**: Coordinates premium, scroll-driven, dark-theme product detail pages using Astro, Tailwind, GSAP, Lenis, and human-in-the-loop Google Flow assets. A subagent can't spawn subagents, so at each step it returns a `## DISPATCH: <worker>` handoff and the main agent (or `lead-dev`) dispatches that worker.
+- **`showroom`**: Coordinates premium, scroll-driven, dark-theme product detail pages using Astro, Tailwind, GSAP, Lenis, and human-in-the-loop Google Flow assets. A subagent can't spawn subagents, so at each step it returns a `## DISPATCH: <worker>` handoff and the main agent (or `lead-dev-hybrid`) dispatches that worker.
 - Peer workers: `showroom-intake`, `showroom-art-director`, `showroom-asset-processor`, `showroom-frontend-builder`, `showroom-motion-engineer`.

@@ -36,7 +36,8 @@ Bind to `0.0.0.0` (e.g. `vite --host 0.0.0.0`); report them as
 
 - Specialists are named subagents in the `swarmkit` plugin: delegate with
   `invoke_subagent` and the specialist's name as the agent type.
-- `lead-dev` runs only as `agy --agent lead-dev`; never invoke it as a subagent.
+- `lead-dev-hybrid` runs only as `agy --agent lead-dev-hybrid`; never invoke it
+  as a subagent.
 - Chat text is hidden while a tool runs, so when you ask for plan approval with
   `ask_question`, put the complete plan in the question text.
 - Read-only roles (`explore`, `code-proofreader`, `release-tester`,

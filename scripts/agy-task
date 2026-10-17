@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Run one agy (or Codex, or OpenCode) task headlessly in an isolated git worktree and report honestly.
+"""Run one agy (or OpenCode) task headlessly in an isolated git worktree and report honestly.
 
-  agy-task start  SLUG [--model M] [--effort E] [--timeout 20m] [--base REF] [--setup CMD] [--review] [--yolo] [--wait] PROMPT|-
+  agy-task start  SLUG [--model M] [--effort E] [--max-denied 10] [--max-tool-errors 20] [--timeout 20m] [--base REF] [--setup CMD] [--review] [--yolo] [--wait] PROMPT|-
   agy-task resume SLUG [--timeout 20m] [--review] [--yolo] PROMPT|-
   agy-task list
   agy-task clean  SLUG [--force]
@@ -19,23 +19,32 @@ result.json carries a recomputed "ok".
 
 Invoked as opencode-task (a symlink) it drives `opencode run`: branches opencode/<slug>, tasks under
 $OPENCODE_TASK_DIR (default ~/.opencode-tasks). A per-run config overlay (OPENCODE_CONFIG_CONTENT, this
-process only) allows edits, limits the shell to test/build runners and read-only git, and turns off
+process only) allows edits (file tools denied outside the worktree), limits the shell to test/build runners and read-only git, and turns off
 subagents; the user's own OpenCode config is untouched. --yolo lifts the shell limit (not sandboxed).
+Circuit breaker (opencode): the JSON stream is watched while the worker runs. At --max-denied denied
+commands (a worker that keeps trying shell workarounds) or --max-tool-errors failed tool calls its process
+group is killed, its edits are kept and committed, and result.json gets ok false, a "stopped: ..." warning
+and "stopped_by": "max-denied" | "max-tool-errors" (also "timeout" on a timeout). Resume a
+stopped worker at most once (only if its edits are worth keeping); then take the task over. 0 disables a limit; agy is not watched.
+--effort sets the model variant (opencode: "provider/model#effort"). Left out, a model gets its default
+from a small table (currently empty); a model not in the table gets no effort suffix, since a variant
+a model lacks fails the whole run (muse rejects `max`). --effort "" forces none. Resume reuses the model and effort of start.
 
-The running-task limit is shared: agy, codex and opencode tasks together never exceed it (the limit
-itself is read from the invoked backend's *_TASK_MAX).
+start and resume print one banner line to stderr before the worker launches (slug, model, effort, base, log);
+the log is written live, and list shows model, elapsed time or wall seconds and (opencode) the live denied count.
 
-Invoked as codex-task (a symlink to this file) it drives `codex exec` instead: branches
-codex/<slug>, tasks under $CODEX_TASK_DIR (default ~/.codex-tasks), at most $CODEX_TASK_MAX.
-Codex runs in its own workspace-write sandbox, so it CAN run shell commands (tests, builds),
-but only writes inside the worktree and has no network. --model defaults to the Codex config;
---yolo switches the sandbox to danger-full-access.
+$SWARMKIT_DISPATCH_LOG=FILE: JSON lines with only allowlisted fields. At launch: ts, event "start", cli, slug,
+model, effort. Per finished task: ts, event "finish", cli, slug, model, ok, denied (count), tokens (total or
+null), wall_s and stopped_by (null | max-denied | max-tool-errors | timeout).
+
+The running-task limit is shared: agy and opencode tasks of all repos together never exceed it
+(the limit itself is read from the invoked backend's *_TASK_MAX). list and clean stay per repo.
 """
-import argparse, fcntl, hashlib, json, os, re, shutil, signal, subprocess, sys, time
+import argparse, fcntl, hashlib, json, os, re, shutil, signal, subprocess, sys, threading, time
 from pathlib import Path
 
-# codex-task and opencode-task are symlinks to this file; the name picks the backend
-PROG = n if (n := Path(sys.argv[0]).name) in ("codex-task", "opencode-task") else "agy-task"
+# opencode-task is a symlink to this file; the name picks the backend
+PROG = "opencode-task" if Path(sys.argv[0]).name == "opencode-task" else "agy-task"
 
 
 def seconds(s):
@@ -67,8 +76,12 @@ def agy_parse(out, err):
             "timed_out": bool(re.search(r"print timeout", err))}
 
 
+# Effort per model when --effort is not given. Not listed: no effort (a variant the model lacks is an error).
+EFFORT_DEFAULTS = {}
+
+
 def remembered_opts(task, a, resume_id):
-    """Model and effort of the first run: codex and opencode forget them on resume."""
+    """Model and effort of the first run: opencode forgets them on resume."""
     f = task / "opts.json"
     if resume_id:
         return json.loads(f.read_text()) if f.exists() else {}
@@ -77,40 +90,9 @@ def remembered_opts(task, a, resume_id):
     return o
 
 
-def codex_cmd(task, prompt, a, resume_id):
-    o = remembered_opts(task, a, resume_id)
-    sandbox = "danger-full-access" if a.yolo else "workspace-write"
-    if a.yolo:
-        print("codex-task: --yolo, codex is unsandboxed", file=sys.stderr)
-    cmd = ["codex", "exec"] + (["resume", resume_id] if resume_id else [])
-    cmd += ["--json", "-c", f'sandbox_mode="{sandbox}"', "-c", 'approval_policy="never"']
-    cmd += (["-m", o["model"]] if o.get("model") else []) \
-        + (["-c", f'model_reasoning_effort="{o["effort"]}"'] if o.get("effort") else [])
-    return cmd + ["--", prompt]
-
-
-def codex_parse(out, err):
-    r = {"done": False, "conversation_id": None, "usage": None, "response": "", "denied": [],
-         "timed_out": False}
-    for line in out.splitlines():
-        try:
-            e = json.loads(line)
-        except ValueError:
-            continue
-        t, item = e.get("type"), e.get("item") or {}
-        if t == "thread.started":
-            r["conversation_id"] = e.get("thread_id")
-        elif t == "turn.completed":  # "error" events can be retries that recovered; only this outcome counts
-            r["done"], r["usage"] = True, e.get("usage")
-        elif t == "turn.failed":
-            r["done"] = False
-        elif t == "item.completed" and item.get("type") == "agent_message":
-            r["response"] = item.get("text", "")
-    return r  # sandbox blocks surface as failed commands in the response, not as denials
-
-
 # Applied only to the delegated run (OPENCODE_CONFIG_CONTENT), so the user's own OpenCode config is
-# untouched: edits allowed, the shell limited to common test/build runners and read-only git, no subagents.
+# untouched: edits allowed, the shell limited to common test/build runners and read-only git, no subagents,
+# no file tool outside the worktree (external_directory; the shell is limited by its allowlist instead).
 # A guard against accidents, not a sandbox: a test runner executes code the worker can write itself.
 RUNNERS = ("npm test", "npm run test", "npm run lint", "npm run build", "npm run typecheck", "pnpm test",
            "pnpm run test", "pnpm run lint", "pnpm run build", "yarn test", "yarn lint", "yarn build",
@@ -118,16 +100,19 @@ RUNNERS = ("npm test", "npm run test", "npm run lint", "npm run build", "npm run
            "python -m unittest", "go test", "go vet", "cargo test", "cargo check", "make test",
            "node --test", "node test.js", "node --version", "git status", "git diff", "git log", "git show")
 # Patterns that need their own shape (the loop below only adds "<cmd>" and "<cmd> *"): plain-node and
-# plain-python test files (not `python3 *`: that runs arbitrary code), and the read-only commands models
+# plain-python test files, test files in a subdirectory too (not `python3 *`: that runs arbitrary code), and the read-only commands models
 # reach for to look around (ls, pwd, echo, wc for line counts, cat of source and test paths only, so
 # `cat .env` stays denied). Not `cd`: the worker already starts in the worktree, and
 # `cd <elsewhere> && npm test` would test a different checkout.
-RUNNER_GLOBS = ("node test/*", "node tests/*", "node __tests__/*", "python3 test/*", "python3 tests/*",
+# Fixed prefixes only, never a leading wildcard: `*` also matches flags such as `-e`, so `node */test/*`
+# would allow `node -e "<code>" x/test/y`. Add one entry per extra project directory if needed.
+RUNNER_GLOBS = ("node test/*", "node tests/*", "node __tests__/*", "node site/test/*", "node site/tests/*",
+                "python3 test/*", "python3 tests/*",
                 "pwd", "ls", "ls *", "echo *", "wc *",
                 "cat src/*", "cat test/*", "cat tests/*", "cat package.json", "cat README.md")
 OPENCODE_OVERLAY = {
     "permission": {
-        "edit": "allow", "webfetch": "deny", "task": "deny",
+        "edit": "allow", "webfetch": "deny", "task": "deny", "external_directory": "deny",
         "bash": {"*": "deny", **{p: "allow" for c in RUNNERS for p in (c, c + " *")},
                  **{g: "allow" for g in RUNNER_GLOBS}},
     },
@@ -158,6 +143,21 @@ def opencode_env(a, wt):
     return {**os.environ, "PWD": str(wt), "OPENCODE_CONFIG_CONTENT": json.dumps({"permission": perm})}
 
 
+DENIED = re.compile(r"rule which prevents|permission|rejected", re.I)
+
+
+def tool_failure(line):
+    """(failed, denied) for one JSON line: a tool call that errored, and whether a permission rule refused it."""
+    try:
+        e = json.loads(line)
+    except ValueError:
+        return False, False
+    st = (e.get("part") or {}).get("state") or {}
+    if e.get("type") != "tool_use" or st.get("status") != "error":
+        return False, False
+    return True, bool(DENIED.search(str(st.get("error", ""))))
+
+
 def opencode_parse(out, err):
     r = {"done": False, "conversation_id": None, "usage": None, "response": "", "denied": [],
          "timed_out": False}
@@ -181,8 +181,7 @@ def opencode_parse(out, err):
             usage["cache_read"] = usage.get("cache_read", 0) + (tok.get("cache") or {}).get("read", 0)
         elif t == "tool_use":
             st = part.get("state") or {}
-            if st.get("status") == "error" and re.search(r"rule which prevents|permission|rejected",
-                                                         str(st.get("error", "")), re.I):
+            if tool_failure(line)[1]:
                 inp = st.get("input") or {}
                 r["denied"].append(inp.get("command") or part.get("tool", "tool"))
     r["done"] = r["done"] and not failed
@@ -193,11 +192,9 @@ def opencode_parse(out, err):
 BACKENDS = {
     "agy-task": {"cli": "agy", "env": "AGY_TASK", "home": ".agy-tasks",
                  "model": "gemini-3.8-flash-high", "cmd": agy_cmd, "parse": agy_parse, "grace": 30},
-    "codex-task": {"cli": "codex", "env": "CODEX_TASK", "home": ".codex-tasks",
-                   "model": None, "cmd": codex_cmd, "parse": codex_parse, "grace": 0},
     "opencode-task": {"cli": "opencode", "env": "OPENCODE_TASK", "home": ".opencode-tasks",
-                      "model": "opencode-go/cat-jam-free", "effort": "max", "cmd": opencode_cmd,
-                      "parse": opencode_parse, "grace": 0, "proc_env": opencode_env},
+                      "model": "opencode-go/muse-spark-1.3-contributor", "cmd": opencode_cmd,
+                      "parse": opencode_parse, "grace": 0, "proc_env": opencode_env, "watch": tool_failure},
 }
 BACKEND = BACKENDS[PROG]
 CLI = BACKEND["cli"]
@@ -241,48 +238,126 @@ def main_state(repo):
     return state
 
 
+def dispatch_log(event, slug, model, **fields):
+    """Append one allowlisted line per event to $SWARMKIT_DISPATCH_LOG: no prompt, path or command."""
+    path = os.environ.get("SWARMKIT_DISPATCH_LOG")
+    if not path:
+        return
+    line = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "event": event, "cli": CLI, "slug": slug,
+            "model": model, **fields}
+    try:
+        with open(path, "a") as f:
+            f.write(json.dumps(line) + "\n")
+    except OSError as e:
+        print(f"{PROG}: WARNING: dispatch log not written: {e}", file=sys.stderr)
+
+
+def list_extra(d, r, running):
+    """Model, elapsed (running) or wall seconds (finished) and the live denied count, as a column prefix."""
+    try:
+        o = json.loads((d / "opts.json").read_text())
+    except (OSError, ValueError):
+        o = {}
+    model = (r.get("model") or o.get("model") or "?").removeprefix("opencode-go/")  # other providers stay visible
+    if running:
+        n = int(time.time() - (d / "pid").stat().st_mtime)
+        t = f"{n // 3600}h{n % 3600 // 60:02}m" if n >= 3600 else f"{n // 60}m{n % 60:02}s"
+    else:
+        t = f"{r['wall_s']}s" if "wall_s" in r else "-"
+    denied = ""
+    if running and CLI == "opencode":  # the log is written live
+        try:
+            n = sum(tool_failure(line)[1] for line in (d / "opencode.log").read_text().splitlines())
+        except OSError:
+            n = 0
+        denied = f"denied {n} "
+    elif r.get("denied_actions"):
+        denied = f"denied {len(r['denied_actions'])} "
+    return f"{model:27.27} {t:>6} {denied}"
+
+
+def banner(task, o, resume_id):
+    """One stderr line when a worker launches, so the owner can see which model runs where."""
+    home = str(Path.home())
+    log = str(task / f"{CLI}.log")
+    log = "~" + log[len(home):] if log.startswith(home + "/") else log
+    base = (task / "base").read_text().strip()[:7]
+    print(f"{PROG} \u25b6 {task.name} \u00b7 model {o.get('model') or 'unknown'} \u00b7 effort {o.get('effort') or 'none'}"
+          f" \u00b7 base {base} \u00b7 log {log}" + (" \u00b7 resume" if resume_id else ""), file=sys.stderr)
+
+
 def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
-    wt = task / "worktree"
+    wt, t0 = task / "worktree", time.monotonic()
     (task / "pid").write_text(str(os.getpid()))
+    o = remembered_opts(task, a, resume_id)
     cmd = BACKEND["cmd"](task, prompt, a, resume_id)
+    banner(task, o, resume_id)
+    dispatch_log("start", task.name, o.get("model"), effort=o.get("effort") or None)
+    logf = open(task / f"{CLI}.log", "w")  # live, so `tail -f` and `list` work; rewritten in order at the end
     main_before = main_state(repo)
     # Own process group so a SIGTERM/SIGINT to us (or a timeout) takes the agent and its tools down too.
     env = BACKEND["proc_env"](a, wt) if "proc_env" in BACKEND else None
     p = subprocess.Popen(cmd, cwd=wt, env=env, text=True, stdin=subprocess.DEVNULL, start_new_session=True,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    interrupted = []
+    interrupted, stopped, killer, counts, bufs = [], [], [], {"failed": 0, "denied": 0}, {"out": [], "err": []}
 
-    def stop(signum=None, frame=None):
-        interrupted.append(signum or "timeout")
+    def killpg(sig):
         try:
-            os.killpg(p.pid, signal.SIGTERM)
+            os.killpg(p.pid, sig)
         except OSError:
             pass
-    def reap(p):  # SIGTERM was sent; escalate if the agent or a tool ignores it
-        try:
-            return p.communicate(timeout=10)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(p.pid, signal.SIGKILL)
-            except OSError:
-                pass
-            return p.communicate(timeout=10)
+    def stop(signum=None, frame=None):
+        interrupted.append(signum or "timeout")
+        killpg(signal.SIGTERM)
+    def watch(line):  # circuit breaker: a worker stuck retrying denied or broken tool calls burns quota for nothing
+        if stopped:  # already killed; the rest of the buffered output only goes to the log
+            return
+        failed, denied = BACKEND["watch"](line)
+        counts["failed"] += failed
+        counts["denied"] += denied
+        why = ("max-denied" if a.max_denied and counts["denied"] >= a.max_denied else
+               "max-tool-errors" if a.max_tool_errors and counts["failed"] >= a.max_tool_errors else None)
+        if why and not stopped:
+            stopped.append(why)
+            killpg(signal.SIGTERM)
+            killer.append(threading.Timer(10, killpg, (signal.SIGKILL,)))  # if SIGTERM is ignored
+            killer[0].start()
+    def pump(stream, buf, on_line=None):  # drain a pipe while the agent runs, so we can react mid-run
+        for line in stream:
+            buf.append(line)
+            logf.write(line)
+            logf.flush()
+            if on_line:
+                on_line(line)
+    readers = [threading.Thread(target=pump, args=(p.stdout, bufs["out"], watch if "watch" in BACKEND else None), daemon=True),
+               threading.Thread(target=pump, args=(p.stderr, bufs["err"]), daemon=True)]
+    for t in readers:
+        t.start()
     old = [signal.signal(sig, stop) for sig in (signal.SIGTERM, signal.SIGINT)]
     try:
-        out, err = p.communicate(timeout=seconds(a.timeout) + BACKEND["grace"])
+        p.wait(timeout=seconds(a.timeout) + BACKEND["grace"])
     except subprocess.TimeoutExpired:
         stop()
-        out, err = reap(p)
+        try:  # SIGTERM was sent; escalate if the agent or a tool ignores it
+            p.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            killpg(signal.SIGKILL)
+            p.wait(timeout=10)
     finally:
         for sig, h in zip((signal.SIGTERM, signal.SIGINT), old):
             signal.signal(sig, h)
+    for k in killer:
+        k.cancel()
+    for t in readers:  # EOF follows the exit unless a straggler in the group still holds the pipe
+        t.join(5)
+    if interrupted or stopped or any(t.is_alive() for t in readers):
+        killpg(signal.SIGKILL)  # stragglers from the process group
+        for t in readers:
+            t.join(5)
+    out, err = "".join(bufs["out"]), "".join(bufs["err"])
     code = p.returncode
-    if interrupted:
-        try:
-            os.killpg(p.pid, signal.SIGKILL)  # stragglers from the process group
-        except OSError:
-            pass
     (task / "pid").unlink(missing_ok=True)
+    logf.close()
     (task / f"{CLI}.log").write_text(f"{err}\n{out}")
     res = BACKEND["parse"](out, err)
     warnings = list(warnings)
@@ -294,6 +369,10 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
         warnings.append(f"interrupted: {CLI} was stopped before it finished")
     if res["timed_out"]:
         warnings.append("timed out: the response and edits may be incomplete")
+    if stopped:
+        n = counts["denied"] if stopped[0] == "max-denied" else counts["failed"]
+        warnings.append(f"stopped: {n} {'denied commands' if stopped[0] == 'max-denied' else 'failed tool calls'}"
+                        f" ({CLI} was killed; its edits are kept, inspect the diff)")
     try:  # never lose the agent's work to a hook or signing failure
         sh("git", "add", "-A", *spec(task), cwd=wt)
         if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=wt).returncode:
@@ -305,15 +384,21 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     if changed == "no changes" and sh("git", "status", "--porcelain", *spec(task), cwd=wt, check=False):
         changed = "uncommitted changes"
     denied = res["denied"]
+    stopped_by = stopped[0] if stopped else "timeout" if res["timed_out"] or "timeout" in interrupted else None
     review = a.review
-    incomplete = any(w.startswith(("interrupted", "timed out", "commit failed")) for w in warnings)
+    incomplete = any(w.startswith(("interrupted", "timed out", "stopped", "commit failed")) for w in warnings)
     produced = bool(res["response"].strip()) if review else changed != "no changes"
     ok = res["done"] and not denied and code == 0 and not incomplete and produced
-    result = {"ok": ok, "slug": task.name, "branch": f"{CLI}/{task.name}", "worktree": str(wt), "review": review,
+    wall = time.monotonic() - t0
+    result = {"ok": ok, "slug": task.name, "model": o.get("model"), "wall_s": round(wall), "branch": f"{CLI}/{task.name}", "worktree": str(wt), "review": review,
               "base": base, "changes": changed, "denied_actions": denied, "warnings": warnings,
-              "conversation_id": res["conversation_id"], "exit_code": code, "usage": res["usage"],
+              "conversation_id": res["conversation_id"], "stopped_by": stopped_by, "exit_code": code, "usage": res["usage"],
               "response": res["response"], "stderr": err.strip()[-500:]}
     (task / "result.json").write_text(json.dumps(result, indent=2))
+    u = res["usage"]
+    tokens = u.get("total_tokens", sum(v for v in u.values() if isinstance(v, int))) if isinstance(u, dict) and u else None
+    dispatch_log("finish", task.name, o.get("model"), ok=ok, denied=len(denied), tokens=tokens,
+                 wall_s=round(wall), stopped_by=stopped_by)
     hint = " (resume it: use file view/edit tools only, no shell)" if CLI == "agy" else ""
     note = (f" DENIED: {', '.join(denied)}{hint}" if denied else "") \
         + "".join(f" WARNING: {w}" for w in warnings)
@@ -327,15 +412,19 @@ def main():
     ap.add_argument("slug", nargs="?")
     ap.add_argument("prompt", nargs="?", help="task text, or - to read it from stdin")
     ap.add_argument("--model", default=BACKEND["model"])
-    ap.add_argument("--effort", default=BACKEND.get("effort"))
+    ap.add_argument("--effort", help="model variant; default per model, '' for none")
     ap.add_argument("--timeout", default="20m")
     ap.add_argument("--base", default="HEAD")
     ap.add_argument("--setup", help="shell command run in the worktree before agy (start only)")
+    ap.add_argument("--max-denied", type=int, default=10, help="opencode: kill the worker at this many denied commands (0 = off)")
+    ap.add_argument("--max-tool-errors", type=int, default=20, help="opencode: kill the worker at this many failed tool calls (0 = off)")
     ap.add_argument("--review", action="store_true")
     ap.add_argument("--yolo", action="store_true")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--wait", action="store_true", help="queue for a free slot instead of refusing at the limit")
     a = ap.parse_args()
+    if a.effort is None:
+        a.effort = EFFORT_DEFAULTS.get(a.model, "")
 
     # The first `git worktree list` entry is the main working tree, also when run from inside a
     # task worktree or a submodule: it keys the task dirs, so every worktree shares one list and cap.
@@ -343,14 +432,15 @@ def main():
     repo = Path(sh("git", "worktree", "list", "--porcelain").splitlines()[0].split(" ", 1)[1])
     here = Path(sh("git", "rev-parse", "--show-toplevel"))
     key = f"{repo.name}-{hashlib.sha1(str(repo).encode()).hexdigest()[:6]}"
-    def home(b):
-        return Path(os.environ.get(f"{b['env']}_DIR", Path.home() / b["home"])) / key
-    root = home(BACKEND)
+    def base(b):
+        return Path(os.environ.get(f"{b['env']}_DIR", Path.home() / b["home"]))
+    root = base(BACKEND) / key
     if a.cmd == "list":
         for d in sorted(root.glob("*/")) if root.exists() else []:
             r = json.loads((d / "result.json").read_text()) if (d / "result.json").exists() else {}
-            state = "running" if alive(d / "pid") else ("ok" if r.get("ok") else "NOT ok" if r else "unfinished")
-            print(f"{d.name:24} {state:10} {r.get('changes', '')}")
+            run = alive(d / "pid")
+            state = "running" if run else ("ok" if r.get("ok") else "NOT ok" if r else "unfinished")
+            print(f"{d.name:18} {state:10} {list_extra(d, r, run)}{r.get('changes', '')}")
         return 0
     if not a.slug or not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,40}", a.slug):
         sys.exit(f"{PROG}: slug must be lowercase letters, digits, . _ - (max 41 chars)")
@@ -370,18 +460,22 @@ def main():
         sh("git", "branch", "-D", branch, cwd=repo, check=False)
         return 0
 
-    # One limit for all backends: they share the box. The lock makes check-and-claim atomic, so queued
+    # One limit for all backends and all repos: they share the box. The lock makes check-and-claim atomic, so queued
     # --wait callers cannot all see the same free slot; the claim is the pid file written below.
     cap = int(os.environ.get(f"{BACKEND['env']}_MAX", 3))
     lock = open(Path.home() / ".swarmkit-task.lock", "a")
+    queued = False
     while True:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        running = [f for b in BACKENDS.values() for f in home(b).glob("*/pid") if alive(f)]
+        running = [f for b in BACKENDS.values() for f in base(b).glob("*/*/pid") if alive(f)]
         if len(running) < cap:
             break
         fcntl.flock(lock, fcntl.LOCK_UN)
         if not a.wait:
-            sys.exit(f"{PROG}: {len(running)} delegated tasks already running (all backends); wait for one, or pass --wait")
+            sys.exit(f"{PROG}: {len(running)} delegated tasks already running (all backends and repos); wait for one, or pass --wait")
+        if not queued:
+            print(f"{PROG} \u25b6 {a.slug} \u00b7 queued ({len(running)} running)", file=sys.stderr)
+            queued = True
         time.sleep(10)
     def claim(task):
         (task / "pid").write_text(str(os.getpid()))
