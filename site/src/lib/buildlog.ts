@@ -1,7 +1,7 @@
 // Summarises .buildlog/*.jsonl for the Proof timeline. Counts are real; nothing is padded.
 //
 // "Human interventions" counts ONLY things the human did themselves:
-//   - gate approvals: human.jsonl entries with type "gate";
+//   - gate approvals: human.jsonl entries with type "gate", or with a "gate" field (the merge approvals are logged that way);
 //   - decisions: human.jsonl entries with type "decision" (the human's plan approvals and answers to questions),
 //     unless the entry carries actor "agent" (a call the agent logged as its own);
 //   - art-direction rounds in which the human gave at least one verdict. An artdirection.jsonl row is an
@@ -24,19 +24,25 @@ function read(name: string): Row[] {
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
+// Older dispatch rows name the subagent `agent_type`, newer hand-written ones `agent`. A row with a `lane` went to a
+// headless worker (agy or opencode), not to a Claude subagent.
+const subagentName = (d: Row) => str(d.agent_type) || str(d.agent) || 'unnamed';
+
 export function loadBuildlog() {
-  const dispatch = read('dispatch.jsonl');
-  const human = read('human.jsonl');
-  const art = read('artdirection.jsonl');
+  return summarizeBuildlog(read('dispatch.jsonl'), read('human.jsonl'), read('artdirection.jsonl'));
+}
+
+export function summarizeBuildlog(allDispatch: Row[], human: Row[], art: Row[]) {
+  const dispatch = allDispatch.filter((d) => !d.lane);
 
   const dispatchesByAgent = new Map<string, number>();
-  for (const d of dispatch) dispatchesByAgent.set(str(d.agent_type), (dispatchesByAgent.get(str(d.agent_type)) ?? 0) + 1);
+  for (const d of dispatch) dispatchesByAgent.set(subagentName(d), (dispatchesByAgent.get(subagentName(d)) ?? 0) + 1);
 
   const rounds = new Map<number, Row[]>();
   for (const a of art) rounds.set(Number(a.round), [...(rounds.get(Number(a.round)) ?? []), a]);
 
   const byHuman = (h: Row) => h.actor !== 'agent';
-  const gates = human.filter((h) => h.type === 'gate' && byHuman(h)).length;
+  const gates = human.filter((h) => (h.type === 'gate' || (h.type === undefined && 'gate' in h)) && byHuman(h)).length;
   const decisions = human.filter((h) => h.type === 'decision' && byHuman(h)).length;
   const humanRounds = [...rounds.entries()].filter(([, rows]) => rows.some((r) => !AGENT_APPLIED.has(str(r.verdict)))).length;
   const agentLogged = human.filter((h) => h.actor === 'agent').length;
@@ -57,7 +63,7 @@ export function loadBuildlog() {
         ...(applied ? [{ ts, actor: 'agent' as const, kind: 'art direction', text: `Round ${round}: ${applied} ${applied === 1 ? 'change' : 'changes'} applied by the agent` }] : []),
       ];
     }),
-    ...dispatch.map((d) => ({ ts: str(d.ts), actor: 'agent' as const, kind: 'dispatch', text: `${str(d.agent_type)} finished a task` })),
+    ...dispatch.map((d) => ({ ts: str(d.ts), actor: 'agent' as const, kind: 'dispatch', text: `${subagentName(d)} finished a task` })),
   ].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
 
   return {
@@ -76,6 +82,8 @@ export interface WorkerSummary {
   tasks: number;
   byLane: Record<string, number>;
   models: string[];
+  /** finished tasks whose row names a model (older rows predate the field) */
+  modelRecorded: number;
   stopped: number;
   denied: number;
 }
@@ -89,16 +97,17 @@ export function summarizeWorkers(rows: Array<Record<string, unknown>>): WorkerSu
   const finished = rows.filter((r) => r.event === undefined || r.event === 'finish');
   const byLane: Record<string, number> = {};
   const modelSet = new Set<string>();
+  let modelRecorded = 0;
   let stopped = 0;
   let denied = 0;
   for (const r of finished) {
     if (typeof r.cli === 'string' && r.cli) byLane[r.cli] = (byLane[r.cli] ?? 0) + 1;
-    if (typeof r.model === 'string' && r.model) modelSet.add(r.model);
+    if (typeof r.model === 'string' && r.model) { modelSet.add(r.model); modelRecorded += 1; }
     if (r.stopped_by != null) stopped += 1;
     const d = Number(r.denied);
     if (Number.isFinite(d)) denied += d;
   }
-  return { tasks: finished.length, byLane, models: [...modelSet].sort(), stopped, denied };
+  return { tasks: finished.length, byLane, models: [...modelSet].sort(), modelRecorded, stopped, denied };
 }
 
 // Reads .buildlog/workers.jsonl the same way read() does (missing file -> []).
