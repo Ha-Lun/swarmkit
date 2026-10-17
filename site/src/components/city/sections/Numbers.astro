@@ -1,0 +1,264 @@
+---
+import { loadBenchmarks, harnessOf } from '../../../lib/benchmarks';
+
+const bench = loadBenchmarks();
+const harness = harnessOf(bench);
+
+const shortModel = (m: string): string => m.replace(/^claude-/, '');
+const fmtCost = (v: number): string => `$${v.toFixed(3)}`;
+const fmtWall = (v: number): string => `${Math.round(v)}`;
+const fmtTokens = (v: number): string =>
+  String(v).replace(/\B(?=(\d{3})+(?!\d))/g, String.fromCharCode(8201)); // 8201 = thin space
+const workerSum = (tokens: Record<string, number>): number =>
+  Object.values(tokens ?? {}).reduce((a, b) => a + b, 0);
+const fmtPass = (v: number): string => `${Math.round(v * 100)}%`;
+
+// Group cells by case in first-seen order. Order within a case is kept as published.
+const cases: string[] = bench
+  ? [...new Set(bench.cells.map((c) => c.case))]
+  : [];
+const vanillaByCaseModel = new Map<string, number>();
+if (bench) {
+  for (const c of bench.cells) {
+    if (c.variant === 'vanilla') vanillaByCaseModel.set(`${c.case}|${c.model}`, c.cost_usd.median);
+  }
+}
+const vsVanilla = (caseName: string, model: string, median: number, variant: string): string | null => {
+  const base = vanillaByCaseModel.get(`${caseName}|${model}`);
+  if (base == null || base === 0) return null;
+  return `${(median / base).toFixed(2)}x`;
+};
+---
+
+<section id="numbers" class="city-section" aria-labelledby="numbers-title">
+  <h2 id="numbers-title">Numbers</h2>
+
+  {bench === null ? (
+    <p class="pending-panel">Benchmarks pending: no published runs yet.</p>
+  ) : (
+    <>
+      <p class="method">Only cells with at least {bench.minRuns} completed runs are shown. Medians with min to max.</p>
+      <p class="harness">Harness: {harness}</p>
+
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Benchmark cells by case">
+        <table>
+          <caption>Published benchmark cells. One row per cell, grouped by case, in published order.</caption>
+          <thead>
+            <tr>
+              <th scope="col">Case</th>
+              <th scope="col">Variant</th>
+              <th scope="col">Model</th>
+              <th scope="col">Runs</th>
+              <th scope="col">Claude cost</th>
+              <th scope="col">Wall time</th>
+              <th scope="col">Worker tokens (quota, not $)</th>
+              <th scope="col">Pass</th>
+              <th scope="col">vs vanilla</th>
+            </tr>
+          </thead>
+          {cases.map((caseName) => (
+            <tbody>
+              {bench.cells.filter((c) => c.case === caseName).map((c) => {
+                const ratio = vsVanilla(c.case, c.model, c.cost_usd.median, c.variant);
+                const sum = workerSum(c.worker_tokens);
+                return (
+                  <tr>
+                    <td>{c.case}</td>
+                    <td>{c.variant}</td>
+                    <td>{shortModel(c.model)}</td>
+                    <td class="num">{c.n}</td>
+                    <td class="num">{fmtCost(c.cost_usd.median)} ({fmtCost(c.cost_usd.min)}–{fmtCost(c.cost_usd.max)})</td>
+                    <td class="num">{fmtWall(c.wall_s.median)} s ({fmtWall(c.wall_s.min)}–{fmtWall(c.wall_s.max)} s)</td>
+                    <td class="num">{sum === 0 ? 'none' : fmtTokens(sum)}</td>
+                    <td class="num">{fmtPass(c.pass_rate)}</td>
+                    <td class="num">{ratio !== null ? ratio : <span title="different model">n/a</span>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          ))}
+        </table>
+      </div>
+
+      <div class="cell-status">
+        <details>
+          <summary>{bench.voided.length} voided cell{bench.voided.length === 1 ? '' : 's'}</summary>
+          {bench.voided.length === 0 ? (
+            <p>None.</p>
+          ) : (
+            <ul>
+              {bench.voided.map((v) => (
+                <li>{v.case} / {v.variant} / {shortModel(v.model)}: {v.reason}</li>
+              ))}
+            </ul>
+          )}
+        </details>
+        <details>
+          <summary>{bench.pending.length} pending cell{bench.pending.length === 1 ? '' : 's'}</summary>
+          {bench.pending.length === 0 ? (
+            <p>None.</p>
+          ) : (
+            <ul>
+              {bench.pending.map((p) => (
+                <li>{p.case} / {p.variant} / {shortModel(p.model)}: n={p.n}</li>
+              ))}
+            </ul>
+          )}
+        </details>
+      </div>
+
+      {bench.notes.length > 0 && (
+        <ul class="notes">
+          {bench.notes.map((n) => (
+            <li>{n}</li>
+          ))}
+        </ul>
+      )}
+
+      <p class="raw"><a href={bench.rawHref}>Raw JSON</a></p>
+    </>
+  )}
+</section>
+
+<style>
+  .city-section {
+    background: var(--paper);
+    color: var(--blueprint-ink);
+    padding: var(--space-16) var(--space-6);
+    font-family: var(--font-display);
+  }
+  .city-section > h2 {
+    margin: 0;
+    font-size: var(--text-xl);
+    line-height: var(--leading-tight);
+    letter-spacing: -0.01em;
+  }
+  .method,
+  .harness {
+    margin: var(--space-3) 0 0;
+    font-size: var(--text-base);
+    line-height: var(--leading-body);
+    max-width: 70ch;
+  }
+  .harness {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+  }
+  .pending-panel {
+    margin: var(--space-6) 0 0;
+    padding: var(--space-4);
+    background: var(--blueprint-ink);
+    color: var(--paper);
+    border: 1px solid var(--blueprint-ink-2);
+    font-family: var(--font-mono);
+    font-size: var(--text-base);
+    max-width: 40rem;
+  }
+  .table-wrap {
+    margin-top: var(--space-6);
+    overflow-x: auto;
+    border: 1px solid var(--blueprint-ink);
+    background: var(--blueprint-ink);
+    color: var(--paper);
+  }
+  .table-wrap:focus-visible {
+    outline: 2px solid var(--blueprint-ink);
+    outline-offset: 2px;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 60rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: 1.45;
+  }
+  caption {
+    text-align: left;
+    padding: var(--space-3) var(--space-4);
+    font-family: var(--font-display);
+    font-size: var(--text-sm);
+    color: var(--blueprint-line-soft);
+    background: var(--blueprint-ink);
+  }
+  thead th {
+    text-align: left;
+    font-weight: 400;
+    font-size: var(--text-xs);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--blueprint-line-soft);
+    border-bottom: 1px solid var(--blueprint-line-soft);
+    padding: var(--space-2) var(--space-3);
+    white-space: nowrap;
+  }
+  tbody tr + tr td {
+    border-top: 1px solid var(--blueprint-ink-2);
+  }
+  tbody + tbody tr:first-child td {
+    border-top: 1px solid var(--blueprint-line-soft);
+  }
+  td {
+    padding: var(--space-2) var(--space-3);
+    vertical-align: top;
+    white-space: nowrap;
+  }
+  td.num {
+    font-variant-numeric: tabular-nums;
+  }
+  .cell-status {
+    display: grid;
+    gap: var(--space-3);
+    margin-top: var(--space-6);
+    max-width: 70ch;
+  }
+  details {
+    border: 1px solid var(--blueprint-ink);
+    background: var(--paper-2);
+    padding: var(--space-3) var(--space-4);
+  }
+  summary {
+    cursor: pointer;
+    font-size: var(--text-base);
+  }
+  summary:focus-visible,
+  a:focus-visible {
+    outline: 2px solid var(--blueprint-ink);
+    outline-offset: 2px;
+  }
+  details ul {
+    margin: var(--space-3) 0 0;
+    padding-left: var(--space-4);
+    display: grid;
+    gap: var(--space-2);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+  }
+  details p {
+    margin: var(--space-2) 0 0;
+    font-size: var(--text-sm);
+  }
+  .notes {
+    margin: var(--space-6) 0 0;
+    padding-left: var(--space-4);
+    display: grid;
+    gap: var(--space-2);
+    max-width: 70ch;
+    font-size: var(--text-sm);
+    line-height: var(--leading-body);
+  }
+  .raw {
+    margin: var(--space-4) 0 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+  }
+  .raw a {
+    color: var(--blueprint-ink);
+  }
+  @media (max-width: 768px) {
+    .city-section {
+      padding: var(--space-8) var(--space-4);
+    }
+  }
+</style>
