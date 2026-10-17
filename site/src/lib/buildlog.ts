@@ -71,3 +71,37 @@ export function loadBuildlog() {
     events,
   };
 }
+
+export interface WorkerSummary {
+  tasks: number;
+  byLane: Record<string, number>;
+  models: string[];
+  stopped: number;
+  denied: number;
+}
+
+// Pure summary over worker dispatch log rows. Only rows with event === 'finish'
+// or with no event field count as finished tasks (event === 'start' rows are
+// dispatches, not completions). Every field after that is read off the finished
+// rows only: lane from row.cli, distinct row.model values, non-null stopped_by,
+// and the sum of row.denied.
+export function summarizeWorkers(rows: Array<Record<string, unknown>>): WorkerSummary {
+  const finished = rows.filter((r) => r.event === undefined || r.event === 'finish');
+  const byLane: Record<string, number> = {};
+  const modelSet = new Set<string>();
+  let stopped = 0;
+  let denied = 0;
+  for (const r of finished) {
+    if (typeof r.cli === 'string' && r.cli) byLane[r.cli] = (byLane[r.cli] ?? 0) + 1;
+    if (typeof r.model === 'string' && r.model) modelSet.add(r.model);
+    if (r.stopped_by != null) stopped += 1;
+    const d = Number(r.denied);
+    if (Number.isFinite(d)) denied += d;
+  }
+  return { tasks: finished.length, byLane, models: [...modelSet].sort(), stopped, denied };
+}
+
+// Reads .buildlog/workers.jsonl the same way read() does (missing file -> []).
+export function loadWorkerLog(): WorkerSummary {
+  return summarizeWorkers(read('workers.jsonl'));
+}
