@@ -1,0 +1,186 @@
+---
+---
+
+<section id="which-mode" class="city-section" aria-labelledby="which-mode-title">
+  <h2 id="which-mode-title">Which mode when</h2>
+  <p class="which-mode-lede">Each task gets the ceremony it needs. Nothing more.</p>
+  <div class="which-mode-table-wrap">
+    <table class="which-mode-table">
+      <thead>
+        <tr>
+          <th scope="col">Mode</th>
+          <th scope="col">Task</th>
+          <th scope="col">Ceremony</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th scope="row"><code class="which-mode-tag">direct</code></th>
+          <td>Questions and small edits.</td>
+          <td>The main agent answers or edits directly. No plan. No approval.</td>
+        </tr>
+        <tr>
+          <th scope="row"><code class="which-mode-tag">plan</code></th>
+          <td>Large or risky work: more than about 3 files, or auth, data, CI, or infra.</td>
+          <td>A plan first. In Claude Code that is plan mode, so the plan is written on Opus. You approve it.</td>
+        </tr>
+        <tr>
+          <th scope="row"><code class="which-mode-tag">hybrid</code></th>
+          <td>Lots of independent new code.</td>
+          <td><code>claude --agent lead-dev-hybrid</code>. Opus plans and reviews. File-disjoint parts go to headless opencode and agy workers in their own git worktrees. Each branch is re-tested before it is merged.</td>
+        </tr>
+        <tr>
+          <th scope="row"><code class="which-mode-tag">subagents</code></th>
+          <td>Work that does not split, or touches auth, secrets, or data, or no worker is installed.</td>
+          <td>lead-dev-hybrid keeps it on Claude subagents. Never on a cold worker.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="which-mode-rule">Hybrid pays off with writing volume, not file count: small tasks cost more than doing them directly.</p>
+</section>
+
+<style>
+  .city-section {
+    max-width: 62rem;
+    margin: 0 auto;
+    padding: var(--space-16) var(--space-6);
+    background: var(--paper);
+    color: var(--blueprint-ink);
+  }
+  #which-mode-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: var(--text-xl);
+    line-height: var(--leading-tight);
+    letter-spacing: -0.01em;
+  }
+  .which-mode-lede {
+    margin: var(--space-3) 0 0;
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: var(--text-base);
+    line-height: var(--leading-body);
+  }
+  .which-mode-table-wrap {
+    margin-top: var(--space-6);
+    overflow-x: auto;
+  }
+  .which-mode-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--blueprint-ink);
+    color: var(--paper);
+    border: 1px solid var(--blueprint-ink-2);
+  }
+  .which-mode-table th,
+  .which-mode-table td {
+    padding: var(--space-3) var(--space-4);
+    text-align: left;
+    vertical-align: top;
+    border-top: 1px solid var(--blueprint-ink-2);
+  }
+  .which-mode-table thead th {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--blueprint-line-soft);
+    border-top: 0;
+  }
+  .which-mode-table tbody th {
+    white-space: nowrap;
+  }
+  .which-mode-table tbody td {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: var(--text-sm);
+    line-height: var(--leading-body);
+  }
+  .which-mode-table tbody td code,
+  .which-mode-tag {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: 1.4;
+  }
+  .which-mode-tag {
+    display: inline-block;
+    padding: 2px var(--space-2);
+    border: 1px solid var(--blueprint-line);
+    color: var(--paper);
+    background: var(--blueprint-ink-2);
+    white-space: nowrap;
+  }
+  .which-mode-table tbody tr:nth-child(3) .which-mode-tag {
+    border-color: var(--lane-agy);
+  }
+  .which-mode-table tbody tr:nth-child(4) .which-mode-tag {
+    border-color: var(--lane-opencode);
+  }
+  .which-mode-table tbody tr:nth-child(1) .which-mode-tag {
+    border-color: var(--status-ok);
+  }
+  .which-mode-table tbody tr:nth-child(2) .which-mode-tag {
+    border-color: var(--blueprint-line-soft);
+  }
+  .which-mode-rule {
+    margin: var(--space-6) 0 0;
+    padding: var(--space-3) var(--space-4);
+    background: var(--paper-2);
+    border-left: 3px solid var(--blueprint-line);
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: var(--text-sm);
+    line-height: var(--leading-body);
+  }
+  @media (max-width: 1024px) {
+    .city-section {
+      padding: var(--space-12) var(--space-4);
+    }
+  }
+  @media (max-width: 768px) {
+    .which-mode-table thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+    }
+    .which-mode-table,
+    .which-mode-table tbody,
+    .which-mode-table tr,
+    .which-mode-table th,
+    .which-mode-table td {
+      display: block;
+      width: 100%;
+    }
+    .which-mode-table tr {
+      border-top: 1px solid var(--blueprint-ink-2);
+    }
+    .which-mode-table tbody th {
+      border-top: 0;
+      padding-bottom: 0;
+    }
+    .which-mode-table tbody td {
+      border-top: 0;
+      padding-top: var(--space-1);
+    }
+    .which-mode-table tbody td:last-child {
+      padding-bottom: var(--space-4);
+    }
+  }
+  @media (max-width: 390px) {
+    .city-section {
+      padding: var(--space-8) var(--space-3);
+    }
+    .which-mode-table th,
+    .which-mode-table td {
+      padding-left: var(--space-3);
+      padding-right: var(--space-3);
+    }
+  }
+</style>
