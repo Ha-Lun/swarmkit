@@ -208,7 +208,7 @@ export function buildTimeline(run: FeaturedRun): Timeline {
       scan: 'none', flag: null, review: 'none', selfCheck: 'none', merge: 0,
     }));
     const extras: ExtraState[] = annexLots.map((l) => ({ slug: l.slug, lane: l.lane, phase: 'waiting', build: 0, merge: 0 }));
-    const counters: StageCounters = { dispatched: 0, built: 0, merged: 0, reviewsDone: 0, crossReviewsDone: 0, resumes: 0 };
+    const counters: StageCounters = { dispatched: 0, built: 0, merged: 0, merging: 0, reviewsDone: 0, crossReviewsDone: 0, resumes: 0 };
     let activeScan: ActiveScan = { kind: null, target: null, progress: 0 };
     let planApproved = false;
     const builtSet = new Set<string>();
@@ -350,6 +350,7 @@ export function buildTimeline(run: FeaturedRun): Timeline {
       ],
     }));
 
+    counters.merging = workers.filter((s) => s.phase === 'merging').length + extras.filter((s) => s.phase === 'merging').length;
     const all = [...workers.map((s) => s.merge), ...extras.map((s) => s.merge)];
     const mergeAll = all.length ? all.reduce((s, m) => s + m, 0) / all.length : 0;
 

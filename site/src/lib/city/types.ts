@@ -48,6 +48,11 @@ export interface Slot extends Rect {
   slug: string;
 }
 
+/** A building of the code that existed before the run: decorative, not data. Footprint plus height (m). */
+export interface ExistingBuilding extends Rect {
+  height: number;
+}
+
 /** A lane's hangar. */
 export interface Depot {
   lane: Lane;
@@ -75,6 +80,7 @@ export interface RoadSegment {
  * - plot lots (extra=false) lie inside `plot` and never overlap each other;
  * - extra lots lie inside the annex, outside the plot and outside every block slot, never overlapping;
  * - block slots never overlap each other and lie inside `cityBlock`;
+ * - `existing` buildings lie inside `cityBlock` and never overlap each other, a block slot, the annex or a road;
  * - `block[i]` is the merge target of `lots[i]` (same slug, same w and d); for an extra it equals its annex slot;
  * - depots lie outside the plot; the layout is a pure function of the run (no randomness).
  */
@@ -89,8 +95,13 @@ export interface LotLayout {
   block: Slot[];
   /** Annex slots, one per extra lot, in the same order as the extras in `lots`. */
   annex: Slot[];
-  /** Bounds of the merged city block (all original-worker slots plus the roads between them), on the -x side. */
+  /** Bounds of the city on the -x side: the existing city plus the empty slots the new lots merge into (and the
+   *  roads between them). The slots sit on its +x edge, facing the plot across the link road. */
   cityBlock: Rect;
+  /** The code that existed before the run: decorative, not data. Seeded and deterministic, filling `cityBlock`
+   *  around the (empty until merged) block slots, never on a slot, road or annex lot. Empty when the run has no
+   *  workers. Always visible. */
+  existing: ExistingBuilding[];
   /** One per entry of LANES, in that order. */
   depots: Depot[];
   /** Roads of the merged block: perimeter, the streets between slots, and the link to the plot. */
@@ -208,6 +219,8 @@ export interface StageCounters {
   built: number;
   /** Lots fully merged (worker branches, plus extras; a worker merged through a fixer counts once). */
   merged: number;
+  /** Lots in phase 'merging' right now (lifting and sliding, not yet in place). Not monotonic: drops as they land. */
+  merging: number;
   /** Review events of either kind. */
   reviewsDone: number;
   /** Cross-model review events. */

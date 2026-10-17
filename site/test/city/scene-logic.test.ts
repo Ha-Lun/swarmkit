@@ -4,7 +4,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { beatCaptions, replayLabel } from '../../src/lib/city/captions.ts';
-import { beatPoseU, buildCameraKeys, createCameraPath, monotoneCubic, smoothDamp } from '../../src/lib/city/camera.ts';
+import { PerspectiveCamera, Vector3 } from 'three';
+import { beatKeyUs, beatPoseU, buildCameraKeys, CAMERA_FOV, createCameraPath, monotoneCubic, smoothDamp } from '../../src/lib/city/camera.ts';
 import { buildLayout } from '../../src/lib/city/lots.ts';
 import { buildTimeline } from '../../src/lib/city/timeline.ts';
 import type { FeaturedRun } from '../../src/lib/run.ts';
@@ -56,6 +57,34 @@ for (const aspect of [16 / 9, 1440 / 810, 390 / 844, 1]) {
   }
 }
 
+// Aspect-aware framing: at every aspect, the lanes key keeps both depots and the plot inside the frame, and the merge
+// and review keys keep the plot and every block slot (and the annex) inside it, in width and height.
+{
+  const inFrame = (aspect: number, key: { pos: number[]; target: number[] }, rects: { x: number; z: number; w: number; d: number }[], what: string) => {
+    const cam = new PerspectiveCamera(CAMERA_FOV, aspect, 0.1, 1000);
+    cam.position.set(key.pos[0], key.pos[1], key.pos[2]);
+    cam.lookAt(key.target[0], key.target[1], key.target[2]);
+    cam.updateMatrixWorld();
+    const v = new Vector3();
+    for (const r of rects) {
+      for (const dx of [-1, 1]) for (const dz of [-1, 1]) for (const y of [0, 1]) {
+        v.set(r.x + (dx * r.w) / 2, y, r.z + (dz * r.d) / 2).project(cam);
+        assert.ok(Math.abs(v.x) <= 0.95 && Math.abs(v.y) <= 0.95, `${what} at aspect ${aspect.toFixed(2)}: corner at ndc ${v.x.toFixed(2)}, ${v.y.toFixed(2)}`);
+      }
+    }
+  };
+  const depots = layout.depots.map((d) => ({ x: d.x, z: d.z, w: layout.cell, d: layout.cell }));
+  const slots = layout.block;
+  for (const aspect of [1440 / 810, 1024 / 768, 768 / 1024, 390 / 844]) {
+    const keys = buildCameraKeys(layout, beats, aspect);
+    const key = (id: string) => keys.find((k) => k.beat === id)!;
+    inFrame(aspect, key('lanes'), [layout.plot, ...depots], 'lanes: depots and plot');
+    inFrame(aspect, key('merge'), [layout.plot, ...slots], 'merge: plot and slots');
+    inFrame(aspect, key('review'), [...slots, ...layout.annex], 'review: slots and annex');
+    inFrame(aspect, key('hero'), [layout.plot, layout.cityBlock], 'hero: city and empty plot');
+  }
+}
+
 // Monotone cubic: hits the knots, stays monotone, never overshoots.
 {
   const f = monotoneCubic([0, 0.1, 0.5, 0.52, 1], [0, 0.25, 0.5, 0.75, 1]);
@@ -80,12 +109,18 @@ for (const aspect of [16 / 9, 1440 / 810, 390 / 844, 1]) {
   assert.equal(smoothDamp(0.3, 1, { v: 0 }, 0.15, 0), 0.3);
 }
 
-// beatPoseU: hero snaps to 0, every other beat to a point inside its own range.
-for (const b of beats.filter((bt) => bt.present && bt.u1 > bt.u0)) {
-  const mid = (b.u0 + b.u1) / 2;
-  const s = beatPoseU(beats, mid);
-  if (b.id === 'hero') assert.equal(s, 0);
-  else assert.ok(s >= b.u0 && s <= b.u1, `${b.id} pose inside its beat`);
+// beatPoseU: a static frame shows the beat's own camera keyframe (hero 0, bill 1, others inside their range).
+{
+  const keyUs = new Map(beatKeyUs(beats).map((k) => [k.beat, k.u]));
+  const camKeys = new Map(buildCameraKeys(layout, beats).map((k) => [k.beat, k.u]));
+  for (const b of beats.filter((bt) => bt.present && bt.u1 > bt.u0)) {
+    const s = beatPoseU(beats, (b.u0 + b.u1) / 2);
+    assert.equal(s, keyUs.get(b.id), `${b.id} static pose is its keyframe`);
+    assert.equal(s, camKeys.get(b.id), `${b.id} keyframe u matches the camera key`);
+    if (b.id === 'hero') assert.equal(s, 0);
+    else if (b.id === 'bill') assert.equal(s, 1);
+    else assert.ok(s >= b.u0 && s <= b.u1, `${b.id} pose inside its beat`);
+  }
 }
 
 // Captions: one per beat, numbers from the run, and the wording rules hold.

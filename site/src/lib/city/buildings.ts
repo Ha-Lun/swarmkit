@@ -7,6 +7,10 @@
 // - rework: a thin wider band on top of each main box, height rising with
 //   workers[i].rework in the rework lane's colour (the worker's own lane once the
 //   pass ends and reworkLane clears);
+// - existing: the code that existed before the run (layout.existing), decorative and always visible, one static
+//   instance per building in a neutral warm grey derived from palette.paper and palette.ink (never a lane colour);
+// - main boxes stand on a setback footprint (FOOTPRINT of the lot, centred); the lot plates (merge part) keep the
+//   full lot size, so a new building reads as a building on its parcel;
 // - extras: a separate InstancedMesh with a low flat-roofed annex silhouette
 //   (body + overhanging roof slab in one geometry), growing with extras[j].build.
 //
@@ -30,6 +34,12 @@ import {
 import { lotPoseAt } from './lots.ts';
 import type { CityPalette, CityPart, LotLayout, StageState } from './types.ts';
 
+/** Building footprint as a fraction of its lot (centred): the setback from the parcel edge. */
+export const FOOTPRINT = 0.7;
+/** Existing-city colour: palette.paper darkened, a touch of ink, and a small per-building lightness spread. */
+const OLD_DARKEN = 0.74;
+const OLD_INK = 0.1;
+const OLD_SPREAD = 0.1;
 /** Rework band height as a fraction of the lot's finished height at rework = 1. */
 const REWORK_FRACTION = 0.2;
 /** Below this height (m) an instance is collapsed to nothing rather than drawn flat. */
@@ -99,8 +109,8 @@ export function createBuildings(layout: LotLayout, palette: CityPalette): CityPa
   const mainAgy: boolean[] = [];
   for (let k = 0; k < nMain; k++) {
     const lot = layout.lots[mainIndex[k]];
-    mainW.push(lot.w);
-    mainD.push(lot.d);
+    mainW.push(lot.w * FOOTPRINT);
+    mainD.push(lot.d * FOOTPRINT);
     mainH.push(lot.height);
     mainAgy.push(lot.lane === 'agy');
   }
@@ -125,11 +135,14 @@ export function createBuildings(layout: LotLayout, palette: CityPalette): CityPa
   const reworkGeo = new BoxGeometry(1, 1, 1);
   reworkGeo.translate(0, 0.5, 0);
   const extraGeo: BufferGeometry = buildAnnexGeometry();
+  const oldGeo = new BoxGeometry(1, 1, 1);
+  oldGeo.translate(0, 0.5, 0);
 
   // White base so the per-instance palette lane colours show unmodified.
   const mainMat = new MeshLambertMaterial({ color: 0xffffff });
   const reworkMat = new MeshLambertMaterial({ color: 0xffffff });
   const extraMat = new MeshLambertMaterial({ color: 0xffffff });
+  const oldMat = new MeshLambertMaterial({ color: 0xffffff });
 
   const root = new Group();
   root.name = 'buildings';
@@ -148,6 +161,12 @@ export function createBuildings(layout: LotLayout, palette: CityPalette): CityPa
   mainMesh.frustumCulled = false;
   reworkMesh.frustumCulled = false;
   extraMesh.frustumCulled = false;
+  const nOld: number = layout.existing.length;
+  const oldMesh = new InstancedMesh(oldGeo, oldMat, nOld > 0 ? nOld : 1);
+  oldMesh.name = 'buildings-existing';
+  oldMesh.count = nOld;
+  oldMesh.frustumCulled = false;
+  root.add(oldMesh);
   root.add(mainMesh);
   root.add(reworkMesh);
   root.add(extraMesh);
@@ -164,7 +183,21 @@ export function createBuildings(layout: LotLayout, palette: CityPalette): CityPa
     else col.set(opencodeHex);
     extraMesh.setColorAt(j, col);
   }
-  const seeded: InstancedMesh[] = [mainMesh, reworkMesh, extraMesh];
+  // The existing city never changes: matrices and colours are set once here.
+  const oldBase = new Color(palette.paper).multiplyScalar(OLD_DARKEN).lerp(new Color(palette.ink), OLD_INK);
+  {
+    const p = new Vector3(), sc = new Vector3(), q = new Quaternion(), m = new Matrix4();
+    for (let i = 0; i < nOld; i++) {
+      const b = layout.existing[i];
+      p.set(b.x, 0, b.z);
+      sc.set(b.w, b.height, b.d);
+      oldMesh.setMatrixAt(i, m.compose(p, q, sc));
+      // Seeded from the index (Knuth hash), so the same layout always gets the same shades.
+      const f = (Math.imul(i + 1, 2654435761) >>> 0) / 4294967296;
+      oldMesh.setColorAt(i, col.copy(oldBase).multiplyScalar(1 - OLD_SPREAD / 2 + OLD_SPREAD * f));
+    }
+  }
+  const seeded: InstancedMesh[] = [oldMesh, mainMesh, reworkMesh, extraMesh];
   for (let i = 0; i < seeded.length; i++) {
     seeded[i].instanceMatrix.needsUpdate = true;
     const ic = seeded[i].instanceColor;
@@ -231,6 +264,8 @@ export function createBuildings(layout: LotLayout, palette: CityPalette): CityPa
     mainGeo.dispose();
     reworkGeo.dispose();
     extraGeo.dispose();
+    oldGeo.dispose();
+    oldMat.dispose();
     mainMat.dispose();
     reworkMat.dispose();
     extraMat.dispose();

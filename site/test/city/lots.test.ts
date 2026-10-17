@@ -59,6 +59,29 @@ for (const r of [L.plot, L.cityBlock, ...L.lots]) assert.ok(inside(r, L.bounds),
 for (const seg of L.roads) for (const v of [seg.x1, seg.z1, seg.x2, seg.z2, seg.width]) assert.ok(Number.isFinite(v));
 assert.ok(L.roads.length > 0);
 
+// The existing city (decorative): inside the block, clear of slots, annex, roads and each other.
+const roadRect = (r: (typeof L.roads)[number]): Rect => ({
+  x: (r.x1 + r.x2) / 2, z: (r.z1 + r.z2) / 2,
+  w: Math.abs(r.x2 - r.x1) + (r.z1 === r.z2 ? 0 : r.width), d: Math.abs(r.z2 - r.z1) + (r.x1 === r.x2 ? 0 : r.width),
+});
+function checkExisting(G: typeof L, what: string) {
+  const n = G.lots.filter((l) => !l.extra).length;
+  if (!n) return assert.equal(G.existing.length, 0, `${what}: no block, no existing city`);
+  assert.ok(G.existing.length >= n, `${what}: a city, not a hamlet`);
+  noPairOverlap(G.existing, `${what} existing building`);
+  for (const e of G.existing) {
+    assert.ok(e.w > 0.3 && e.d > 0.3 && e.height > 0 && Number.isFinite(e.height), `${what}: sane building`);
+    assert.ok(inside(e, G.cityBlock), `${what}: existing inside the city block`);
+    for (const s of G.block) assert.ok(!overlaps(e, s), `${what}: existing on slot ${s.slug}`);
+    for (const a of G.annex) assert.ok(!overlaps(e, a), `${what}: existing on annex ${a.slug}`);
+    for (const r of G.roads) assert.ok(!overlaps(e, roadRect(r)), `${what}: existing on a road`);
+    assert.ok(!overlaps(e, G.plot), `${what}: existing on the plot`);
+  }
+}
+checkExisting(L, 'featured');
+const heights = L.existing.map((e) => e.height);
+assert.ok(Math.max(...heights) - Math.min(...heights) > 1.5, 'existing heights vary');
+
 // Lots near square.
 for (const l of L.lots) assert.ok(Math.max(l.w / l.d, l.d / l.w) <= 1.5);
 
@@ -100,7 +123,9 @@ for (let n = 1; n <= 13; n++) {
   noPairOverlap(G.block, `n=${n} slot`);
   for (const l of lots) assert.ok(inside(l, G.plot));
   for (const a of G.annex) assert.ok(!overlaps(a, G.plot) && !overlaps(a, G.cityBlock));
+  checkExisting(G, `n=${n}`);
 }
+checkExisting(M, 'no workers');
 assert.throws(() => buildLayout({} as FeaturedRun));
 
 // lotPoseAt: lot at 0, slot at 1, grounded at both ends, reuses `out`.

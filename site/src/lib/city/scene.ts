@@ -8,12 +8,13 @@
 // when scrolling stops). Reduced motion starts on low. An fps probe on the first frames steps high -> medium -> low.
 // The loop only runs while the stage is on screen.
 import {
-  Color, DirectionalLight, Fog, HalfFloatType, HemisphereLight, Mesh, MeshLambertMaterial, NoToneMapping,
-  PCFShadowMap, PerspectiveCamera, PlaneGeometry, Scene, Vector3, WebGLRenderer, WebGLRenderTarget,
+  Color, DirectionalLight, Fog, GridHelper, HalfFloatType, HemisphereLight, Mesh, MeshLambertMaterial, NoToneMapping,
+  PCFShadowMap, PerspectiveCamera, PlaneGeometry, Scene, SRGBColorSpace, Vector3, WebGLRenderer, WebGLRenderTarget,
 } from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import type { LineBasicMaterial } from 'three';
 import type { FeaturedRun } from '../run.ts';
 import { createBlueprint } from './blueprint.ts';
 import { createBuildings } from './buildings.ts';
@@ -93,8 +94,20 @@ export function readPalette(): CityPalette {
 const DAMP_TIME = 0.15;
 /** fps probe: warm-up frames skipped (shader compile), then at least this long and this many frames. */
 const PROBE = { warmup: 10, ms: 800, minFrames: 20, stepDownBelow: 45, lowBelow: 30 };
-const SUN_INTENSITY = 2.4;
-const HEMI_INTENSITY = 1.1;
+// Lighting is in three's physical units: a Lambert surface returns albedo / pi times its irradiance, so sun * cos +
+// sky ~ pi brings lit paper back to about its token value (no tone mapping, sRGB output). The sun is low (long soft
+// shadows) and warm but mixed towards white, the sky fill cool but mixed towards white, so the light is warm and the
+// paper stays paper: lit ground ~0.9 of the token, ground in shadow ~0.6, lane colours keep their saturation.
+const SUN_INTENSITY = 3.1;
+const HEMI_INTENSITY = 2.0;
+/** How far the sun's colour moves from white towards --light-warm, and the sky's towards --light-cool. */
+const SUN_WARMTH = 0.45;
+const SKY_COOLNESS = 0.35;
+/** The table: a shade under the paper token, so the unlit page background reads as the same paper beyond it. */
+const TABLE_SHADE = 0.97;
+/** Faint blueprint grid on the table: spacing in lot cells, opacity. */
+const GRID_CELLS = 2;
+const GRID_OPACITY = 0.1;
 /** How much the bill beat dims the lights (the city recedes and dims). */
 const BILL_DIM = 0.45;
 /** Bill progress past which the lot labels hide. */
@@ -118,13 +131,15 @@ export function mountCity(opts: MountCityOptions): CityHandle {
   // --- Renderer, scene, camera, lights.
   const renderer = new WebGLRenderer({ canvas, antialias: tier === 'high', powerPreference: 'high-performance' });
   renderer.toneMapping = NoToneMapping; // the palette stays the palette
+  renderer.outputColorSpace = SRGBColorSpace;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = PCFShadowMap;
 
   const scene = new Scene();
-  const ink = new Color(palette.ink);
-  scene.background = ink;
-  scene.fog = new Fog(ink, 60, 200);
+  // Drafting paper all the way out: the background is the paper token and the table fogs into it.
+  const paper = new Color(palette.paper);
+  scene.background = paper;
+  scene.fog = new Fog(paper, 60, 200);
 
   const b = layout.bounds;
   const R = 0.5 * Math.hypot(b.w, b.d);
@@ -133,7 +148,7 @@ export function mountCity(opts: MountCityOptions): CityHandle {
   const camera = new PerspectiveCamera(CAMERA_FOV, 16 / 9, 0.5, R * 20);
 
   // Warm low key from one side (long soft shadows), cool sky fill from the other. Matte: Lambert everywhere.
-  const sun = new DirectionalLight(new Color(palette.lightWarm), SUN_INTENSITY);
+  const sun = new DirectionalLight(new Color(1, 1, 1).lerp(new Color(palette.lightWarm), SUN_WARMTH), SUN_INTENSITY);
   sun.position.set(b.x + R * 1.3, R * 0.75, b.z + R * 0.9);
   sun.target.position.copy(centre);
   sun.castShadow = true;
@@ -144,17 +159,27 @@ export function mountCity(opts: MountCityOptions): CityHandle {
   sun.shadow.normalBias = 0.03;
   sun.shadow.radius = 4;
   scene.add(sun, sun.target);
-  const hemi = new HemisphereLight(new Color(lightCool), new Color(palette.paper), HEMI_INTENSITY);
+  const hemi = new HemisphereLight(new Color(1, 1, 1).lerp(new Color(lightCool), SKY_COOLNESS), paper, HEMI_INTENSITY);
   scene.add(hemi);
 
-  // Drafting table: a large paper plane just under the ground; fog fades its edge into the ink background.
+  // Drafting table: a large paper plane just under the ground; fog fades its edge into the paper background.
   const tableGeo = new PlaneGeometry(R * 10, R * 10);
-  const tableMat = new MeshLambertMaterial({ color: new Color(palette.paper) });
+  const tableMat = new MeshLambertMaterial({ color: paper.clone().multiplyScalar(TABLE_SHADE) });
   const table = new Mesh(tableGeo, tableMat);
   table.rotation.x = -Math.PI / 2;
   table.position.set(b.x, -0.01, b.z);
   table.receiveShadow = true;
   scene.add(table);
+  // A faint blueprint grid ruled on the table (hairline blue, fogged out with distance; drawn under every plate).
+  const gridSize = R * 6;
+  const gridDiv = Math.max(4, Math.round(gridSize / (layout.cell * GRID_CELLS)));
+  const grid = new GridHelper(gridSize, gridDiv, new Color(palette.line), new Color(palette.line));
+  const gridMat = grid.material as LineBasicMaterial;
+  gridMat.transparent = true;
+  gridMat.opacity = GRID_OPACITY;
+  gridMat.depthWrite = false;
+  grid.position.set(b.x, -0.005, b.z);
+  scene.add(grid);
 
   // --- The five parts. Shadows are a scene decision: every mesh in a part casts and receives.
   const parts: CityPart[] = [
@@ -411,6 +436,8 @@ export function mountCity(opts: MountCityOptions): CityHandle {
       dropComposer();
       tableGeo.dispose();
       tableMat.dispose();
+      grid.geometry.dispose();
+      gridMat.dispose();
       sun.shadow.map?.dispose();
       renderer.dispose();
     },

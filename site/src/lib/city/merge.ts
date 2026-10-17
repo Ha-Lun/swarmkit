@@ -24,7 +24,7 @@ const ROAD_H = 0.06;
 /** City-block ground plate thickness (m); its top sits at y = 0. */
 const GROUND_H = 0.3;
 /** How much the block ground plate darkens palette.paper. */
-const PAPER_DARKEN = 0.82;
+const PAPER_DARKEN = 0.9;
 
 type PlateMesh = Mesh<BoxGeometry, MeshLambertMaterial>;
 

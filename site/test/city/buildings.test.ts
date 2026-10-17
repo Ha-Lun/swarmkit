@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
-import { createBuildings } from '../../src/lib/city/buildings.ts';
+import { createBuildings, FOOTPRINT } from '../../src/lib/city/buildings.ts';
 import { buildLayout } from '../../src/lib/city/lots.ts';
 import { buildTimeline } from '../../src/lib/city/timeline.ts';
 import type { FeaturedRun } from '../../src/lib/run.ts';
@@ -28,6 +28,10 @@ assert.ok(part.object);
 const mainMesh = part.object.getObjectByName('buildings-main');
 const reworkMesh = part.object.getObjectByName('buildings-rework');
 const extraMesh = part.object.getObjectByName('buildings-extras');
+const oldMesh = part.object.getObjectByName('buildings-existing');
+assert.ok(oldMesh instanceof THREE.InstancedMesh, 'existing-city InstancedMesh present');
+assert.ok(layout.existing.length > 0);
+assert.equal(oldMesh.count, layout.existing.length);
 assert.ok(mainMesh instanceof THREE.InstancedMesh, 'main InstancedMesh present');
 assert.ok(reworkMesh instanceof THREE.InstancedMesh, 'rework InstancedMesh present');
 assert.ok(extraMesh instanceof THREE.InstancedMesh, 'extras InstancedMesh present');
@@ -65,6 +69,29 @@ const probe = new THREE.Matrix4();
 const H_EPS = 1e-6;
 const POS_EPS = 1e-4;
 
+// The existing city stands from the first frame to the last, unchanged, in a neutral (non-lane) colour.
+const laneColours = [new THREE.Color(palette.laneAgy), new THREE.Color(palette.laneOpencode)];
+const oldAt = (u: number) => {
+  part.update(timeline.stateAt(u), 1 / 60);
+  return Array.from(oldMesh.instanceMatrix.array);
+};
+const old0 = oldAt(0);
+assert.deepEqual(oldAt(0.62), old0);
+assert.deepEqual(oldAt(1), old0);
+const c = new THREE.Color();
+for (let i = 0; i < layout.existing.length; i++) {
+  const b = layout.existing[i];
+  oldMesh.getMatrixAt(i, probe);
+  const e = probe.elements;
+  assert.ok(Math.abs(e[5] - b.height) < H_EPS && Math.abs(e[0] - b.w) < H_EPS && Math.abs(e[10] - b.d) < H_EPS, `existing ${i} size`);
+  assert.ok(Math.abs(e[12] - b.x) < POS_EPS && Math.abs(e[14] - b.z) < POS_EPS && e[13] === 0, `existing ${i} grounded in place`);
+  oldMesh.getColorAt(i, c);
+  const hsl = { h: 0, s: 0, l: 0 };
+  c.getHSL(hsl);
+  assert.ok(hsl.s < 0.5, `existing ${i} is a grey, not a lane colour`);
+  for (const lc of laneColours) assert.ok(Math.abs(c.r - lc.r) + Math.abs(c.g - lc.g) + Math.abs(c.b - lc.b) > 0.3, `existing ${i} not a lane colour`);
+}
+
 // At u = 0 nothing is built: every instance height is about 0.
 part.update(timeline.stateAt(0), 1 / 60);
 for (let i = 0; i < originals.length; i++) {
@@ -85,6 +112,7 @@ for (let i = 0; i < originals.length; i++) {
   mainMesh.getMatrixAt(i, probe);
   const e = probe.elements;
   assert.ok(Math.abs(e[5] - originals[i].height) < H_EPS, `original ${i} full height`);
+  assert.ok(Math.abs(e[0] - originals[i].w * FOOTPRINT) < H_EPS && Math.abs(e[10] - originals[i].d * FOOTPRINT) < H_EPS, `original ${i} setback footprint`);
   assert.ok(Math.abs(e[12] - layout.block[i].x) < POS_EPS, `original ${i} at slot x`);
   assert.ok(Math.abs(e[13]) < 1e-9, `original ${i} grounded`);
   assert.ok(Math.abs(e[14] - layout.block[i].z) < POS_EPS, `original ${i} at slot z`);

@@ -5,6 +5,7 @@
 // parameter through a monotone cubic (Fritsch-Carlson), so the camera speed is continuous across beat boundaries
 // and never stops at one.
 import { CatmullRomCurve3, Vector3 } from 'three';
+import { H_MAX, ROAD_W } from './lots.ts';
 import type { Beat, BeatId, LotLayout, Rect } from './types.ts';
 
 /** Vertical field of view of the scene camera (degrees). */
@@ -26,6 +27,8 @@ interface Shot {
   yaw: number;
   /** Where in the beat the pose is reached, 0..1. */
   at: number;
+  /** Where the rect's centre lands on screen (NDC, -1..1) for landscape and portrait: keeps it clear of DOM panels. */
+  offset?: { landscape: [number, number]; portrait: [number, number] };
 }
 
 const union = (...rs: Rect[]): Rect => {
@@ -42,27 +45,80 @@ const depotRects = (l: LotLayout): Rect[] => l.depots.map((d) => ({ x: d.x, z: d
 /** The block when there is one (no workers = empty block), else the plot. */
 const blockOr = (l: LotLayout): Rect => (l.cityBlock.w > 0 ? l.cityBlock : l.plot);
 
-/** Per-beat shots. Yaw 0 looks from +z towards -z; positive yaw swings the camera towards +x. */
-const SHOTS: Record<BeatId, Shot> = {
-  hero: { rect: (l) => l.bounds, zoom: 1.05, pitch: 36, yaw: 28, at: 0 },
-  task: { rect: (l) => l.plot, zoom: 1.45, pitch: 52, yaw: 16, at: 0.6 },
-  plan: { rect: (l) => l.plot, zoom: 1.25, pitch: 78, yaw: 6, at: 0.55 },
-  lanes: { rect: (l) => union(l.plot, ...depotRects(l)), zoom: 1.0, pitch: 40, yaw: 30, at: 0.5 },
-  verify: { rect: (l) => l.plot, zoom: 1.0, pitch: 38, yaw: 36, at: 0.5 },
-  merge: { rect: (l) => union(l.plot, blockOr(l)), zoom: 0.95, pitch: 40, yaw: 18, at: 0.6 },
-  review: { rect: (l) => union(blockOr(l), ...l.annex), zoom: 1.35, pitch: 36, yaw: 14, at: 0.5 },
-  bill: { rect: (l) => l.bounds, zoom: 1.6, pitch: 46, yaw: 8, at: 1 },
+/** The empty slots the new lots merge into (plus a street of margin), else the plot. */
+const slotsOr = (l: LotLayout): Rect => {
+  const slots = l.block.filter((_, i) => !l.lots[i].extra);
+  if (!slots.length) return l.plot;
+  const u = union(...slots);
+  return { ...u, w: u.w + 2 * ROAD_W, d: u.d + 2 * ROAD_W };
 };
 
-/** Tallest a building can get (m): keeps tall lots in frame. Matches H_MAX in lots.ts loosely. */
-const HEIGHT_MARGIN = 4;
+/**
+ * Per-beat shots. Yaw 0 looks from +z towards -z; positive yaw swings the camera towards +x. `zoom` multiplies the
+ * exact fit distance (1 = the rect's box just fits inside the padded frame for this aspect; below 1 crops).
+ */
+const SHOTS: Record<BeatId, Shot> = {
+  // A finished city with an empty lot beside it: the whole city plus the blueprint plot.
+  // The hero panel sits top-left (top on phones): the city sits right of and below the panel.
+  hero: {
+    rect: (l) => union(blockOr(l), l.plot), zoom: 1.0, pitch: 36, yaw: 28, at: 0,
+    offset: { landscape: [0.24, -0.1], portrait: [0, -0.22] },
+  },
+  task: { rect: (l) => l.plot, zoom: 1.15, pitch: 52, yaw: 16, at: 0.6 },
+  plan: { rect: (l) => l.plot, zoom: 1.3, pitch: 78, yaw: 6, at: 0.55 },
+  // Both depots and the plot, fully in frame (zoom >= 1 keeps the padding).
+  lanes: { rect: (l) => union(l.plot, ...depotRects(l)), zoom: 1.05, pitch: 40, yaw: 30, at: 0.5 },
+  verify: { rect: (l) => l.plot, zoom: 0.95, pitch: 38, yaw: 36, at: 0.5 },
+  merge: { rect: (l) => union(l.plot, slotsOr(l)), zoom: 1.2, pitch: 40, yaw: 18, at: 0.6 },
+  review: { rect: (l) => union(slotsOr(l), ...l.annex), zoom: 1.25, pitch: 36, yaw: 14, at: 0.5 },
+  bill: { rect: (l) => l.bounds, zoom: 1.5, pitch: 46, yaw: 8, at: 1 },
+};
 
-/** Distance at which a rect (plus a height margin) fits the view for this aspect. */
-function fitDistance(r: Rect, aspect: number, fovDeg: number): number {
-  const radius = 0.5 * Math.hypot(r.w, r.d, HEIGHT_MARGIN);
-  const v = (fovDeg * Math.PI) / 180;
-  const h = 2 * Math.atan(Math.tan(v / 2) * aspect);
-  return radius / Math.sin(Math.min(v, h) / 2);
+/** Height of the framed box (m): the tallest a new building can get, so tall lots stay in frame. */
+const FRAME_H = H_MAX;
+/** Look-at height (m). */
+const TARGET_Y = 0.6;
+/** Frame padding: fraction of the half-width / half-height kept clear around the framed box. */
+const PAD_X = 0.08;
+const PAD_Y = 0.1;
+/** Portrait screens carry the HUD on top and the captions at the bottom: keep more height clear there. */
+const PAD_Y_PORTRAIT = 0.24;
+
+/**
+ * Exact fit: the smallest distance from the rect's centre at which every corner of the rect's box (ground to FRAME_H)
+ * projects inside the padded frame, in both width and height, for this aspect, pitch and yaw (radians).
+ */
+export function fitDistance(r: Rect, aspect: number, fovDeg: number, pitch: number, yaw: number, ox = 0, oy = 0): number {
+  const cp = Math.cos(pitch), sp = Math.sin(pitch), cy = Math.cos(yaw), sy = Math.sin(yaw);
+  // Camera basis: back (target -> camera), right, up.
+  const bx = cp * sy, by = sp, bz = cp * cy;
+  const rx = cy, rz = -sy; // right = up x back, normalised (ry = 0)
+  const ux = by * rz, uy = bz * rx - bx * rz, uz = -by * rx; // up = back x right
+  const tanV = Math.tan(((fovDeg * Math.PI) / 180) / 2);
+  const tanY = tanV * (1 - (aspect < 1 ? PAD_Y_PORTRAIT : PAD_Y)), tanX = tanV * aspect * (1 - PAD_X);
+  // With the centre shifted to (ox, oy) on screen, a point's offset from the view axis gains o * tan * d.
+  const shx = ox * tanV * aspect, shy = oy * tanV;
+  let d = 0;
+  for (const dx of [-r.w / 2, r.w / 2]) {
+    for (const dz of [-r.d / 2, r.d / 2]) {
+      for (const dy of [-TARGET_Y, FRAME_H - TARGET_Y]) {
+        const xc = dx * rx + dz * rz;
+        const yc = dx * ux + dy * uy + dz * uz;
+        const zc = dx * bx + dy * by + dz * bz;
+        d = Math.max(
+          d,
+          (xc + tanX * zc) / (tanX - shx), (tanX * zc - xc) / (tanX + shx),
+          (yc + tanY * zc) / (tanY - shy), (tanY * zc - yc) / (tanY + shy),
+        );
+      }
+    }
+  }
+  return d;
+}
+
+/** Scroll progress at which beat b's pose is reached: hero at 0, bill at 1, the others at `at` inside the beat. */
+function keyU(b: Beat): number {
+  return b.id === 'hero' ? 0 : b.id === 'bill' ? 1 : b.u0 + (b.u1 - b.u0) * SHOTS[b.id].at;
 }
 
 /**
@@ -75,17 +131,23 @@ export function buildCameraKeys(layout: LotLayout, beats: Beat[], aspect = 16 / 
   for (const b of beats) {
     if (!b.present) continue;
     const shot = SHOTS[b.id];
-    const u = b.id === 'hero' ? 0 : b.id === 'bill' ? 1 : b.u0 + (b.u1 - b.u0) * shot.at;
+    const u = keyU(b);
     if (keys.length && u <= keys[keys.length - 1].u + 1e-6) continue; // zero-length beat: keep the earlier pose
     const r = shot.rect(layout);
-    const dist = fitDistance(r, a, fovDeg) * shot.zoom;
     const pitch = (shot.pitch * Math.PI) / 180;
     const yaw = (shot.yaw * Math.PI) / 180;
-    const tx = r.x, tz = r.z, ty = 0.6;
+    const [ox, oy] = shot.offset ? shot.offset[a < 1 ? 'portrait' : 'landscape'] : [0, 0];
+    const dist = fitDistance(r, a, fovDeg, pitch, yaw, ox, oy) * shot.zoom;
+    // Shift camera and target together (the view direction stays) so the rect's centre lands at (ox, oy).
+    const tanV = Math.tan(((fovDeg * Math.PI) / 180) / 2);
+    const lx = -ox * tanV * a * dist, ly = -oy * tanV * dist;
+    const cp = Math.cos(pitch), sp = Math.sin(pitch), cy = Math.cos(yaw), sy = Math.sin(yaw);
+    const shift = [lx * cy + ly * -sp * sy, ly * cp, lx * -sy + ly * -sp * cy];
+    const tx = r.x + shift[0], ty = TARGET_Y + shift[1], tz = r.z + shift[2];
     keys.push({
       beat: b.id,
       u,
-      pos: [tx + dist * Math.cos(pitch) * Math.sin(yaw), ty + dist * Math.sin(pitch), tz + dist * Math.cos(pitch) * Math.cos(yaw)],
+      pos: [tx + dist * cp * sy, ty + dist * sp, tz + dist * cp * cy],
       target: [tx, ty, tz],
     });
   }
@@ -174,11 +236,19 @@ export function smoothDamp(current: number, target: number, state: { v: number }
   return out;
 }
 
-/** u snapped to the pose a static (reduced-motion / low tier) frame shows for the beat under u: late in the beat. */
-export function beatPoseU(beats: Beat[], u: number, at = 0.85): number {
+/** Each present beat's keyframe u (where its camera pose is exact), in beat order. */
+export function beatKeyUs(beats: Beat[]): { beat: BeatId; u: number }[] {
+  return beats.filter((b) => b.present).map((b) => ({ beat: b.id, u: keyU(b) }));
+}
+
+/**
+ * u snapped to the pose a static (reduced-motion / low tier) frame shows for the beat under u: that beat's camera
+ * keyframe, so a static frame is always one of the exact poses of the moving camera.
+ */
+export function beatPoseU(beats: Beat[], u: number): number {
   const x = u <= 0 ? 0 : u >= 1 ? 1 : u;
   for (const b of beats) {
-    if (b.u1 > b.u0 && x >= b.u0 && (x < b.u1 || b.u1 >= 1)) return b.id === 'hero' ? 0 : b.u0 + (b.u1 - b.u0) * at;
+    if (b.u1 > b.u0 && x >= b.u0 && (x < b.u1 || b.u1 >= 1)) return keyU(b);
   }
   return x;
 }

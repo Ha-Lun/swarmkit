@@ -6,9 +6,11 @@ see `types.ts`: they get a `LotLayout` once and a `StageState` every frame.
 
 ## Coordinates
 
-Metres, ground plane `y = 0`, `+y` up. The blueprint plot is centred on the origin (rows along `z`). The existing
-city block, which the lots merge into, sits on the `-x` side across a link road; the annex for extra branches is a
-row of small slots past the block's `+z` edge. Lane depots sit off the plot: `agy` at `-z` (facing `+z`),
+Metres, ground plane `y = 0`, `+y` up. The blueprint plot is centred on the origin (rows along `z`). The city
+(`layout.cityBlock`) sits on the `-x` side across a link road: an existing city (`layout.existing`, the code that
+existed before the run: decorative, seeded, not data) wrapped around a grid of empty slots on its `+x` edge, which
+is where the lots merge into. The annex for extra branches is a row of small slots past the city's `+z` edge, under
+the slot columns. Lane depots sit off the plot: `agy` at `-z` (facing `+z`),
 `opencode` at `+z` (facing `-z`). Yaw 0 faces `+z`. `layout.bounds` frames everything.
 
 ## Beats (real run, from `buildTimeline`)
@@ -38,8 +40,23 @@ Most `ok:false` self-checks were a denied command, not wrong code. Reviews carry
 `workers[]` (per original lot: `phase`, `build`, `rework` + `reworkLane`, `resumes`, `scan` + `flag`, `review`,
 `selfCheck`, `merge`), `extras[]` (annex lots: `phase`, `build`, `merge`), `activeScan` (`kind`, `target` slug or
 null for the whole block, `progress`), `drones[]` (per lane: `used`, `jobs` = lots being built or reworked with their
-progress), `mergeAll`, `bill`, `counters` (dispatched, built, merged, reviewsDone, crossReviewsDone, resumes). Units
+progress), `mergeAll`, `bill`, `counters` (dispatched, built, merged, merging, reviewsDone, crossReviewsDone,
+resumes; `merging` = lots in the air right now, the only counter that goes down). Units
 and edge cases are in the comments in `types.ts`.
+
+## Look
+
+Light paper diorama: background and fog are `--paper`, the table a shade under it with a faint blueprint grid. The
+sun is low and warm (mixed towards white), the sky fill cool (mixed towards white), intensities chosen so lit paper
+lands near its token under `NoToneMapping` and sRGB output (see the constants in scene.ts). Lane colours stay
+saturated; the existing city stays grey.
+
+## Camera
+
+`camera.ts` frames one rect of the layout per beat with an exact, aspect-aware fit (every corner of the rect's box,
+ground to `H_MAX`, inside a padded frame in width and height; more height padding in portrait for the HUD and
+captions). The hero frames the whole city plus the plot, offset right of the hero panel; lanes keeps both depots in
+frame. Keys are joined by one Catmull-Rom curve with a monotone u -> t map, so speed is continuous.
 
 ## How to write a visual part
 
@@ -51,7 +68,8 @@ Export a factory `createX(layout: LotLayout, palette: CityPalette): CityPart` (`
   drones), never for progress. Same state, same picture: scrolling back must rewind exactly.
 - No DOM, no scroll reads, no text in WebGL (labels are DOM, positioned by scene.ts from lot centres), no
   randomness unless seeded from the slug.
-- Reduced motion: scene.ts may call `update` only at beat poses; a part must look right for any single state.
+- Reduced motion: scene.ts may call `update` only at beat poses (each beat's camera keyframe u, `beatKeyUs` in
+  camera.ts); a part must look right for any single state.
 - `dispose()` frees every geometry, material and texture you created.
 - Placeholder look until the Blender kit lands: flat matte boxes, cones and lines (`MeshLambertMaterial` or
   `LineBasicMaterial`), colours only from `CityPalette` (lane id -> `laneAgy` / `laneOpencode`). Status colours
@@ -61,7 +79,9 @@ Export a factory `createX(layout: LotLayout, palette: CityPalette): CityPart` (`
 
 - **blueprint**: plot outline and lot outlines in `palette.line`, drawn on by `blueprint` (0 = nothing, 1 = all
   lines), lots separate from the plot outline by `split`. Annex outlines appear only with an extra's `build > 0`.
-- **buildings**: instanced boxes per lot, height `lot.height * build`; `rework` shows as a scaffold or top band
+- **buildings**: the existing city as an always-visible instanced mesh in a neutral warm grey (paper and ink, never
+  a lane colour); instanced boxes per lot on a setback footprint (70% of the lot, centred), height
+  `lot.height * build`; `rework` shows as a scaffold or top band
   rising; extras get a different silhouette (low, flat-roofed annex). Position each lot with `lotPoseAt(layout,
   i, merge, out)` from `lots.ts` (the merge module uses the same function, so they stay in sync).
 - **drones**: simple cones per lane colour, parked at the depot when `jobs` is empty; per job, fly depot -> lot early

@@ -41,7 +41,9 @@ function common(T: Timeline): StageState[] {
         assert.ok(w.build >= prev!.workers[k].build - 1e-12, `${w.slug} build monotonic`);
         assert.ok(w.merge >= prev!.workers[k].merge - 1e-12, `${w.slug} merge monotonic`);
       });
-      for (const key of Object.keys(s.counters) as (keyof StageState['counters'])[]) assert.ok(s.counters[key] >= prev.counters[key]);
+      for (const key of Object.keys(s.counters) as (keyof StageState['counters'])[]) {
+        if (key !== 'merging') assert.ok(s.counters[key] >= prev.counters[key], `${key} monotonic`);
+      }
     }
     for (const x of [s.blueprint, s.split, s.mergeAll, s.bill, s.beatProgress, s.activeScan.progress]) assert.ok(x >= 0 && x <= 1);
     states.push(s);
@@ -85,6 +87,13 @@ assert.ok(end.workers.every((w) => w.phase === 'merged' && w.merge === 1 && w.bu
 assert.ok(end.extras.every((x) => x.phase === 'merged' && x.merge === 1));
 assert.equal(end.mergeAll, 1);
 assert.equal(end.counters.merged, run.workers.length + end.extras.length);
+assert.equal(end.counters.merging, 0, 'nothing merging at the end');
+// merging counts exactly the lots in phase 'merging', and is seen during the merge beat while merged lags.
+for (const s of states) {
+  const m = s.workers.filter((w) => w.phase === 'merging').length + s.extras.filter((x) => x.phase === 'merging').length;
+  assert.equal(s.counters.merging, m);
+}
+assert.ok(states.some((s) => s.counters.merging > 0 && s.beat === 'merge'), 'merging shows during the merge beat');
 assert.equal(end.counters.crossReviewsDone, run.events.filter((e) => e.by === 'cross-model').length);
 assert.equal(end.counters.dispatched, run.events.filter((e) => e.type === 'dispatch').length);
 assert.ok(end.workers.every((w) => w.scan === 'passed' && w.review === 'cross-model'));

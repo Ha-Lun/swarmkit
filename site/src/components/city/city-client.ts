@@ -24,6 +24,22 @@ function setupCopy() {
 
 const TIERS: readonly string[] = ['high', 'medium', 'low'];
 
+/** The HUD markup may not have a MERGING cell yet: clone the MERGED one, right after it, hidden until used. */
+function ensureMergingCounter(stage: HTMLElement) {
+  if (stage.querySelector('[data-counter="merging"]')) return;
+  const merged = stage.querySelector<HTMLElement>('[data-counter="merged"]')?.closest<HTMLElement>('.city-counter');
+  if (!merged) return;
+  const cell = merged.cloneNode(true) as HTMLElement;
+  const dt = cell.querySelector('dt');
+  const dd = cell.querySelector<HTMLElement>('dd');
+  if (!dt || !dd) return;
+  dt.textContent = 'merging';
+  dd.dataset.counter = 'merging';
+  dd.textContent = '0';
+  cell.hidden = true;
+  merged.after(cell);
+}
+
 async function boot(stage: HTMLElement) {
   let city: CityHandle | null = null;
   let scroll: ScrollProgress | null = null;
@@ -47,8 +63,11 @@ async function boot(stage: HTMLElement) {
   const captions = new Map([...stage.querySelectorAll<HTMLElement>('.city-caption')].map((el) => [el.dataset.beat!, el]));
   const approval = stage.querySelector<HTMLElement>('[data-approval]');
   const hero = stage.querySelector<HTMLElement>('[data-city-hero]');
+  ensureMergingCounter(stage);
   const counterEls = [...stage.querySelectorAll<HTMLElement>('[data-counter]')].map((el) => ({
     el, key: el.dataset.counter as keyof StageCounters, last: -1,
+    // 'merging' is transient: its cell only shows while lots are in the air (MERGED keeps counting landed lots).
+    cell: el.dataset.counter === 'merging' ? el.closest<HTMLElement>('.city-counter') : null,
   }));
   const clock = stage.querySelector<HTMLElement>('[data-clock]');
   let lastBeat = '';
@@ -71,6 +90,7 @@ async function boot(stage: HTMLElement) {
       const v = s.counters[c.key];
       if (v !== c.last) {
         c.el.textContent = String(v);
+        if (c.cell) c.cell.hidden = v <= 0;
         c.last = v;
       }
     }
