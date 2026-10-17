@@ -1,7 +1,8 @@
 ---
 // The pinned City stage: a tall section (runway SCROLL_VH vh) with a sticky, viewport-tall pin holding the canvas,
 // the DOM labels pinned to the lots, the hero, one caption per beat and a small counter HUD. All text is DOM and
-// every number comes from the run (read here at build time) or from the scene's StageState at run time. Without a
+// every number comes from the run (read here at build time) or from the scene's StageState at run time. The HUD has
+// a fixed cell per counter (MERGING included, dimmed while 0), so it never grows or reflows. Without a
 // run: an honest "replay pending" panel and no canvas. Without WebGL (or with ?tier=fallback): the client adds
 // .no-webgl and the captions read as a plain ordered list.
 import '../../styles/city.css';
@@ -20,6 +21,7 @@ const command = 'claude --agent lead-dev-hybrid';
 const counters = [
   { key: 'dispatched', name: 'dispatched' },
   { key: 'built', name: 'built' },
+  { key: 'merging', name: 'merging' },
   { key: 'merged', name: 'merged' },
   { key: 'reviewsDone', name: 'reviews' },
   { key: 'resumes', name: 'resumes' },
@@ -58,7 +60,7 @@ const counters = [
         <p class="city-replay">{label}</p>
         <dl class="city-counters">
           {counters.map((c) => (
-            <div class="city-counter"><dt>{c.name}</dt><dd data-counter={c.key}>0</dd></div>
+            <div class:list={['city-counter', { 'is-zero': c.key === 'merging' }]}><dt>{c.name}</dt><dd data-counter={c.key}>0</dd></div>
           ))}
           <div class="city-counter"><dt>run clock</dt><dd data-clock>{formatDuration(0)}</dd></div>
         </dl>

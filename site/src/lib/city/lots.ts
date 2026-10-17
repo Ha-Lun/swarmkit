@@ -11,9 +11,12 @@ export const LOT_SIZE = 3.6;
 export const LOT_GAP = 0.8;
 /** Street width in the merged block (m). */
 export const ROAD_W = 1.2;
-/** Building height range (m) for the clamped log scale of tokens. */
-export const H_MIN = 1.5;
-export const H_MAX = 8.0;
+/**
+ * Building height range (m) for the clamped log scale of tokens. Kept in scale with the old town (core ~3.4 m), so
+ * the biggest worker reads as a tall building, not a spire: with this run the tallest is under 2x the median.
+ */
+export const H_MIN = 1.6;
+export const H_MAX = 3.6;
 /** Annex lots are smaller and low: they are a short pass after review. */
 export const ANNEX_SIZE = LOT_SIZE * 0.6;
 export const ANNEX_H = H_MIN * 0.8;

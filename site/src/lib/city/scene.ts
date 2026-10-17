@@ -108,12 +108,17 @@ const TABLE_SHADE = 0.97;
 /** Faint blueprint grid on the table: spacing in lot cells, opacity. */
 const GRID_CELLS = 2;
 const GRID_OPACITY = 0.1;
-/** How much the bill beat dims the lights (the city recedes and dims). */
+/**
+ * How much the bill beat dims the scene (the city recedes and dims). Lights, background and fog dim by the same
+ * factor, so lit paper and the paper backdrop keep their ratio and no tone step opens at the table's edge.
+ */
 const BILL_DIM = 0.45;
 /** Bill progress past which the lot labels hide. */
 const BILL_LABELS_OFF = 0.35;
 /** Label anchor above the building top (m). */
 const LABEL_LIFT = 0.6;
+/** Labels closer than this (px) count as overlapping: the later one (in lot order) hides. */
+const LABEL_GAP = 3;
 
 export function mountCity(opts: MountCityOptions): CityHandle {
   const { canvas, run, progress, labelLayer } = opts;
@@ -138,8 +143,10 @@ export function mountCity(opts: MountCityOptions): CityHandle {
   const scene = new Scene();
   // Drafting paper all the way out: the background is the paper token and the table fogs into it.
   const paper = new Color(palette.paper);
-  scene.background = paper;
-  scene.fog = new Fog(paper, 60, 200);
+  const backdrop = paper.clone();
+  scene.background = backdrop;
+  const fog = new Fog(paper, 60, 200);
+  scene.fog = fog;
 
   const b = layout.bounds;
   const R = 0.5 * Math.hypot(b.w, b.d);
@@ -237,8 +244,21 @@ export function mountCity(opts: MountCityOptions): CityHandle {
   const pose = { x: 0, y: 0, z: 0 };
   const ndc = new Vector3();
   let viewW = 1, viewH = 1;
+  // De-collision: label sizes are measured on resize (and once fonts settle), never per frame; each frame places the
+  // labels greedily in lot order and hides any whose box would overlap one already placed. Allocation-free.
+  const labelW = new Float32Array(labels.length);
+  const labelH = new Float32Array(labels.length);
+  const placed = new Float32Array(labels.length * 4);
+  function measureLabels() {
+    for (const l of labels) {
+      labelW[l.i] = l.el ? l.el.offsetWidth : 0;
+      labelH[l.i] = l.el ? l.el.offsetHeight : 0;
+    }
+  }
+  void document.fonts?.ready.then(() => { if (!disposed) measureLabels(); });
 
   function placeLabels(state: StageState) {
+    let nPlaced = 0;
     for (const l of labels) {
       const k = l.i;
       let build: number, merge: number, shown: boolean;
@@ -253,9 +273,23 @@ export function mountCity(opts: MountCityOptions): CityHandle {
       ndc.set(pose.x, pose.y + l.lot.height * build + LABEL_LIFT, pose.z).project(camera);
       const onScreen = ndc.z < 1 && ndc.x > -1.05 && ndc.x < 1.05 && ndc.y > -1.05 && ndc.y < 1.05;
       // In the bill the city recedes and the labels would pile up: they leave with it.
-      const vis = shown && onScreen && state.bill < BILL_LABELS_OFF;
+      let vis = shown && onScreen && state.bill < BILL_LABELS_OFF;
       const px = Math.round((ndc.x * 0.5 + 0.5) * viewW * 4) / 4;
       const py = Math.round((-ndc.y * 0.5 + 0.5) * viewH * 4) / 4;
+      if (vis) {
+        // The label's box: anchored bottom-centre on the point (translate(-50%, -100%)).
+        const hw = labelW[k] / 2 + LABEL_GAP;
+        const x0 = px - hw, x1 = px + hw, y0 = py - labelH[k] - LABEL_GAP, y1 = py + LABEL_GAP;
+        for (let j = 0; j < nPlaced; j++) {
+          const o = j * 4;
+          if (x0 < placed[o + 2] && x1 > placed[o] && y0 < placed[o + 3] && y1 > placed[o + 1]) { vis = false; break; }
+        }
+        if (vis) {
+          const o = nPlaced * 4;
+          placed[o] = x0; placed[o + 1] = y0; placed[o + 2] = x1; placed[o + 3] = y1;
+          nPlaced++;
+        }
+      }
       const out = labelPositions[k];
       out.x = px; out.y = py; out.visible = vis;
       if (!l.el) continue;
@@ -281,8 +315,9 @@ export function mountCity(opts: MountCityOptions): CityHandle {
     const dim = 1 - BILL_DIM * state.bill;
     sun.intensity = SUN_INTENSITY * dim;
     hemi.intensity = HEMI_INTENSITY * dim;
+    backdrop.copy(paper).multiplyScalar(dim);
+    fog.color.copy(backdrop);
     const dist = camPos.distanceTo(camTgt);
-    const fog = scene.fog as Fog;
     fog.near = dist + R * 0.8;
     fog.far = fog.near + R * 3.5;
     if (composer && tier === 'high') composer.render(dt);
@@ -360,6 +395,7 @@ export function mountCity(opts: MountCityOptions): CityHandle {
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     path = createCameraPath(buildCameraKeys(layout, timeline.beats, w / h));
+    measureLabels();
     if (composer) {
       composer.setPixelRatio(pr);
       composer.setSize(w, h);

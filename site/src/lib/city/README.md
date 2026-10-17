@@ -49,13 +49,17 @@ and edge cases are in the comments in `types.ts`.
 Light paper diorama: background and fog are `--paper`, the table a shade under it with a faint blueprint grid. The
 sun is low and warm (mixed towards white), the sky fill cool (mixed towards white), intensities chosen so lit paper
 lands near its token under `NoToneMapping` and sRGB output (see the constants in scene.ts). Lane colours stay
-saturated; the existing city stays grey.
+saturated; the existing city stays grey. The bill dims lights, background and fog by one factor, so the table and
+the backdrop never part in tone. Roads are a shade under the block ground with a hairline centre line. New
+buildings run `H_MIN`..`H_MAX` (1.6..3.6 m, log of tokens), in scale with the old town core (~3.4 m).
 
 ## Camera
 
 `camera.ts` frames one rect of the layout per beat with an exact, aspect-aware fit (every corner of the rect's box,
-ground to `H_MAX`, inside a padded frame in width and height; more height padding in portrait for the HUD and
-captions). The hero frames the whole city plus the plot, offset right of the hero panel; lanes keeps both depots in
+ground to `H_MAX` plus the merge lift, inside the band `FRAME_PAD` leaves free: above the caption and HUD in
+landscape, between the HUD at the top and the caption at the bottom in portrait). Portrait shots turn (yaw ~80)
+and look more from above so the long axis runs up the screen and the fit is bound by height. Labels are
+de-collided per frame in scene.ts (greedy in lot order; a label overlapping one already placed hides). The hero frames the whole city plus the plot, offset right of the hero panel; lanes keeps both depots in
 frame. Keys are joined by one Catmull-Rom curve with a monotone u -> t map, so speed is continuous.
 
 ## How to write a visual part

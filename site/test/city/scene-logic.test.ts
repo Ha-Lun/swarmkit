@@ -5,8 +5,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { beatCaptions, replayLabel } from '../../src/lib/city/captions.ts';
 import { PerspectiveCamera, Vector3 } from 'three';
-import { beatKeyUs, beatPoseU, buildCameraKeys, CAMERA_FOV, createCameraPath, monotoneCubic, smoothDamp } from '../../src/lib/city/camera.ts';
-import { buildLayout } from '../../src/lib/city/lots.ts';
+import { beatKeyUs, beatPoseU, buildCameraKeys, CAMERA_FOV, createCameraPath, framePad, monotoneCubic, smoothDamp } from '../../src/lib/city/camera.ts';
+import { buildLayout, H_MAX } from '../../src/lib/city/lots.ts';
 import { buildTimeline } from '../../src/lib/city/timeline.ts';
 import type { FeaturedRun } from '../../src/lib/run.ts';
 
@@ -58,23 +58,27 @@ for (const aspect of [16 / 9, 1440 / 810, 390 / 844, 1]) {
 }
 
 // Aspect-aware framing: at every aspect, the lanes key keeps both depots and the plot inside the frame, and the merge
-// and review keys keep the plot and every block slot (and the annex) inside it, in width and height.
+// and review keys keep the plot and the slots the lots merge into (review: and the annex) inside it, in width and height, ground to the
+// tallest new building. Inside means inside the band the DOM leaves free: above the caption and HUD in landscape,
+// between the HUD (top) and the caption (bottom) in portrait.
 {
   const inFrame = (aspect: number, key: { pos: number[]; target: number[] }, rects: { x: number; z: number; w: number; d: number }[], what: string) => {
     const cam = new PerspectiveCamera(CAMERA_FOV, aspect, 0.1, 1000);
     cam.position.set(key.pos[0], key.pos[1], key.pos[2]);
     cam.lookAt(key.target[0], key.target[1], key.target[2]);
     cam.updateMatrixWorld();
+    const pad = framePad(aspect);
     const v = new Vector3();
     for (const r of rects) {
-      for (const dx of [-1, 1]) for (const dz of [-1, 1]) for (const y of [0, 1]) {
+      for (const dx of [-1, 1]) for (const dz of [-1, 1]) for (const y of [0, H_MAX]) {
         v.set(r.x + (dx * r.w) / 2, y, r.z + (dz * r.d) / 2).project(cam);
-        assert.ok(Math.abs(v.x) <= 0.95 && Math.abs(v.y) <= 0.95, `${what} at aspect ${aspect.toFixed(2)}: corner at ndc ${v.x.toFixed(2)}, ${v.y.toFixed(2)}`);
+        const ok = Math.abs(v.x) <= 1 - pad.x + 1e-6 && v.y <= 1 - pad.top + 1e-6 && v.y >= -(1 - pad.bottom) - 1e-6;
+        assert.ok(ok, `${what} at aspect ${aspect.toFixed(2)}: corner at ndc ${v.x.toFixed(2)}, ${v.y.toFixed(2)}`);
       }
     }
   };
   const depots = layout.depots.map((d) => ({ x: d.x, z: d.z, w: layout.cell, d: layout.cell }));
-  const slots = layout.block;
+  const slots = layout.block.filter((_, i) => !layout.lots[i].extra);
   for (const aspect of [1440 / 810, 1024 / 768, 768 / 1024, 390 / 844]) {
     const keys = buildCameraKeys(layout, beats, aspect);
     const key = (id: string) => keys.find((k) => k.beat === id)!;

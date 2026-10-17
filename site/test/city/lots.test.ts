@@ -95,6 +95,14 @@ assert.equal(cron.tokensKnown, false);
 assert.ok(cron.height > Math.min(...known.map((l) => l.height)) && cron.height < Math.max(...known.map((l) => l.height)));
 assert.ok(extras.every((l) => !l.tokensKnown));
 for (const l of L.lots) assert.ok(l.height > 0 && Number.isFinite(l.height));
+// Tame height curve: the tallest new building is at most ~2x the median new building and in scale with the old town.
+{
+  const hs = originals.map((l) => l.height).sort((a, b) => a - b);
+  const med = hs.length % 2 ? hs[hs.length >> 1] : (hs[hs.length / 2 - 1] + hs[hs.length / 2]) / 2;
+  assert.ok(hs[hs.length - 1] <= 2 * med + 1e-9, `tallest ${hs[hs.length - 1].toFixed(2)} <= 2x median ${med.toFixed(2)}`);
+  assert.ok(hs[hs.length - 1] <= 4, 'tallest new building in scale with the old town core');
+  assert.ok(Math.abs(cron.height - med) < 0.5, 'cron (unknown) sits near the median');
+}
 
 // Deterministic.
 assert.deepEqual(buildLayout(run), L);

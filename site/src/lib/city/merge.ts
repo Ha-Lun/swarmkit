@@ -5,7 +5,8 @@
 // - Each original lot gets a flat footprint plate in its lane colour (shown once state.split > 0). It moves from lots[i] to block[i] with
 //   state.workers[i].merge through lotPoseAt from lots.ts, the same function the buildings part uses, so the
 //   plate and its building never drift apart.
-// - Each road in layout.roads is a flat strip in palette.line. Block streets grow along their length with
+// - Each road in layout.roads is a flat strip a shade under the block ground (paper, a touch towards line) with a
+//   hairline centre line in a soft line colour, so streets read as streets, not bars. Block streets grow along their length with
 //   state.mergeAll (scale 0 = invisible, 1 = full); annex streets grow with their row's extras merge instead.
 // - Annex plates sit in their annex slots and grow with extras[j].merge (extras never move, only join).
 // - Status is never colour alone: a passed lot carries a flat tick bar, a flagged lot a standing cone.
@@ -20,7 +21,14 @@ import type { CityPalette, CityPart, CreateMerge, LotLayout, StageState } from '
 /** Footprint plate thickness (m). */
 const PLATE_H = 0.12;
 /** Road strip thickness (m). */
-const ROAD_H = 0.06;
+const ROAD_H = 0.03;
+/** Road surface: palette.paper darkened, then mixed this far towards palette.line. */
+const ROAD_DARKEN = 0.84;
+const ROAD_TINT = 0.12;
+/** Centre line: width (m), share of the road's length, and how far palette.paper is mixed towards palette.line. */
+const CENTRE_W = 0.07;
+const CENTRE_LEN = 0.94;
+const CENTRE_TINT = 0.45;
 /** City-block ground plate thickness (m); its top sits at y = 0. */
 const GROUND_H = 0.3;
 /** How much the block ground plate darkens palette.paper. */
@@ -35,12 +43,14 @@ export const createMerge: CreateMerge = (layout: LotLayout, palette: CityPalette
   const materials: Material[] = [];
 
   const groundMat = new MeshLambertMaterial({ color: new Color(palette.paper).multiplyScalar(PAPER_DARKEN) });
-  const roadMat = new MeshLambertMaterial({ color: new Color(palette.line) });
+  const line = new Color(palette.line);
+  const roadMat = new MeshLambertMaterial({ color: new Color(palette.paper).multiplyScalar(ROAD_DARKEN).lerp(line, ROAD_TINT) });
+  const centreMat = new MeshLambertMaterial({ color: new Color(palette.paper).lerp(line, CENTRE_TINT) });
   const agyMat = new MeshLambertMaterial({ color: new Color(palette.laneAgy) });
   const opencodeMat = new MeshLambertMaterial({ color: new Color(palette.laneOpencode) });
   const okMat = new MeshLambertMaterial({ color: new Color(palette.ok) });
   const failMat = new MeshLambertMaterial({ color: new Color(palette.fail) });
-  materials.push(groundMat, roadMat, agyMat, opencodeMat, okMat, failMat);
+  materials.push(groundMat, roadMat, centreMat, agyMat, opencodeMat, okMat, failMat);
 
   // The existing city block's ground: always visible, never moves.
   const groundGeo = new BoxGeometry(layout.cityBlock.w, GROUND_H, layout.cityBlock.d);
@@ -120,6 +130,9 @@ export const createMerge: CreateMerge = (layout: LotLayout, palette: CityPalette
     }
   }
 
+  // One shared unit-length centre-line box, stretched per road; it rides on its road, so it grows with it.
+  const centreGeo = new BoxGeometry(1, 0.01, CENTRE_W);
+  geometries.push(centreGeo);
   const roadMeshes: PlateMesh[] = [];
   const roadX1: number[] = [];
   const roadZ1: number[] = [];
@@ -143,6 +156,10 @@ export const createMerge: CreateMerge = (layout: LotLayout, palette: CityPalette
     mesh.visible = false;
     mesh.userData.kind = 'road';
     mesh.userData.annex = roadAnnexRow[r] >= 0;
+    const centre = new Mesh(centreGeo, centreMat);
+    centre.scale.x = safeLen * CENTRE_LEN;
+    centre.position.y = ROAD_H / 2 + 0.005;
+    mesh.add(centre);
     root.add(mesh);
     roadMeshes.push(mesh);
     roadX1.push(seg.x1);
