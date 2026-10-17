@@ -1,7 +1,7 @@
 // Plain node asserts: `node site/test/city/scan.test.ts` from the repo root.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { LineSegments, Mesh } from 'three';
+import { Group, LineSegments, Mesh, Vector3 } from 'three';
 import { buildLayout } from '../../src/lib/city/lots.ts';
 import { createScan } from '../../src/lib/city/scan.ts';
 import { buildTimeline } from '../../src/lib/city/timeline.ts';
@@ -82,24 +82,67 @@ assert.ok(kindsSeen.has('cross-model-review'), 'sweep shows a cross-model review
 // At the end every worker passed, so at least one tick marker is visible.
 part.update(timeline.stateAt(1), 1 / 60);
 checkFinite('u=1');
-const tickMeshes: LineSegments[] = [];
+// Markers are meshes only: no line-based shapes anywhere in the part.
+let lineCount = 0;
+part.object.traverse((o) => {
+  if (o instanceof LineSegments) lineCount++;
+});
+assert.equal(lineCount, 0, 'scan markers use meshes, not LineSegments');
+const tickGroups: Group[] = [];
 const clothMeshes: Mesh[] = [];
 part.object.traverse((o) => {
-  if (o instanceof LineSegments && o.name.indexOf('scan-tick-') === 0) tickMeshes.push(o);
+  if (o.name.indexOf('scan-tick-') === 0) tickGroups.push(o as Group);
   if (o instanceof Mesh && o.name.indexOf('scan-flag-cloth-') === 0) clothMeshes.push(o);
 });
-assert.ok(tickMeshes.length > 0, 'tick markers exist');
+assert.ok(tickGroups.length > 0, 'tick markers exist');
 assert.ok(clothMeshes.length > 0, 'flag cloths exist');
-assert.ok(tickMeshes.some((t) => t.visible), 'at least one tick marker visible at the end');
-const firstTick = tickMeshes[0];
+assert.ok(tickGroups.some((t) => t.visible), 'at least one tick marker visible at the end');
+// Every tick is built from Mesh bars, not lines.
+for (const t of tickGroups) {
+  let meshKids = 0;
+  t.traverse((o) => {
+    if (o instanceof Mesh) meshKids++;
+    assert.ok(!(o instanceof LineSegments), 'tick contains no LineSegments');
+  });
+  assert.ok(meshKids > 0, 'tick group holds Mesh bars');
+}
+const firstTick = tickGroups[0];
 const firstCloth = clothMeshes[0];
 assert.ok(firstTick !== undefined && firstCloth !== undefined);
-const tickGeo = firstTick.geometry;
+let tickBarGeo: unknown = null;
+firstTick.traverse((o) => {
+  if (o instanceof Mesh && tickBarGeo === null) tickBarGeo = o.geometry;
+});
+assert.ok(tickBarGeo !== null, 'tick bar geometry found');
+const tickGeo = tickBarGeo as { getAttribute(n: string): { count: number } };
 const clothGeo = firstCloth.geometry;
-assert.ok(tickGeo !== clothGeo, 'tick and flag geometries are different objects');
+assert.ok(tickGeo !== (clothGeo as unknown), 'tick and flag geometries are different objects');
 const tickCount = tickGeo.getAttribute('position').count;
 const clothCount = clothGeo.getAttribute('position').count;
 assert.ok(tickCount !== clothCount, `tick (${tickCount}) and flag (${clothCount}) vertex counts differ`);
+
+// A visible marker floats above its lot's building top (lot.height * build).
+{
+  const s = timeline.stateAt(1);
+  part.update(s, 1 / 60);
+  part.object.updateMatrixWorld(true);
+  let checked = 0;
+  const lotBySlug = new Map(layout.lots.map((l) => [l.slug, l]));
+  for (let k = 0; k < s.workers.length; k++) {
+    const w = s.workers[k];
+    if (w === undefined || (w.scan !== 'passed' && w.scan !== 'flagged')) continue;
+    const lot = lotBySlug.get(w.slug);
+    if (lot === undefined) continue;
+    const marker = part.object.getObjectByName('scan-marker-' + w.slug);
+    assert.ok(marker, `marker for ${w.slug} exists`);
+    const p = new Vector3();
+    marker.getWorldPosition(p);
+    const top = lot.height * w.build;
+    assert.ok(p.y > top, `marker for ${w.slug} floats above roof (${p.y} > ${top})`);
+    checked++;
+  }
+  assert.ok(checked > 0, 'checked at least one visible marker above its roof');
+}
 
 // Rewind: the same state draws the same picture.
 part.update(timeline.stateAt(0.5), 1 / 60);
