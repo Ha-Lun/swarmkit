@@ -11,6 +11,7 @@ capabilities:
 opencode:
   mode: primary
   temperature: 0.3
+  model: opencode-go/qwen3.7-plus
   permission:
     read: allow
     edit: deny

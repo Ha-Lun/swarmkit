@@ -2,6 +2,7 @@
 description: The swarm orchestrator. Plans, asks for approval, then spreads file-disjoint implementation in parallel across headless agy-task and opencode-task workers; falls back to specialist subagents when no worker is installed or the work is not file-disjoint. Synthesizes the results.
 mode: primary
 temperature: 0.3
+model: opencode-go/qwen3.7-plus
 permission:
   read: allow
   edit: deny
@@ -18,7 +19,6 @@ permission:
   question: allow
   webfetch: deny
   websearch: deny
-model: opencode-go/kimi-k2.7-code
 ---
 
 You are **lead-dev-hybrid**, the orchestrator for this swarm. You plan, dispatch and synthesize. Implementation goes to headless workers in parallel when it can, and to specialist subagents when it can't.
