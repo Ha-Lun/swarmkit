@@ -1,0 +1,103 @@
+---
+// The pinned City stage: a tall section (runway SCROLL_VH vh) with a sticky, viewport-tall pin holding the canvas,
+// the DOM labels pinned to the lots, the hero, one caption per beat and a small counter HUD. All text is DOM and
+// every number comes from the run (read here at build time) or from the scene's StageState at run time. The HUD has
+// a fixed cell per counter (MERGING included, dimmed while 0), so it never grows or reflows. Without a
+// run: an honest "replay pending" panel and no canvas. Without WebGL (or with ?tier=fallback, or when the scene fails
+// to start): the client adds .no-webgl and the replay becomes a stacked series of stills, one per beat, each with its
+// caption. The same series shows without scripting. Stills are real frames of this scene rendered at each beat's camera
+// key (see scripts/stills.mjs); they are never loaded in the live layout (display: none + lazy). Reduced motion and a
+// failed fps probe are not fallbacks: the scene still runs and draws static frames at the beat poses.
+import '../../styles/city.css';
+import { beatCaptions, formatDuration, replayLabel } from '../../lib/city/captions.ts';
+import { buildLayout } from '../../lib/city/lots.ts';
+import { SCROLL_VH } from '../../lib/city/timeline.ts';
+import { loadFeaturedRun } from '../../lib/run.ts';
+
+const run = loadFeaturedRun();
+const lots = run ? buildLayout(run).lots : [];
+const captions = run ? beatCaptions(run) : [];
+const label = run ? replayLabel(run) : '';
+// Embedded for the client; '<' escaped so the JSON can never close the script element.
+const json = run ? JSON.stringify(run).replace(/</g, '\\u003c') : '';
+const command = 'claude --agent lead-dev-hybrid';
+// One still per beat: public/stills/beat-<id>.webp (1440x900). Width and height give the fixed aspect box (low CLS).
+const STILL = { w: 1440, h: 900 };
+const counters = [
+  { key: 'dispatched', name: 'dispatched' },
+  { key: 'built', name: 'built' },
+  { key: 'merging', name: 'merging' },
+  { key: 'merged', name: 'merged' },
+  { key: 'reviewsDone', name: 'reviews' },
+  { key: 'resumes', name: 'resumes' },
+];
+---
+{run ? (
+  <section class="city-stage" data-city-stage style={`--city-runway: ${SCROLL_VH};`} aria-labelledby="city-title">
+    <div class="city-pin">
+      <canvas class="city-canvas" aria-hidden="true"></canvas>
+      <div class="city-labels" data-city-labels aria-hidden="true">
+        {lots.map((l) => (
+          <span class:list={['lot-label', `lane-${l.lane}`, { 'is-annex': l.extra }]} data-slug={l.slug}>{l.extra ? 'annex' : l.slug}</span>
+        ))}
+      </div>
+
+      <div class="city-hero" data-city-hero>
+        <h1 id="city-title" class="city-title">SwarmKit</h1>
+        <p class="city-tagline">Opus plans. Cheaper models build, in parallel. One config, three CLIs.</p>
+        <div class="city-copy">
+          <code class="city-cmd">{command}</code>
+          <button type="button" class="city-copy-btn" data-copy={command}>Copy</button>
+          <span class="city-copy-status" role="status" data-copy-status></span>
+        </div>
+      </div>
+
+      <div class="city-captions" aria-hidden="true">
+        {captions.filter((c) => c.id !== 'hero').map((c) => (
+          <p class="city-caption" data-beat={c.id}>
+            {c.text}
+            {c.approval && <span class="city-approval" data-approval> {c.approval}</span>}
+          </p>
+        ))}
+      </div>
+
+      <div class="city-hud">
+        <p class="city-replay">{label}</p>
+        <dl class="city-counters">
+          {counters.map((c) => (
+            <div class:list={['city-counter', { 'is-zero': c.key === 'merging' }]}><dt>{c.name}</dt><dd data-counter={c.key}>0</dd></div>
+          ))}
+          <div class="city-counter"><dt>run clock</dt><dd data-clock>{formatDuration(0)}</dd></div>
+        </dl>
+      </div>
+    </div>
+
+    <div class="city-static">
+      <p class="city-replay">{label}</p>
+      <ol class="city-static-list">
+        {captions.map((c) => {
+          const text = c.approval ? `${c.text} ${c.approval}` : c.text;
+          return (
+            <li>
+              <figure class="city-still">
+                <img src={`/stills/beat-${c.id}.webp`} width={STILL.w} height={STILL.h} alt={text} loading="lazy" decoding="async" />
+                <figcaption>{text}</figcaption>
+              </figure>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  </section>
+  <script type="application/json" id="city-run" set:html={json} />
+) : (
+  <section class="city-pending" aria-labelledby="city-title">
+    <h1 id="city-title" class="city-title">SwarmKit</h1>
+    <p class="city-tagline">Opus plans. Cheaper models build, in parallel. One config, three CLIs.</p>
+    <p class="city-pending-note">Replay pending: no recorded run is published yet, so there is nothing to replay.</p>
+  </section>
+)}
+
+<script>
+  import './city-client.ts';
+</script>

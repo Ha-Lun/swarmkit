@@ -1,0 +1,27 @@
+{"ts": "2026-10-16T19:47:18Z", "cli": "opencode", "slug": "city-buildings", "ok": true, "denied": 0, "tokens": 408594, "wall_s": 233, "stopped_by": null}
+{"ts": "2026-10-16T19:47:31Z", "cli": "opencode", "slug": "city-scan", "ok": false, "denied": 1, "tokens": 338258, "wall_s": 246, "stopped_by": null}
+{"ts": "2026-10-16T19:48:04Z", "cli": "opencode", "slug": "city-merge", "ok": false, "denied": 1, "tokens": 427454, "wall_s": 279, "stopped_by": null}
+{"ts": "2026-10-16T19:49:52Z", "cli": "opencode", "slug": "city-blueprint", "ok": true, "denied": 0, "tokens": 330215, "wall_s": 137, "stopped_by": null}
+{"ts": "2026-10-16T19:50:18Z", "cli": "opencode", "slug": "city-tiltshift", "ok": false, "denied": 1, "tokens": 395660, "wall_s": 133, "stopped_by": null}
+{"ts": "2026-10-16T19:50:23Z", "cli": "opencode", "slug": "city-drones", "ok": false, "denied": 1, "tokens": 333634, "wall_s": 177, "stopped_by": null}
+{"ts": "2026-10-16T19:51:45Z", "cli": "opencode", "slug": "city-merge", "ok": true, "denied": 0, "tokens": 198471, "wall_s": 19, "stopped_by": null}
+{"ts": "2026-10-16T19:51:53Z", "cli": "opencode", "slug": "city-buildings", "ok": true, "denied": 0, "tokens": 278820, "wall_s": 27, "stopped_by": null}
+{"ts": "2026-10-17T09:47:32Z", "cli": "opencode", "slug": "city-scan2", "ok": true, "denied": 0, "tokens": 329820, "wall_s": 81, "stopped_by": null}
+{"ts": "2026-10-17T10:09:25Z", "event": "start", "cli": "opencode", "slug": "city-scan3", "model": "opencode-go/muse-spark-1.3-contributor", "effort": null}
+{"ts": "2026-10-17T10:10:42Z", "event": "finish", "cli": "opencode", "slug": "city-scan3", "model": "opencode-go/muse-spark-1.3-contributor", "ok": true, "denied": 0, "tokens": 679825, "wall_s": 76, "stopped_by": null}
+{"ts": "2026-10-17T10:27:00Z", "event": "start", "cli": "opencode", "slug": "city-sec-whichmode", "model": "opencode-go/muse-spark-1.3-contributor", "effort": null}
+{"ts": "2026-10-17T10:27:05Z", "event": "start", "cli": "opencode", "slug": "city-sec-numbers", "model": "opencode-go/muse-spark-1.3-contributor", "effort": null}
+{"ts": "2026-10-17T10:27:07Z", "event": "start", "cli": "opencode", "slug": "city-sec-threeclis", "model": "opencode-go/muse-spark-1.3-contributor", "effort": null}
+{"ts": "2026-10-17T10:27:32Z", "event": "finish", "cli": "opencode", "slug": "city-sec-whichmode", "model": "opencode-go/muse-spark-1.3-contributor", "ok": true, "denied": 0, "tokens": 166604, "wall_s": 32, "stopped_by": null}
+{"ts": "2026-10-17T10:27:33Z", "event": "start", "cli": "opencode", "slug": "city-sec-buildlog", "model": "opencode-go/muse-spark-1.3-contributor", "effort": null}
+{"ts": "2026-10-17T10:27:38Z", "event": "finish", "cli": "opencode", "slug": "city-sec-threeclis", "model": "opencode-go/muse-spark-1.3-contributor", "ok": true, "denied": 0, "tokens": 128890, "wall_s": 30, "stopped_by": null}
+{"ts": "2026-10-17T10:27:39Z", "event": "start", "cli": "opencode", "slug": "city-sec-install", "model": "opencode-go/muse-spark-1.3-contributor", "effort": null}
+{"ts": "2026-10-17T10:28:00Z", "event": "finish", "cli": "opencode", "slug": "city-sec-numbers", "model": "opencode-go/muse-spark-1.3-contributor", "ok": false, "denied": 1, "tokens": 514009, "wall_s": 56, "stopped_by": null}
+{"ts": "2026-10-17T10:28:02Z", "event": "start", "cli": "opencode", "slug": "city-sec-roster", "model": "opencode-go/muse-spark-1.3-contributor", "effort": null}
+{"ts": "2026-10-17T10:28:18Z", "event": "finish", "cli": "opencode", "slug": "city-sec-install", "model": "opencode-go/muse-spark-1.3-contributor", "ok": true, "denied": 0, "tokens": 100249, "wall_s": 39, "stopped_by": null}
+{"ts": "2026-10-17T10:28:26Z", "event": "start", "cli": "opencode", "slug": "city-sec-safety", "model": "opencode-go/muse-spark-1.3-contributor", "effort": null}
+{"ts": "2026-10-17T10:28:54Z", "event": "finish", "cli": "opencode", "slug": "city-sec-safety", "model": "opencode-go/muse-spark-1.3-contributor", "ok": true, "denied": 0, "tokens": 151220, "wall_s": 28, "stopped_by": null}
+{"ts": "2026-10-17T10:29:05Z", "event": "finish", "cli": "opencode", "slug": "city-sec-buildlog", "model": "opencode-go/muse-spark-1.3-contributor", "ok": false, "denied": 1, "tokens": 491033, "wall_s": 92, "stopped_by": null}
+{"ts": "2026-10-17T10:29:08Z", "event": "finish", "cli": "opencode", "slug": "city-sec-roster", "model": "opencode-go/muse-spark-1.3-contributor", "ok": false, "denied": 1, "tokens": 266257, "wall_s": 67, "stopped_by": null}
+{"ts": "2026-10-17T10:51:07Z", "event": "start", "cli": "opencode", "slug": "city-buildlog-curate", "model": "opencode-go/muse-spark-1.3-contributor", "effort": null}
+{"ts": "2026-10-17T10:52:21Z", "event": "finish", "cli": "opencode", "slug": "city-buildlog-curate", "model": "opencode-go/muse-spark-1.3-contributor", "ok": true, "denied": 0, "tokens": 229332, "wall_s": 74, "stopped_by": null}

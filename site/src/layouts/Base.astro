@@ -3,8 +3,18 @@ import '../styles/global.css';
 import Footer from '../components/Footer.astro';
 import Nav from '../components/Nav.astro';
 
-interface Props { title: string; description: string }
-const { title, description } = Astro.props;
+interface Props { title: string; description: string; chrome?: boolean; image?: string; imageAlt?: string }
+// chrome: false omits the globe site's Nav and Footer (the City preview has its own: slots `top` and `bottom`).
+// image: the social preview (1200x630 under public/), absolute when astro.config.mjs sets `site`, else the root-relative
+// path (crawlers want an absolute URL: set `site` to the production origin and the tags follow).
+const {
+  title,
+  description,
+  chrome = true,
+  image = '/stills/og.jpg',
+  imageAlt = 'A miniature paper city: new buildings going up on a blueprint plot beside an old town, with drones flying in from two depots.',
+} = Astro.props;
+const imageUrl = Astro.site ? new URL(image, Astro.site).href : image;
 
 const favicon =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2l12 7v14l-12 7-12-7V9z' fill='%239aa6b4'/%3E%3C/svg%3E";
@@ -18,6 +28,18 @@ const fonts = ['space-grotesk-latin-500-normal', 'space-grotesk-latin-700-normal
     <title>{title}</title>
     <meta name="description" content={description} />
     <meta name="color-scheme" content="dark" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={imageUrl} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={imageAlt} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={imageUrl} />
+    <meta name="twitter:image:alt" content={imageAlt} />
     <link rel="icon" href={favicon} />
     {fonts.map((f) => <link rel="preload" href={`/fonts/${f}.woff2`} as="font" type="font/woff2" crossorigin />)}
   </head>
@@ -26,9 +48,11 @@ const fonts = ['space-grotesk-latin-500-normal', 'space-grotesk-latin-700-normal
       href="#main"
       class="absolute left-4 top-4 z-50 -translate-y-20 bg-wax px-4 py-2 font-mono text-sm text-ink focus:translate-y-0"
     >Skip to content</a>
-    <Nav />
+    {chrome && <Nav />}
+    <slot name="top" />
     <slot name="backdrop" />
     <main id="main" tabindex="-1" class="focus:outline-none"><slot /></main>
-    <Footer />
+    {chrome && <Footer />}
+    <slot name="bottom" />
   </body>
 </html>

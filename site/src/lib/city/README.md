@@ -1,0 +1,119 @@
+# SwarmKit City scene engine
+
+The scene replays `public/data/featured-run.json` (one real run, not a median) as a miniature city. `types.ts` is
+the contract; `lots.ts` and `timeline.ts` are pure (plain node runs them; tests in `test/city/`). Visual parts only
+see `types.ts`: they get a `LotLayout` once and a `StageState` every frame.
+
+## Coordinates
+
+Metres, ground plane `y = 0`, `+y` up. The blueprint plot is centred on the origin (rows along `z`). The city
+(`layout.cityBlock`) sits on the `-x` side across a link road: an existing city (`layout.existing`, the code that
+existed before the run: decorative, seeded, not data) wrapped around a grid of empty slots on its `+x` edge, which
+is where the lots merge into. The annex for extra branches is a row of small slots past the city's `+z` edge, under
+the slot columns. Lane depots sit off the plot: `agy` at `-z` (facing `+z`),
+`opencode` at `+z` (facing `-z`). Yaw 0 faces `+z`. `layout.bounds` frames everything.
+
+## Beats (real run, from `buildTimeline`)
+
+Beats open on event predicates; idle gaps are compressed by `sqrt(seconds)` and every present beat gets at least 6%
+of the runway. Recommended runway: `SCROLL_VH` = 900 vh.
+
+| Beat | Opens on | u | Run time (s) |
+|---|---|---|---|
+| hero | (before the run) | 0.000-0.070 | 0 |
+| task | `task` | 0.070-0.141 | 0-2.5 |
+| plan | `plan_mode` | 0.141-0.233 | 2.5-20.6 (approved at 11.9) |
+| lanes | first `dispatch` | 0.233-0.359 | 20.6-227.4 |
+| verify | first verify/review/resume after it | 0.359-0.585 | 227.4-534.9 |
+| merge | first `merge` | 0.585-0.660 | 534.9-542 |
+| review | first cross-model `review` | 0.660-0.910 | 542-1387 |
+| bill | `done` | 0.910-1.000 | 1387-1396 |
+
+Honesty notes the DOM must keep: the lots merge before the cross-model review; the review leads to the small
+`review-fixes` annex (dispatched at 1102, merged at 1377). Nothing was recorded between 563 and 1102 s. `cron` failed
+its tests and was finished by an agy fixer branch (`cronfix`, shown as rework on cron's lot, not a lot of its own).
+Most `ok:false` self-checks were a denied command, not wrong code. Reviews carry no verdict in the data.
+
+## State fields (`StageState`)
+
+`u`, `runTime` (s), `beat` + `beatProgress`, `blueprint` and `split` (0..1), `planApproved`, `planApproval`,
+`workers[]` (per original lot: `phase`, `build`, `rework` + `reworkLane`, `resumes`, `scan` + `flag`, `review`,
+`selfCheck`, `merge`), `extras[]` (annex lots: `phase`, `build`, `merge`), `activeScan` (`kind`, `target` slug or
+null for the whole block, `progress`), `drones[]` (per lane: `used`, `jobs` = lots being built or reworked with their
+progress), `mergeAll`, `bill`, `counters` (dispatched, built, merged, merging, reviewsDone, crossReviewsDone,
+resumes; `merging` = lots in the air right now, the only counter that goes down). Units
+and edge cases are in the comments in `types.ts`.
+
+## Look
+
+Light paper diorama: background and fog are `--paper`. With the kit the table is real (`table.ts`): a tan slab
+(`table_top` swatch, wooden fascia) 3.4 m outside `layout.bounds`, the kit's `table_corner` lips at its four corners
+(90 degree steps), and a pale-blue blueprint sheet (`sheet_blue`) half a metre larger than the plot, flat at
+y = 0.02 under the blueprint lines (a receiver only: no shadow of its own, so no acne). The slab top sits at
+y = -0.012 so the corner pieces' top at exactly y = 0 never z-fights it; scene.ts's own table plane drops to
+the paper floor under the slab's fascia, so table and backdrop keep one tone when the bill dims. Without the kit the
+table is the plain paper plane a shade under the backdrop with a faint blueprint grid. The
+sun is low and warm (mixed towards white), the sky fill cool (mixed towards white), intensities chosen so lit paper
+lands near its token under `NoToneMapping` and sRGB output (see the constants in scene.ts). Lane colours stay
+saturated; the existing city stays grey. The bill dims lights, background and fog by one factor, so the table and
+the backdrop never part in tone. Roads are a shade under the block ground with a hairline centre line. While a rework pass runs
+(`reworkLane` set) the kit scaffold, a full cage, stands around that lot's body, scaled like the body, its top rail in
+the rework lane's colour (kit builds only; the plain look keeps the rising top band); the poles and braces carry a
+warm dark steel instance tint (0.78, 0.7, 0.6, 40% towards the lane colour) so the cage reads as a bold frame. Parked
+drones stand on the depot pad in a staggered row (three across a 3.4 m pad, rotors never overlapping). Rotors are
+light steel grey, and `CityPart.setDetail(pxPerMetre)` (called once per frame from scene.ts with the screen scale at
+the look-at point) hides the blades below 26 px/m, so phone drones are clean bodies, not clusters of black crosses
+(a pure function of viewport and camera). The empty sheet carries a faint blueprint grid (half a lot pitch, plot
+only, `--blueprint-line` at 0.3 opacity) so it reads as a drawing waiting to be filled; the sheet material has a
+blue lift (0.97, 1.03, 1.08) to stay near #dce7f4 under the warm key. Light is warmer: sun 3.3 / sky 2.05, sun warmth
+0.6, sky coolness 0.2 (see scene.ts). New
+buildings run `H_MIN`..`H_MAX` (1.6..3.6 m, log of tokens), in scale with the old town core (~3.4 m).
+
+## Camera
+
+`camera.ts` frames one rect of the layout per beat with an exact, aspect-aware fit (every corner of the rect's box,
+ground to `H_MAX` plus the merge lift, inside the band `FRAME_PAD` leaves free: above the caption and HUD in
+landscape, between the HUD at the top and the caption at the bottom in portrait). Portrait shots turn (one yaw, 82, for
+every beat, so the view never swings between beats) and look more from above so the long axis runs up the screen and
+the fit is bound by height. In portrait the hero frames the city and its empty slots only (the plot is mostly out of
+frame at u = 0 and slides in by the task beat), so the city fills the band. Labels are
+de-collided per frame in scene.ts (greedy in lot order; a label overlapping one already placed hides, with hysteresis: a shown label hides only when
+boxes overlap by a margin, a hidden one returns after being clear for 0.3 s; static frames use no hysteresis). The
+landscape hero frames the whole city plus the plot, offset right of the hero panel; lanes keeps both depots in
+frame. Keys are joined by one Catmull-Rom curve with a monotone u -> t map, so speed is continuous.
+
+## How to write a visual part
+
+Export a factory `createX(layout: LotLayout, palette: CityPalette): CityPart` (`createTiltShift(): TiltShift`).
+
+- `object`: one `THREE.Object3D` root; scene.ts adds it to the scene.
+- `update(state, dt)` runs every frame: cheap and allocation-free (no `new`, no array literals, no closures; reuse
+  scratch vectors and colours made in the factory). Read only `state` and `dt`; `dt` is for idle motion (bobbing
+  drones), never for progress. Same state, same picture: scrolling back must rewind exactly.
+- No DOM, no scroll reads, no text in WebGL (labels are DOM, positioned by scene.ts from lot centres), no
+  randomness unless seeded from the slug.
+- Reduced motion: scene.ts may call `update` only at beat poses (each beat's camera keyframe u, `beatKeyUs` in
+  camera.ts); a part must look right for any single state.
+- `dispose()` frees every geometry, material and texture you created.
+- Placeholder look until the Blender kit lands: flat matte boxes, cones and lines (`MeshLambertMaterial` or
+  `LineBasicMaterial`), colours only from `CityPalette` (lane id -> `laneAgy` / `laneOpencode`). Status colours
+  (`ok`, `fail`) always come with a shape.
+
+### Acceptance per module
+
+- **blueprint**: plot outline and lot outlines in `palette.line`, drawn on by `blueprint` (0 = nothing, 1 = all
+  lines), lots separate from the plot outline by `split`. Annex outlines appear only with an extra's `build > 0`.
+- **buildings**: the existing city as an always-visible instanced mesh in a neutral warm grey (paper and ink, never
+  a lane colour); instanced boxes per lot on a setback footprint (70% of the lot, centred), height
+  `lot.height * build`; `rework` shows as a scaffold or top band
+  rising; extras get a different silhouette (low, flat-roofed annex). Position each lot with `lotPoseAt(layout,
+  i, merge, out)` from `lots.ts` (the merge module uses the same function, so they stay in sync).
+- **drones**: simple cones per lane colour, parked at the depot when `jobs` is empty; per job, fly depot -> lot early
+  in `progress`, hover while it rises, home near 1. An unused lane's depot stays dark.
+- **scan**: a sweeping ring or beam over `activeScan.target` (over `layout.cityBlock` when the target is null) at
+  `progress`. After a scan, `passed` shows a tick-like shape and `flagged` a flag-like shape on the lot; never
+  colour alone. Orchestrator and cross-model scans differ in shape too (e.g. ring vs. wide bar).
+- **merge**: during `merging`, the lot footprint lifts and slides from `lots[i]` to `block[i]` with `merge`;
+  `roads` fade or draw in with `mergeAll`. Use `lotPoseAt` for the lot footprint so it matches the buildings.
+- **tiltshift**: a cheap two-pass blur band (horizontal then vertical, strength rising away from a horizontal focus
+  band) as post passes via `install(host)`. `setEnabled(false)` skips it entirely; high tier only.

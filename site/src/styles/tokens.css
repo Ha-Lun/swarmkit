@@ -1,5 +1,7 @@
-/* Design tokens, locked at G2 (PLAN §9).
-   Exactly six semantic colour tokens (LOCKED at G2; change only via a new art-direction round). The accent belongs to the comet only (head, tail, sparks and the rings it draws). */
+/* Design tokens for SwarmKit City (BRIEF section 8). Proposed at Phase 0, gate G1: pending human approval.
+   Paper and blueprint neutrals, warm golden-hour light, one accent per lane, a status pair.
+   The legacy names (--ink, --ink-2, --wax, --wax-dim, --text, --accent) are kept so existing
+   files keep building; they now map onto the City palette. Prefer the new names in new code. */
 
 @font-face {
   font-family: 'Space Grotesk';
@@ -24,13 +26,33 @@
 }
 
 :root {
-  /* colour: A ink (cool blue-black), B wax (iron-blue stone, locked round 8), one accent */
-  --ink: #080b10;
-  --ink-2: #121824;
-  --wax: #9aa6b4;
-  --wax-dim: #46505e;
-  --text: #d9dee5;
-  --accent: #a98bff; /* violet, chosen in round 1; see accentCandidates in world/config.ts */
+  /* City palette: new names */
+  --paper: #f3ebd9;          /* warm off-white drafting paper */
+  --paper-2: #e6dcc3;        /* paper in shade, panels on paper */
+  --blueprint-ink: #0b1b33;  /* deep blueprint navy: text on paper, dark ground */
+  --blueprint-ink-2: #14294d; /* raised navy surfaces, hairlines on navy */
+  --blueprint-line: #3d79c6; /* hairline blueprint blue: line work, readable on paper and navy */
+  --blueprint-line-soft: #8fb4e3; /* secondary text and lines on navy */
+  --blueprint-line-dim: #4f6d99;  /* disabled / quiet lines on navy */
+  --light-warm: #ffc77a;     /* golden-hour key light colour */
+  --light-warm-low: #ff9a4d; /* low sun, long-shadow side */
+  --light-cool: #9cc3ee;     /* sky fill */
+
+  /* one accent per lane (colour-vision safe: yellow-orange, blue-green) */
+  --lane-agy: #e69f00;       /* amber */
+  --lane-opencode: #1aa7a1;  /* teal */
+
+  /* status: always paired with a shape (tick, cross, flag), never colour alone */
+  --status-ok: #4f9d2f;
+  --status-fail: #d6443b;
+
+  /* legacy names, mapped onto the City palette (dark blueprint theme, as the current site uses) */
+  --ink: var(--blueprint-ink);
+  --ink-2: var(--blueprint-ink-2);
+  --wax: var(--blueprint-line-soft);
+  --wax-dim: var(--blueprint-line-dim);
+  --text: var(--paper);
+  --accent: var(--lane-agy); /* only world/world.ts reads this; retired with the globe code */
 
   /* type */
   --font-display: 'Space Grotesk', system-ui, sans-serif;

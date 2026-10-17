@@ -1,9 +1,9 @@
 // Routing band per agent. Not in the agent frontmatter, so it lives here (PLAN §8).
 // Anything not listed is a domain specialist.
-// (Band ids are the globe's layout groups, not routing levels: 't1' is the fast band, kept as an id because the layout code and its checks use it.)
+// (Band ids are stable ids the roster uses, not routing levels: 't1' is the fast band. They outlived the globe's layout groups, which are gone.)
 export type Band = 'main' | 'core' | 't1' | 'domain' | 'gate' | 'satellite';
 
-const CORE = ['lead-dev'];
+const CORE = ['lead-dev-hybrid'];
 const FAST = ['explore', 'git-specialist', 'junior-dev'];
 const GATE = ['security-auditor', 'code-proofreader', 'release-tester', 'test-writer'];
 

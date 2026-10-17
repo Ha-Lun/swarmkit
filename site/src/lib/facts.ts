@@ -38,11 +38,11 @@ function commands(): Command[] {
 }
 
 // Flags are documented in the header comment of install.sh: `#   --flag [<arg>] [arg]  Description`, continued on the
-// following comment lines (indented further).
+// following comment lines (indented further; a continuation that itself starts with `--` is not a flag).
 function installFlags(): Flag[] {
   const flags: Flag[] = [];
   for (const line of readFileSync(resolve(root, 'install.sh'), 'utf8').split('\n')) {
-    const m = line.match(/^#\s{2,}(--[a-z0-9-]+)((?:\s+(?:<[^>]+>|\[[^\]]+\]))*)\s+(\S.*)$/);
+    const m = line.match(/^#\s{2,5}(--[a-z0-9-]+)((?:\s+(?:<[^>]+>|\[[^\]]+\]))*)\s+(\S.*)$/);
     if (m) flags.push({ flag: m[1], args: m[2].trim(), description: m[3].trim() });
     else if (flags.length && !line.startsWith('#')) break; // the header comment ends at the first other line
     else if (flags.length && /^#\s{10,}\S/.test(line)) flags[flags.length - 1].description += ` ${line.replace(/^#\s+/, '').trim()}`;

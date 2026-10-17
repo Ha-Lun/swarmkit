@@ -1,0 +1,269 @@
+---
+import { loadBenchmarks, harnessOf } from '../../../lib/benchmarks';
+import type { Cell } from '../../../lib/benchmarks';
+
+const bench = loadBenchmarks();
+const harness = harnessOf(bench);
+
+const shortModel = (m: string): string => m.replace(/^claude-/, '');
+const fmtCost = (v: number): string => `$${v.toFixed(3)}`;
+const fmtWall = (v: number): string => `${Math.round(v)}`;
+const fmtTokens = (v: number): string =>
+  String(v).replace(/\B(?=(\d{3})+(?!\d))/g, String.fromCharCode(8201)); // 8201 = thin space
+const fmtPass = (c: Cell): string => `${Math.round(c.pass_rate * c.n)}/${c.n}`;
+// Worker tokens per lane (quota, never USD); "none" when the cell used no worker lane.
+const workerTokens = (c: Cell): string => {
+  const lanes = Object.entries(c.worker_tokens ?? {}).filter(([, n]) => n > 0);
+  return lanes.length === 0 ? 'none' : lanes.map(([lane, n]) => `${lane} ${fmtTokens(n)}`).join(', ');
+};
+
+// Group cells by case in first-seen order. Order within a case is kept as published.
+const cases: string[] = bench
+  ? [...new Set(bench.cells.map((c) => c.case))]
+  : [];
+// A ratio is only ever taken against a published vanilla cell of the same case AND the same model.
+const vanilla = new Map<string, Cell>();
+if (bench) {
+  for (const c of bench.cells) {
+    if (c.variant === 'vanilla') vanilla.set(`${c.case}|${c.model}`, c);
+  }
+}
+interface Versus { cost: number; wall: number }
+const versus = (c: Cell): Versus | null => {
+  const base = vanilla.get(`${c.case}|${c.model}`);
+  if (!base || base.cost_usd.median === 0 || base.wall_s.median === 0) return null;
+  return { cost: c.cost_usd.median / base.cost_usd.median, wall: c.wall_s.median / base.wall_s.median };
+};
+const fmtRatio = (v: number): string => `${v.toFixed(2)}x`;
+// Where a variant is above vanilla (same model), in plain words. Lower is better for both cost and wall time.
+const losses: string[] = [];
+if (bench) {
+  for (const c of bench.cells) {
+    const v = c.variant === 'vanilla' ? null : versus(c);
+    if (!v) continue;
+    const worse = [
+      v.cost > 1 && `Claude cost ${fmtRatio(v.cost)}`,
+      v.wall > 1 && `wall time ${fmtRatio(v.wall)}`,
+    ].filter(Boolean);
+    if (worse.length) losses.push(`${c.case} ${c.variant} (${shortModel(c.model)}): ${worse.join(' and ')}`);
+  }
+}
+---
+
+<section id="numbers" class="city-section" aria-labelledby="numbers-title">
+  <h2 id="numbers-title">Numbers</h2>
+
+  {bench === null ? (
+    <p class="pending-panel">Benchmarks pending: no published runs yet.</p>
+  ) : (
+    <>
+      <p class="method">Only cells with at least {bench.minRuns} completed runs are shown. Each number is a median with the minimum and maximum beside it.</p>
+      <p class="harness">Harness: {harness}</p>
+
+      <p class="scroll-hint">Scroll the table sideways for all columns.</p>
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Benchmark cells by case">
+        <table aria-label="Published benchmark cells, one row per cell, grouped by case">
+          <thead>
+            <tr>
+              <th scope="col">Case</th>
+              <th scope="col">Variant</th>
+              <th scope="col">Model</th>
+              <th scope="col">Runs</th>
+              <th scope="col">Claude cost, median (min–max)</th>
+              <th scope="col">Wall time, median (min–max)</th>
+              <th scope="col">Worker tokens (quota, not $)</th>
+              <th scope="col">Pass</th>
+              <th scope="col">Cost vs vanilla</th>
+              <th scope="col">Wall vs vanilla</th>
+            </tr>
+          </thead>
+          {cases.map((caseName) => (
+            <tbody>
+              {bench.cells.filter((c) => c.case === caseName).map((c) => {
+                const vs = versus(c);
+                return (
+                  <tr>
+                    <td>{c.case}</td>
+                    <td>{c.variant}</td>
+                    <td>{shortModel(c.model)}</td>
+                    <td class="num">{c.n}</td>
+                    <td class="num">{fmtCost(c.cost_usd.median)} <span class="rng">({fmtCost(c.cost_usd.min)}–{fmtCost(c.cost_usd.max)})</span></td>
+                    <td class="num">{fmtWall(c.wall_s.median)} s <span class="rng">({fmtWall(c.wall_s.min)}–{fmtWall(c.wall_s.max)} s)</span></td>
+                    <td class="num">{workerTokens(c)}</td>
+                    <td class="num">{fmtPass(c)}</td>
+                    <td class="num">{vs ? fmtRatio(vs.cost) : 'n/a'}</td>
+                    <td class="num">{vs ? fmtRatio(vs.wall) : 'n/a'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          ))}
+        </table>
+      </div>
+
+      <p class="versus">Ratios are medians against the vanilla cell of the same case and the same model; n/a means no such published cell exists. Lower is better.</p>
+      {losses.length > 0 && (
+        <p class="versus">Above vanilla on the same model: {losses.join('; ')}.</p>
+      )}
+
+      <div class="cell-status">
+        <details>
+          <summary>{bench.voided.length} voided cell{bench.voided.length === 1 ? '' : 's'}</summary>
+          {bench.voided.length === 0 ? (
+            <p>None.</p>
+          ) : (
+            <ul>
+              {bench.voided.map((v) => (
+                <li>{v.case} / {v.variant} / {shortModel(v.model)}: {v.reason}</li>
+              ))}
+            </ul>
+          )}
+        </details>
+        <details>
+          <summary>{bench.pending.length} pending cell{bench.pending.length === 1 ? '' : 's'}</summary>
+          {bench.pending.length === 0 ? (
+            <p>None.</p>
+          ) : (
+            <ul>
+              {bench.pending.map((p) => (
+                <li>{p.case} / {p.variant} / {shortModel(p.model)}: n={p.n}</li>
+              ))}
+            </ul>
+          )}
+        </details>
+      </div>
+
+      {bench.notes.length > 0 && (
+        <ul class="notes">
+          {bench.notes.map((n) => (
+            <li>{n}</li>
+          ))}
+        </ul>
+      )}
+
+      <p class="raw"><a href={bench.rawHref}>Raw JSON</a></p>
+    </>
+  )}
+</section>
+
+<style>
+  .method,
+  .harness {
+    margin: var(--space-3) 0 0;
+    max-width: 70ch;
+  }
+  .harness {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+  }
+  .pending-panel {
+    margin: var(--space-6) 0 0;
+    padding: var(--space-4);
+    background: var(--blueprint-ink);
+    color: var(--paper);
+    border: 1px solid var(--blueprint-ink-2);
+    font-family: var(--font-mono);
+    max-width: 40rem;
+  }
+  .table-wrap {
+    margin-top: var(--space-4);
+    overflow-x: auto;
+    border: 1px solid var(--blueprint-ink);
+    background: var(--blueprint-ink);
+    color: var(--paper);
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 56rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: 1.45;
+  }
+  thead th {
+    text-align: left;
+    font-weight: 400;
+    font-size: var(--text-xs);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--blueprint-line-soft);
+    border-bottom: 1px solid var(--blueprint-line-soft);
+    padding: var(--space-2) var(--space-3);
+    vertical-align: bottom;
+  }
+  tbody tr + tr td {
+    border-top: 1px solid var(--blueprint-ink-2);
+  }
+  tbody + tbody tr:first-child td {
+    border-top: 1px solid var(--blueprint-line-soft);
+  }
+  td {
+    padding: var(--space-2) var(--space-3);
+    vertical-align: top;
+    white-space: nowrap;
+  }
+  td.num {
+    font-variant-numeric: tabular-nums;
+  }
+  .rng {
+    display: block;
+    color: var(--blueprint-line-soft);
+  }
+  .scroll-hint {
+    display: none;
+    margin: var(--space-4) 0 0;
+    font-size: var(--text-sm);
+  }
+  @media (max-width: 1100px) {
+    .scroll-hint {
+      display: block;
+    }
+  }
+  .versus {
+    margin: var(--space-4) 0 0;
+    max-width: 70ch;
+    font-size: var(--text-sm);
+  }
+  .cell-status {
+    display: grid;
+    gap: var(--space-3);
+    margin-top: var(--space-6);
+    max-width: 70ch;
+  }
+  details {
+    border: 1px solid var(--blueprint-ink);
+    background: var(--paper-2);
+    padding: var(--space-3) var(--space-4);
+  }
+  summary {
+    cursor: pointer;
+  }
+  details ul {
+    margin: var(--space-3) 0 0;
+    padding-left: var(--space-6);
+    list-style: disc;
+    display: grid;
+    gap: var(--space-2);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+  }
+  details p {
+    margin: var(--space-2) 0 0;
+    font-size: var(--text-sm);
+  }
+  .notes {
+    margin: var(--space-6) 0 0;
+    padding-left: var(--space-6);
+    list-style: disc;
+    display: grid;
+    gap: var(--space-2);
+    max-width: 70ch;
+    font-size: var(--text-sm);
+  }
+  .raw {
+    margin: var(--space-6) 0 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+  }
+</style>

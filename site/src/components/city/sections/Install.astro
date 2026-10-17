@@ -1,0 +1,196 @@
+---
+import { facts, repoUrl } from '../../../lib/facts';
+
+const dir = repoUrl.split('/').pop();
+const lines = [`git clone ${repoUrl}.git`, `cd ${dir}`, './install.sh --all'];
+---
+
+<section id="install" class="city-section" aria-labelledby="install-title">
+  <h2 id="install-title">Install</h2>
+  <p class="install-lede">Clone the repo. Run one script.</p>
+
+  <h3 class="install-sub">Command</h3>
+  <div class="install-cmd">
+    <pre class="install-pre"><code id="install-code">{lines.join('\n')}</code></pre>
+    <button type="button" id="install-copy" class="install-copy">Copy</button>
+    <p id="install-status" class="visually-hidden" role="status"></p>
+  </div>
+
+  <h3 class="install-sub">Flags</h3>
+  <dl class="install-flags">
+    {facts.flags.map((f) => (
+      <div class="install-flag">
+        <dt><code>{f.args ? `${f.flag} ${f.args}` : f.flag}</code></dt>
+        <dd>{f.description}</dd>
+      </div>
+    ))}
+  </dl>
+
+  <h3 class="install-sub">Packs</h3>
+  <ul class="install-packs">
+    {facts.packs.map((p) => (
+      <li class="install-pack">{p.name} ({p.count})</li>
+    ))}
+  </ul>
+
+  <p class="install-next">Then start the orchestrator with <code>claude --agent lead-dev-hybrid</code>.</p>
+
+  <script>
+    const btn = document.getElementById('install-copy');
+    const code = document.getElementById('install-code');
+    const status = document.getElementById('install-status');
+    const say = (label: string, note: string) => {
+      if (btn) btn.textContent = label;
+      if (status) status.textContent = note;
+      setTimeout(() => {
+        if (btn) btn.textContent = 'Copy';
+      }, 2000);
+    };
+    btn?.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(code?.textContent ?? '');
+        say('Copied', 'Copied');
+      } catch {
+        // No clipboard (plain http, or denied): select the text so Ctrl+C works.
+        if (code) getSelection()?.selectAllChildren(code);
+        say('Copy', 'Copy failed: the command is selected, press Ctrl+C');
+      }
+    });
+  </script>
+
+  <style>
+    .install-lede {
+      margin: var(--space-3) 0 0;
+      font-weight: 500;
+      font-size: var(--text-lg);
+      line-height: 1.35;
+    }
+    .install-sub {
+      margin: var(--space-8) 0 var(--space-3);
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: var(--text-base);
+      line-height: var(--leading-tight);
+    }
+    .install-cmd {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      gap: var(--space-3);
+      padding: var(--space-4);
+      background: var(--blueprint-ink);
+      border: 1px solid var(--blueprint-ink-2);
+      color: var(--paper);
+    }
+    .install-pre {
+      flex: 1 1 16rem;
+      margin: 0;
+      overflow-x: auto;
+    }
+    .install-pre code {
+      font-family: var(--font-mono);
+      font-size: var(--text-base);
+      line-height: var(--leading-body);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .install-copy {
+      padding: var(--space-2) var(--space-3);
+      background: var(--paper);
+      border: 1px solid var(--paper);
+      color: var(--blueprint-ink);
+      font-family: var(--font-mono);
+      font-size: var(--text-base);
+      line-height: 1.3;
+      cursor: pointer;
+    }
+    .install-copy:hover {
+      background: var(--paper-2);
+    }
+    .install-copy:focus-visible {
+      outline: 2px solid var(--blueprint-line-soft);
+      outline-offset: 2px;
+    }
+    .install-flags {
+      display: grid;
+      gap: 0;
+      margin: 0;
+    }
+    .install-flag {
+      display: grid;
+      grid-template-columns: minmax(10rem, max-content) 1fr;
+      gap: var(--space-2) var(--space-4);
+      padding: var(--space-3) 0;
+      border-top: 1px solid var(--blueprint-line);
+    }
+    .install-flag:last-child {
+      border-bottom: 1px solid var(--blueprint-line);
+    }
+    .install-flag dt {
+      margin: 0;
+    }
+    .install-flag dt code {
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      line-height: var(--leading-body);
+      white-space: nowrap;
+    }
+    .install-flag dd {
+      margin: 0;
+      font-family: var(--font-display);
+      font-weight: 500;
+      font-size: var(--text-base);
+      line-height: var(--leading-body);
+    }
+    .install-packs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .install-pack {
+      padding: 2px var(--space-2);
+      border: 1px solid var(--blueprint-ink);
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      line-height: 1.5;
+      white-space: nowrap;
+    }
+    .install-next {
+      margin: var(--space-8) 0 0;
+      font-family: var(--font-display);
+      font-weight: 500;
+      font-size: var(--text-base);
+      line-height: var(--leading-body);
+    }
+    .install-next code {
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      white-space: nowrap;
+    }
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+    }
+    @media (max-width: 768px) {
+      .install-flag {
+        grid-template-columns: 1fr;
+      }
+    }
+    @media (max-width: 390px) {
+      .install-cmd {
+        padding: var(--space-3);
+      }
+      .install-pre code {
+        font-size: var(--text-sm);
+      }
+    }
+  </style>
+</section>
