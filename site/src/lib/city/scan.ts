@@ -1,10 +1,12 @@
 // City scan part: a sweeping verify/review indicator plus per-lot pass/flag markers.
 //
-// Indicator over state.activeScan.target (a lot slug; over layout.cityBlock when
-// the target is null), driven by activeScan.progress:
+// Indicator over state.activeScan.target (a lot slug; over the new-lot slot
+// bounds when the target is null), driven by activeScan.progress:
 // - verify: a thick flat ring that sweeps up the lot;
 // - orchestrator-review: a larger thick ring;
-// - cross-model-review: a wide flat bar sweeping across the whole block;
+// - cross-model-review: a wide flat bar sweeping across the new lots only
+//   (the bounding rectangle of layout.block with a small margin, extended to
+//   the annex slots of extras that have started building);
 // - kind null: the indicator is invisible.
 // Per original lot a marker floats above the building top (position via lotPoseAt):
 // - scan passed: a tick-like shape (two narrow box bars, palette.ok);
@@ -36,6 +38,8 @@ const BAR_LIFT = 0.6;
 const BOB_AMP = 0.06;
 /** Marker yaw (rad) so flat shapes read from the three-quarter camera. */
 const MARKER_YAW = Math.PI / 4;
+/** Cross-model sweep margin (m) around the new-lot slot bounds; under half a street. */
+const SLOT_MARGIN = 0.6;
 
 export const createScan: CreateScan = (layout: LotLayout, palette: CityPalette): CityPart => {
   const root = new Group();
@@ -71,13 +75,71 @@ export const createScan: CreateScan = (layout: LotLayout, palette: CityPalette):
   if (foot <= 0) foot = 3.6;
   if (maxH <= 0) maxH = 1;
 
+  // New-lot slot bounds, computed once: the bounding rectangle of the merged
+  // slots (original lots only, so the old town in layout.existing is excluded)
+  // plus the annex extension for extras. The annex part is precomputed and the
+  // update switches between base and combined by state (extras build > 0).
+  let slotX0 = Infinity, slotX1 = -Infinity, slotZ0 = Infinity, slotZ1 = -Infinity;
+  for (let i = 0; i < layout.lots.length; i++) {
+    const lot = layout.lots[i];
+    if (lot === undefined || lot.extra) continue;
+    const s = layout.block[i];
+    if (s === undefined) continue;
+    const x0 = s.x - s.w / 2, x1 = s.x + s.w / 2;
+    const z0 = s.z - s.d / 2, z1 = s.z + s.d / 2;
+    if (x0 < slotX0) slotX0 = x0;
+    if (x1 > slotX1) slotX1 = x1;
+    if (z0 < slotZ0) slotZ0 = z0;
+    if (z1 > slotZ1) slotZ1 = z1;
+  }
+  let annexX0 = Infinity, annexX1 = -Infinity, annexZ0 = Infinity, annexZ1 = -Infinity;
+  for (let j = 0; j < layout.annex.length; j++) {
+    const s = layout.annex[j];
+    if (s === undefined) continue;
+    const x0 = s.x - s.w / 2, x1 = s.x + s.w / 2;
+    const z0 = s.z - s.d / 2, z1 = s.z + s.d / 2;
+    if (x0 < annexX0) annexX0 = x0;
+    if (x1 > annexX1) annexX1 = x1;
+    if (z0 < annexZ0) annexZ0 = z0;
+    if (z1 > annexZ1) annexZ1 = z1;
+  }
+  const hasBase0 = slotX0 <= slotX1 && slotZ0 <= slotZ1;
+  const hasAnnex0 = annexX0 <= annexX1 && annexZ0 <= annexZ1;
+  if (!hasBase0) {
+    if (hasAnnex0) {
+      slotX0 = annexX0; slotX1 = annexX1; slotZ0 = annexZ0; slotZ1 = annexZ1;
+    } else {
+      slotX0 = layout.cityBlock.x - layout.cityBlock.w / 2;
+      slotX1 = layout.cityBlock.x + layout.cityBlock.w / 2;
+      slotZ0 = layout.cityBlock.z - layout.cityBlock.d / 2;
+      slotZ1 = layout.cityBlock.z + layout.cityBlock.d / 2;
+    }
+  }
+  let combX0 = slotX0, combX1 = slotX1, combZ0 = slotZ0, combZ1 = slotZ1;
+  if (hasBase0 && hasAnnex0) {
+    if (annexX0 < combX0) combX0 = annexX0;
+    if (annexX1 > combX1) combX1 = annexX1;
+    if (annexZ0 < combZ0) combZ0 = annexZ0;
+    if (annexZ1 > combZ1) combZ1 = annexZ1;
+  }
+  const useAnnexSwitch = hasBase0 && hasAnnex0;
+  const baseEx0 = slotX0 - SLOT_MARGIN;
+  const baseEx1 = slotX1 + SLOT_MARGIN;
+  const baseEz0 = slotZ0 - SLOT_MARGIN;
+  const baseEz1 = slotZ1 + SLOT_MARGIN;
+  const combEx0 = combX0 - SLOT_MARGIN;
+  const combEx1 = combX1 + SLOT_MARGIN;
+  const combEz0 = combZ0 - SLOT_MARGIN;
+  const combEz1 = combZ1 + SLOT_MARGIN;
+
   // --- Shared geometries and materials (disposed once in dispose()).
   // Thick sweep rings: torus tubes with visible width, laid flat.
   const verifyGeo = new TorusGeometry(foot * 0.32, Math.max(0.09, foot * 0.028), 8, 40);
   const orchGeo = new TorusGeometry(foot * 0.55, Math.max(0.1, foot * 0.034), 8, 48);
-  const blockD = layout.cityBlock.d > 0.1 ? layout.cityBlock.d : 1;
-  // Flat wide bar: wide in x, thin in y, spanning the block in z.
-  const barGeo = new BoxGeometry(Math.max(0.7, foot * 0.25), 0.22, blockD);
+  // Flat wide bar: wide in x, thin in y, unit depth in z scaled per-frame to
+  // the effective new-lot bounds (base or base+annex).
+  const barW = Math.max(0.7, foot * 0.25);
+  const barGeo = new BoxGeometry(barW, 0.22, 1);
   // Tick: two narrow box bars forming a check; overall height ~0.45 x foot.
   const tickShortLen = foot * 0.32;
   const tickLongLen = foot * 0.6;
@@ -215,8 +277,28 @@ export const createScan: CreateScan = (layout: LotLayout, palette: CityPalette):
       }
     }
     if (showCross) {
-      const cb = layout.cityBlock;
-      crossBar.position.set(cb.x - cb.w / 2 + cb.w * p, maxH + BAR_LIFT + bob, cb.z);
+      // Cross-model review with a null target covers only the code the run
+      // produced: the new-lot slots (+ margin), extended to the annex while an
+      // extra is building. No allocation: pick the precomputed rect by state.
+      let ex0 = baseEx0, ex1 = baseEx1, ez0 = baseEz0, ez1 = baseEz1;
+      if (useAnnexSwitch) {
+        let building = false;
+        const xn = state.extras.length;
+        for (let j = 0; j < xn; j++) {
+          const x = state.extras[j];
+          if (x !== undefined && x.build > 0) {
+            building = true;
+            break;
+          }
+        }
+        if (building) {
+          ex0 = combEx0; ex1 = combEx1; ez0 = combEz0; ez1 = combEz1;
+        }
+      }
+      const spanX = ex1 - ex0;
+      const spanZ = ez1 - ez0;
+      crossBar.position.set(ex0 + spanX * p, maxH + BAR_LIFT + bob, (ez0 + ez1) / 2);
+      crossBar.scale.z = spanZ > 0.001 ? spanZ : 1;
     }
 
     const wn = state.workers.length < n ? state.workers.length : n;

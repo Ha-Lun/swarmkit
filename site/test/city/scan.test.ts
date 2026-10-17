@@ -1,7 +1,7 @@
 // Plain node asserts: `node site/test/city/scan.test.ts` from the repo root.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Group, LineSegments, Mesh, Vector3 } from 'three';
+import { Box3, Group, LineSegments, Mesh, Vector3 } from 'three';
 import { buildLayout } from '../../src/lib/city/lots.ts';
 import { createScan } from '../../src/lib/city/scan.ts';
 import { buildTimeline } from '../../src/lib/city/timeline.ts';
@@ -153,6 +153,87 @@ part.update(timeline.stateAt(0.5), 1 / 60);
 const after: number[] = [];
 part.object.traverse((o) => after.push(o.position.x, o.position.y, o.position.z));
 assert.deepEqual(after, before);
+
+// Cross-model review covers only the NEW lots: the bounding rectangle of the
+// merged block slots plus the annex slots of building extras, with a margin.
+// It must not reach old-town buildings (layout.existing) outside those bounds.
+{
+  const TEST_MARGIN = 1.2;
+  let bx0 = Infinity, bx1 = -Infinity, bz0 = Infinity, bz1 = -Infinity;
+  for (let i = 0; i < layout.lots.length; i++) {
+    const lot = layout.lots[i];
+    if (lot === undefined || lot.extra) continue;
+    const s = layout.block[i];
+    if (s === undefined) continue;
+    bx0 = Math.min(bx0, s.x - s.w / 2);
+    bx1 = Math.max(bx1, s.x + s.w / 2);
+    bz0 = Math.min(bz0, s.z - s.d / 2);
+    bz1 = Math.max(bz1, s.z + s.d / 2);
+  }
+  let ax0 = Infinity, ax1 = -Infinity, az0 = Infinity, az1 = -Infinity;
+  for (const s of layout.annex) {
+    ax0 = Math.min(ax0, s.x - s.w / 2);
+    ax1 = Math.max(ax1, s.x + s.w / 2);
+    az0 = Math.min(az0, s.z - s.d / 2);
+    az1 = Math.max(az1, s.z + s.d / 2);
+  }
+  const hasAnnex = layout.annex.length > 0 && ax0 <= ax1 && az0 <= az1;
+  const cx0 = hasAnnex ? Math.min(bx0, ax0) : bx0;
+  const cx1 = hasAnnex ? Math.max(bx1, ax1) : bx1;
+  const cz0 = hasAnnex ? Math.min(bz0, az0) : bz0;
+  const cz1 = hasAnnex ? Math.max(bz1, az1) : bz1;
+  const cross = findByName('scan-ind-cross');
+  const box = new Box3();
+  function barXZ() {
+    part.object.updateMatrixWorld(true);
+    box.setFromObject(cross);
+    return { x0: box.min.x, x1: box.max.x, z0: box.min.z, z1: box.max.z };
+  }
+  function outsideExisting(x0: number, x1: number, z0: number, z1: number) {
+    return layout.existing.filter((b) => {
+      const ex0 = b.x - b.w / 2, ex1 = b.x + b.w / 2;
+      const ez0 = b.z - b.d / 2, ez1 = b.z + b.d / 2;
+      return ex1 < x0 - TEST_MARGIN || ex0 > x1 + TEST_MARGIN || ez1 < z0 - TEST_MARGIN || ez0 > z1 + TEST_MARGIN;
+    });
+  }
+  function checkBar(x0: number, x1: number, z0: number, z1: number, label: string) {
+    const r = barXZ();
+    assert.ok(r.x0 >= x0 - TEST_MARGIN && r.x1 <= x1 + TEST_MARGIN, `${label} bar x within slots (${r.x0},${r.x1} vs ${x0},${x1})`);
+    assert.ok(r.z0 >= z0 - TEST_MARGIN && r.z1 <= z1 + TEST_MARGIN, `${label} bar z within slots (${r.z0},${r.z1} vs ${z0},${z1})`);
+    const outside = outsideExisting(x0, x1, z0, z1);
+    assert.ok(outside.length > 0, `${label} has old-town buildings outside the new-lot bounds`);
+    for (const b of outside) {
+      const ex0 = b.x - b.w / 2, ex1 = b.x + b.w / 2;
+      const ez0 = b.z - b.d / 2, ez1 = b.z + b.d / 2;
+      const hit = !(r.x1 < ex0 || r.x0 > ex1 || r.z1 < ez0 || r.z0 > ez1);
+      assert.ok(!hit, `${label} bar does not reach old-town building at (${b.x},${b.z})`);
+    }
+  }
+  // Real cross-model scans (target null, extras not yet building): base bounds.
+  let sawCrossNull = false;
+  for (let i = 0; i <= STEPS; i++) {
+    const s = timeline.stateAt(i / STEPS);
+    if (s.activeScan.kind !== 'cross-model-review' || s.activeScan.target !== null) continue;
+    sawCrossNull = true;
+    part.update(s, 1 / 60);
+    assert.ok(cross.visible, `cross bar visible at u=${s.u}`);
+    checkBar(bx0, bx1, bz0, bz1, `cross u=${s.u}`);
+  }
+  assert.ok(sawCrossNull, 'found a null-target cross-model scan');
+  // Synthetic: an extra is building, so the sweep extends to the annex.
+  if (hasAnnex) {
+    const base = timeline.stateAt(0.75);
+    base.activeScan = { kind: 'cross-model-review', target: null, progress: 0.5 };
+    for (const x of base.extras) x.build = 1;
+    part.update(base, 1 / 60);
+    checkBar(cx0, cx1, cz0, cz1, 'cross+annex p=0.5');
+    for (const p of [0, 1]) {
+      base.activeScan = { kind: 'cross-model-review', target: null, progress: p };
+      part.update(base, 1 / 60);
+      checkBar(cx0, cx1, cz0, cz1, `cross+annex p=${p}`);
+    }
+  }
+}
 
 part.dispose();
 part.dispose();
