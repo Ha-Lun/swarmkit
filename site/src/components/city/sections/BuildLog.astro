@@ -1,0 +1,203 @@
+---
+// Build log: every number is derived at build time from .buildlog/*.jsonl.
+// Worker tasks per lane and models from loadWorkerLog(); Claude subagent
+// dispatches, gate approvals and art-direction rounds from loadBuildlog().
+// An empty log reads "not recorded yet", never 0.
+import { loadBuildlog, loadWorkerLog } from '../../../lib/buildlog.ts';
+
+const log = loadBuildlog();
+const workers = loadWorkerLog();
+const lanes = Object.entries(workers.byLane).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+const lastEvents = log.events.slice(-8).reverse();
+const hasWorkers = workers.tasks > 0;
+const hasLog = log.events.length > 0;
+---
+<section id="build-log" class="city-section" aria-labelledby="build-log-title">
+  <div class="buildlog-inner">
+    <h2 id="build-log-title">Built by the swarm</h2>
+    <p class="buildlog-lede">This page was built with lead-dev-hybrid.</p>
+
+    <dl class="buildlog-stats">
+      <div class="buildlog-stat">
+        <dt>Worker tasks</dt>
+        <dd>{hasWorkers ? workers.tasks : 'not recorded yet'}</dd>
+      </div>
+      {lanes.map(([lane, n]) => (
+        <div class={`buildlog-stat lane-${lane}`}>
+          <dt>{lane} tasks</dt>
+          <dd>{n}</dd>
+        </div>
+      ))}
+      <div class="buildlog-stat">
+        <dt>Claude subagent dispatches</dt>
+        <dd>{hasLog ? log.dispatches : 'not recorded yet'}</dd>
+      </div>
+      <div class="buildlog-stat">
+        <dt>Human gate approvals</dt>
+        <dd>{hasLog ? log.gates : 'not recorded yet'}</dd>
+      </div>
+      <div class="buildlog-stat">
+        <dt>Art-direction rounds</dt>
+        <dd>{hasLog ? log.artRounds : 'not recorded yet'}</dd>
+      </div>
+    </dl>
+
+    <div class="buildlog-models">
+      <h3>Models used</h3>
+      {workers.models.length > 0 ? (
+        <ul>
+          {workers.models.map((m) => <li>{m}</li>)}
+        </ul>
+      ) : (
+        <p>not recorded yet</p>
+      )}
+    </div>
+
+    <div class="buildlog-timeline">
+      <h3>Recent timeline</h3>
+      {lastEvents.length > 0 ? (
+        <ol>
+          {lastEvents.map((e) => (
+            <li>
+              {e.ts ? <time datetime={e.ts}>{e.ts.slice(0, 10)}</time> : <span>date unknown</span>}
+              <span class="buildlog-actor">{e.actor}</span>
+              <span>{e.text}</span>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p>not recorded yet</p>
+      )}
+    </div>
+  </div>
+</section>
+
+<style>
+  .city-section {
+    background: var(--paper);
+    color: var(--blueprint-ink);
+    padding: var(--space-16) var(--space-6);
+  }
+  .buildlog-inner {
+    max-width: 60rem;
+    margin: 0 auto;
+  }
+  .buildlog-inner h2 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--text-xl);
+    line-height: var(--leading-tight);
+  }
+  .buildlog-lede {
+    margin: var(--space-3) 0 0;
+    font-family: var(--font-display);
+    font-size: var(--text-base);
+    line-height: var(--leading-body);
+  }
+  .buildlog-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: var(--space-4);
+    margin: var(--space-6) 0 0;
+    padding: 0;
+  }
+  .buildlog-stat {
+    margin: 0;
+    padding: var(--space-4);
+    background: var(--blueprint-ink);
+    color: var(--paper);
+    border-left: 3px solid var(--blueprint-line);
+  }
+  .buildlog-stat.lane-agy {
+    border-left-color: var(--lane-agy);
+  }
+  .buildlog-stat.lane-opencode {
+    border-left-color: var(--lane-opencode);
+  }
+  .buildlog-stat dt {
+    font-family: var(--font-display);
+    font-size: var(--text-xs);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--blueprint-line-soft);
+  }
+  .buildlog-stat dd {
+    margin: var(--space-2) 0 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-lg);
+  }
+  .buildlog-models,
+  .buildlog-timeline {
+    margin-top: var(--space-8);
+  }
+  .buildlog-models h3,
+  .buildlog-timeline h3 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--text-base);
+    line-height: var(--leading-tight);
+  }
+  .buildlog-models ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: var(--space-3) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .buildlog-models li {
+    padding: var(--space-2) var(--space-3);
+    background: var(--paper-2);
+    border: 1px solid var(--blueprint-line);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+  }
+  .buildlog-models p,
+  .buildlog-timeline p {
+    margin: var(--space-3) 0 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+  }
+  .buildlog-timeline ol {
+    display: grid;
+    gap: var(--space-2);
+    margin: var(--space-3) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .buildlog-timeline li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    background: var(--blueprint-ink);
+    color: var(--paper);
+    font-size: var(--text-sm);
+    line-height: var(--leading-body);
+  }
+  .buildlog-timeline time {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--blueprint-line-soft);
+  }
+  .buildlog-actor {
+    padding: 0 var(--space-2);
+    border: 1px solid var(--blueprint-line);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+  }
+  @media (max-width: 768px) {
+    .city-section {
+      padding: var(--space-8) var(--space-4);
+    }
+    .buildlog-stats {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  @media (max-width: 390px) {
+    .buildlog-stats {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
