@@ -32,6 +32,8 @@ import type { CityPalette, CityPart, LotLayout, StageState } from './types.ts';
 
 /** Rework band height as a fraction of the lot's finished height at rework = 1. */
 const REWORK_FRACTION = 0.2;
+/** Below this height (m) an instance is collapsed to nothing rather than drawn flat. */
+const MIN_H = 1e-3;
 /** Rework band footprint overhang relative to the main box, so it reads as a cap. */
 const REWORK_OVERHANG = 1.08;
 /** Annex geometry (unit height, base at y = 0): body takes this fraction, roof the rest. */
@@ -186,12 +188,15 @@ export function createBuildings(layout: LotLayout, palette: CityPalette): CityPa
       lotPoseAt(layout, mainIndex[k], merge, pose);
       const h = mainH[k] * build;
       posV.set(pose.x, pose.y, pose.z);
-      sclV.set(mainW[k], h, mainD[k]);
+      // A zero-height instance would turn its top face's normal into NaN (rendered black): collapse it instead.
+      if (h > MIN_H) sclV.set(mainW[k], h, mainD[k]);
+      else sclV.set(0, 0, 0);
       mat.compose(posV, quat, sclV);
       mainMesh.setMatrixAt(k, mat);
       const bandH = mainH[k] * REWORK_FRACTION * rework;
       posV.set(pose.x, pose.y + h, pose.z);
-      sclV.set(mainW[k] * REWORK_OVERHANG, bandH, mainD[k] * REWORK_OVERHANG);
+      if (bandH > MIN_H) sclV.set(mainW[k] * REWORK_OVERHANG, bandH, mainD[k] * REWORK_OVERHANG);
+      else sclV.set(0, 0, 0);
       mat.compose(posV, quat, sclV);
       reworkMesh.setMatrixAt(k, mat);
       const lane = worker.reworkLane !== null ? worker.reworkLane : worker.lane;
@@ -206,7 +211,8 @@ export function createBuildings(layout: LotLayout, palette: CityPalette): CityPa
       lotPoseAt(layout, extraIndex[j], merge, pose);
       const h = extraH[j] * build;
       posV.set(pose.x, pose.y, pose.z);
-      sclV.set(extraW[j], h, extraD[j]);
+      if (h > MIN_H) sclV.set(extraW[j], h, extraD[j]);
+      else sclV.set(0, 0, 0);
       mat.compose(posV, quat, sclV);
       extraMesh.setMatrixAt(j, mat);
     }

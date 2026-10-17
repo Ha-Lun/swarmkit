@@ -2,7 +2,7 @@
 // in the existing city block while the block's streets draw in. Placeholder look: flat matte plates and strips.
 //
 // - The block ground plate (layout.cityBlock) is always visible, in palette.paper darkened a bit.
-// - Each original lot gets a flat footprint plate in its lane colour. It moves from lots[i] to block[i] with
+// - Each original lot gets a flat footprint plate in its lane colour (shown once state.split > 0). It moves from lots[i] to block[i] with
 //   state.workers[i].merge through lotPoseAt from lots.ts, the same function the buildings part uses, so the
 //   plate and its building never drift apart.
 // - Each road in layout.roads is a flat strip in palette.line. Block streets grow along their length with
@@ -179,6 +179,8 @@ export const createMerge: CreateMerge = (layout: LotLayout, palette: CityPalette
       const m = w.merge <= 0 ? 0 : w.merge >= 1 ? 1 : w.merge;
       lotPoseAt(layout, origIndex[f], m, pose);
       footprintMeshes[f].position.set(pose.x, pose.y + PLATE_H / 2, pose.z);
+      // Lots exist only once the plan splits the plot: before that the plot is an empty blueprint.
+      footprintMeshes[f].visible = state.split > 0;
       tickMeshes[f].visible = w.scan === 'passed';
       flagMeshes[f].visible = w.scan === 'flagged';
     }
