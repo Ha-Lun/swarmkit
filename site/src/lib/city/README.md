@@ -46,11 +46,20 @@ and edge cases are in the comments in `types.ts`.
 
 ## Look
 
-Light paper diorama: background and fog are `--paper`, the table a shade under it with a faint blueprint grid. The
+Light paper diorama: background and fog are `--paper`. With the kit the table is real (`table.ts`): a tan slab
+(`table_top` swatch, wooden fascia) 3.4 m outside `layout.bounds`, the kit's `table_corner` lips at its four corners
+(90 degree steps), and a pale-blue blueprint sheet (`sheet_blue`) half a metre larger than the plot, flat at
+y = 0.02 under the blueprint lines (a receiver only: no shadow of its own, so no acne). The slab top sits at
+y = -0.012 so the corner pieces' top at exactly y = 0 never z-fights it; scene.ts's own table plane drops to
+the paper floor under the slab's fascia, so table and backdrop keep one tone when the bill dims. Without the kit the
+table is the plain paper plane a shade under the backdrop with a faint blueprint grid. The
 sun is low and warm (mixed towards white), the sky fill cool (mixed towards white), intensities chosen so lit paper
 lands near its token under `NoToneMapping` and sRGB output (see the constants in scene.ts). Lane colours stay
 saturated; the existing city stays grey. The bill dims lights, background and fog by one factor, so the table and
-the backdrop never part in tone. Roads are a shade under the block ground with a hairline centre line. New
+the backdrop never part in tone. Roads are a shade under the block ground with a hairline centre line. While a rework pass runs
+(`reworkLane` set) the kit scaffold, a full cage, stands around that lot's body, scaled like the body, its top rail in
+the rework lane's colour (kit builds only; the plain look keeps the rising top band). Parked drones stand on the depot
+pad in a staggered row (three across a 3.4 m pad, rotors never overlapping). New
 buildings run `H_MIN`..`H_MAX` (1.6..3.6 m, log of tokens), in scale with the old town core (~3.4 m).
 
 ## Camera

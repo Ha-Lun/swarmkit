@@ -105,6 +105,8 @@ export function createTable(layout: LotLayout, palette: CityPalette, kit: Kit): 
   geometries.push(sheetGeo);
   const sheet = new Mesh(sheetGeo, kit.material);
   sheet.name = 'table-sheet';
+  // A receiver only: its own shadow on its top face would show as acne (scene.ts honours this flag).
+  sheet.userData.noShadowCast = true;
   sheet.position.set(layout.plot.x, SHEET_TOP - sheetH / 2, layout.plot.z);
   root.add(sheet);
 

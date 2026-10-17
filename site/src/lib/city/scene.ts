@@ -317,7 +317,7 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
   for (const p of parts) {
     p.object.traverse((o) => {
       if ((o as Mesh).isMesh) {
-        o.castShadow = true;
+        o.castShadow = o.userData.noShadowCast !== true;
         o.receiveShadow = true;
       }
     });
