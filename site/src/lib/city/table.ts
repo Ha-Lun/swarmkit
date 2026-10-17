@@ -29,7 +29,6 @@ const CORNER = 3.0;
 
 /** Palette swatch indices (public/models/README.md). */
 const SW_PAPER_LO = 3;
-const SW_WOOD = 19;
 const SW_WOOD_DK = 20;
 const SW_SHEET_BLUE = 24;
 const SW_TABLE_TOP = 25;

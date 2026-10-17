@@ -1,17 +1,13 @@
-// Build-time (Node) read of ../core/agents/*.md frontmatter joined with the band map.
+// Build-time (Node) read of ../core/agents/*.md frontmatter.
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { bandOf, type Band } from '../content/tiers';
 
 export interface Agent {
   name: string;
-  role: string;
   tier: string;
-  band: Band;
   /** where the Claude Code build installs it: `core` (global) or a pack linked per project with `install.sh --pack` */
   pack: string;
   description: string;
-  capabilities: string[];
 }
 
 function unquote(v: string): string {
@@ -21,20 +17,12 @@ function unquote(v: string): string {
   return s;
 }
 
-export function scalar(fm: string, key: string): string {
+function scalar(fm: string, key: string): string {
   const m = fm.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'));
   return m ? unquote(m[1]) : '';
 }
 
-// Handles `key: [a, b]`, `key: []` and block lists (`key:` then `- item` lines).
-function list(fm: string, key: string): string[] {
-  const inline = fm.match(new RegExp(`^${key}:\\s*\\[(.*)\\]\\s*$`, 'm'));
-  if (inline) return inline[1].split(',').map(unquote).filter(Boolean);
-  const block = fm.match(new RegExp(`^${key}:\\s*\\r?\\n((?:[ \\t]*- .*(?:\\r?\\n|$))+)`, 'm'));
-  return block ? block[1].split(/\r?\n/).filter(Boolean).map((l) => unquote(l.replace(/^[ \t]*- /, ''))) : [];
-}
-
-export function frontmatter(src: string): string {
+function frontmatter(src: string): string {
   return src.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? '';
 }
 
@@ -50,12 +38,9 @@ export function loadAgents(): Agent[] {
       if (!pack) throw new Error(`core/agents/${f}: no pack: in the frontmatter (scripts/build.py requires one)`);
       return {
         name,
-        role: scalar(fm, 'role'),
         tier: scalar(fm, 'tier'),
-        band: bandOf(name),
         pack,
         description: scalar(fm, 'description'),
-        capabilities: list(fm, 'capabilities'),
       };
     });
 }

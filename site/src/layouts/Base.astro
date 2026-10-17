@@ -1,16 +1,12 @@
 ---
 import '../styles/global.css';
-import Footer from '../components/Footer.astro';
-import Nav from '../components/Nav.astro';
 
-interface Props { title: string; description: string; chrome?: boolean; image?: string; imageAlt?: string }
-// chrome: false omits the globe site's Nav and Footer (the City preview has its own: slots `top` and `bottom`).
+interface Props { title: string; description: string; image?: string; imageAlt?: string }
 // image: the social preview (1200x630 under public/), absolute when astro.config.mjs sets `site`, else the root-relative
 // path (crawlers want an absolute URL: set `site` to the production origin and the tags follow).
 const {
   title,
   description,
-  chrome = true,
   image = '/stills/og.jpg',
   imageAlt = 'A miniature paper city: new buildings going up on a blueprint plot beside an old town, with drones flying in from two depots.',
 } = Astro.props;
@@ -48,11 +44,8 @@ const fonts = ['space-grotesk-latin-500-normal', 'space-grotesk-latin-700-normal
       href="#main"
       class="absolute left-4 top-4 z-50 -translate-y-20 bg-wax px-4 py-2 font-mono text-sm text-ink focus:translate-y-0"
     >Skip to content</a>
-    {chrome && <Nav />}
     <slot name="top" />
-    <slot name="backdrop" />
     <main id="main" tabindex="-1" class="focus:outline-none"><slot /></main>
-    {chrome && <Footer />}
     <slot name="bottom" />
   </body>
 </html>

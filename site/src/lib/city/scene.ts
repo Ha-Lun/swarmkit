@@ -327,17 +327,22 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
   // --- Post (high tier only): RenderPass -> tilt-shift (two passes) -> OutputPass.
   const tilt = createTiltShift();
   let composer: EffectComposer | null = null;
+  let outputPass: OutputPass | null = null;
   function buildComposer() {
     if (composer) return;
     const target = new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples: 4 });
     composer = new EffectComposer(renderer, target);
     composer.addPass(new RenderPass(scene, camera));
     tilt.install(composer);
-    composer.addPass(new OutputPass());
+    outputPass = new OutputPass();
+    composer.addPass(outputPass);
   }
   function dropComposer() {
     if (!composer) return;
+    tilt.uninstall();
     tilt.setEnabled(false);
+    outputPass?.dispose();
+    outputPass = null;
     composer.dispose();
     composer = null;
   }
