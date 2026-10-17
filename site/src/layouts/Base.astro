@@ -3,8 +3,9 @@ import '../styles/global.css';
 import Footer from '../components/Footer.astro';
 import Nav from '../components/Nav.astro';
 
-interface Props { title: string; description: string }
-const { title, description } = Astro.props;
+interface Props { title: string; description: string; chrome?: boolean }
+// chrome: false omits the globe site's Nav and Footer (the City preview has its own layout).
+const { title, description, chrome = true } = Astro.props;
 
 const favicon =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2l12 7v14l-12 7-12-7V9z' fill='%239aa6b4'/%3E%3C/svg%3E";
@@ -26,9 +27,9 @@ const fonts = ['space-grotesk-latin-500-normal', 'space-grotesk-latin-700-normal
       href="#main"
       class="absolute left-4 top-4 z-50 -translate-y-20 bg-wax px-4 py-2 font-mono text-sm text-ink focus:translate-y-0"
     >Skip to content</a>
-    <Nav />
+    {chrome && <Nav />}
     <slot name="backdrop" />
     <main id="main" tabindex="-1" class="focus:outline-none"><slot /></main>
-    <Footer />
+    {chrome && <Footer />}
   </body>
 </html>
