@@ -2,9 +2,11 @@
 // Build log: every number is derived at build time from .buildlog/*.jsonl.
 // Worker tasks per lane and models from loadWorkerLog(); Claude subagent dispatches, human gate approvals, decisions
 // and art-direction rounds from loadBuildlog(). An empty log reads "not recorded yet", never 0.
-import { loadBuildlog, loadWorkerLog } from '../../../lib/buildlog.ts';
+import { loadBuildlog, loadWorkerLog, publicLabel } from '../../../lib/buildlog.ts';
 
 const log = loadBuildlog();
+// Timeline text is curated inside loadBuildlog via publicLabel; entries without a label are already dropped.
+void publicLabel;
 const workers = loadWorkerLog();
 const hasWorkers = workers.tasks > 0;
 const hasLog = log.events.length > 0;

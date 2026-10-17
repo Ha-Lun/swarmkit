@@ -24,6 +24,43 @@ function read(name: string): Row[] {
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
+// Curated allowlisted labels for the public timeline. Only structured fields.
+function sanitizeLabel(s: string): string {
+  const noUrls = s.replace(/https?:\/\/\S+/gi, ' ');
+  const tokens = noUrls.split(/\s+/).filter((t) => t && !t.includes('/') && !t.includes('@'));
+  const joined = tokens.join(' ').replace(/\s+/g, ' ').trim();
+  return joined.length > 90 ? joined.slice(0, 90).trim() : joined;
+}
+
+export function publicLabel(row: Row, source: 'human' | 'art' | 'dispatch'): string | null {
+  let raw: string | null = null;
+  if (source === 'human') {
+    const gate = str(row.gate);
+    if (gate) {
+      const verdict = str(row.verdict).toLowerCase();
+      if (verdict && verdict !== 'approved') return null;
+      raw = `Gate approved: ${gate}`;
+    } else if (row.type === 'decision') {
+      raw = 'Decision recorded';
+    } else {
+      return null;
+    }
+  } else if (source === 'art') {
+    const roundNum = Number(row.round);
+    const element = str(row.element);
+    if (!Number.isFinite(roundNum) || !element) return null;
+    const roundStr = Number.isInteger(roundNum) ? String(roundNum) : String(row.round);
+    raw = `Art-direction round ${roundStr}: ${element.slice(0, 70)}`;
+  } else {
+    const name = str(row.agent_type) || str(row.agent);
+    if (!name) return null;
+    raw = `${name} dispatched`;
+  }
+  const clean = sanitizeLabel(raw);
+  if (!clean) return null;
+  return clean;
+}
+
 // Older dispatch rows name the subagent `agent_type`, newer hand-written ones `agent`. A row with a `lane` went to a
 // headless worker (agy or opencode), not to a Claude subagent.
 const subagentName = (d: Row) => str(d.agent_type) || str(d.agent) || 'unnamed';
@@ -48,22 +85,21 @@ export function summarizeBuildlog(allDispatch: Row[], human: Row[], art: Row[]) 
   const agentLogged = human.filter((h) => h.actor === 'agent').length;
 
   const events: TimelineEvent[] = [
-    ...human.map((h) => ({
-      ts: str(h.ts),
-      actor: byHuman(h) ? ('human' as const) : ('agent' as const),
-      kind: str(h.type),
-      text: h.type === 'measurement' ? `Phase ${h.phase} frame rate reported by the human` : str(h.note) || str(h.verdict),
-    })),
-    ...[...rounds.entries()].flatMap(([round, rows]) => {
-      const verdicts = rows.filter((r) => !AGENT_APPLIED.has(str(r.verdict)));
-      const applied = rows.length - verdicts.length;
-      const ts = str(rows[0].ts);
-      return [
-        ...(verdicts.length ? [{ ts, actor: 'human' as const, kind: 'art direction', text: `Round ${round}: ${verdicts.length} ${verdicts.length === 1 ? 'verdict' : 'verdicts'} from the human` }] : []),
-        ...(applied ? [{ ts, actor: 'agent' as const, kind: 'art direction', text: `Round ${round}: ${applied} ${applied === 1 ? 'change' : 'changes'} applied by the agent` }] : []),
-      ];
+    ...human.flatMap((h) => {
+      const label = publicLabel(h, 'human');
+      if (!label) return [];
+      return [{ ts: str(h.ts), actor: byHuman(h) ? ('human' as const) : ('agent' as const), kind: str(h.type), text: label }];
     }),
-    ...dispatch.map((d) => ({ ts: str(d.ts), actor: 'agent' as const, kind: 'dispatch', text: `${subagentName(d)} finished a task` })),
+    ...art.flatMap((a) => {
+      const label = publicLabel(a, 'art');
+      if (!label) return [];
+      return [{ ts: str(a.ts), actor: AGENT_APPLIED.has(str(a.verdict)) ? ('agent' as const) : ('human' as const), kind: 'art direction', text: label }];
+    }),
+    ...dispatch.flatMap((d) => {
+      const label = publicLabel(d, 'dispatch');
+      if (!label) return [];
+      return [{ ts: str(d.ts), actor: 'agent' as const, kind: 'dispatch', text: label }];
+    }),
   ].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
 
   return {

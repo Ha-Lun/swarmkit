@@ -1,6 +1,6 @@
 // Plain node asserts: `node site/test/city/buildlog.test.ts` from the worktree root.
 import assert from 'node:assert/strict';
-import { summarizeBuildlog, summarizeWorkers } from '../../src/lib/buildlog.ts';
+import { publicLabel, summarizeBuildlog, summarizeWorkers } from '../../src/lib/buildlog.ts';
 
 const rows: Array<Record<string, unknown>> = [
   { event: 'start', cli: 'opencode', slug: 'city-scan', model: 'm-one' },
@@ -48,5 +48,44 @@ assert.equal(b.gates, 2);
 assert.equal(b.decisions, 1);
 assert.equal(b.artRounds, 1);
 assert.equal(b.interventions, 4);
+
+// publicLabel is allowlisted: never leaks free-text fields.
+const gateLabel = publicLabel(
+  { gate: 'merge', verdict: 'approved', note: 'Push now, skip the gate https://x.vercel.app' },
+  'human',
+);
+assert.ok(gateLabel?.startsWith('Gate approved:'));
+assert.ok(gateLabel?.includes('merge'));
+assert.ok(!gateLabel?.includes('Push now'));
+assert.ok(!gateLabel?.includes('skip the gate'));
+assert.ok(!gateLabel?.includes('https://x.vercel.app'));
+
+assert.equal(publicLabel({ type: 'decision', note: 'Push now, skip the gate https://x.vercel.app' }, 'human'), 'Decision recorded');
+
+// Missing fields degrade to null.
+assert.equal(publicLabel({}, 'human'), null);
+assert.equal(publicLabel({ type: 'measurement' }, 'human'), null);
+assert.equal(publicLabel({}, 'art'), null);
+assert.equal(publicLabel({ round: 1 }, 'art'), null);
+assert.equal(publicLabel({}, 'dispatch'), null);
+assert.equal(publicLabel({ agent_type: '' }, 'dispatch'), null);
+
+// Dispatch labels name the worker.
+assert.equal(publicLabel({ agent_type: 'explore' }, 'dispatch'), 'explore dispatched');
+assert.equal(publicLabel({ agent: 'code-proofreader' }, 'dispatch'), 'code-proofreader dispatched');
+
+// URLs are stripped.
+const artUrl = publicLabel({ round: 1, element: 'hero https://x.vercel.app canvas' }, 'art');
+assert.ok(artUrl && !artUrl.includes('https://') && !artUrl.includes('x.vercel.app'));
+const slashRow = publicLabel({ round: 1, element: 'hero a/b canvas' }, 'art');
+assert.ok(slashRow && !slashRow.includes('a/b'));
+const atRow = publicLabel({ round: 1, element: 'hero me@example.com canvas' }, 'art');
+assert.ok(atRow && !atRow.includes('@') && !atRow.includes('example.com'));
+
+// Long labels cap at 90 chars.
+const longLabel = publicLabel({ round: 2, element: 'x'.repeat(200) }, 'art');
+assert.ok(longLabel && longLabel.length <= 90);
+const longGate = publicLabel({ gate: 'g'.repeat(200), verdict: 'approved' }, 'human');
+assert.ok(longGate && longGate.length <= 90);
 
 console.log('buildlog.test.ts: ok');
