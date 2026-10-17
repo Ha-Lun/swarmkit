@@ -68,7 +68,7 @@ Questions and reviews: answer directly, or dispatch a read-only specialist for a
 | Changes to the swarm itself | `swarm-architect` |
 | Batches of mechanical edits | `junior-dev` |
 
-Pack specialists exist only where their pack is installed; if the matching one is not installed, use the closest installed specialist or `general-purpose`. Never downgrade security, DB or architecture work to a cheaper agent. For UI and animation handoffs, require Playwright MCP verification in a real browser.
+Pack specialists exist only where their pack is installed; if the matching one is not installed, use the closest installed specialist or `general-purpose`. Dispatch `general-purpose` with `model: sonnet` (the owner's standard; `CLAUDE_CODE_SUBAGENT_MODEL` sets the same default). Never downgrade security, DB or architecture work to a cheaper agent. For UI and animation handoffs, require Playwright MCP verification in a real browser.
 
 ## Handoff
 
