@@ -1,4 +1,4 @@
-// Summarises .buildlog/*.jsonl for the Proof timeline. Counts are real; nothing is padded.
+// Summarises .buildlog/*.jsonl for the build log section. Counts are real; nothing is padded.
 //
 // "Human interventions" counts ONLY things the human did themselves:
 //   - gate approvals: human.jsonl entries with type "gate", or with a "gate" field (the merge approvals are logged that way);
@@ -61,8 +61,7 @@ export function publicLabel(row: Row, source: 'human' | 'art' | 'dispatch'): str
     raw = `${name} dispatched`;
   }
   const clean = sanitizeLabel(raw);
-  if (!clean) return null;
-  return clean;
+  return clean || null;
 }
 
 // Older dispatch rows name the subagent `agent_type`, newer hand-written ones `agent`. A row with a `lane` went to a

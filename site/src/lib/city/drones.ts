@@ -12,6 +12,7 @@
 // i.e. children[k * (1 + DRONES_PER_DEPOT) + 1 + d] is drone d of lane k.
 import { BoxGeometry, Color, ConeGeometry, Group, Material, Mesh, MeshLambertMaterial, Object3D } from 'three';
 import type { CityPalette, CityPart, CreateDrones, LotLayout, StageState } from './types.ts';
+import { clamp01, smooth } from './timeline.ts';
 import type { Kit } from './kit.ts';
 
 /** Cones per depot. */
@@ -30,13 +31,14 @@ const CONE_HALF = 0.275;
 const BOB_AMP = 0.18;
 const BOB_FREQ = 3.0;
 
-function clamp01(x: number): number {
-  return x <= 0 ? 0 : x >= 1 ? 1 : x;
-}
-
-function smooth(x: number): number {
-  const c = clamp01(x);
-  return c * c * (3 - 2 * c);
+/** Depot -> lot travel for a job progress p: out over the first 15%, hover, home over the last 15%. */
+function jobTravel(p: number): number {
+  const c = clamp01(p);
+  if (c <= 0) return 0;
+  if (c < OUT_END) return smooth(c / OUT_END);
+  if (c <= HOME_START) return 1;
+  if (c >= 1) return 0;
+  return 1 - smooth((c - HOME_START) / (1 - HOME_START));
 }
 
 export const createDrones: CreateDrones = (layout: LotLayout, palette: CityPalette, kit?: Kit | null): CityPart => {
@@ -112,13 +114,7 @@ export const createDrones: CreateDrones = (layout: LotLayout, palette: CityPalet
             m.rotation.set(0, depotFacing[k], 0);
           } else {
             const lot = layout.lots[li];
-            const p = clamp01(job.progress);
-            let s: number;
-            if (p <= 0) s = 0;
-            else if (p < OUT_END) s = smooth(p / OUT_END);
-            else if (p <= HOME_START) s = 1;
-            else if (p >= 1) s = 0;
-            else s = 1 - smooth((p - HOME_START) / (1 - HOME_START));
+            const s = jobTravel(job.progress);
             const hoverY = lot.height + HOVER_GAP;
             const x = depotX[k] + (lot.x - depotX[k]) * s;
             const z = depotZ[k] + (lot.z - depotZ[k]) * s;
@@ -319,13 +315,7 @@ function createKitDrones(layout: LotLayout, palette: CityPalette, kit: Kit): Cit
             head.position.y = HOOK_PARK_HEAD_Y;
           } else {
             const lot = layout.lots[li];
-            const p = clamp01(job.progress);
-            let s: number;
-            if (p <= 0) s = 0;
-            else if (p < OUT_END) s = smooth(p / OUT_END);
-            else if (p <= HOME_START) s = 1;
-            else if (p >= 1) s = 0;
-            else s = 1 - smooth((p - HOME_START) / (1 - HOME_START));
+            const s = jobTravel(job.progress);
             const hoverY = lot.height + HOVER_GAP;
             const x = depotX[k] + (lot.x - depotX[k]) * s;
             const z = depotZ[k] + (lot.z - depotZ[k]) * s;

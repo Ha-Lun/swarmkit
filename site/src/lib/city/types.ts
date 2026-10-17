@@ -12,11 +12,10 @@
 
 import type { Object3D } from 'three';
 import type { Kit } from './kit.ts';
+import type { Lane } from '../run.ts';
+export type { Lane };
 
-/** A vendor lane that ran workers. Same ids as `Lane` in ../run.ts. */
-export type Lane = 'agy' | 'opencode';
-
-/** Every lane the scene knows, in depot order: index 0 is the -z depot, index 1 the +z depot. */
+/** A vendor lane that ran workers. Canonical ids live in ../run.ts. Every lane the scene knows, in depot order: index 0 is the -z depot, index 1 the +z depot. */
 export const LANES: readonly Lane[] = ['agy', 'opencode'];
 
 /** Axis-aligned rectangle on the ground. x, z = centre (m); w = size along x (m); d = size along z (m). */
@@ -309,6 +308,8 @@ export interface PassHost {
 /** Tilt-shift blur band (high tier only). */
 export interface TiltShift {
   install(host: PassHost): void;
+  /** Detach passes from their host without disposing (scene drops the composer on tier change). */
+  uninstall(): void;
   /** Drawing-buffer size in pixels. */
   setSize(width: number, height: number): void;
   /** Disabled = passes are skipped entirely (no cost). */

@@ -116,4 +116,4 @@ Export a factory `createX(layout: LotLayout, palette: CityPalette): CityPart` (`
 - **merge**: during `merging`, the lot footprint lifts and slides from `lots[i]` to `block[i]` with `merge`;
   `roads` fade or draw in with `mergeAll`. Use `lotPoseAt` for the lot footprint so it matches the buildings.
 - **tiltshift**: a cheap two-pass blur band (horizontal then vertical, strength rising away from a horizontal focus
-  band) as post passes via `install(host)`. `setEnabled(false)` skips it entirely; high tier only.
+  band) as post passes via `install(host)` / `uninstall()`. `setEnabled(false)` skips it entirely; high tier only.

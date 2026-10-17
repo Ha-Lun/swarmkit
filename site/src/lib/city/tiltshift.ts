@@ -86,6 +86,14 @@ export const createTiltShift: CreateTiltShift = (): TiltShift => {
     next.addPass(vPass);
   }
 
+  function uninstall(): void {
+    if (host !== null) {
+      host.removePass?.(hPass);
+      host.removePass?.(vPass);
+      host = null;
+    }
+  }
+
   function setSize(width: number, height: number): void {
     hResolution.set(width, height);
     vResolution.set(width, height);
@@ -99,14 +107,10 @@ export const createTiltShift: CreateTiltShift = (): TiltShift => {
   function dispose(): void {
     if (disposed) return;
     disposed = true;
-    if (host !== null) {
-      host.removePass?.(hPass);
-      host.removePass?.(vPass);
-      host = null;
-    }
-    hMaterial.dispose();
-    vMaterial.dispose();
+    uninstall();
+    hPass.dispose();
+    vPass.dispose();
   }
 
-  return { install, setSize, setEnabled, dispose };
+  return { install, uninstall, setSize, setEnabled, dispose };
 };

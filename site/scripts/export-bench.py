@@ -31,7 +31,7 @@ import privacy
 from privacy import check_private, PrivacyError
 
 VALID_CASES = set(CASE_ORDER)
-VALID_VARIANTS = {"vanilla", "slim", "lead-dev", "hybrid", "hybrid-workflow"}
+VALID_VARIANTS = set(VARIANT_ORDER)
 MODEL_RE = re.compile(r"^claude-[a-z0-9.-]{1,40}$")
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 VALID_STATUS = {"ok", "verify-failed", "timeout", "error"}

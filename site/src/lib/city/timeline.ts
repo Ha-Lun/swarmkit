@@ -33,8 +33,8 @@ interface Ev {
 
 interface Window { beat: number; t: number; u0: number; u1: number }
 
-const clamp01 = (x: number) => (x <= 0 || Number.isNaN(x) ? 0 : x >= 1 ? 1 : x);
-const smooth = (x: number) => {
+export const clamp01 = (x: number) => (x <= 0 || Number.isNaN(x) ? 0 : x >= 1 ? 1 : x);
+export const smooth = (x: number) => {
   const c = clamp01(x);
   return c * c * (3 - 2 * c);
 };
