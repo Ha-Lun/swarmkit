@@ -1,102 +1,99 @@
 ---
 // Build log: every number is derived at build time from .buildlog/*.jsonl.
-// Worker tasks per lane and models from loadWorkerLog(); Claude subagent
-// dispatches, gate approvals and art-direction rounds from loadBuildlog().
-// An empty log reads "not recorded yet", never 0.
+// Worker tasks per lane and models from loadWorkerLog(); Claude subagent dispatches, human gate approvals, decisions
+// and art-direction rounds from loadBuildlog(). An empty log reads "not recorded yet", never 0.
 import { loadBuildlog, loadWorkerLog } from '../../../lib/buildlog.ts';
 
 const log = loadBuildlog();
 const workers = loadWorkerLog();
-const lanes = Object.entries(workers.byLane).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-const lastEvents = log.events.slice(-8).reverse();
 const hasWorkers = workers.tasks > 0;
 const hasLog = log.events.length > 0;
+const NONE = 'not recorded yet';
+// The two vendor lanes always get a cell; a lane with no logged task says so instead of showing a bare 0.
+const laneCell = (lane: string): string => (!hasWorkers ? NONE : workers.byLane[lane] ? String(workers.byLane[lane]) : 'none logged');
+const lanes = ['opencode', 'agy'];
+const lastEvents = log.events.slice(-8).reverse();
+const clip = (t: string, max = 180): string => (t.length > max ? `${t.slice(0, max - 3).replace(/\s+\S*$/, '')}...` : t);
+const headline = hasWorkers && hasLog
+  ? `${lanes.map((l) => (workers.byLane[l] ? `${workers.byLane[l]} ${l} tasks` : `no ${l} tasks logged`)).join(', ')}, ${log.dispatches} Claude subagents, ${log.interventions} human interventions`
+  : null;
 ---
 <section id="build-log" class="city-section" aria-labelledby="build-log-title">
-  <div class="buildlog-inner">
-    <h2 id="build-log-title">Built by the swarm</h2>
-    <p class="buildlog-lede">This page was built with lead-dev-hybrid.</p>
+  <h2 id="build-log-title">Built by the swarm</h2>
+  <p class="buildlog-lede">This page was built with lead-dev-hybrid{headline ? `: ${headline}.` : '.'}</p>
+  <p class="buildlog-scope">Counts come from the logs in <code>.buildlog/</code>, which cover the site since its first version (the earlier globe site included). They are what was logged, not necessarily everything that happened.</p>
 
-    <dl class="buildlog-stats">
-      <div class="buildlog-stat">
-        <dt>Worker tasks</dt>
-        <dd>{hasWorkers ? workers.tasks : 'not recorded yet'}</dd>
+  <dl class="buildlog-stats">
+    {lanes.map((lane) => (
+      <div class={`buildlog-stat lane-${lane}`}>
+        <dt>{lane} worker tasks</dt>
+        <dd>{laneCell(lane)}</dd>
       </div>
-      {lanes.map(([lane, n]) => (
-        <div class={`buildlog-stat lane-${lane}`}>
-          <dt>{lane} tasks</dt>
-          <dd>{n}</dd>
-        </div>
-      ))}
-      <div class="buildlog-stat">
-        <dt>Claude subagent dispatches</dt>
-        <dd>{hasLog ? log.dispatches : 'not recorded yet'}</dd>
-      </div>
-      <div class="buildlog-stat">
-        <dt>Human gate approvals</dt>
-        <dd>{hasLog ? log.gates : 'not recorded yet'}</dd>
-      </div>
-      <div class="buildlog-stat">
-        <dt>Art-direction rounds</dt>
-        <dd>{hasLog ? log.artRounds : 'not recorded yet'}</dd>
-      </div>
-    </dl>
+    ))}
+    <div class="buildlog-stat">
+      <dt>Claude subagent dispatches</dt>
+      <dd>{hasLog ? log.dispatches : NONE}</dd>
+    </div>
+    <div class="buildlog-stat">
+      <dt>Human interventions</dt>
+      <dd>{hasLog ? log.interventions : NONE}</dd>
+    </div>
+  </dl>
+  {hasLog && (
+    <p class="buildlog-break">
+      Human interventions are only the human's own actions: {log.gates} gate approvals, {log.decisions} decisions and answers, {log.artRounds} art-direction rounds with a human verdict. Measurements and changes the agent applied itself are not counted.
+    </p>
+  )}
 
-    <div class="buildlog-models">
-      <h3>Models used</h3>
-      {workers.models.length > 0 ? (
+  <div class="buildlog-models">
+    <h3>Worker models recorded</h3>
+    {workers.models.length > 0 ? (
+      <>
         <ul>
           {workers.models.map((m) => <li>{m}</li>)}
         </ul>
-      ) : (
-        <p>not recorded yet</p>
-      )}
-    </div>
+        <p>{workers.modelRecorded} of {workers.tasks} worker tasks name their model; earlier rows predate that field.</p>
+      </>
+    ) : (
+      <p>{NONE}</p>
+    )}
+  </div>
 
-    <div class="buildlog-timeline">
-      <h3>Recent timeline</h3>
-      {lastEvents.length > 0 ? (
-        <ol>
-          {lastEvents.map((e) => (
-            <li>
-              {e.ts ? <time datetime={e.ts}>{e.ts.slice(0, 10)}</time> : <span>date unknown</span>}
-              <span class="buildlog-actor">{e.actor}</span>
-              <span>{e.text}</span>
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <p>not recorded yet</p>
-      )}
-    </div>
+  <div class="buildlog-timeline">
+    <h3>Recent timeline</h3>
+    {lastEvents.length > 0 ? (
+      <ol>
+        {lastEvents.map((e) => (
+          <li>
+            {e.ts ? <time datetime={e.ts}>{e.ts.slice(0, 10)}</time> : <span>date unknown</span>}
+            <span class="buildlog-actor">{e.actor}</span>
+            <span class="buildlog-text">{clip(e.text)}</span>
+          </li>
+        ))}
+      </ol>
+    ) : (
+      <p>{NONE}</p>
+    )}
   </div>
 </section>
 
 <style>
-  .city-section {
-    background: var(--paper);
-    color: var(--blueprint-ink);
-    padding: var(--space-16) var(--space-6);
-  }
-  .buildlog-inner {
-    max-width: 60rem;
-    margin: 0 auto;
-  }
-  .buildlog-inner h2 {
-    margin: 0;
-    font-family: var(--font-display);
-    font-size: var(--text-xl);
-    line-height: var(--leading-tight);
-  }
   .buildlog-lede {
+    max-width: 50rem;
+    font-weight: 500;
+  }
+  .buildlog-scope,
+  .buildlog-break {
+    max-width: 50rem;
     margin: var(--space-3) 0 0;
-    font-family: var(--font-display);
-    font-size: var(--text-base);
-    line-height: var(--leading-body);
+    font-size: var(--text-sm);
+  }
+  .buildlog-scope code {
+    font-family: var(--font-mono);
   }
   .buildlog-stats {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
     gap: var(--space-4);
     margin: var(--space-6) 0 0;
     padding: 0;
@@ -115,7 +112,6 @@ const hasLog = log.events.length > 0;
     border-left-color: var(--lane-opencode);
   }
   .buildlog-stat dt {
-    font-family: var(--font-display);
     font-size: var(--text-xs);
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -126,6 +122,9 @@ const hasLog = log.events.length > 0;
     font-family: var(--font-mono);
     font-size: var(--text-lg);
   }
+  .buildlog-break {
+    margin-top: var(--space-4);
+  }
   .buildlog-models,
   .buildlog-timeline {
     margin-top: var(--space-8);
@@ -133,7 +132,6 @@ const hasLog = log.events.length > 0;
   .buildlog-models h3,
   .buildlog-timeline h3 {
     margin: 0;
-    font-family: var(--font-display);
     font-size: var(--text-base);
     line-height: var(--leading-tight);
   }
@@ -151,11 +149,11 @@ const hasLog = log.events.length > 0;
     border: 1px solid var(--blueprint-line);
     font-family: var(--font-mono);
     font-size: var(--text-sm);
+    overflow-wrap: anywhere;
   }
   .buildlog-models p,
   .buildlog-timeline p {
     margin: var(--space-3) 0 0;
-    font-family: var(--font-mono);
     font-size: var(--text-sm);
   }
   .buildlog-timeline ol {
@@ -176,6 +174,10 @@ const hasLog = log.events.length > 0;
     font-size: var(--text-sm);
     line-height: var(--leading-body);
   }
+  .buildlog-text {
+    flex: 1 1 18rem;
+    min-width: 0;
+  }
   .buildlog-timeline time {
     font-family: var(--font-mono);
     font-size: var(--text-xs);
@@ -187,17 +189,9 @@ const hasLog = log.events.length > 0;
     font-family: var(--font-mono);
     font-size: var(--text-xs);
   }
-  @media (max-width: 768px) {
-    .city-section {
-      padding: var(--space-8) var(--space-4);
-    }
+  @media (max-width: 480px) {
     .buildlog-stats {
-      grid-template-columns: 1fr 1fr;
-    }
-  }
-  @media (max-width: 390px) {
-    .buildlog-stats {
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr);
     }
   }
 </style>

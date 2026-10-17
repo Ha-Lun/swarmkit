@@ -1,75 +1,66 @@
 ---
 import { facts, repoUrl } from '../../../lib/facts';
 
-const lines = [`git clone ${repoUrl}.git`, 'cd swarmkit', './install.sh --all'];
+const dir = repoUrl.split('/').pop();
+const lines = [`git clone ${repoUrl}.git`, `cd ${dir}`, './install.sh --all'];
 ---
 
 <section id="install" class="city-section" aria-labelledby="install-title">
-  <div class="install-inner">
-    <h2 id="install-title" class="install-title">Install</h2>
-    <p class="install-lede">Clone the repo. Run one script.</p>
+  <h2 id="install-title">Install</h2>
+  <p class="install-lede">Clone the repo. Run one script.</p>
 
-    <h3 class="install-sub">Command</h3>
-    <div class="install-cmd">
-      <pre class="install-pre"><code id="install-code">{lines.join('\n')}</code></pre>
-      <button type="button" id="install-copy" class="install-copy">Copy</button>
-      <p id="install-status" class="visually-hidden" role="status"></p>
-    </div>
-
-    <h3 class="install-sub">Flags</h3>
-    <dl class="install-flags">
-      {facts.flags.map((f) => (
-        <div class="install-flag">
-          <dt><code>{f.args ? `${f.flag} ${f.args}` : f.flag}</code></dt>
-          <dd>{f.description}</dd>
-        </div>
-      ))}
-    </dl>
-
-    <h3 class="install-sub">Packs</h3>
-    <ul class="install-packs">
-      {facts.packs.map((p) => (
-        <li class="install-pack">{p.name} ({p.count})</li>
-      ))}
-    </ul>
-
-    <p class="install-next">Then start the orchestrator with <code>claude --agent lead-dev-hybrid</code>.</p>
+  <h3 class="install-sub">Command</h3>
+  <div class="install-cmd">
+    <pre class="install-pre"><code id="install-code">{lines.join('\n')}</code></pre>
+    <button type="button" id="install-copy" class="install-copy">Copy</button>
+    <p id="install-status" class="visually-hidden" role="status"></p>
   </div>
+
+  <h3 class="install-sub">Flags</h3>
+  <dl class="install-flags">
+    {facts.flags.map((f) => (
+      <div class="install-flag">
+        <dt><code>{f.args ? `${f.flag} ${f.args}` : f.flag}</code></dt>
+        <dd>{f.description}</dd>
+      </div>
+    ))}
+  </dl>
+
+  <h3 class="install-sub">Packs</h3>
+  <ul class="install-packs">
+    {facts.packs.map((p) => (
+      <li class="install-pack">{p.name} ({p.count})</li>
+    ))}
+  </ul>
+
+  <p class="install-next">Then start the orchestrator with <code>claude --agent lead-dev-hybrid</code>.</p>
 
   <script>
     const btn = document.getElementById('install-copy');
     const code = document.getElementById('install-code');
     const status = document.getElementById('install-status');
+    const say = (label: string, note: string) => {
+      if (btn) btn.textContent = label;
+      if (status) status.textContent = note;
+      setTimeout(() => {
+        if (btn) btn.textContent = 'Copy';
+      }, 2000);
+    };
     btn?.addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(code?.textContent ?? '');
-        if (status) status.textContent = 'Copied';
+        say('Copied', 'Copied');
       } catch {
-        if (status) status.textContent = 'Copy failed';
+        // No clipboard (plain http, or denied): select the text so Ctrl+C works.
+        if (code) getSelection()?.selectAllChildren(code);
+        say('Copy', 'Copy failed: the command is selected, press Ctrl+C');
       }
     });
   </script>
 
   <style>
-    .city-section {
-      background: var(--paper);
-      color: var(--blueprint-ink);
-    }
-    .install-inner {
-      max-width: 60rem;
-      margin: 0 auto;
-      padding: var(--space-16) var(--space-6);
-    }
-    .install-title {
-      margin: 0;
-      font-family: var(--font-display);
-      font-weight: 700;
-      font-size: var(--text-xl);
-      line-height: var(--leading-tight);
-    }
     .install-lede {
       margin: var(--space-3) 0 0;
-      font-family: var(--font-display);
       font-weight: 500;
       font-size: var(--text-lg);
       line-height: 1.35;
@@ -100,7 +91,8 @@ const lines = [`git clone ${repoUrl}.git`, 'cd swarmkit', './install.sh --all'];
       font-family: var(--font-mono);
       font-size: var(--text-base);
       line-height: var(--leading-body);
-      white-space: pre;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
     }
     .install-copy {
       padding: var(--space-2) var(--space-3);
@@ -188,9 +180,6 @@ const lines = [`git clone ${repoUrl}.git`, 'cd swarmkit', './install.sh --all'];
       white-space: nowrap;
     }
     @media (max-width: 768px) {
-      .install-inner {
-        padding: var(--space-8) var(--space-4);
-      }
       .install-flag {
         grid-template-columns: 1fr;
       }

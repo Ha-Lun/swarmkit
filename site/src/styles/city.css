@@ -197,3 +197,118 @@
   /* While the hero shows, the HUD would sit under it: hide it until the run starts. */
   .city-stage[data-beat='hero'] .city-hud { opacity: 0; }
 }
+
+/* ---------------------------------------------------------------------------------------------------------------
+   Content sections below the stage (src/components/city/sections/*). Full-bleed paper bands; the content column is
+   72rem wide, set by the inline padding so no section needs an inner wrapper. Components keep their own scoped
+   styles for their panels (navy ink plates, as the stage HUD); the shared rhythm and the h2 scale live here.
+   --------------------------------------------------------------------------------------------------------------- */
+.city-section {
+  --city-gutter: max(var(--space-6), calc((100% - 72rem) / 2));
+  position: relative;
+  padding: var(--space-24) var(--city-gutter);
+  background: var(--paper);
+  color: var(--blueprint-ink);
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
+}
+.city-section + .city-section { border-top: 1px solid var(--blueprint-line-soft); }
+.city-section h2 {
+  margin: 0;
+  max-width: 40rem;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(var(--text-xl), 3.2vw, var(--text-2xl));
+  line-height: var(--leading-tight);
+  letter-spacing: -0.01em;
+}
+.city-section h2 + p { margin-top: var(--space-3); }
+.city-section a { color: var(--blueprint-ink); text-decoration: underline; text-underline-offset: 3px; }
+.city-section :focus-visible { outline: 2px solid var(--blueprint-ink); outline-offset: 2px; }
+.city-section .visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+/* Anchor targets sit below the slim top bar. */
+.city-section[id] { scroll-margin-top: var(--space-12); }
+@media (max-width: 1024px) {
+  .city-section { padding-block: var(--space-16); }
+}
+@media (max-width: 768px) {
+  .city-section { --city-gutter: var(--space-4); padding-block: var(--space-12); }
+}
+
+/* Slim top bar (CityChrome.astro): hidden while the pinned stage is in view, shown once it has been scrolled past. */
+.city-bar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  height: var(--space-12);
+  padding: 0 var(--space-4);
+  background: var(--blueprint-ink);
+  color: var(--paper);
+  border-bottom: 1px solid var(--blueprint-ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  transform: translateY(-100%);
+  opacity: 0;
+  visibility: hidden;
+}
+.city-bar.is-on { transform: none; opacity: 1; visibility: visible; }
+.city-bar a { color: var(--paper); text-decoration: none; }
+.city-bar a:hover { text-decoration: underline; text-underline-offset: 4px; }
+.city-bar :focus-visible { outline: 2px solid var(--light-warm); outline-offset: 2px; }
+.city-bar-mark { flex: none; font-family: var(--font-display); font-weight: 700; font-size: var(--text-lg); letter-spacing: -0.02em; }
+.city-bar-nav { flex: 1 1 auto; min-width: 0; }
+.city-bar-links {
+  display: flex;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.city-bar-links::-webkit-scrollbar { display: none; }
+.city-bar-links a { display: block; padding: var(--space-2) var(--space-3); white-space: nowrap; }
+.city-bar-repo { flex: none; padding: var(--space-2) var(--space-3); border: 1px solid var(--blueprint-line); }
+@media (min-width: 1100px) {
+  .city-bar { padding-inline: var(--space-6); }
+  .city-bar-nav { margin-left: var(--space-4); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .city-bar { transition: transform 240ms ease, opacity 240ms ease, visibility 0s linear 240ms; }
+  .city-bar.is-on { transition-delay: 0s; }
+}
+/* Without scripting the stage is not pinned: the bar is a plain strip above it. */
+@media (scripting: none) {
+  .city-bar { position: static; transform: none; opacity: 1; visibility: visible; }
+}
+
+.city-footer {
+  --city-gutter: max(var(--space-6), calc((100% - 72rem) / 2));
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-12) var(--city-gutter);
+  background: var(--blueprint-ink);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+}
+.city-footer p { margin: 0; }
+.city-footer a { color: var(--paper); text-underline-offset: 3px; }
+.city-footer :focus-visible { outline: 2px solid var(--light-warm); outline-offset: 2px; }
+.city-footer-mark { font-family: var(--font-display); font-weight: 700; font-size: var(--text-lg); letter-spacing: -0.02em; }
+@media (max-width: 768px) {
+  .city-footer { --city-gutter: var(--space-4); padding-block: var(--space-8); }
+}

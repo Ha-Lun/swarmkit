@@ -26,29 +26,11 @@ import { facts } from '../../../lib/facts';
 </section>
 
 <style>
-  .city-section {
-    background: var(--paper);
-    color: var(--blueprint-ink);
-    padding: var(--space-16) var(--space-6);
-  }
-
-  .city-section h2 {
-    margin: 0 0 var(--space-8);
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: var(--text-xl);
-    line-height: var(--leading-tight);
-    letter-spacing: -0.01em;
-    max-width: 40rem;
-    margin-inline: auto;
-  }
-
   .flow {
     display: flex;
     align-items: stretch;
     gap: var(--space-4);
-    max-width: 64rem;
-    margin-inline: auto;
+    margin-top: var(--space-8);
   }
 
   .source {
@@ -155,32 +137,18 @@ import { facts } from '../../../lib/facts';
     margin: var(--space-3) 0 0;
     font-family: var(--font-display);
     font-weight: 500;
-    font-size: var(--text-sm);
+    font-size: var(--text-base);
     line-height: var(--leading-body);
     color: var(--blueprint-line-soft);
   }
 
   .note {
-    max-width: 64rem;
-    margin: var(--space-6) auto 0;
-    font-family: var(--font-display);
+    max-width: 50rem;
+    margin: var(--space-6) 0 0;
     font-weight: 500;
-    font-size: var(--text-base);
-    line-height: var(--leading-body);
   }
 
-  @media (max-width: 1024px) {
-    .targets {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: var(--space-3);
-    }
-
-    .source {
-      flex-basis: 13rem;
-    }
-  }
-
-  @media (max-width: 768px) {
+  @media (max-width: 1100px) {
     .flow {
       flex-direction: column;
     }
@@ -192,6 +160,8 @@ import { facts } from '../../../lib/facts';
 
     .pipe {
       min-width: 0;
+      flex-direction: row;
+      gap: var(--space-3);
       padding: var(--space-2) 0;
     }
 
@@ -207,17 +177,15 @@ import { facts } from '../../../lib/facts';
       bottom: 0;
       transform: translateX(-50%) rotate(135deg);
     }
+  }
 
+  @media (max-width: 768px) {
     .targets {
       grid-template-columns: minmax(0, 1fr);
     }
   }
 
-  @media (max-width: 390px) {
-    .city-section {
-      padding: var(--space-12) var(--space-4);
-    }
-
+  @media (max-width: 480px) {
     .target-flag {
       white-space: normal;
       overflow-wrap: anywhere;

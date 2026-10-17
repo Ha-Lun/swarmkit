@@ -41,27 +41,9 @@
 </section>
 
 <style>
-  .city-section {
-    max-width: 62rem;
-    margin: 0 auto;
-    padding: var(--space-16) var(--space-6);
-    background: var(--paper);
-    color: var(--blueprint-ink);
-  }
-  #which-mode-title {
-    margin: 0;
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: var(--text-xl);
-    line-height: var(--leading-tight);
-    letter-spacing: -0.01em;
-  }
   .which-mode-lede {
-    margin: var(--space-3) 0 0;
-    font-family: var(--font-display);
+    max-width: 40rem;
     font-weight: 500;
-    font-size: var(--text-base);
-    line-height: var(--leading-body);
   }
   .which-mode-table-wrap {
     margin-top: var(--space-6);
@@ -94,16 +76,15 @@
     white-space: nowrap;
   }
   .which-mode-table tbody td {
-    font-family: var(--font-display);
     font-weight: 500;
-    font-size: var(--text-sm);
+    font-size: var(--text-base);
     line-height: var(--leading-body);
   }
-  .which-mode-table tbody td code,
-  .which-mode-tag {
+  .which-mode-table tbody td code {
     font-family: var(--font-mono);
     font-size: var(--text-sm);
     line-height: 1.4;
+    overflow-wrap: anywhere;
   }
   .which-mode-tag {
     display: inline-block;
@@ -111,34 +92,17 @@
     border: 1px solid var(--blueprint-line);
     color: var(--paper);
     background: var(--blueprint-ink-2);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: 1.4;
     white-space: nowrap;
-  }
-  .which-mode-table tbody tr:nth-child(3) .which-mode-tag {
-    border-color: var(--lane-agy);
-  }
-  .which-mode-table tbody tr:nth-child(4) .which-mode-tag {
-    border-color: var(--lane-opencode);
-  }
-  .which-mode-table tbody tr:nth-child(1) .which-mode-tag {
-    border-color: var(--status-ok);
-  }
-  .which-mode-table tbody tr:nth-child(2) .which-mode-tag {
-    border-color: var(--blueprint-line-soft);
   }
   .which-mode-rule {
     margin: var(--space-6) 0 0;
     padding: var(--space-3) var(--space-4);
     background: var(--paper-2);
     border-left: 3px solid var(--blueprint-line);
-    font-family: var(--font-display);
     font-weight: 500;
-    font-size: var(--text-sm);
-    line-height: var(--leading-body);
-  }
-  @media (max-width: 1024px) {
-    .city-section {
-      padding: var(--space-12) var(--space-4);
-    }
   }
   @media (max-width: 768px) {
     .which-mode-table thead {
@@ -171,16 +135,6 @@
     }
     .which-mode-table tbody td:last-child {
       padding-bottom: var(--space-4);
-    }
-  }
-  @media (max-width: 390px) {
-    .city-section {
-      padding: var(--space-8) var(--space-3);
-    }
-    .which-mode-table th,
-    .which-mode-table td {
-      padding-left: var(--space-3);
-      padding-right: var(--space-3);
     }
   }
 </style>
