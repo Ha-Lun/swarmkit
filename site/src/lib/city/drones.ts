@@ -168,8 +168,8 @@ const HOOK_K_HOVER = (HOOK_PIVOT_Y + HOVER_GAP / DRONE_SCALE) / HOOK_LEN;
 const PAD_RING_X = 0;
 const PAD_RING_Y = 0.06;
 const PAD_RING_Z = 1.1;
-/** Parking spread around the ring centre so the three drones never overlap. */
-const PAD_SPREAD = 0.35;
+/** Parked drones stand in a row across the pad, this far apart (m): wider than the 1.5x rotor span (1.35 m) so the rotors never overlap. */
+const PAD_PITCH = 1.4;
 const ROTOR_NAMES = ['rotor_fl', 'rotor_fr', 'rotor_bl', 'rotor_br'];
 
 /** A per-lane copy of the shared kit material, tinted to one colour. */
@@ -247,10 +247,9 @@ function createKitDrones(layout: LotLayout, palette: CityPalette, kit: Kit): Cit
     }
 
     for (let d = 0; d < DRONES_PER_DEPOT; d++) {
-      // Parking slots on the pad ring, in depot space, so they follow the depot yaw.
-      const la = (d * Math.PI * 2) / DRONES_PER_DEPOT + Math.PI / 2;
-      const lx = PAD_RING_X + Math.cos(la) * PAD_SPREAD;
-      const lz = PAD_RING_Z + Math.sin(la) * PAD_SPREAD;
+      // Parking slots in a row across the pad, in depot space, so they follow the depot yaw.
+      const lx = PAD_RING_X + (d - (DRONES_PER_DEPOT - 1) / 2) * PAD_PITCH;
+      const lz = PAD_RING_Z;
       const cf = Math.cos(depot.facing);
       const sf = Math.sin(depot.facing);
       const px = depot.x + lx * cf + lz * sf;

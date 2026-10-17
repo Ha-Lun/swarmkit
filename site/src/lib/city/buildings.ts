@@ -472,11 +472,13 @@ function createKitBuildings(layout: LotLayout, palette: CityPalette, kit: Kit): 
       const sz = b.d / BODY_AUTHOR;
       p.set(b.x, 0, b.z);
       sc.set(sx, b.height, sz);
+      m.compose(p, q, sc);
       const bb = oldBodyBase[oldV[i]];
-      if (bb) bb.setMatrixAt(bodySubs[oldV[i]], m.compose(p, q, sc));
+      if (bb) bb.setMatrixAt(bodySubs[oldV[i]], m);
       // Warm grey with a seeded lightness spread (from the index, like the placeholder path).
       const f = (Math.imul(i + 1, 2654435761) >>> 0) / 4294967296;
       const bl = oldBodyLane[oldV[i]];
+      if (bl) bl.setMatrixAt(bodySubs[oldV[i]], m);
       if (bl) bl.setColorAt(bodySubs[oldV[i]], col.copy(oldBase).multiplyScalar(1 - OLD_SPREAD / 2 + OLD_SPREAD * f));
       bodySubs[oldV[i]]++;
       // Caps sit on the deck unscaled in Y; the rooftop box keeps its authored offset near the roof centre.
