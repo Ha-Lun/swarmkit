@@ -3,8 +3,11 @@
 // the DOM labels pinned to the lots, the hero, one caption per beat and a small counter HUD. All text is DOM and
 // every number comes from the run (read here at build time) or from the scene's StageState at run time. The HUD has
 // a fixed cell per counter (MERGING included, dimmed while 0), so it never grows or reflows. Without a
-// run: an honest "replay pending" panel and no canvas. Without WebGL (or with ?tier=fallback): the client adds
-// .no-webgl and the captions read as a plain ordered list.
+// run: an honest "replay pending" panel and no canvas. Without WebGL (or with ?tier=fallback, or when the scene fails
+// to start): the client adds .no-webgl and the replay becomes a stacked series of stills, one per beat, each with its
+// caption. The same series shows without scripting. Stills are real frames of this scene rendered at each beat's camera
+// key (see scripts/stills.mjs); they are never loaded in the live layout (display: none + lazy). Reduced motion and a
+// failed fps probe are not fallbacks: the scene still runs and draws static frames at the beat poses.
 import '../../styles/city.css';
 import { beatCaptions, formatDuration, replayLabel } from '../../lib/city/captions.ts';
 import { buildLayout } from '../../lib/city/lots.ts';
@@ -18,6 +21,8 @@ const label = run ? replayLabel(run) : '';
 // Embedded for the client; '<' escaped so the JSON can never close the script element.
 const json = run ? JSON.stringify(run).replace(/</g, '\\u003c') : '';
 const command = 'claude --agent lead-dev-hybrid';
+// One still per beat: public/stills/beat-<id>.webp (1440x900). Width and height give the fixed aspect box (low CLS).
+const STILL = { w: 1440, h: 900 };
 const counters = [
   { key: 'dispatched', name: 'dispatched' },
   { key: 'built', name: 'built' },
@@ -70,7 +75,17 @@ const counters = [
     <div class="city-static">
       <p class="city-replay">{label}</p>
       <ol class="city-static-list">
-        {captions.map((c) => <li>{c.text}{c.approval && ` ${c.approval}`}</li>)}
+        {captions.map((c) => {
+          const text = c.approval ? `${c.text} ${c.approval}` : c.text;
+          return (
+            <li>
+              <figure class="city-still">
+                <img src={`/stills/beat-${c.id}.webp`} width={STILL.w} height={STILL.h} alt={text} loading="lazy" decoding="async" />
+                <figcaption>{text}</figcaption>
+              </figure>
+            </li>
+          );
+        })}
       </ol>
     </div>
   </section>

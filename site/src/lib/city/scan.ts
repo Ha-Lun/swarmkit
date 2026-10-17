@@ -9,12 +9,13 @@
 //   the annex slots of extras that have started building);
 // - kind null: the indicator is invisible.
 // Per original lot a marker floats above the building top (position via lotPoseAt):
-// - scan passed: a tick-like shape (two narrow box bars, palette.ok);
+// - scan passed: a check mark (a short and a long flat bar joined at a vertex, lying on its side so it reads as a V
+//   from above, palette.ok);
 // - scan flagged: a flag-like shape (a pole plus a triangular pennant, palette.fail);
 // - scanning / none: nothing extra. Status is always a shape, never colour alone.
 // Markers are meshes only (no lines: WebGL lines are 1px and vanish at distance),
-// sized relative to the lot foot, standing upright and yawed ~45deg for the
-// three-quarter camera.
+// sized relative to the lot foot. The flag stands upright and is yawed ~45deg for the three-quarter camera; the
+// check lies flat (a standing one goes edge-on to some camera yaws) and is yawed to open towards the typical camera.
 import {
   BoxGeometry,
   DoubleSide,
@@ -38,6 +39,8 @@ const BAR_LIFT = 0.6;
 const BOB_AMP = 0.06;
 /** Marker yaw (rad) so flat shapes read from the three-quarter camera. */
 const MARKER_YAW = Math.PI / 4;
+/** Check yaw (rad): its "up" (the open side of the V) points away from a camera at ~52 deg yaw, between the landscape shots (8-36) and the portrait one (82), so it reads as a check from both. */
+const TICK_YAW = (52 * Math.PI) / 180;
 /** Cross-model sweep margin (m) around the new-lot slot bounds; under half a street. */
 const SLOT_MARGIN = 0.6;
 
@@ -140,12 +143,19 @@ export const createScan: CreateScan = (layout: LotLayout, palette: CityPalette):
   // the effective new-lot bounds (base or base+annex).
   const barW = Math.max(0.7, foot * 0.25);
   const barGeo = new BoxGeometry(barW, 0.22, 1);
-  // Tick: two narrow box bars forming a check; overall height ~0.45 x foot.
-  const tickShortLen = foot * 0.32;
-  const tickLongLen = foot * 0.6;
-  const tickThick = Math.max(0.08, foot * 0.035);
-  const tickShortGeo = new BoxGeometry(tickThick, tickShortLen, tickThick);
-  const tickLongGeo = new BoxGeometry(tickThick, tickLongLen, tickThick);
+  // Tick: a short and a long flat bar joined at the vertex, a check lying on its side (bar length along local x,
+  // thickness along y, width along z). Directions are in the xz plane with -z as "up"; each bar starts half a width
+  // behind the vertex so the joint is closed. The pair is centred on its bounding box (tickOffX/Z).
+  const tickShortLen = foot * 0.26;
+  const tickLongLen = foot * 0.5;
+  const tickW = Math.max(0.16, foot * 0.075);
+  const tickH = Math.max(0.08, foot * 0.035);
+  const tickShortDir = { x: -Math.SQRT1_2, z: -Math.SQRT1_2 };
+  const tickLongDir = { x: 0.55, z: -0.835 };
+  const tickOffX = -(tickShortDir.x * tickShortLen + tickLongDir.x * tickLongLen) / 2;
+  const tickOffZ = -(tickShortDir.z * tickShortLen + tickLongDir.z * tickLongLen) / 2;
+  const tickShortGeo = new BoxGeometry(tickShortLen + tickW / 2, tickH, tickW);
+  const tickLongGeo = new BoxGeometry(tickLongLen + tickW / 2, tickH, tickW);
   // Flag: pole ~0.6 x foot plus a triangular pennant.
   const poleH = foot * 0.6;
   const poleT = Math.max(0.06, foot * 0.025);
@@ -188,7 +198,6 @@ export const createScan: CreateScan = (layout: LotLayout, palette: CityPalette):
   const markers: Group[] = [];
   const ticks: Group[] = [];
   const flags: Group[] = [];
-  const q = Math.SQRT1_2;
   for (let k = 0; k < n; k++) {
     const li = origIdx[k];
     if (li === undefined) continue;
@@ -199,12 +208,15 @@ export const createScan: CreateScan = (layout: LotLayout, palette: CityPalette):
     g.rotation.y = MARKER_YAW;
     const tick = new Group();
     tick.name = 'scan-tick-' + lot.slug;
+    tick.rotation.y = TICK_YAW - MARKER_YAW; // the marker group is yawed MARKER_YAW; net yaw is TICK_YAW
     const shortBar = new Mesh(tickShortGeo, okMat);
-    shortBar.rotation.z = Math.PI / 4;
-    shortBar.position.set((-q * tickShortLen) / 2, (q * tickShortLen) / 2, 0);
+    shortBar.rotation.y = -Math.atan2(tickShortDir.z, tickShortDir.x);
+    shortBar.position.set(
+      tickOffX + tickShortDir.x * (tickShortLen / 2 - tickW / 4), 0, tickOffZ + tickShortDir.z * (tickShortLen / 2 - tickW / 4));
     const longBar = new Mesh(tickLongGeo, okMat);
-    longBar.rotation.z = -Math.PI / 4;
-    longBar.position.set((q * tickLongLen) / 2, (q * tickLongLen) / 2, 0);
+    longBar.rotation.y = -Math.atan2(tickLongDir.z, tickLongDir.x);
+    longBar.position.set(
+      tickOffX + tickLongDir.x * (tickLongLen / 2 - tickW / 4), 0, tickOffZ + tickLongDir.z * (tickLongLen / 2 - tickW / 4));
     tick.add(shortBar);
     tick.add(longBar);
     tick.visible = false;
