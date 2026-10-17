@@ -30,11 +30,19 @@ interface Shot {
   /** Where the rect's centre lands on screen (NDC, -1..1) for landscape and portrait: keeps it clear of DOM panels. */
   offset?: { landscape: [number, number]; portrait: [number, number] };
   /**
-   * Portrait overrides. A phone is tall and narrow, so a rect that is long in x is turned (yaw) to run up the screen
-   * and seen more from above (pitch): the fit is then bound by height, not width, and the city fills the screen.
+   * Portrait overrides. A phone is tall and narrow, so the layout is turned (PORTRAIT_YAW, shared by all beats) to run
+   * up the screen and seen more from above (pitch): the fit is then bound by height, not width, and the city fills
+   * the screen.
    */
-  portrait?: { pitch?: number; yaw?: number; zoom?: number };
+  portrait?: { pitch?: number; zoom?: number; rect?: (l: LotLayout) => Rect };
 }
+
+/**
+ * Portrait yaw (degrees), the same for every beat. The view direction is the Catmull-Rom curve of (camera - target),
+ * and with one yaw all those offsets point the same way, so the view never swings between beats on a phone; only
+ * pitch and distance change. ~82 runs the layout's long x axis up the screen.
+ */
+const PORTRAIT_YAW = 82;
 
 const union = (...rs: Rect[]): Rect => {
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
@@ -67,17 +75,19 @@ const SHOTS: Record<BeatId, Shot> = {
   // The hero panel sits top-left (top on phones): the city sits right of and below the panel.
   hero: {
     rect: (l) => union(blockOr(l), l.plot), zoom: 1.0, pitch: 36, yaw: 28, at: 0,
-    offset: { landscape: [0.3, -0.06], portrait: [0, -0.3] },
-    portrait: { pitch: 50, yaw: 80 },
+    offset: { landscape: [0.3, -0.06], portrait: [0, -0.03] },
+    // Portrait: the city and its empty slots fill the band between the hero panel and the caption; the plot is
+    // mostly out of frame at u = 0 (blank paper then) and slides in on the way to the task beat.
+    portrait: { pitch: 50, rect: blockOr },
   },
-  task: { rect: (l) => l.plot, zoom: 1.15, pitch: 52, yaw: 16, at: 0.6, portrait: { pitch: 56, yaw: 78 } },
-  plan: { rect: (l) => l.plot, zoom: 1.3, pitch: 78, yaw: 6, at: 0.55, portrait: { pitch: 78, yaw: 84 } },
+  task: { rect: (l) => l.plot, zoom: 1.15, pitch: 52, yaw: 16, at: 0.6, portrait: { pitch: 56 } },
+  plan: { rect: (l) => l.plot, zoom: 1.3, pitch: 78, yaw: 6, at: 0.55, portrait: { pitch: 78 } },
   // Both depots and the plot, fully in frame (zoom >= 1 keeps the padding).
-  lanes: { rect: (l) => union(l.plot, ...depotRects(l)), zoom: 1.05, pitch: 40, yaw: 30, at: 0.5, portrait: { pitch: 48, yaw: 84 } },
-  verify: { rect: (l) => l.plot, zoom: 0.95, pitch: 38, yaw: 36, at: 0.5, portrait: { pitch: 46, yaw: 74 } },
-  merge: { rect: (l) => union(l.plot, slotsOr(l)), zoom: 1.2, pitch: 40, yaw: 18, at: 0.6, portrait: { pitch: 52, yaw: 86, zoom: 1.1 } },
-  review: { rect: (l) => union(slotsOr(l), ...l.annex), zoom: 1.25, pitch: 36, yaw: 14, at: 0.5, portrait: { pitch: 50, yaw: 80, zoom: 1.15 } },
-  bill: { rect: (l) => l.bounds, zoom: 1.5, pitch: 46, yaw: 8, at: 1, portrait: { pitch: 56, yaw: 82, zoom: 1.35 } },
+  lanes: { rect: (l) => union(l.plot, ...depotRects(l)), zoom: 1.05, pitch: 40, yaw: 30, at: 0.5, portrait: { pitch: 48 } },
+  verify: { rect: (l) => l.plot, zoom: 0.95, pitch: 38, yaw: 36, at: 0.5, portrait: { pitch: 46 } },
+  merge: { rect: (l) => union(l.plot, slotsOr(l)), zoom: 1.2, pitch: 40, yaw: 18, at: 0.6, portrait: { pitch: 52, zoom: 1.1 } },
+  review: { rect: (l) => union(slotsOr(l), ...l.annex), zoom: 1.25, pitch: 36, yaw: 14, at: 0.5, portrait: { pitch: 50, zoom: 1.15 } },
+  bill: { rect: (l) => l.bounds, zoom: 1.5, pitch: 46, yaw: 8, at: 1, portrait: { pitch: 56, zoom: 1.35 } },
 };
 
 /** Height of the framed box (m): the tallest a new building can get, plus the lift while it merges. */
@@ -148,10 +158,10 @@ export function buildCameraKeys(layout: LotLayout, beats: Beat[], aspect = 16 / 
     const shot = SHOTS[b.id];
     const u = keyU(b);
     if (keys.length && u <= keys[keys.length - 1].u + 1e-6) continue; // zero-length beat: keep the earlier pose
-    const r = shot.rect(layout);
     const p = a < 1 ? shot.portrait : undefined;
+    const r = (p?.rect ?? shot.rect)(layout);
     const pitch = ((p?.pitch ?? shot.pitch) * Math.PI) / 180;
-    const yaw = ((p?.yaw ?? shot.yaw) * Math.PI) / 180;
+    const yaw = ((a < 1 ? PORTRAIT_YAW : shot.yaw) * Math.PI) / 180;
     const [ox, oy] = shot.offset ? shot.offset[a < 1 ? 'portrait' : 'landscape'] : [0, 0];
     const dist = fitDistance(r, a, fovDeg, pitch, yaw, ox, oy) * (p?.zoom ?? shot.zoom);
     // Shift camera and target together (the view direction stays) so the rect's centre lands at (ox, oy).

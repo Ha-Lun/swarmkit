@@ -85,8 +85,49 @@ for (const aspect of [16 / 9, 1440 / 810, 390 / 844, 1]) {
     inFrame(aspect, key('lanes'), [layout.plot, ...depots], 'lanes: depots and plot');
     inFrame(aspect, key('merge'), [layout.plot, ...slots], 'merge: plot and slots');
     inFrame(aspect, key('review'), [...slots, ...layout.annex], 'review: slots and annex');
-    inFrame(aspect, key('hero'), [layout.plot, layout.cityBlock], 'hero: city and empty plot');
+    // Landscape frames the city and the empty plot; portrait frames the city with its empty slots (the plot may be
+    // out of frame: it is blank paper at u = 0), so the city is big enough on a phone.
+    if (aspect < 1) inFrame(aspect, key('hero'), [layout.cityBlock, ...slots], 'hero (portrait): city and slots');
+    else inFrame(aspect, key('hero'), [layout.plot, layout.cityBlock], 'hero: city and empty plot');
   }
+}
+
+// Portrait hero fills the band: the city is not smaller than ~60% of the band height or width (it is the subject).
+{
+  const aspect = 390 / 844;
+  const hero = buildCameraKeys(layout, beats, aspect)[0];
+  const cam = new PerspectiveCamera(CAMERA_FOV, aspect, 0.1, 1000);
+  cam.position.set(hero.pos[0], hero.pos[1], hero.pos[2]);
+  cam.lookAt(hero.target[0], hero.target[1], hero.target[2]);
+  cam.updateMatrixWorld();
+  const pad = framePad(aspect);
+  const v = new Vector3();
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  const r = layout.cityBlock;
+  for (const dx of [-1, 1]) for (const dz of [-1, 1]) for (const y of [0, H_MAX]) {
+    v.set(r.x + (dx * r.w) / 2, y, r.z + (dz * r.d) / 2).project(cam);
+    x0 = Math.min(x0, v.x); x1 = Math.max(x1, v.x); y0 = Math.min(y0, v.y); y1 = Math.max(y1, v.y);
+  }
+  const fillH = (y1 - y0) / (2 - pad.top - pad.bottom), fillW = (x1 - x0) / (2 - 2 * pad.x);
+  assert.ok(Math.max(fillH, fillW) > 0.9, `portrait hero city fills the band (h ${fillH.toFixed(2)}, w ${fillW.toFixed(2)})`);
+}
+
+// Portrait yaw: the view direction (camera - target, horizontal) barely turns between beats. Over a 1000-step sweep
+// the yaw change per step stays tiny, the total stays within a few degrees, and the curve is finite. (Landscape is
+// free to turn between beats.)
+for (const aspect of [390 / 844, 768 / 1024, 0.5]) {
+  const path = createCameraPath(buildCameraKeys(layout, beats, aspect));
+  const p = { x: 0, y: 0, z: 0 }, t = { x: 0, y: 0, z: 0 };
+  let prev = NaN, maxStep = 0, lo = Infinity, hi = -Infinity;
+  for (let i = 0; i <= 1000; i++) {
+    path.poseAt(i / 1000, p, t);
+    const yaw = (Math.atan2(p.x - t.x, p.z - t.z) * 180) / Math.PI;
+    assert.ok(Number.isFinite(yaw), `portrait yaw finite at ${i}`);
+    if (!Number.isNaN(prev)) maxStep = Math.max(maxStep, Math.abs(yaw - prev));
+    prev = yaw; lo = Math.min(lo, yaw); hi = Math.max(hi, yaw);
+  }
+  assert.ok(maxStep < 0.1, `portrait yaw step per 1/1000 of scroll under 0.1 deg (got ${maxStep.toFixed(4)})`);
+  assert.ok(hi - lo < 4, `portrait yaw stays within 4 deg over the whole scroll (got ${(hi - lo).toFixed(2)})`);
 }
 
 // Monotone cubic: hits the knots, stays monotone, never overshoots.

@@ -117,8 +117,18 @@ const BILL_DIM = 0.45;
 const BILL_LABELS_OFF = 0.35;
 /** Label anchor above the building top (m). */
 const LABEL_LIFT = 0.6;
-/** Labels closer than this (px) count as overlapping: the later one (in lot order) hides. */
+/**
+ * Label de-collision with hysteresis. Each label box is grown by a gap (px) on every side before two boxes count as
+ * overlapping; the gap differs by what the label is doing, so a pose on the edge cannot flip it every frame:
+ * - a shown label hides only when its boxes overlap with LABEL_GAP_HIDE (negative = they must overlap by 2 px);
+ * - a new label appears when it is clear with LABEL_GAP;
+ * - a label hidden for overlap returns only after it has been clear with LABEL_GAP_SHOW for LABEL_CLEAR_S seconds.
+ * A static frame (dt = 0) has no time to wait: it uses LABEL_GAP only, so the picture depends on the state alone.
+ */
 const LABEL_GAP = 3;
+const LABEL_GAP_HIDE = -1;
+const LABEL_GAP_SHOW = 5;
+const LABEL_CLEAR_S = 0.3;
 
 export function mountCity(opts: MountCityOptions): CityHandle {
   const { canvas, run, progress, labelLayer } = opts;
@@ -238,6 +248,10 @@ export function mountCity(opts: MountCityOptions): CityHandle {
     x: NaN,
     y: NaN,
     on: false,
+    /** Hidden because it overlapped another label (waiting to be clear for LABEL_CLEAR_S). */
+    held: false,
+    /** Seconds this held label has been clear. */
+    clear: 0,
   }));
   const labelPositions: LabelPosition[] = layout.lots.map((l) => ({ slug: l.slug, x: 0, y: 0, visible: false }));
   for (const l of labels) if (l.el) l.el.style.opacity = '0';
@@ -245,7 +259,8 @@ export function mountCity(opts: MountCityOptions): CityHandle {
   const ndc = new Vector3();
   let viewW = 1, viewH = 1;
   // De-collision: label sizes are measured on resize (and once fonts settle), never per frame; each frame places the
-  // labels greedily in lot order and hides any whose box would overlap one already placed. Allocation-free.
+  // labels greedily in lot order and hides any whose box would overlap one already placed, with hysteresis (see
+  // LABEL_GAP_*) so crowded poses do not blink. Allocation-free.
   const labelW = new Float32Array(labels.length);
   const labelH = new Float32Array(labels.length);
   const placed = new Float32Array(labels.length * 4);
@@ -257,7 +272,7 @@ export function mountCity(opts: MountCityOptions): CityHandle {
   }
   void document.fonts?.ready.then(() => { if (!disposed) measureLabels(); });
 
-  function placeLabels(state: StageState) {
+  function placeLabels(state: StageState, dt: number) {
     let nPlaced = 0;
     for (const l of labels) {
       const k = l.i;
@@ -277,18 +292,36 @@ export function mountCity(opts: MountCityOptions): CityHandle {
       const px = Math.round((ndc.x * 0.5 + 0.5) * viewW * 4) / 4;
       const py = Math.round((-ndc.y * 0.5 + 0.5) * viewH * 4) / 4;
       if (vis) {
-        // The label's box: anchored bottom-centre on the point (translate(-50%, -100%)).
-        const hw = labelW[k] / 2 + LABEL_GAP;
-        const x0 = px - hw, x1 = px + hw, y0 = py - labelH[k] - LABEL_GAP, y1 = py + LABEL_GAP;
+        // The label's box: anchored bottom-centre on the point (translate(-50%, -100%)); stored without any gap.
+        const hw = labelW[k] / 2;
+        const x0 = px - hw, x1 = px + hw, y0 = py - labelH[k], y1 = py;
+        const gap = dt > 0 ? (l.on ? LABEL_GAP_HIDE : l.held ? LABEL_GAP_SHOW : LABEL_GAP) : LABEL_GAP;
+        let hit = false;
         for (let j = 0; j < nPlaced; j++) {
           const o = j * 4;
-          if (x0 < placed[o + 2] && x1 > placed[o] && y0 < placed[o + 3] && y1 > placed[o + 1]) { vis = false; break; }
+          // Both boxes grow by `gap`, so the gap between them is 2 * gap.
+          if (x0 - gap < placed[o + 2] + gap && x1 + gap > placed[o] - gap && y0 - gap < placed[o + 3] + gap && y1 + gap > placed[o + 1] - gap) { hit = true; break; }
+        }
+        if (!hit) {
+          if (l.held && dt > 0) {
+            l.clear += dt;
+            if (l.clear < LABEL_CLEAR_S) vis = false;
+          }
+        } else {
+          vis = false;
+          l.clear = 0;
         }
         if (vis) {
+          l.held = false;
           const o = nPlaced * 4;
           placed[o] = x0; placed[o + 1] = y0; placed[o + 2] = x1; placed[o + 3] = y1;
           nPlaced++;
+        } else if (hit || l.held) {
+          l.held = true;
         }
+      } else {
+        l.held = false;
+        l.clear = 0;
       }
       const out = labelPositions[k];
       out.x = px; out.y = py; out.visible = vis;
@@ -322,7 +355,7 @@ export function mountCity(opts: MountCityOptions): CityHandle {
     fog.far = fog.near + R * 3.5;
     if (composer && tier === 'high') composer.render(dt);
     else renderer.render(scene, camera);
-    placeLabels(state);
+    placeLabels(state, dt);
     opts.onState?.(state);
   }
 

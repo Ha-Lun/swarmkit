@@ -57,9 +57,13 @@ buildings run `H_MIN`..`H_MAX` (1.6..3.6 m, log of tokens), in scale with the ol
 
 `camera.ts` frames one rect of the layout per beat with an exact, aspect-aware fit (every corner of the rect's box,
 ground to `H_MAX` plus the merge lift, inside the band `FRAME_PAD` leaves free: above the caption and HUD in
-landscape, between the HUD at the top and the caption at the bottom in portrait). Portrait shots turn (yaw ~80)
-and look more from above so the long axis runs up the screen and the fit is bound by height. Labels are
-de-collided per frame in scene.ts (greedy in lot order; a label overlapping one already placed hides). The hero frames the whole city plus the plot, offset right of the hero panel; lanes keeps both depots in
+landscape, between the HUD at the top and the caption at the bottom in portrait). Portrait shots turn (one yaw, 82, for
+every beat, so the view never swings between beats) and look more from above so the long axis runs up the screen and
+the fit is bound by height. In portrait the hero frames the city and its empty slots only (the plot is mostly out of
+frame at u = 0 and slides in by the task beat), so the city fills the band. Labels are
+de-collided per frame in scene.ts (greedy in lot order; a label overlapping one already placed hides, with hysteresis: a shown label hides only when
+boxes overlap by a margin, a hidden one returns after being clear for 0.3 s; static frames use no hysteresis). The
+landscape hero frames the whole city plus the plot, offset right of the hero panel; lanes keeps both depots in
 frame. Keys are joined by one Catmull-Rom curve with a monotone u -> t map, so speed is continuous.
 
 ## How to write a visual part
