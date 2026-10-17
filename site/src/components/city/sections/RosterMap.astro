@@ -1,0 +1,246 @@
+---
+import { facts } from '../../../lib/facts';
+import { roleLine } from '../../../lib/agents';
+import type { Agent } from '../../../lib/agents';
+
+const groups = new Map<string, Agent[]>();
+for (const a of facts.agents) {
+  const list = groups.get(a.pack);
+  if (list) list.push(a);
+  else groups.set(a.pack, [a]);
+}
+const others = [...groups.keys()].filter((p) => p !== 'core').sort((a, b) => a.localeCompare(b));
+const districtNames = [...(groups.has('core') ? ['core'] : []), ...others];
+const districts = districtNames.map((pack) => ({
+  pack,
+  agents: (groups.get(pack) ?? []).slice().sort((a, b) => a.name.localeCompare(b.name)),
+}));
+
+function tierClass(tier: string): string {
+  if (tier === 'fast') return 'is-low';
+  if (tier === 'deep') return 'is-tall';
+  return 'is-mid';
+}
+
+function safeId(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+}
+---
+
+<section id="roster" class="city-section" aria-labelledby="roster-title">
+  <h2 id="roster-title">The roster, as a city map</h2>
+  <p class="summary">{facts.agents.length} agents in {districts.length} districts.</p>
+  <p class="lede">Packs are districts. Agents are buildings. Height is tier.</p>
+  <div class="districts">
+    {districts.map((d) => (
+      <section class="district" aria-labelledby={`roster-district-${safeId(d.pack)}`}>
+        <h3 id={`roster-district-${safeId(d.pack)}`} class="district-name">
+          <span class="mono">{d.pack}</span>
+          <span class="district-count">{d.agents.length} {d.agents.length === 1 ? 'agent' : 'agents'}</span>
+        </h3>
+        {d.pack === 'core' ? (
+          <p class="district-note">core (always installed in Claude Code)</p>
+        ) : (
+          <p class="district-note">pack: {d.pack} (linked per project with install.sh --pack {d.pack})</p>
+        )}
+        <ul class="blocks">
+          {d.agents.map((a) => (
+            <li class:list={['building', tierClass(a.tier)]}>
+              <button type="button" class="block" aria-describedby={`roster-desc-${safeId(a.name)}`}>
+                <span class="block-name">{a.name}</span>
+              </button>
+              <span class="visually-hidden" id={`roster-desc-${safeId(a.name)}`}>{a.tier}: {roleLine(a)}</span>
+              <div class="card" aria-hidden="true">
+                <p class="card-name">{a.name}</p>
+                <p class="card-tier">{a.tier}</p>
+                <p class="card-role">{roleLine(a)}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+    ))}
+  </div>
+</section>
+
+<style>
+  .city-section {
+    background: var(--paper);
+    color: var(--blueprint-ink);
+    padding: var(--space-16) var(--space-6);
+    font-family: var(--font-display);
+  }
+  .city-section h2 {
+    margin: 0;
+    font-size: var(--text-xl);
+    line-height: var(--leading-tight);
+    letter-spacing: -0.01em;
+  }
+  .summary {
+    margin: var(--space-3) 0 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+  }
+  .lede {
+    margin: var(--space-2) 0 0;
+    font-size: var(--text-base);
+    line-height: var(--leading-body);
+  }
+  .districts {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+    gap: var(--space-6);
+    margin-top: var(--space-8);
+  }
+  .district {
+    background: var(--blueprint-ink);
+    color: var(--paper);
+    border: 1px solid var(--blueprint-ink-2);
+    padding: var(--space-4);
+  }
+  .district-name {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2);
+    margin: 0;
+    font-size: var(--text-base);
+    line-height: 1.35;
+  }
+  .mono {
+    font-family: var(--font-mono);
+    font-weight: 400;
+  }
+  .district-count {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--blueprint-line-soft);
+  }
+  .district-note {
+    margin: var(--space-2) 0 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    line-height: 1.5;
+    color: var(--blueprint-line-soft);
+  }
+  .blocks {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-2);
+    margin: var(--space-4) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .building {
+    position: relative;
+    width: 4.5rem;
+  }
+  .block {
+    display: flex;
+    align-items: flex-end;
+    width: 100%;
+    padding: var(--space-1) var(--space-2);
+    background: var(--paper-2);
+    color: var(--blueprint-ink);
+    border: 1px solid var(--blueprint-line);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    line-height: 1.3;
+    cursor: pointer;
+  }
+  .block:focus-visible {
+    outline: 2px solid var(--blueprint-line);
+    outline-offset: 2px;
+  }
+  .is-low .block {
+    height: 3rem;
+  }
+  .is-mid .block {
+    height: 4.5rem;
+  }
+  .is-tall .block {
+    height: 6rem;
+  }
+  .block-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .card {
+    position: absolute;
+    bottom: calc(100% + var(--space-2));
+    left: 50%;
+    width: 12rem;
+    padding: var(--space-3);
+    background: var(--paper);
+    color: var(--blueprint-ink);
+    border: 1px solid var(--blueprint-line);
+    opacity: 0;
+    visibility: hidden;
+    transform: translate(-50%, 4px);
+    pointer-events: none;
+    z-index: 2;
+  }
+  .building:hover .card,
+  .building:focus-within .card {
+    opacity: 1;
+    visibility: visible;
+    transform: translate(-50%, 0);
+  }
+  .card-name {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+  }
+  .card-tier {
+    margin: var(--space-1) 0 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--blueprint-ink-2);
+  }
+  .card-role {
+    margin: var(--space-2) 0 0;
+    font-size: var(--text-sm);
+    line-height: var(--leading-body);
+  }
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .card {
+      transition: opacity 160ms ease, transform 160ms ease;
+    }
+  }
+  @media (max-width: 1024px) {
+    .city-section {
+      padding: var(--space-12) var(--space-4);
+    }
+    .districts {
+      grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+    }
+  }
+  @media (max-width: 768px) {
+    .districts {
+      grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+      gap: var(--space-4);
+    }
+  }
+  @media (max-width: 390px) {
+    .city-section {
+      padding: var(--space-8) var(--space-3);
+    }
+    .districts {
+      grid-template-columns: 1fr;
+    }
+    .card {
+      width: 10rem;
+    }
+  }
+</style>
