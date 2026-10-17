@@ -26,7 +26,7 @@ Each agent has a **tier** (`fast`, `standard`, `deep`). The model for each tier 
 
 | Tier | Claude Code | OpenCode | Used for |
 |---|---|---|---|
-| fast | `haiku` | `opencode-go/deepseek-v4.1-flash` | explore, junior-dev, git-specialist, release-tester, showroom-asset-processor, test-writer and seo-worker (fast in Claude Code only; they use `opencode-go/qwen3.7-plus` in OpenCode) |
+| fast | `haiku` | `opencode-go/deepseek-v4.1-flash` | explore, junior-dev, git-specialist, release-tester, showroom-asset-processor, test-writer and seo-worker (in OpenCode, explore, junior-dev, git-specialist, release-tester and showroom-asset-processor use `deepseek-v4.1-flash`; test-writer and seo-worker use `opencode-go/qwen3.7-plus`; all seven are in `opencode/agents/`, none is Claude-only) |
 | standard | `sonnet` | `opencode-go/qwen3.7-plus` | most specialists |
 | deep | `opus` | `opencode-go/kimi-k2.7-code` | db-specialist, security-auditor, swarm-architect, lead-dev-hybrid |
 
