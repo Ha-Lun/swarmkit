@@ -11,6 +11,7 @@ All notable changes to the opencode-config repository.
   - `scripts/build.py`, `install.sh`, `scripts/agy-task` (Codex backend), `bench/run.py` and `bench/compare.py` have had other changes since, so don't check them out whole from the tag: diff them (`git diff archive/lead-dev-and-codex-task HEAD -- scripts/build.py install.sh scripts/agy-task`) and merge the Codex/lead-dev parts back by hand. `opencode/opencode.jsonc` `default_agent` and the README rows need the same.
 
 ### Added
+- feat: `install.sh --alias` (or one terminal prompt) adds `claude` / `agy` aliases that start `lead-dev-hybrid` to `~/.bashrc` (and `~/.zshrc`) on hybrid installs; `--slim` and `--uninstall` remove them
 - feat: `opencode-task` (headless `opencode run` on free models, shell limited by a per-run config overlay) and the `delegate-implementation` skill: after an approved plan, Claude hands implementation to agy/OpenCode and reviews, tests and merges the branches; one running-task limit across all workers; files changed in the main checkout during a run are reported
 - feat: Codex as an opt-in fourth build target (`codex/agents/*.toml`, `codex/AGENTS.md`, `./install.sh --codex`, not in `--all`) and `codex-task` + `codex-delegate` skill for headless delegation from Claude Code; `agy-task` now picks its backend from the program name
 - animation-specialist agent for 2D/3D web animation (Motion, GSAP, Anime.js, React Spring; Three.js, R3F, Drei) — model opencode-go/hy3 at temperature 0.3

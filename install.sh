@@ -12,6 +12,9 @@
 #   --free        Enable free mode for OpenCode (uses default models, no keys)
 #   --mcp         Install the MCP servers from core/mcp.json (Claude Code, agy, OpenCode).
 #                 Off by default: a terminal run asks once, other runs skip them
+#   --alias       Add shell aliases to ~/.bashrc (and ~/.zshrc if it exists) so plain `claude` /
+#                 `agy` start lead-dev-hybrid. Hybrid profile only; off by default: a terminal
+#                 run asks once, other runs skip it. --slim and --uninstall remove them
 #   --hybrid      Force the hybrid profile (lead-dev-hybrid orchestrator + worker lanes)
 #   --slim        Force the slim profile (no orchestrator; the main agent works directly)
 #   (no flags)    Install the CLIs found on PATH and pick a profile: hybrid when opencode
@@ -39,6 +42,7 @@ INSTALL_N8N=false
 INSTALL_CLOUDFLARE=false
 FREE_MODE=false
 MCP=false         # --mcp, or a yes at the prompt
+ALIAS=false       # --alias, or a yes at the prompt
 PROFILE=""        # hybrid | slim; --hybrid/--slim, else picked from the CLIs found
 UNINSTALL_MODE=false
 PACK=""
@@ -60,6 +64,7 @@ while [ $# -gt 0 ]; do
       ;;
     --free)     FREE_MODE=true ;;
     --mcp)      MCP=true ;;
+    --alias)    ALIAS=true ;;
     --hybrid)   PROFILE=hybrid ;;
     --slim)     PROFILE=slim ;;
     --uninstall)UNINSTALL_MODE=true ;;
@@ -122,6 +127,33 @@ backup_if_exists() {
     local rel="${path#$HOME/}"
     cp -R "$path" "$BACKUP_DIR/${rel//\//__}" 2>/dev/null || true
   fi
+}
+
+# Put the marked alias block $2 (empty = remove it) into rc file $1: an existing block is replaced in
+# place, else it is appended. Returns 0 only if the file changed (backed up first); a rerun is a no-op.
+ALIAS_BEGIN="# >>> swarmkit aliases >>>"
+ALIAS_END="# <<< swarmkit aliases <<<"
+alias_rc() {
+  local rc="$1" block="$2" src=/dev/null tmp
+  if [ -f "$rc" ]; then
+    src="$rc"
+    if grep -qxF "$ALIAS_BEGIN" "$rc" && ! grep -qxF "$ALIAS_END" "$rc"; then
+      echo "  ! $rc has a swarmkit alias start marker without its end marker; left alone"
+      return 1
+    fi
+  elif [ -z "$block" ]; then
+    return 1
+  fi
+  tmp="$(mktemp)"
+  BLK="$block" awk -v b="$ALIAS_BEGIN" -v e="$ALIAS_END" '
+    $0 == b { if (!done && ENVIRON["BLK"] != "") print ENVIRON["BLK"]; done = 1; skip = 1; next }
+    skip    { if ($0 == e) skip = 0; next }
+    { print }
+    END { if (!done && ENVIRON["BLK"] != "") { if (NR > 0) print ""; print ENVIRON["BLK"] } }
+  ' "$src" > "$tmp"
+  if cmp -s "$tmp" "$src"; then rm -f "$tmp"; return 1; fi
+  backup_if_exists "$rc"
+  cat "$tmp" > "$rc"; rm -f "$tmp"
 }
 
 # Back up whatever is at $2 (unless it already links into this repo), then symlink $1 there.
@@ -296,6 +328,9 @@ if [ "$UNINSTALL_MODE" = true ]; then
   # only links into this repo (our shims): ~/.local/bin also holds other tools' links
   remove_repo_links "$HOME/.local/bin"
   rm -f "$GEMINI_DIR/mcp_config.json"
+  for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    if alias_rc "$rc" ""; then echo "  removed swarmkit aliases from ${rc/#$HOME/\~}"; fi
+  done
   echo "Uninstall complete. MCP servers registered with 'claude mcp' (or 'codex mcp' by an old --codex install) are left in place."
   exit 0
 fi
@@ -523,12 +558,43 @@ if [ "$MCP" != true ] && [ -t 0 ] && [ "$INSTALL_OPENCODE$INSTALL_AGY$INSTALL_CL
   [[ "$ans" =~ ^[Yy] ]] && MCP=true
 fi
 
+# Shell aliases (hybrid only) are opt-in too: --alias, or one question on a terminal.
+ALIAS_LIST=""; ALIAS_LINES=""; ALIAS_NAMES=""
+if [ "$PROFILE" = hybrid ]; then
+  for cli in claude agy; do
+    if has "$cli"; then
+      ALIAS_LIST+="${ALIAS_LIST:+, }$cli='$cli --agent lead-dev-hybrid'"
+      ALIAS_LINES+="alias $cli='$cli --agent lead-dev-hybrid'"$'\n'
+      ALIAS_NAMES+="${ALIAS_NAMES:+, }$cli"
+    fi
+  done
+fi
+if [ "$ALIAS" != true ] && [ -t 0 ] && [ -n "$ALIAS_LIST" ]; then
+  read -r -p "Add shell aliases ($ALIAS_LIST) to ~/.bashrc? [y/N] " ans || ans=""
+  [[ "$ans" =~ ^[Yy] ]] && ALIAS=true
+fi
+
 if [ "$INSTALL_OPENCODE" = true ]; then install_opencode; fi
 if [ "$INSTALL_AGY" = true ]; then install_agy; fi
 if [ "$INSTALL_CLAUDE" = true ]; then install_claude; fi
 if [ "$INSTALL_N8N" = true ]; then install_n8n; fi
 if [ "$INSTALL_CLOUDFLARE" = true ]; then install_cloudflare; fi
 
+alias_msg=""; alias_files="~/.bashrc"
+if [ "$PROFILE" = slim ]; then
+  removed=false
+  for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do if alias_rc "$rc" ""; then removed=true; fi; done
+  [ "$removed" = false ] || alias_msg="removed (slim)"
+elif [ -n "$ALIAS_LIST" ]; then
+  if [ "$ALIAS" = true ]; then
+    block="$ALIAS_BEGIN"$'\n'"${ALIAS_LINES}$ALIAS_END"
+    alias_rc "$HOME/.bashrc" "$block" || true
+    [ ! -f "$HOME/.zshrc" ] || { alias_rc "$HOME/.zshrc" "$block" || true; alias_files+=", ~/.zshrc"; }
+    alias_msg="added to $alias_files ($ALIAS_NAMES)"
+  else
+    alias_msg="skipped (rerun with --alias)"
+  fi
+fi
 
 workers=""
 [ "$PROFILE" = hybrid ] && { has opencode && workers+="opencode-task "; has agy && workers+="agy-task "; }
@@ -557,5 +623,9 @@ if [ "$MCP" = true ]; then
 else
   echo "MCP servers: skipped. Rerun with --mcp to install ($MCP_NAMES);"
   echo "             that also restores the opencode.jsonc link with its MCP block. Servers already registered stay."
+fi
+if [ -n "$alias_msg" ]; then
+  echo "Aliases:     $alias_msg"
+  [[ "$alias_msg" != added* ]] || echo "             'command claude' bypasses the alias; run 'source ~/.bashrc' or open a new shell."
 fi
 echo "Restart your terminal or tools for changes to take effect."

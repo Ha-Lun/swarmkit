@@ -127,6 +127,7 @@ The installer symlinks everything into each CLI's config directory. The agents a
 | `--agy` | Install the Antigravity config (`swarmkit` plugin, skills) and `agyw` |
 | `--all` | `--claude`, `--opencode` and `--agy` |
 | (no flag) | Install the CLIs found on `PATH` and pick a profile (below); exits with a hint when none is found |
+| `--alias` | Hybrid profile only: add `alias claude='claude --agent lead-dev-hybrid'` (and the same for `agy`) to `~/.bashrc`, and `~/.zshrc` if it exists, inside a marked block. Off by default: a terminal run asks once, other runs skip it. `--slim` and `--uninstall` remove the block; `command claude` bypasses the alias |
 | `--hybrid` / `--slim` | Override the profile that detection picked |
 | `--mcp` | Install the MCP servers from `core/mcp.json` (Claude Code, Antigravity, OpenCode). Off by default: a terminal run asks once, other runs skip them. Without it OpenCode gets a copy of `opencode.jsonc` without its `mcp` block instead of the link, and servers already registered are never removed |
 | `--n8n` | Configure self-hosted n8n credentials (not included in `--all`) |
@@ -139,7 +140,7 @@ The installer symlinks everything into each CLI's config directory. The agents a
 
 With no flag the installer looks for `claude`, `opencode` and `agy` and ends with a summary of what it found, the profile it chose and the command to run.
 
-- **hybrid**, when `opencode` is found or both `claude` and `agy` are: installs the `lead-dev-hybrid` orchestrator and its coordination agents and skills. Run `claude --agent lead-dev-hybrid` (OpenCode already uses it as the default agent). Workers are `opencode-task` and `agy-task`, for the CLIs found.
+- **hybrid**, when `opencode` is found or both `claude` and `agy` are: installs the `lead-dev-hybrid` orchestrator and its coordination agents and skills. Run `claude --agent lead-dev-hybrid` (OpenCode already uses it as the default agent). Workers are `opencode-task` and `agy-task`, for the CLIs found. With `--alias` plain `claude` / `agy` start it too.
 - **slim**, when only `claude` or only `agy` is found: no orchestrator, the main agent works directly. Add it later with `./install.sh --hybrid`; a slim run removes the orchestrator links an earlier hybrid install made.
 
 ### Updating an existing install
