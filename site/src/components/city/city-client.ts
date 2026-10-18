@@ -25,6 +25,33 @@ function setupCopy() {
   }
 }
 
+function setupAnchorJump() {
+  // Instant same-page jumps: the CSS smooth scroll stalls while the WebGL
+  // scene holds the main thread, and a smooth ride through the replay runway
+  // is not useful anyway. scrollIntoView with block 'start' honours the
+  // html scroll-padding-top (64px), so no manual offset is needed.
+  document.addEventListener('click', (event) => {
+    if (event.defaultPrevented) return;
+    if (event.button !== 0) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const anchor = (event.target as Element | null)?.closest?.('a[href^="#"]');
+    if (!anchor) return;
+    const hash = anchor.getAttribute('href');
+    if (!hash || hash.length < 2) return;
+    const target = document.getElementById(hash.slice(1));
+    if (!target) return;
+    event.preventDefault();
+    target.scrollIntoView({ behavior: 'instant' as ScrollBehavior, block: 'start' });
+    history.pushState(null, '', hash);
+    if (target instanceof HTMLElement) {
+      if (!target.matches('a[href], button, input, select, textarea, [tabindex]')) {
+        target.setAttribute('tabindex', '-1');
+      }
+      target.focus({ preventScroll: true });
+    }
+  });
+}
+
 const TIERS: readonly string[] = ['high', 'medium', 'low'];
 
 // A real context probe: WebGL2RenderingContext exists even when WebGL is disabled, so only creating a throwaway
@@ -208,5 +235,6 @@ async function boot(stage: HTMLElement) {
 }
 
 setupCopy();
+setupAnchorJump();
 const stage = document.querySelector<HTMLElement>('[data-city-stage]');
 if (stage) void boot(stage);
