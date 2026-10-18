@@ -1,4 +1,4 @@
-// Client for CityStage.astro. Decides whether the scene can run at all (no WebGL2 or ?tier=fallback -> the
+// Client for CityStage.astro. Decides whether the scene can run at all (no WebGL or ?tier=fallback -> the
 // .no-webgl static fallback), then loads three, gsap and the scene in this page's own chunk, wires scroll -> scene,
 // and turns each frame's StageState into DOM updates (captions, counters, run clock, hero). The DOM writes happen in
 // the scene's animation frame, never inside a scroll callback, and toggle classes (opacity in CSS) or text only.
@@ -24,6 +24,21 @@ function setupCopy() {
 
 const TIERS: readonly string[] = ['high', 'medium', 'low'];
 
+// A real context probe: WebGL2RenderingContext exists even when WebGL is disabled, so only creating a throwaway
+// webgl2 context proves the scene can run. This runs before any dynamic import, so a no-WebGL browser fetches
+// neither the three.js chunk nor any model.
+function hasWebGL(): boolean {
+  try {
+    const probe = document.createElement('canvas');
+    const gl = probe.getContext('webgl2', { failIfMajorPerformanceCaveat: false });
+    if (!gl) return false;
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function boot(stage: HTMLElement) {
   let city: CityHandle | null = null;
   let scroll: ScrollProgress | null = null;
@@ -38,7 +53,7 @@ async function boot(stage: HTMLElement) {
 
   const param = new URLSearchParams(location.search).get('tier');
   if (param === 'fallback') return fail('?tier=fallback');
-  if (typeof WebGL2RenderingContext === 'undefined') return fail('no WebGL2');
+  if (!hasWebGL()) return fail('no WebGL');
   const runEl = document.getElementById('city-run');
   const canvas = stage.querySelector<HTMLCanvasElement>('.city-canvas');
   const labelLayer = stage.querySelector<HTMLElement>('[data-city-labels]');
@@ -109,8 +124,9 @@ async function boot(stage: HTMLElement) {
       visibilityTarget: stage,
     });
   } catch (e) {
-    console.warn('City scene unavailable, showing the static replay:', e);
-    fail(e instanceof Error ? e.message : 'scene failed');
+    const reason = e instanceof Error ? e.message : 'scene failed';
+    console.info(`City scene unavailable (${reason}), showing the static replay`);
+    fail(reason);
   }
 }
 
