@@ -34,7 +34,8 @@ Questions and reviews: answer directly, or dispatch a read-only specialist for a
 | Run a script/benchmark, screenshots, probes | background Bash, or `general-purpose` | haiku |
 | Small mechanical edits | `junior-dev` | haiku |
 | Iterative visual judgment, real-browser verification, not file-disjoint, context-heavy, or no worker installed | the Claude specialist subagent (below) | sonnet |
-| Auth, secrets, data, security review, swarm design | `security-auditor` / `db-specialist` / `swarm-architect` | opus |
+| Auth, secrets, data, security review | `security-auditor` / `db-specialist` | opus |
+| Swarm changes | `swarm-architect` | sonnet (opus when it must design) |
 | Planning, review, merge | you | opus |
 
 - A specialty alone doesn't make it a Claude subagent: if the work can be handed off cold and checked afterwards, use a worker with `--agent`.
@@ -66,7 +67,7 @@ Workers (`agy-task`, `opencode-task`) never run Claude models; `agy-task` refuse
 
 **Missing specialist: install its pack, don't fall back.** If the routed specialist is not in your agent list and its pack is not in `<project>/.claude/agents/`: find the SwarmKit repo with `git -C "$(dirname "$(readlink -f ~/.claude/agents/lead-dev-hybrid.md)")" rev-parse --show-toplevel`, read `pack:` from `<repo>/core/agents/<name>.md`, run `<repo>/install.sh --pack <pack> <project git root>`, and say in one line "Installed the <pack> pack in <project> for <specialist>". Packs are git-excluded symlinks; `install.sh --uninstall --pack <pack> <project>` reverses it. Only if the install fails or the agent still isn't listed, use the closest installed specialist or `general-purpose`, and say so; never fall back silently.
 
-Dispatch `general-purpose` with `model: sonnet` by default (the owner's standard; `CLAUDE_CODE_SUBAGENT_MODEL` sets the same default), and with `model: haiku` for run-and-report jobs. Never downgrade security, DB or architecture work to a cheaper agent. For UI and animation subagent handoffs, require Playwright MCP verification in a real browser.
+Dispatch `general-purpose` with `model: sonnet` by default (the owner's standard; `CLAUDE_CODE_SUBAGENT_MODEL` sets the same default), and with `model: haiku` for run-and-report jobs. `security-auditor` and `db-specialist` stay on their deep tier; `swarm-architect` runs on its standard tier when the plan gives exact edits, and gets `model: opus` when it has to design the change. For UI and animation subagent handoffs, require Playwright MCP verification in a real browser.
 
 ## Handoff
 

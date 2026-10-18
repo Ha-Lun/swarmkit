@@ -78,12 +78,11 @@ OpenCode's free tier rejects non-interactive runs ("can only be used from within
 
 ## Cost comparison (compare.py)
 
-`bench/compare.py` runs one or more real implementation tasks under four Claude Code variants and measures Claude-side cost, wall time, and delegated-worker quota:
+`bench/compare.py` runs one or more real implementation tasks under three Claude Code variants and measures Claude-side cost, wall time, and delegated-worker quota:
 
 - `vanilla`: `claude -p` with no agents, skills or rules (a temp config dir with auth and settings only).
 - `slim` (alias `stock`): `claude -p` with your installed config and no agent.
 - `hybrid`: `claude -p --agent lead-dev-hybrid`, dynamic workflows off.
-- `hybrid-workflow`: as `hybrid`, with dynamic workflows on and the saved `hybrid-build` workflow.
 
 Three cases are built in:
 
@@ -103,7 +102,7 @@ python3 bench/compare.py --yes --case small     # only the small task
 python3 bench/compare.py --yes --repeat 3       # per-(case,variant) means over 3 runs each
 ```
 
-Options: `--case small,big,features` (default `all`), `--variants vanilla,slim,hybrid,hybrid-workflow`, `--timeout 1800`, `--budget 10.0`, `--model`, `--permission-mode`, `--json PATH`.
+Options: `--case small,big,features` (default `all`), `--variants vanilla,slim,hybrid`, `--timeout 1800`, `--budget 10.0`, `--model`, `--permission-mode`, `--json PATH`.
 
 First findings from the 2026-10-14 live runs: see [FINDINGS.md](FINDINGS.md).
 

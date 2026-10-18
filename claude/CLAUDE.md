@@ -34,13 +34,13 @@ Bind to `0.0.0.0` (e.g. `vite --host 0.0.0.0`); report them as
 
 ## Claude Code
 
-- Large or risky work: call `EnterPlanMode` first; the session runs on Opus, so
-  the plan is written there. `ExitPlanMode` is the approval request.
+- Large or risky work: call `EnterPlanMode` first; `ExitPlanMode` is the
+  approval request.
 - After an approved plan, hand implementation to agy or OpenCode
   (`delegate-implementation`); do small, context-heavy or security
   edits yourself.
-- Delegate with the Agent tool, the specialist's name as subagent type. Project
-  packs (`install.sh --pack`) add domain specialists; their descriptions say when.
+- Delegate with the Agent tool, the specialist's name as subagent type. Packs
+  (`install.sh --pack`) add domain specialists.
 - Structural questions (who calls X, the shape of a big file, what a change
   touches): prefer the `codebase-memory-mcp` graph tools (`get_file_outline`,
   `trace_path`, `search_graph`, `get_architecture`) over reading whole files. If

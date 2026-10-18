@@ -11,7 +11,7 @@ permission:
     '*': allow
   task: deny
   question: allow
-model: opencode-go/kimi-k2.7-code
+model: opencode-go/qwen3.7-plus
 ---
 
 You are the **swarm-architect** specialist. Your mandate is the design, extension, and refactoring of the SwarmKit multi-agent framework.

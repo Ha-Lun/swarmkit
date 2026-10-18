@@ -66,7 +66,7 @@ A specialty alone doesn't make it a subagent: if the work can be handed off cold
 | Changes to the swarm itself | `swarm-architect` |
 | Batches of mechanical edits | `junior-dev` |
 
-Never downgrade security, DB or architecture work to a cheaper agent. For UI and animation handoffs, require Playwright MCP verification in a real browser.
+`security-auditor` and `db-specialist` stay on their deep tier; `swarm-architect` runs on its standard tier when the plan gives exact edits, and gets `model: opus` when it has to design the change. For UI and animation handoffs, require Playwright MCP verification in a real browser.
 
 ## Handoff
 

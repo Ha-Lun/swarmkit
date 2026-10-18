@@ -28,7 +28,7 @@ Each agent has a **tier** (`fast`, `standard`, `deep`). The model for each tier 
 |---|---|---|---|
 | fast | `haiku` | `opencode-go/deepseek-v4.1-flash` | explore, junior-dev, git-specialist, release-tester, showroom-asset-processor, test-writer\*, seo-worker\* |
 | standard | `sonnet` | `opencode-go/qwen3.7-plus` | most specialists |
-| deep | `opus` | `opencode-go/kimi-k2.7-code` | db-specialist, security-auditor, swarm-architect, lead-dev-hybrid |
+| deep | `opus` | `opencode-go/kimi-k2.7-code` | db-specialist, security-auditor, lead-dev-hybrid |
 
 \* In OpenCode, test-writer and seo-worker override the fast tier to `opencode-go/qwen3.7-plus`.
 
@@ -82,7 +82,7 @@ OpenCode and Antigravity get every agent and skill globally.
 | **blender-specialist** | standard | 3D modelling, mesh generation, asset staging |
 | **backend-specialist** | standard | APIs, services, auth, data, observability |
 | **db-specialist** | deep | Schema design, migrations, query optimisation |
-| **swarm-architect** | deep | Changes to this swarm: agents, skills, MCP wiring |
+| **swarm-architect** | standard | Changes to this swarm: agents, skills, MCP wiring |
 | **devops-specialist** | standard | CI/CD, infrastructure as code, deployment |
 | **docker-specialist** | standard | Containerisation, Dockerfiles, Compose |
 | **server-specialist** | standard | Linux server admin, systemd, nginx, hardening |

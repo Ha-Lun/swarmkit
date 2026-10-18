@@ -5,7 +5,6 @@ Variants (--variants, comma-separated; default is all four):
   vanilla          Claude Code with no agents, skills or rules: a temp config dir with auth and settings only
   slim             your installed config (slim core + swarm pack), plain session, no --agent (alias: stock)
   hybrid           installed config, --agent lead-dev-hybrid, dynamic workflows off: it runs the wrappers by hand
-  hybrid-workflow  as hybrid, dynamic workflows on and the saved hybrid-build workflow in the fixture
 
   python3 bench/compare.py --dry-run
   python3 bench/compare.py --yes --case features
@@ -67,7 +66,7 @@ SHOWCASE_ASK =("Plan this first and get approval, then implement it using your h
 SHOWCASE_SUFFIX = ("This is a recorded non-interactive run: nobody is at the keyboard, so your plan is approved "
                    "automatically when you submit it with ExitPlanMode (do not use AskUserQuestion, nobody can answer; "
                    "decide and proceed). Done when `{verify}` exits 0.")
-VARIANTS = ["vanilla", "slim", "hybrid", "hybrid-workflow"]
+VARIANTS = ["vanilla", "slim", "hybrid"]
 ALIASES = {"stock": "slim"}
 REPO = os.path.dirname(BENCH)
 BACKENDS = [("agy", "AGY_TASK_DIR", ".agy-tasks"), ("opencode", "OPENCODE_TASK_DIR", ".opencode-tasks")]
@@ -214,10 +213,8 @@ def build_cmd(variant, prompt, args, modes, approvals_log=None):
            "--no-session-persistence", "--max-budget-usd", str(args.budget)]
     if args.model:
         cmd += ["--model", args.model]
-    if variant in ("hybrid", "hybrid-workflow"):
+    if variant == "hybrid":
         cmd += ["--agent", "lead-dev-hybrid"]
-    if variant == "hybrid-workflow":
-        cmd += ["--settings", json.dumps({"enableWorkflows": True})]
     if args.showcase:
         server = {"mcpServers": {"approver": {"command": sys.executable, "args": [os.path.join(BENCH, "plan_approver.py")],
                                               "env": {"PLAN_APPROVER_LOG": approvals_log or "/dev/null"}}}}
@@ -230,10 +227,10 @@ def build_cmd(variant, prompt, args, modes, approvals_log=None):
 
 def variant_env(variant, tmp):
     """Environment for one run. Session variables of the shell that launched us (CLAUDE_CODE_AGENT and friends)
-    would silently turn every variant into that agent, so they are dropped. Workflows are forced on or off so the
-    hybrid and hybrid-workflow variants differ in exactly that."""
+    would silently turn every variant into that agent, so they are dropped. Workflows are forced off for every
+    variant so the runs stay comparable."""
     env = {k: v for k, v in os.environ.items() if not (k.startswith("CLAUDE_CODE_") or k == "CLAUDECODE")}
-    env["CLAUDE_CODE_WORKFLOWS"] = "1" if variant == "hybrid-workflow" else "0"
+    env["CLAUDE_CODE_WORKFLOWS"] = "0"
     if variant != "vanilla":
         return env, None
     import types
@@ -241,17 +238,6 @@ def variant_env(variant, tmp):
     if isinstance(cfg_env, str):  # claude_env returns (error text, None) when it cannot authenticate
         return None, cfg_env
     return {**env, "CLAUDE_CONFIG_DIR": cfg_env["CLAUDE_CONFIG_DIR"]}, None
-
-
-def seed_workflow(fx):
-    """Commit the saved workflow into the fixture's project .claude/workflows (the benchmark runs this checkout's
-    copy, not whatever happens to be installed)."""
-    dst = os.path.join(fx, ".claude", "workflows")
-    os.makedirs(dst, exist_ok=True)
-    for f in os.listdir(os.path.join(REPO, "core", "workflows")):
-        shutil.copy2(os.path.join(REPO, "core", "workflows", f), dst)
-    run.run(["git", "-C", fx, "add", ".claude"], timeout=30)
-    run.run(["git", "-C", fx, "-c", "user.email=b@b", "-c", "user.name=bench", "commit", "-qm", "add hybrid-build workflow"], timeout=30)
 
 
 def verify(fx, verify_cmd):
@@ -274,8 +260,6 @@ def case_prompt(case_spec, spec, showcase=False):
 def run_variant(case_key, case_spec, variant, args, spec, ts, n):
     prompt = case_prompt(case_spec, spec, args.showcase)
     fx = run.make_fixture(spec, case_spec["fixture"], None, "claude")
-    if variant == "hybrid-workflow":
-        seed_workflow(fx)
     base_sha = run.run(["git", "-C", fx, "rev-parse", "HEAD"], timeout=30)[1].strip()
     approvals = f"{BENCH}/results/raw/{ts}-compare-{case_key}-{variant}-{n}.approvals.jsonl"
     os.makedirs(os.path.dirname(approvals), exist_ok=True)

@@ -1,7 +1,7 @@
 ---
 name: swarm-architect
 description: 'Changes to the SwarmKit swarm itself: agents, skills, rules, MCP wiring, build.py and CLI parity. Use proactively whenever a task edits this config repo''s agents, skills or routing.'
-model: opus
+model: sonnet
 tools:
 - Read
 - Glob
