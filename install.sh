@@ -10,6 +10,12 @@
 #   --cloudflare  Install Cloudflare skills and configure auth (optional add-on, not in --all)
 #   --all         Install all agent configs (opencode, agy, claude)
 #   --free        Enable free mode for OpenCode (uses default models, no keys)
+#   --mcp         Install the MCP servers from core/mcp.json (Claude Code, agy, OpenCode).
+#                 Off by default: a terminal run asks once, other runs skip them
+#   --hybrid      Force the hybrid profile (lead-dev-hybrid orchestrator + worker lanes)
+#   --slim        Force the slim profile (no orchestrator; the main agent works directly)
+#   (no flags)    Install the CLIs found on PATH and pick a profile: hybrid when opencode
+#                 is found or claude + agy are, else slim. Prints the choice at the end
 #   --pack <name> [project]  Link a Claude Code specialist pack (agents + skills)
 #                 into <project>/.claude/ (default: current dir) and hide the links
 #                 via .git/info/exclude. Packs: web ops mobile n8n backend creative swarm.
@@ -32,49 +38,46 @@ INSTALL_CLAUDE=false
 INSTALL_N8N=false
 INSTALL_CLOUDFLARE=false
 FREE_MODE=false
+MCP=false         # --mcp, or a yes at the prompt
+PROFILE=""        # hybrid | slim; --hybrid/--slim, else picked from the CLIs found
 UNINSTALL_MODE=false
 PACK=""
 PACK_DIR="$PWD"
 
 # Parse arguments
-if [ $# -eq 0 ]; then
-  # Interactive mode fallback if no flags provided
-  echo "No flags provided. Installing all configs by default."
-  INSTALL_OPENCODE=true
-  INSTALL_AGY=true
-  INSTALL_CLAUDE=true
-else
-  while [ $# -gt 0 ]; do
-    arg="$1"; shift
-    case $arg in
-      --opencode) INSTALL_OPENCODE=true ;;
-      --agy)      INSTALL_AGY=true ;;
-      --claude)   INSTALL_CLAUDE=true ;;
-      --n8n)      INSTALL_N8N=true ;;
-      --cloudflare) INSTALL_CLOUDFLARE=true ;;
-      --all)      
-        INSTALL_OPENCODE=true
-        INSTALL_AGY=true
-        INSTALL_CLAUDE=true
-        ;;
-      --free)     FREE_MODE=true ;;
-      --uninstall)UNINSTALL_MODE=true ;;
-      --pack)
-        [ $# -gt 0 ] || { echo "--pack needs a pack name"; exit 1; }
-        PACK="$1"; shift
-        if [ $# -gt 0 ] && [[ "$1" != --* ]]; then PACK_DIR="$1"; shift; fi
-        ;;
-      --help)
-        sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
-        exit 0
-        ;;
-      *)
-        echo "Unknown option: $arg"
-        exit 1
-        ;;
-    esac
-  done
-fi
+while [ $# -gt 0 ]; do
+  arg="$1"; shift
+  case $arg in
+    --opencode) INSTALL_OPENCODE=true ;;
+    --agy)      INSTALL_AGY=true ;;
+    --claude)   INSTALL_CLAUDE=true ;;
+    --n8n)      INSTALL_N8N=true ;;
+    --cloudflare) INSTALL_CLOUDFLARE=true ;;
+    --all)
+      INSTALL_OPENCODE=true
+      INSTALL_AGY=true
+      INSTALL_CLAUDE=true
+      ;;
+    --free)     FREE_MODE=true ;;
+    --mcp)      MCP=true ;;
+    --hybrid)   PROFILE=hybrid ;;
+    --slim)     PROFILE=slim ;;
+    --uninstall)UNINSTALL_MODE=true ;;
+    --pack)
+      [ $# -gt 0 ] || { echo "--pack needs a pack name"; exit 1; }
+      PACK="$1"; shift
+      if [ $# -gt 0 ] && [[ "$1" != --* ]]; then PACK_DIR="$1"; shift; fi
+      ;;
+    --help)
+      sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $arg"
+      exit 1
+      ;;
+  esac
+done
 
 OPENCODE_DIR="$HOME/.config/opencode"
 GEMINI_DIR="$HOME/.gemini/config"
@@ -309,11 +312,26 @@ install_opencode() {
   link_files "$REPO_DIR/opencode/command" "$OPENCODE_DIR/command"
   link_skills "$OPENCODE_DIR/skills"
 
-  if [ "$FREE_MODE" = true ]; then
-    echo "Free mode: Creating customized opencode.jsonc without explicit models..."
-    backup_if_exists "$OPENCODE_DIR/opencode.jsonc"
-    rm -f "$OPENCODE_DIR/opencode.jsonc"
-    sed 's/"model": ".*"/"model": "opencode\/nemotron-3.5-lightning-free"/' "$REPO_DIR/opencode/opencode.jsonc" > "$OPENCODE_DIR/opencode.jsonc"
+  if [ "$FREE_MODE" = true ] || [ "$MCP" != true ]; then
+    # A copy, not a link: free mode swaps the model, no --mcp drops the "mcp" block.
+    local conf="$OPENCODE_DIR/opencode.jsonc" tmp
+    tmp="$(mktemp)"
+    if [ "$FREE_MODE" = true ]; then
+      echo "Free mode: Creating customized opencode.jsonc without explicit models..."
+      sed 's/"model": ".*"/"model": "opencode\/nemotron-3.5-lightning-free"/' "$REPO_DIR/opencode/opencode.jsonc" > "$tmp"
+    else
+      cp "$REPO_DIR/opencode/opencode.jsonc" "$tmp"
+    fi
+    if [ "$MCP" != true ]; then
+      python3 -c 'import json,sys;d=json.load(sys.stdin);d.pop("mcp",None);json.dump(d,sys.stdout,indent=2,ensure_ascii=False);print()' < "$tmp" > "$tmp.new"
+      mv "$tmp.new" "$tmp"
+    fi
+    if [ -L "$conf" ] || ! cmp -s "$tmp" "$conf"; then  # a re-run changes nothing
+      if [[ "$(readlink "$conf" 2>/dev/null)" != "$REPO_DIR"/* ]]; then backup_if_exists "$conf"; fi
+      rm -f "$conf"
+      cp "$tmp" "$conf"
+    fi
+    rm -f "$tmp"
   else
     link "$REPO_DIR/opencode/opencode.jsonc" "$OPENCODE_DIR/opencode.jsonc"
   fi
@@ -339,7 +357,7 @@ install_agy() {
 
   link "$REPO_DIR/antigravity/plugins/swarmkit" "$GEMINI_DIR/plugins/swarmkit"
   link_skills "$GEMINI_DIR/skills"
-  if ! cmp -s "$REPO_DIR/core/mcp.json" "$GEMINI_DIR/mcp_config.json"; then
+  if [ "$MCP" = true ] && ! cmp -s "$REPO_DIR/core/mcp.json" "$GEMINI_DIR/mcp_config.json"; then
     backup_if_exists "$GEMINI_DIR/mcp_config.json"
     cp "$REPO_DIR/core/mcp.json" "$GEMINI_DIR/mcp_config.json"
   fi
@@ -371,21 +389,38 @@ install_claude() {
 
   link "$REPO_DIR/claude/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
   link_files "$REPO_DIR/claude/agents" "$CLAUDE_DIR/agents"
-  link_files "$REPO_DIR/claude/packs/swarm/agents" "$CLAUDE_DIR/agents"
+  if [ "$PROFILE" = hybrid ]; then
+    link_files "$REPO_DIR/claude/packs/swarm/agents" "$CLAUDE_DIR/agents"
+  else  # slim: drop the orchestrator links an earlier hybrid install made
+    local f l
+    for f in "$REPO_DIR"/claude/packs/swarm/agents/*.md; do
+      l="$CLAUDE_DIR/agents/$(basename "$f")"
+      if [ -L "$l" ] && [[ "$(readlink "$l")" == "$REPO_DIR"/* ]]; then rm -f "$l"; fi
+    done
+  fi
   link "$REPO_DIR/claude/hooks/guard.py" "$CLAUDE_DIR/hooks/guard.py"
   # plan-gate.py was dropped; clean up its link and settings entry from old installs.
   prune_dead_repo_links "$CLAUDE_DIR/hooks"
   plan_gate_settings remove
   local skills="$CLAUDE_SKILLS"
   command -v opencode &>/dev/null && skills+=" opencode-delegate"  # only for CLIs that are installed
+  if [ "$PROFILE" != hybrid ]; then  # the orchestration skills only matter with lead-dev-hybrid
+    local s kept=""
+    for s in $skills; do
+      case " hybrid-delegate swarm-handoff git-workflow writing-for-agents " in *" $s "*) ;; *) kept+=" $s" ;; esac
+    done
+    skills="$kept"
+  fi
   link_skills "$CLAUDE_DIR/skills" "$skills"
   mkdir -p "$HOME/.local/bin"
   link "$REPO_DIR/scripts/agy-task" "$HOME/.local/bin/agy-task"
   link "$REPO_DIR/scripts/opencode-task" "$HOME/.local/bin/opencode-task"
   prune_dead_repo_links "$HOME/.local/bin"  # shims dropped from the repo
 
-  # MCP servers: register each one at user scope unless it already exists.
-  if command -v claude &>/dev/null; then
+  # MCP servers (only with --mcp): register each one at user scope unless it already exists.
+  if [ "$MCP" != true ]; then
+    :
+  elif command -v claude &>/dev/null; then
     local name
     for name in $(python3 -c "import json;print(' '.join(json.load(open('$REPO_DIR/core/mcp.json'))['mcpServers']))"); do
       if claude mcp get "$name" &>/dev/null; then
@@ -461,14 +496,66 @@ install_cloudflare() {
   echo "✓ Cloudflare installation complete"
 }
 
+# Which CLIs are on PATH; with no CLI flag, install exactly those.
+FOUND=""
+for cli in claude opencode agy; do command -v "$cli" &>/dev/null && FOUND+="$cli " || true; done
+has() { [[ " $FOUND " == *" $1 "* ]]; }
+if [ "$INSTALL_OPENCODE$INSTALL_AGY$INSTALL_CLAUDE$INSTALL_N8N$INSTALL_CLOUDFLARE" = falsefalsefalsefalsefalse ]; then
+  if [ -z "$FOUND" ]; then
+    echo "No claude, opencode or agy found on PATH. Install one, or name the target: ./install.sh --claude|--opencode|--agy|--all"
+    exit 1
+  fi
+  has opencode && INSTALL_OPENCODE=true
+  has agy      && INSTALL_AGY=true
+  has claude   && INSTALL_CLAUDE=true
+  echo "Found: $FOUND"
+fi
+
+# Profile: hybrid = lead-dev-hybrid orchestrates workers; slim = the main agent works directly.
+if [ -z "$PROFILE" ]; then
+  if has opencode || { has claude && has agy; }; then PROFILE=hybrid; else PROFILE=slim; fi
+fi
+
+# MCP servers are opt-in: --mcp, or one question on a terminal.
+MCP_NAMES="$(python3 -c "import json;print(' '.join(json.load(open('$REPO_DIR/core/mcp.json'))['mcpServers']))")"
+if [ "$MCP" != true ] && [ -t 0 ] && [ "$INSTALL_OPENCODE$INSTALL_AGY$INSTALL_CLAUDE" != falsefalsefalse ]; then
+  read -r -p "Install MCP servers ($MCP_NAMES)? [y/N] " ans || ans=""
+  [[ "$ans" =~ ^[Yy] ]] && MCP=true
+fi
+
 if [ "$INSTALL_OPENCODE" = true ]; then install_opencode; fi
 if [ "$INSTALL_AGY" = true ]; then install_agy; fi
 if [ "$INSTALL_CLAUDE" = true ]; then install_claude; fi
 if [ "$INSTALL_N8N" = true ]; then install_n8n; fi
 if [ "$INSTALL_CLOUDFLARE" = true ]; then install_cloudflare; fi
 
+
+workers=""
+[ "$PROFILE" = hybrid ] && { has opencode && workers+="opencode-task "; has agy && workers+="agy-task "; }
+if [ "$PROFILE" = hybrid ]; then
+  if has claude; then run="claude --agent lead-dev-hybrid"
+  elif has opencode; then run="opencode  (lead-dev-hybrid is already the default agent)"
+  else run="agy --agent lead-dev-hybrid"; fi
+  profile_note="hybrid: lead-dev-hybrid plans and hands work to workers"
+elif has claude; then
+  run="claude"; profile_note="slim: the main agent works directly; add the orchestrator later with ./install.sh --hybrid"
+else
+  if has agy; then run="agy"; else run="opencode"; fi
+  profile_note="slim: the main agent works directly; add the orchestrator later with ./install.sh --hybrid"
+fi
+
 echo ""
 echo "========================================"
 echo "  Installation Successful! 🐝"
 echo "========================================"
+echo "CLIs found:  ${FOUND:-none}"
+echo "Profile:     $profile_note"
+echo "Run:         $run"
+[ -z "$workers" ] || echo "Workers:     $workers"
+if [ "$MCP" = true ]; then
+  echo "MCP servers: installed ($MCP_NAMES)"
+else
+  echo "MCP servers: skipped. Rerun with --mcp to install ($MCP_NAMES);"
+  echo "             that also restores the opencode.jsonc link with its MCP block. Servers already registered stay."
+fi
 echo "Restart your terminal or tools for changes to take effect."

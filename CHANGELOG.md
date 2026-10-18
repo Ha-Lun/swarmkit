@@ -24,6 +24,7 @@ All notable changes to the opencode-config repository.
 - feat: add `seo-specialist` agent (model: opencode-go/deepseek-v4-pro) and `seo-engineering` skill (practical recipes, JSON-LD cheat sheet, per-framework sitemaps)
 
 ### Changed
+- 2026-10-18: `install.sh` with no flag now installs only the CLIs found on `PATH` (it used to install all three), picks a hybrid or slim profile and prints it with the command to run; `--hybrid` / `--slim` override. MCP servers are opt-in: `--mcp`, or one question on a terminal. Without it OpenCode gets an `opencode.jsonc` copy without the `mcp` block (rerun with `--mcp` to get the link back); servers already registered are left alone. The slim profile skips the swarm pack agents and the `hybrid-delegate`, `swarm-handoff`, `git-workflow` and `writing-for-agents` skills.
 - Consolidated config to single git repo with symlinks
 - Updated all agent models to correct configurations
 - Enhanced lead-dev with smart routing for cost optimization

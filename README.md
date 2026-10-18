@@ -42,7 +42,7 @@ Antigravity plugin agents have no per-agent model; subagents run on the agy sess
 - **Caveman mode.** Terse output that cuts tokens without losing technical detail: `caveman`, `caveman-commit`, `caveman-review`, `caveman-compress` and `caveman-help`. MIT skills vendored from [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) v2.7.0 (`2fd153c`). `caveman-compress` needs the `claude` CLI or `ANTHROPIC_API_KEY`.
 - **Project-type routing.** Specialist descriptions name their project markers (Lovable, Capacitor, Electron, n8n, Cloudflare), so the main agent picks the right one once the pack is linked.
 - **Cost-aware models.** Cheap models for mechanical work, strong models only where mistakes are expensive.
-- **MCP servers.** Playwright, Chrome DevTools, Firecrawl, Blender, Google Trends, shadcn, 21st.dev, Gemini, and the Cloudflare suite. Versions are pinned (no `@latest`), so a package can't change under you; bump them deliberately.
+- **MCP servers (opt-in with `--mcp`).** Playwright, Chrome DevTools, Firecrawl, Blender, Google Trends, shadcn, 21st.dev, Gemini, and the Cloudflare suite. Versions are pinned (no `@latest`), so a package can't change under you; bump them deliberately.
 - **20+ shared skills.** Frontend and backend quality, git workflow, security review, premium frontend system, SEO engineering, n8n API and debugging, Capacitor mobile quality, curated resources, and more.
 - **Slash commands (OpenCode).** `/ponytail-review`, `/ponytail-audit`, `/ponytail-debt`, `/ponytail-help`, and `/ponytail lite|full|ultra|off`.
 
@@ -121,16 +121,26 @@ The installer symlinks everything into each CLI's config directory. The agents a
 
 | Flag | Description |
 |---|---|
-| `--claude` | Install the Claude Code config (rules, core agents, hooks, core skills, MCP servers) plus the swarm pack orchestrators and coordination agents/skills globally. Removes the old `plan-gate.py` hook entry from `~/.claude/settings.json` if present |
+| `--claude` | Install the Claude Code config (rules, core agents, hooks, core skills) plus the swarm pack orchestrators and coordination agents/skills globally. Removes the old `plan-gate.py` hook entry from `~/.claude/settings.json` if present |
 | `--pack <name> [project]` | Link a Claude Code pack's agents and skills into `<project>/.claude/` (default: current dir) and list the links in the repo's `.git/info/exclude`. Packs: `web`, `backend`, `ops`, `mobile`, `n8n`, `creative`, `swarm`. With `--uninstall`, removes that pack from the project |
 | `--opencode` | Install the OpenCode config (rules, agents, commands, skills, `opencode.jsonc`) |
-| `--agy` | Install the Antigravity config (`swarmkit` plugin, skills, MCP servers) and `agyw` |
-| `--all` | `--claude`, `--opencode` and `--agy`. This is also the default when no flag is given. |
+| `--agy` | Install the Antigravity config (`swarmkit` plugin, skills) and `agyw` |
+| `--all` | `--claude`, `--opencode` and `--agy` |
+| (no flag) | Install the CLIs found on `PATH` and pick a profile (below); exits with a hint when none is found |
+| `--hybrid` / `--slim` | Override the profile that detection picked |
+| `--mcp` | Install the MCP servers from `core/mcp.json` (Claude Code, Antigravity, OpenCode). Off by default: a terminal run asks once, other runs skip them. Without it OpenCode gets a copy of `opencode.jsonc` without its `mcp` block instead of the link, and servers already registered are never removed |
 | `--n8n` | Configure self-hosted n8n credentials (not included in `--all`) |
 | `--cloudflare` | Install Cloudflare skills and authenticate (not included in `--all`) |
 | `--free` | OpenCode free mode: copies `opencode.jsonc` with a free default model |
 | `--uninstall` | Remove every global link that points into this repo and any old plan-gate entry in `~/.claude/settings.json` |
 | `--help` | Show the help message |
+
+### Profiles
+
+With no flag the installer looks for `claude`, `opencode` and `agy` and ends with a summary of what it found, the profile it chose and the command to run.
+
+- **hybrid**, when `opencode` is found or both `claude` and `agy` are: installs the `lead-dev-hybrid` orchestrator and its coordination agents and skills. Run `claude --agent lead-dev-hybrid` (OpenCode already uses it as the default agent). Workers are `opencode-task` and `agy-task`, for the CLIs found.
+- **slim**, when only `claude` or only `agy` is found: no orchestrator, the main agent works directly. Add it later with `./install.sh --hybrid`; a slim run removes the orchestrator links an earlier hybrid install made.
 
 ### Updating an existing install
 
