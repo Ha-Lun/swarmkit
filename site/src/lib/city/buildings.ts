@@ -22,15 +22,22 @@ import {
   BoxGeometry,
   BufferGeometry,
   Color,
+  DataTexture,
   DynamicDrawUsage,
   Float32BufferAttribute,
   Group,
+  InstancedBufferAttribute,
   InstancedMesh,
   Matrix4,
   MeshLambertMaterial,
+  NearestFilter,
   Quaternion,
+  RGBAFormat,
+  SRGBColorSpace,
+  UnsignedByteType,
   Vector3,
 } from 'three';
+import type { Material, WebGLProgramParametersWithUniforms } from 'three';
 import { kitPartGeometries } from './kit.ts';
 import type { Kit } from './kit.ts';
 import { lotPoseAt } from './lots.ts';
@@ -38,10 +45,101 @@ import type { CityPalette, CityPart, LotLayout, StageState } from './types.ts';
 
 /** Building footprint as a fraction of its lot (centred): the setback from the parcel edge. */
 export const FOOTPRINT = 0.7;
-/** Existing-city colour: palette.paper darkened, a touch of ink, and a small per-building lightness spread. */
-const OLD_DARKEN = 0.74;
-const OLD_INK = 0.1;
-const OLD_SPREAD = 0.1;
+/**
+ * Existing-city colour at night: the (light) ink token dimmed to a cool slate with a touch of the blueprint blue, and
+ * a small per-building lightness spread. Dim, but light enough for the key and rim to give it edges.
+ */
+const OLD_DIM = 0.36;
+const OLD_BLUE = 0.16;
+const OLD_SPREAD = 0.22;
+const oldBaseColour = (palette: CityPalette): Color => new Color(palette.ink).multiplyScalar(OLD_DIM).lerp(new Color(palette.line), OLD_BLUE);
+/**
+ * Night glow (no bloom). Windows: the kit's glass swatches emit --light-warm, and a per-window hash decides which are
+ * lit against the lot's `aGlow` (0..1, the share of windows lit). Old city: a dim glow, few lit. New lots: a bright
+ * glow whose share of lit windows follows the lot's build (built new lots are the brightest things in the
+ * scene). Lane parts of new lots self-illuminate in their lane colour.
+ */
+const WIN_GLOW_NEW = 3.1;
+const WIN_GLOW_OLD = 1.2;
+const LANE_GLOW_NEW = 1.0;
+/** Share of windows lit at the finished state of a new lot, and the base share while it is only started. */
+const LIT_MAX = 0.93;
+const LIT_MIN = 0.12;
+/** Share of windows lit in the existing city: seeded per building, between these. */
+const OLD_LIT_MIN = 0.1;
+const OLD_LIT_MAX = 0.3;
+/** Window hash cells per metre (x, y, z) of the authored module: about one window per cell. */
+const WIN_CELLS = 'vec3( 2.4, 5.0, 2.4 )';
+/** Palette swatches that glow: glass, glass_hi and the lantern lamp (public/models/README.md). */
+const GLOW_SWATCHES = [10, 11, 15];
+
+/** An 8 x 8 emissive mask in the kit palette's layout: white on the glowing swatches, black elsewhere. */
+function glowMask(): DataTexture {
+  const data = new Uint8Array(8 * 8 * 4);
+  for (let i = 0; i < 64; i++) {
+    const row = 7 - Math.floor(i / 8); // glTF v runs up: swatch row r is data row 7 - r
+    const o = (row * 8 + (i % 8)) * 4;
+    const on = GLOW_SWATCHES.includes(i) ? 255 : 0;
+    data[o] = on; data[o + 1] = on; data[o + 2] = on; data[o + 3] = 255;
+  }
+  const tex = new DataTexture(data, 8, 8, RGBAFormat, UnsignedByteType);
+  tex.magFilter = NearestFilter;
+  tex.minFilter = NearestFilter;
+  tex.generateMipmaps = false;
+  tex.colorSpace = SRGBColorSpace;
+  tex.flipY = false;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** Add the per-instance `aGlow` attribute and the varyings to a standard material's program. */
+function patchGlow(mat: Material, tag: string, fragment: string): void {
+  mat.onBeforeCompile = (sh: WebGLProgramParametersWithUniforms) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aGlow;\nvarying float vGlow;\nvarying vec3 vGlowLocal;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGlow = aGlow;\nvGlowLocal = position;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vGlow;\nvarying vec3 vGlowLocal;')
+      .replace('#include <emissivemap_fragment>', fragment);
+  };
+  mat.customProgramCacheKey = () => tag;
+}
+
+/** Window material: the kit material (map and all) plus the glow mask, emitting warm light on lit windows. */
+function windowMaterial(base: Material, mask: DataTexture, warm: Color, intensity: number): Material {
+  const m = base.clone() as Material & { emissive: Color; emissiveIntensity: number; emissiveMap: DataTexture | null };
+  m.emissive = warm.clone();
+  m.emissiveIntensity = intensity;
+  m.emissiveMap = mask;
+  patchGlow(m, 'city-windows', `
+    vec3 gCell = floor( vGlowLocal * ${WIN_CELLS} );
+    float gHash = fract( sin( dot( gCell, vec3( 12.9898, 78.233, 37.719 ) ) ) * 43758.5453 );
+    totalEmissiveRadiance *= texture2D( emissiveMap, vEmissiveMapUv ).rgb * step( gHash, vGlow );`);
+  return m;
+}
+
+/** Lane material for new lots: white base (instance colour tints it), self-lit in that colour by `aGlow`. */
+function laneGlowMaterial(base: Material, intensity: number): Material {
+  const m = base.clone() as Material & { color: Color; emissive: Color; emissiveIntensity: number };
+  m.color.set(0xffffff);
+  m.emissive = new Color(0xffffff); // the `emissive` uniform is this times the intensity: a plain grey factor here
+  m.emissiveIntensity = intensity;
+  patchGlow(m, 'city-lane', 'totalEmissiveRadiance = diffuseColor.rgb * emissive * vGlow;');
+  return m;
+}
+
+/** Give an instanced mesh its own geometry clone with a per-instance `aGlow` attribute (the source stays shared). */
+function addGlow(mesh: InstancedMesh, count: number): InstancedBufferAttribute {
+  const geo = mesh.geometry.clone();
+  const attr = new InstancedBufferAttribute(new Float32Array(Math.max(1, count)), 1);
+  attr.setUsage(DynamicDrawUsage);
+  geo.setAttribute('aGlow', attr);
+  mesh.geometry = geo;
+  return attr;
+}
+
+/** The share of windows lit for a new lot at this build (0 before it exists). */
+const litAt = (build: number): number => (build <= 0 ? 0 : LIT_MIN + (LIT_MAX - LIT_MIN) * build);
 /** Rework band height as a fraction of the lot's finished height at rework = 1. */
 const REWORK_FRACTION = 0.2;
 /** Below this height (m) an instance is collapsed to nothing rather than drawn flat. */
@@ -222,7 +320,7 @@ export function createBuildings(layout: LotLayout, palette: CityPalette, kit?: K
     extraMesh.setColorAt(j, col);
   }
   // The existing city never changes: matrices and colours are set once here.
-  const oldBase = new Color(palette.paper).multiplyScalar(OLD_DARKEN).lerp(new Color(palette.ink), OLD_INK);
+  const oldBase = oldBaseColour(palette);
   {
     const p = new Vector3(), sc = new Vector3(), q = new Quaternion(), m = new Matrix4();
     for (let i = 0; i < nOld; i++) {
@@ -332,41 +430,66 @@ function createKitBuildings(layout: LotLayout, palette: CityPalette, kit: Kit): 
   const agyCol = new Color(agyHex);
   const opencodeCol = new Color(opencodeHex);
   const scafTint = new Color();
-  const oldBase = new Color(palette.paper).multiplyScalar(OLD_DARKEN).lerp(new Color(palette.ink), OLD_INK);
+  const oldBase = oldBaseColour(palette);
 
-  // White base so per-instance lane colours show unmodified (white map swatch times instanceColor).
+  // White base so per-instance lane colours show unmodified (white map swatch times instanceColor). `laneMat` is the
+  // plain one (existing city, scaffold); `laneGlowMat` is the new lots', self-lit in the lane colour.
   const laneMat = kit.material.clone();
   (laneMat as unknown as { color: Color }).color.set(0xffffff);
+  const mask = glowMask();
+  const warm = new Color(palette.lightWarm);
+  const winNewMat = windowMaterial(kit.material, mask, warm, WIN_GLOW_NEW);
+  const winOldMat = windowMaterial(kit.material, mask, warm, WIN_GLOW_OLD);
+  const laneGlowMat = laneGlowMaterial(kit.material, LANE_GLOW_NEW);
+  const glowAttrs: InstancedBufferAttribute[] = [];
 
   const root = new Group();
   root.name = 'buildings';
   const geometries: BufferGeometry[] = [];
+  /** Per-mesh geometry clones carrying aGlow (the baked sources above stay shared). */
+  const ownedGeos: BufferGeometry[] = [];
   const meshes: InstancedMesh[] = [];
   // Lanes whose instanceColor changes per frame (the scaffold top rails).
   const dynamicLanes: InstancedMesh[] = [];
 
-  function pair(name: string, base: BufferGeometry | null, lane: BufferGeometry | null, count: number): { base: InstancedMesh | null; lane: InstancedMesh | null } {
+  /** Which materials a pair uses: plain, new-lot glow (windows + lane), or old-city windows. `win` / `lane` pick per part. */
+  interface Glow { win?: Material; lane?: Material }
+  interface Pair { base: InstancedMesh | null; lane: InstancedMesh | null; baseGlow: InstancedBufferAttribute | null; laneGlow: InstancedBufferAttribute | null }
+
+  function pair(name: string, base: BufferGeometry | null, lane: BufferGeometry | null, count: number, glow: Glow = {}): Pair {
     let baseMesh: InstancedMesh | null = null;
     let laneMesh: InstancedMesh | null = null;
+    let baseGlow: InstancedBufferAttribute | null = null;
+    let laneGlow: InstancedBufferAttribute | null = null;
     if (base) {
-      baseMesh = new InstancedMesh(base, kit.material, count > 0 ? count : 1);
+      baseMesh = new InstancedMesh(base, glow.win ?? kit.material, count > 0 ? count : 1);
       baseMesh.name = name;
       baseMesh.count = count;
       baseMesh.frustumCulled = false;
+      if (glow.win) {
+        baseGlow = addGlow(baseMesh, count);
+        glowAttrs.push(baseGlow);
+        ownedGeos.push(baseMesh.geometry);
+      }
       root.add(baseMesh);
       meshes.push(baseMesh);
     }
     if (lane) {
-      laneMesh = new InstancedMesh(lane, laneMat, count > 0 ? count : 1);
+      laneMesh = new InstancedMesh(lane, glow.lane ?? laneMat, count > 0 ? count : 1);
       laneMesh.name = `${name}-lane`;
       laneMesh.count = count;
       laneMesh.frustumCulled = false;
       laneMesh.instanceMatrix.setUsage(DynamicDrawUsage);
+      if (glow.lane) {
+        laneGlow = addGlow(laneMesh, count);
+        glowAttrs.push(laneGlow);
+        ownedGeos.push(laneMesh.geometry);
+      }
       root.add(laneMesh);
       meshes.push(laneMesh);
     }
     if (baseMesh) baseMesh.instanceMatrix.setUsage(DynamicDrawUsage);
-    return { base: baseMesh, lane: laneMesh };
+    return { base: baseMesh, lane: laneMesh, baseGlow, laneGlow };
   }
 
   // Per-lot dressing, fixed at creation: body variant + roof pick from the slug hash, setback scale.
@@ -413,22 +536,28 @@ function createKitBuildings(layout: LotLayout, palette: CityPalette, kit: Kit): 
   // Bodies (3 variants), roofs (flat / pitched), the rework scaffold, the annex extras.
   const bodyBase: (InstancedMesh | null)[] = [];
   const bodyLane: (InstancedMesh | null)[] = [];
+  const bodyBaseGlow: (InstancedBufferAttribute | null)[] = [];
+  const bodyLaneGlow: (InstancedBufferAttribute | null)[] = [];
+  const roofLaneGlow: (InstancedBufferAttribute | null)[] = [];
   for (let v = 0; v < 3; v++) {
-    const p = pair(`buildings-body-${BODY_NAMES[v]}`, bodyGeos[v].base, bodyGeos[v].lane, bodyCounts[v]);
+    const p = pair(`buildings-body-${BODY_NAMES[v]}`, bodyGeos[v].base, bodyGeos[v].lane, bodyCounts[v], { win: winNewMat, lane: laneGlowMat });
     bodyBase.push(p.base);
     bodyLane.push(p.lane);
+    bodyBaseGlow.push(p.baseGlow);
+    bodyLaneGlow.push(p.laneGlow);
   }
   const roofBase: (InstancedMesh | null)[] = [];
   const roofLane: (InstancedMesh | null)[] = [];
   for (let r = 0; r < 2; r++) {
-    const p = pair(`buildings-${ROOF_NAMES[r]}`, roofGeos[r].base, roofGeos[r].lane, roofCounts[r]);
+    const p = pair(`buildings-${ROOF_NAMES[r]}`, roofGeos[r].base, roofGeos[r].lane, roofCounts[r], { lane: laneGlowMat });
     roofBase.push(p.base);
     roofLane.push(p.lane);
+    roofLaneGlow.push(p.laneGlow);
   }
   const scaf = pair('buildings-scaffold', scafGeos.base, scafGeos.lane, nMain);
   if (scaf.lane) dynamicLanes.push(scaf.lane);
   if (scaf.base) dynamicLanes.push(scaf.base);
-  const anx = pair('buildings-annex', anxGeos.base, anxGeos.lane, nExtra);
+  const anx = pair('buildings-annex', anxGeos.base, anxGeos.lane, nExtra, { win: winNewMat, lane: laneGlowMat });
 
   // Static per-instance lane colours: bodies, roofs and annexes keep their lot's lane.
   const col = new Color();
@@ -464,10 +593,12 @@ function createKitBuildings(layout: LotLayout, palette: CityPalette, kit: Kit): 
   }
   const oldBodyBase: (InstancedMesh | null)[] = [];
   const oldBodyLane: (InstancedMesh | null)[] = [];
+  const oldBodyGlow: (InstancedBufferAttribute | null)[] = [];
   for (let v = 0; v < 3; v++) {
-    const p = pair(`buildings-old-${BODY_NAMES[v]}`, bodyGeos[v].base, bodyGeos[v].lane, oldBodyCounts[v]);
+    const p = pair(`buildings-old-${BODY_NAMES[v]}`, bodyGeos[v].base, bodyGeos[v].lane, oldBodyCounts[v], { win: winOldMat });
     oldBodyBase.push(p.base);
     oldBodyLane.push(p.lane);
+    oldBodyGlow.push(p.baseGlow);
   }
   // roof_flat is roofGeos[0]: the existing city shares the new lots' baked cap.
   const oldFlatP = pair('buildings-old-roof_flat', roofGeos[0].base, roofGeos[0].lane, oldFlatCount);
@@ -486,6 +617,9 @@ function createKitBuildings(layout: LotLayout, palette: CityPalette, kit: Kit): 
       m.compose(p, q, sc);
       const bb = oldBodyBase[oldV[i]];
       if (bb) bb.setMatrixAt(bodySubs[oldV[i]], m);
+      // Few windows lit, a seeded share per building.
+      const og = oldBodyGlow[oldV[i]];
+      if (og) og.setX(bodySubs[oldV[i]], OLD_LIT_MIN + (OLD_LIT_MAX - OLD_LIT_MIN) * ((Math.imul(i + 7, 40503) >>> 0) / 4294967296));
       // Warm grey with a seeded lightness spread (from the index, like the placeholder path).
       const f = (Math.imul(i + 1, 2654435761) >>> 0) / 4294967296;
       const bl = oldBodyLane[oldV[i]];
@@ -513,6 +647,7 @@ function createKitBuildings(layout: LotLayout, palette: CityPalette, kit: Kit): 
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   }
+  for (const a of glowAttrs) a.needsUpdate = true;
 
   // Scratch state reused every frame so update allocates nothing.
   const pose: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 };
@@ -540,6 +675,14 @@ function createKitBuildings(layout: LotLayout, palette: CityPalette, kit: Kit): 
       mat.compose(posV, quat, sclV);
       if (bb) bb.setMatrixAt(mainSub[k], mat);
       if (bl) bl.setMatrixAt(mainSub[k], mat);
+      // Lights come on as the lot is built: the share of lit windows and the lane glow follow its build.
+      const lit = litAt(build);
+      const gb = bodyBaseGlow[mainV[k]];
+      const gl = bodyLaneGlow[mainV[k]];
+      const gr = roofLaneGlow[mainR[k]];
+      if (gb) gb.setX(mainSub[k], lit);
+      if (gl) gl.setX(mainSub[k], lit);
+      if (gr) gr.setX(mainRoofSub[k], lit);
       // The roof cap rides the body top unscaled in Y; hidden with the body.
       posV.set(pose.x, pose.y + h, pose.z);
       if (h > MIN_H) sclV.set(s, 1, s);
@@ -573,7 +716,11 @@ function createKitBuildings(layout: LotLayout, palette: CityPalette, kit: Kit): 
       mat.compose(posV, quat, sclV);
       if (anx.base) anx.base.setMatrixAt(j, mat);
       if (anx.lane) anx.lane.setMatrixAt(j, mat);
+      const lit = litAt(build);
+      if (anx.baseGlow) anx.baseGlow.setX(j, lit);
+      if (anx.laneGlow) anx.laneGlow.setX(j, lit);
     }
+    for (let gi = 0; gi < glowAttrs.length; gi++) glowAttrs[gi].needsUpdate = true;
     for (let mi = 0; mi < meshes.length; mi++) meshes[mi].instanceMatrix.needsUpdate = true;
     for (let li = 0; li < dynamicLanes.length; li++) {
       const ic = dynamicLanes[li].instanceColor;
@@ -587,7 +734,12 @@ function createKitBuildings(layout: LotLayout, palette: CityPalette, kit: Kit): 
     disposed = true;
     root.clear();
     for (const g of geometries) g.dispose();
+    for (const g of ownedGeos) g.dispose();
     laneMat.dispose();
+    laneGlowMat.dispose();
+    winNewMat.dispose();
+    winOldMat.dispose();
+    mask.dispose();
   }
 
   return { object: root, update, dispose };

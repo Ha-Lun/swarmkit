@@ -1,35 +1,43 @@
 ---
-// The pinned City stage: a tall section (runway SCROLL_VH vh) with a sticky, viewport-tall pin holding the canvas,
-// the DOM labels pinned to the lots, the hero, one caption per beat and a small counter HUD. All text is DOM and
-// every number comes from the run (read here at build time) or from the scene's StageState at run time. The HUD has
-// a fixed cell per counter (MERGING included, dimmed while 0), so it never grows or reflows. Without a
-// run: an honest "replay pending" panel and no canvas. Without WebGL (or with ?tier=fallback, or when the scene fails
-// to start): the client adds .no-webgl and the replay becomes a stacked series of stills, one per beat, each with its
-// caption. The same series shows without scripting. Stills are real frames of this scene rendered at each beat's camera
-// key (see scripts/stills.mjs); they are never loaded in the live layout (display: none + lazy). Reduced motion and a
-// failed fps probe are not fallbacks: the scene still runs and draws static frames at the beat poses.
+ // The pinned City stage: a tall section (runway SCROLL_VH vh) with a sticky, viewport-tall pin holding the canvas,
+ // the DOM labels pinned to the lots, the hero, and a terminal panel replaying the featured run line by line as you
+ // scroll. All text is DOM and every number comes from the run (read here at build time) or from the scene's
+ // StageState at run time. The terminal renders ALL lines from buildTerminalLines(run) once at build time; the client
+ // reveals rows whose t has passed and shifts the inner rows wrapper with a transform so the newest row stays in view. Without a run: an honest "replay pending" panel and no
+ // canvas. Without WebGL (or with ?tier=fallback, or when the scene fails to start): the client adds .no-webgl and the
+ // terminal shows fully revealed with the chapter header set to the final chapter, above a stacked series of stills,
+ // one per beat. The same series shows without scripting (the terminal needs JS to reveal rows, so it stays hidden
+ // there). Stills are real frames of this scene rendered at each beat's camera key (see scripts/stills.mjs); they are
+ // never loaded in the live layout (display: none + lazy). Reduced motion and a failed fps probe are not fallbacks:
+ // the scene still runs and draws static frames at the beat poses.
 import '../../styles/city.css';
 import { beatCaptions, formatDuration, replayLabel } from '../../lib/city/captions.ts';
 import { buildLayout } from '../../lib/city/lots.ts';
+import { buildTerminalLines, CHAPTERS } from '../../lib/city/terminal.ts';
+import type { ChapterId } from '../../lib/city/terminal.ts';
 import { SCROLL_VH } from '../../lib/city/timeline.ts';
+import { repoUrl } from '../../lib/facts.ts';
 import { loadFeaturedRun } from '../../lib/run.ts';
 
 const run = loadFeaturedRun();
 const lots = run ? buildLayout(run).lots : [];
 const captions = run ? beatCaptions(run) : [];
 const label = run ? replayLabel(run) : '';
+const termLines = run ? buildTerminalLines(run) : [];
+const firstChapter: ChapterId = 1;
+const planApproval = run ? captions.find((c) => c.id === 'plan')?.approval : undefined;
 // Embedded for the client; '<' escaped so the JSON can never close the script element.
 const json = run ? JSON.stringify(run).replace(/</g, '\\u003c') : '';
 const command = 'claude --agent lead-dev-hybrid';
 // One still per beat: public/stills/beat-<id>.webp (1440x900). Width and height give the fixed aspect box (low CLS).
 const STILL = { w: 1440, h: 900 };
 const counters = [
-  { key: 'dispatched', name: 'dispatched' },
-  { key: 'built', name: 'built' },
-  { key: 'merging', name: 'merging' },
-  { key: 'merged', name: 'merged' },
-  { key: 'reviewsDone', name: 'reviews' },
-  { key: 'resumes', name: 'resumes' },
+  { key: 'dispatched', name: 'dispatched', hideMobile: false },
+  { key: 'built', name: 'built', hideMobile: true },
+  { key: 'merging', name: 'merging', hideMobile: true },
+  { key: 'merged', name: 'merged', hideMobile: false },
+  { key: 'reviewsDone', name: 'reviews', hideMobile: false },
+  { key: 'resumes', name: 'resumes', hideMobile: true },
 ];
 ---
 {run ? (
@@ -45,6 +53,10 @@ const counters = [
       <div class="city-hero" data-city-hero>
         <h1 id="city-title" class="city-title">SwarmKit</h1>
         <p class="city-tagline">Opus plans. Cheaper models build, in parallel. One config, three CLIs.</p>
+        <p class="city-actions">
+          <a class="city-btn city-btn-primary" href="#install">Install</a>
+          <a class="city-btn city-btn-secondary" href={repoUrl}>GitHub</a>
+        </p>
         <div class="city-copy">
           <code class="city-cmd">{command}</code>
           <button type="button" class="city-copy-btn" data-copy={command}>Copy</button>
@@ -52,24 +64,39 @@ const counters = [
         </div>
       </div>
 
-      <div class="city-captions" aria-hidden="true">
-        {captions.filter((c) => c.id !== 'hero').map((c) => (
-          <p class="city-caption" data-beat={c.id}>
-            {c.text}
-            {c.approval && <span class="city-approval" data-approval> {c.approval}</span>}
-          </p>
-        ))}
-      </div>
-
-      <div class="city-hud">
-        <p class="city-replay">{label}</p>
-        <dl class="city-counters">
-          {counters.map((c) => (
-            <div class:list={['city-counter', { 'is-zero': c.key === 'merging' }]}><dt>{c.name}</dt><dd data-counter={c.key}>0</dd></div>
-          ))}
-          <div class="city-counter"><dt>run clock</dt><dd data-clock>{formatDuration(0)}</dd></div>
-        </dl>
-      </div>
+      <aside class="city-terminal" data-terminal aria-label="Session replay: terminal output of one real run">
+        <p class="term-kicker">Session replay</p>
+        <h2 class="term-chapter"><span data-term-num>{firstChapter}</span> &middot; <span data-term-title>{CHAPTERS[firstChapter].title}</span></h2>
+        <p class="term-line"><span data-term-line>{CHAPTERS[firstChapter].line}</span>{planApproval && <span class="term-approval" data-approval> {planApproval}</span>}</p>
+        <ul class="term-legend" aria-label="Lanes">
+          <li><span class="term-dot term-dot-opus" aria-hidden="true">&#9679;</span> Opus <span class="term-legend-sub">(planner)</span></li>
+          <li><span class="term-dot term-dot-agy" aria-hidden="true">&#9679;</span> agy</li>
+          <li><span class="term-dot term-dot-opencode" aria-hidden="true">&#9679;</span> opencode</li>
+        </ul>
+        <div class="term-body" data-term-body role="log" aria-label="Terminal output, revealed as you scroll">
+          <div class="term-rows" data-term-rows>
+            {termLines.map((l) => (
+              <div
+                class="term-row"
+                data-t={l.t}
+                data-kind={l.kind}
+                data-lane={l.lane}
+                data-ok={l.ok === true ? 'true' : l.ok === false ? 'false' : undefined}
+              >{l.text}</div>
+            ))}
+          </div>
+        </div>
+        <div class="term-footer">
+          <p class="term-replay">{label}</p>
+          <dl class="term-stats">
+            {counters.map((c) => (
+              <div class:list={['term-stat', { 'is-zero': c.key === 'merging' }, { 'term-stat-mobile-hide': c.hideMobile }]}><dt>{c.name}</dt><dd data-counter={c.key}>0</dd></div>
+            ))}
+            <div class="term-stat"><dt>run clock</dt><dd data-clock>{formatDuration(0)}</dd></div>
+          </dl>
+          <p class="term-note">Reconstructed from the recorded events of one real run.</p>
+        </div>
+      </aside>
     </div>
 
     <div class="city-static">

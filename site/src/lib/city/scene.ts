@@ -1,5 +1,5 @@
 // SwarmKit City scene: mounts the replay on a fixed canvas. Builds layout + timeline from the run, reads the palette
-// from CSS custom properties, lights a matte golden-hour diorama, adds the five visual parts, drives one continuous
+// from CSS custom properties, lights a night diorama (warm key, cool fill and rim, emissive glow), adds the five visual parts, drives one continuous
 // camera path, and projects DOM labels onto the lots. It reads scroll progress (written by scroll.ts) and never
 // touches scroll or copy itself: text is DOM, the page gets each frame's StageState through onState.
 //
@@ -8,7 +8,7 @@
 // changes. Reduced motion starts on low but draws static frames at each beat's pose, re-rendered when scrolling stops.
 // An fps probe on the first frames steps high -> medium -> low. The loop only runs while the stage is on screen.
 import {
-  Color, DirectionalLight, Fog, GridHelper, Group, HalfFloatType, HemisphereLight, InstancedMesh, Matrix4, Mesh, MeshLambertMaterial, NoToneMapping,
+  Color, DirectionalLight, Fog, GridHelper, Group, HalfFloatType, HemisphereLight, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, MeshLambertMaterial, NoToneMapping,
   PCFShadowMap, PerspectiveCamera, PlaneGeometry, Quaternion, Scene, SRGBColorSpace, Vector3, WebGLRenderer, WebGLRenderTarget,
 } from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -97,17 +97,29 @@ export function readPalette(): CityPalette {
 const DAMP_TIME = 0.15;
 /** fps probe: warm-up frames skipped (shader compile), then at least this long and this many frames. */
 const PROBE = { warmup: 10, ms: 800, minFrames: 20, stepDownBelow: 45, lowBelow: 30 };
-// Lighting is in three's physical units: a Lambert surface returns albedo / pi times its irradiance, so sun * cos +
-// sky ~ pi brings lit paper back to about its token value (no tone mapping, sRGB output). The sun is low (long soft
-// shadows) and warm but mixed towards white, the sky fill cool but mixed towards white, so the light is warm and the
-// paper stays paper: lit ground ~0.9 of the token, ground in shadow ~0.6, lane colours keep their saturation.
-const SUN_INTENSITY = 3.3;
-const HEMI_INTENSITY = 2.05;
-/** How far the sun's colour moves from white towards --light-warm, and the sky's towards --light-cool. */
-const SUN_WARMTH = 0.6;
-const SKY_COOLNESS = 0.2;
-/** The table: a shade under the paper token, so the unlit page background reads as the same paper beyond it. */
-const TABLE_SHADE = 0.97;
+// Night lighting, in three's physical units. A low warm key (dusk afterglow, long soft shadows) models the faces
+// towards it, a cool hemisphere fill (moonlight from the sky, deep blue from the ground) keeps shadows readable
+// instead of black, and a shadowless cool rim from the far side edges every silhouette against the sky. The rest of
+// the picture comes from emissive: lit windows, lane accents, drones (no bloom; see buildings.ts, drones.ts).
+const SUN_INTENSITY = 0.85;
+const HEMI_INTENSITY = 0.42;
+const RIM_INTENSITY = 1.3;
+/** How far the key moves from white towards --light-warm, and the fill / rim towards --light-cool. */
+const SUN_WARMTH = 0.9;
+const SKY_COOLNESS = 0.7;
+const RIM_COOLNESS = 0.85;
+/** The sky (background and fog): the --sky token, lifted a little towards the cool light so the horizon reads. */
+const SKY_LIFT = 0.012;
+/** The hemisphere's ground colour: the paper token (deep navy) lifted towards the cool light, so shadows stay blue. */
+const GROUND_LIFT = 0.16;
+/**
+ * Night board (table.ts is frozen): the kit slab's daylight tan swatch renders as dull taupe under the dim key, so
+ * the board gets its own dark blue-grey material at load (see the slab swap below): near-black, a touch lighter
+ * than the sky so the board's edge still shows.
+ */
+const BOARD_COLOR = '#1a2230';
+const BOARD_EMISSIVE = '#141a26';
+const BOARD_GLOW = 0.55;
 /** Faint blueprint grid on the table: spacing in lot cells, opacity. */
 const GRID_CELLS = 2;
 const GRID_OPACITY = 0.1;
@@ -123,14 +135,14 @@ const LABEL_LIFT = 0.6;
 /**
  * Label de-collision with hysteresis. Each label box is grown by a gap (px) on every side before two boxes count as
  * overlapping; the gap differs by what the label is doing, so a pose on the edge cannot flip it every frame:
- * - a shown label hides only when its boxes overlap with LABEL_GAP_HIDE (negative = they must overlap by 2 px);
+ * - a shown label hides when its boxes come closer than 2 * LABEL_GAP_HIDE px (positive: never any overlap);
  * - a new label appears when it is clear with LABEL_GAP;
  * - a label hidden for overlap returns only after it has been clear with LABEL_GAP_SHOW for LABEL_CLEAR_S seconds.
  * A static frame (dt = 0) has no time to wait: it uses LABEL_GAP only, so the picture depends on the state alone.
  */
-const LABEL_GAP = 3;
-const LABEL_GAP_HIDE = -1;
-const LABEL_GAP_SHOW = 5;
+const LABEL_GAP = 4;
+const LABEL_GAP_HIDE = 1;
+const LABEL_GAP_SHOW = 6;
 const LABEL_CLEAR_S = 0.3;
 
 /**
@@ -236,7 +248,8 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
   const layout = buildLayout(run);
   const timeline = buildTimeline(run);
   const palette = readPalette();
-  const lightCool = readToken(getComputedStyle(document.documentElement), '--light-cool', '#9cc3ee');
+  const lightCool = readToken(getComputedStyle(document.documentElement), '--light-cool', '#7fa6ff');
+  const skyToken = readToken(getComputedStyle(document.documentElement), '--sky', '#0b1428');
 
   const reduced = !!opts.reducedMotion;
   const cores = navigator.hardwareConcurrency || 4;
@@ -255,11 +268,12 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
   const kit: Kit | null = await loadKit().catch(() => null);
 
   const scene = new Scene();
-  // Drafting paper all the way out: the background is the paper token and the table fogs into it.
+  // Dusk all the way out: the background is the sky token and the table fogs into it.
   const paper = new Color(palette.paper);
-  const backdrop = paper.clone();
+  const sky = new Color(skyToken).lerp(new Color(lightCool), SKY_LIFT);
+  const backdrop = sky.clone();
   scene.background = backdrop;
-  const fog = new Fog(paper, 60, 200);
+  const fog = new Fog(sky, 60, 200);
   scene.fog = fog;
 
   const b = layout.bounds;
@@ -268,7 +282,7 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
 
   const camera = new PerspectiveCamera(CAMERA_FOV, 16 / 9, 0.5, R * 20);
 
-  // Warm low key from one side (long soft shadows), cool sky fill from the other. Matte: Lambert everywhere.
+  // Warm low key from one side (long soft shadows), cool sky fill from above, a cool rim from the far side.
   const sun = new DirectionalLight(new Color(1, 1, 1).lerp(new Color(palette.lightWarm), SUN_WARMTH), SUN_INTENSITY);
   sun.position.set(b.x + R * 1.3, R * 0.75, b.z + R * 0.9);
   sun.target.position.copy(centre);
@@ -280,15 +294,21 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
   sun.shadow.normalBias = 0.03;
   sun.shadow.radius = 4;
   scene.add(sun, sun.target);
-  const hemi = new HemisphereLight(new Color(1, 1, 1).lerp(new Color(lightCool), SKY_COOLNESS), paper, HEMI_INTENSITY);
+  const hemi = new HemisphereLight(new Color(1, 1, 1).lerp(new Color(lightCool), SKY_COOLNESS), paper.clone().lerp(new Color(lightCool), GROUND_LIFT), HEMI_INTENSITY);
   scene.add(hemi);
+  const rim = new DirectionalLight(new Color(1, 1, 1).lerp(new Color(lightCool), RIM_COOLNESS), RIM_INTENSITY);
+  rim.position.set(b.x - R * 1.2, R * 0.55, b.z - R * 1.1);
+  rim.target.position.copy(centre);
+  scene.add(rim, rim.target);
 
   // Drafting table. Plain look: a large paper plane just under the ground (fog fades its edge into the paper
   // background) with a faint blueprint grid. With the kit the table is a real slab (table.ts: tan top, wooden lip,
   // blueprint sheet) and this plane becomes the paper floor under it, below the slab's fascia, so the slab reads as
   // a table standing on the same paper as the backdrop and the tone never parts; the grid is left out.
   const tableGeo = new PlaneGeometry(R * 10, R * 10);
-  const tableMat = new MeshLambertMaterial({ color: paper.clone().multiplyScalar(TABLE_SHADE) });
+  // With the kit the floor is unlit and takes the sky's colour every frame (a seamless pale backdrop the slab stands
+  // in); the plain look keeps a lit paper plane that receives the shadows.
+  const tableMat = kit ? new MeshBasicMaterial({ color: sky.clone() }) : new MeshLambertMaterial({ color: paper.clone().lerp(new Color(lightCool), GROUND_LIFT) });
   const table = new Mesh(tableGeo, tableMat);
   table.rotation.x = -Math.PI / 2;
   table.position.set(b.x, kit ? SLAB_TOP - SLAB_DEPTH - 0.02 : -0.01, b.z);
@@ -323,6 +343,13 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
       }
     });
     scene.add(p.object);
+  }
+  // The board the city stands on keeps the shared kit material's daylight tan swatch, which reads as dull taupe at
+  // night: swap the slab onto its own dark board material (load-time only, nothing per frame; table.ts untouched).
+  const boardMat = new MeshLambertMaterial({ color: new Color(BOARD_COLOR), emissive: new Color(BOARD_EMISSIVE), emissiveIntensity: BOARD_GLOW });
+  for (const p of parts) {
+    const slab = p.object.getObjectByName('table-slab') as Mesh | undefined;
+    if (slab && slab.isMesh) slab.material = boardMat;
   }
 
   // --- Post (high tier only): RenderPass -> tilt-shift (two passes) -> OutputPass.
@@ -445,6 +472,8 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
         l.x = px; l.y = py;
       }
       if (vis !== l.on) {
+        // A label that leaves goes quickly (80 ms), so it never ghosts over the label that took its place.
+        l.el.style.transitionDuration = vis ? '' : '80ms';
         l.el.style.opacity = vis ? '1' : '0';
         l.on = vis;
       }
@@ -464,7 +493,9 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
     const dim = 1 - BILL_DIM * state.bill;
     sun.intensity = SUN_INTENSITY * dim;
     hemi.intensity = HEMI_INTENSITY * dim;
-    backdrop.copy(paper).multiplyScalar(dim);
+    rim.intensity = RIM_INTENSITY * dim;
+    backdrop.copy(sky).multiplyScalar(dim);
+    if (kit) tableMat.color.copy(backdrop);
     fog.color.copy(backdrop);
     const dist = camPos.distanceTo(camTgt);
     fog.near = dist + R * 0.8;
@@ -635,6 +666,7 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
       dropComposer();
       tableGeo.dispose();
       tableMat.dispose();
+      boardMat.dispose();
       grid.geometry.dispose();
       gridMat.dispose();
       sun.shadow.map?.dispose();

@@ -1,14 +1,16 @@
-/* SwarmKit City stage (src/components/city/CityStage.astro). Palette and type from tokens.css only.
+/* SwarmKit City stage (src/components/city/CityStage.astro). Dark cinematic palette from tokens.css only.
    Live layout by default: a tall section (runway --city-runway vh past one viewport) with a sticky, viewport-tall pin.
-   The canvas box is fixed by CSS (100svh), so nothing shifts when the scene mounts (CLS 0).
-   Fallback (.no-webgl from JS, or no scripting): no canvas, a stacked series of stills with their captions.
-   DOM motion is opacity only and is switched off for prefers-reduced-motion. */
+   The canvas box is fixed by CSS (100svh), so nothing shifts when the scene mounts (CLS 0). The left of the pin holds
+   the hero (hero beat) crossfading with the terminal replay panel (every later beat); the right stays clear for the
+   3D city. Fallback (.no-webgl from JS, or no scripting): no canvas; with JS the full terminal shows revealed above a
+   stacked series of stills with their captions, without scripting the stills series shows alone. DOM motion is
+   opacity-only (terminal rows add a 4px translate) and is switched off for prefers-reduced-motion. */
 
 .city-stage {
   position: relative;
   height: calc((var(--city-runway, 900) + 100) * 1vh);
-  background: var(--blueprint-ink);
-  color: var(--paper);
+  background: var(--paper);
+  color: var(--blueprint-ink);
 }
 .city-pin {
   position: sticky;
@@ -26,41 +28,71 @@
 }
 .city-labels { position: absolute; inset: 0; pointer-events: none; }
 
-/* Panels on the scene: paper text on a navy plate, at the edges only. */
-.city-hero,
-.city-caption,
-.city-hud {
-  background: color-mix(in srgb, var(--blueprint-ink) 88%, transparent);
-  border: 1px solid var(--blueprint-ink-2);
-}
-
+/* Hero: light type over the dark scene, over the left zone the terminal later occupies. A left-to-right scrim (the
+   paper colour fading out, no box) keeps the title legible where the city renders behind it. Hidden after the hero
+   beat, exactly when the terminal fades in, so the two never overlap. */
 .city-hero {
   position: absolute;
-  top: calc(var(--space-16) + var(--space-6));
-  left: var(--space-6);
-  max-width: min(30rem, 42vw);
-  padding: var(--space-6);
+  top: 0;
+  left: 0;
+  isolation: isolate;
+  width: min(40rem, 38vw);
+  padding: calc(var(--space-16) + var(--space-8)) var(--space-6) var(--space-12);
+  color: var(--blueprint-ink);
+}
+.city-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--paper) 94%, transparent) 0%, color-mix(in srgb, var(--paper) 72%, transparent) 55%, transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, #000 72%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 72%, transparent 100%);
+  pointer-events: none;
 }
 .city-hero.is-off { opacity: 0; pointer-events: none; }
 .city-title {
   margin: 0;
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: clamp(2.75rem, 5vw, 4.5rem);
-  line-height: var(--leading-tight);
-  letter-spacing: -0.02em;
+  font-size: clamp(3.5rem, 8vw, 7.5rem);
+  line-height: 0.95;
+  letter-spacing: -0.03em;
 }
 .city-tagline {
-  margin: var(--space-3) 0 0;
+  max-width: 24ch;
+  margin: var(--space-4) 0 0;
   font-family: var(--font-display);
   font-weight: 500;
-  font-size: clamp(1.125rem, 1.6vw, 1.375rem);
-  line-height: 1.35;
+  font-size: clamp(1.25rem, 1.8vw, 1.625rem);
+  line-height: 1.3;
+  color: var(--blueprint-ink-2);
 }
+.city-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); margin: var(--space-8) 0 0; }
+.city-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--space-12);
+  padding: 0 var(--space-6);
+  border: 2px solid var(--blueprint-ink);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-base);
+  text-decoration: none;
+  transition: background-color .15s, color .15s, border-color .15s, transform .15s;
+}
+.city-btn-primary { background: var(--blueprint-ink); color: var(--paper); }
+.city-btn-primary:hover { background: var(--light-warm); border-color: var(--light-warm); }
+.city-btn-secondary { background: transparent; color: var(--blueprint-ink); }
+.city-btn-secondary:hover { background: color-mix(in srgb, var(--blueprint-ink) 12%, transparent); }
+.city-btn:focus-visible,
+.city-copy-btn:focus-visible { outline: 2px solid var(--light-warm); outline-offset: 3px; }
 .city-copy { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-4); }
 .city-cmd {
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--blueprint-line);
+  background: var(--paper-2);
+  border: 1px solid var(--hairline);
+  color: var(--blueprint-ink);
   font-family: var(--font-mono);
   font-size: var(--text-base);
   user-select: all;
@@ -68,72 +100,144 @@
 }
 .city-copy-btn {
   padding: var(--space-2) var(--space-3);
-  background: var(--paper);
+  background: transparent;
   color: var(--blueprint-ink);
-  border: 1px solid var(--paper);
+  border: 1px solid var(--blueprint-ink);
   font-family: var(--font-mono);
   font-size: var(--text-base);
   cursor: pointer;
 }
-.city-copy-btn:hover { background: var(--paper-2); }
-.city-copy-btn:focus-visible { outline: 2px solid var(--light-warm); outline-offset: 2px; }
-.city-copy-status { font-family: var(--font-mono); font-size: var(--text-base); }
+.city-copy-btn:hover { background: color-mix(in srgb, var(--blueprint-ink) 12%, transparent); }
+.city-copy-status { font-family: var(--font-mono); font-size: var(--text-base); color: var(--blueprint-ink-2); }
 
-/* One caption per beat, bottom-left, stacked in one grid cell; only the current beat's is visible. The camera keeps
-   the subject above the bottom band the caption and HUD share (FRAME_PAD in camera.ts). */
-.city-captions {
+/* Terminal replay panel: pinned left, ~40vw (max 560px), full pin height minus the top bar. Translucent dark panel
+   with backdrop blur where supported and a hairline border. Display-only (pointer-events: none) so scroll stays with
+   the page; the client keeps the newest row in view with a transform on the inner wrapper, never with a programmatic
+   scroll (a nested scroller's scrollTop cancels the document's smooth anchor scroll in Chromium). Hidden until the
+   client reports a beat past hero. */
+.city-terminal {
   position: absolute;
-  left: var(--space-6);
-  bottom: var(--space-6);
-  display: grid;
-  width: min(34rem, 38vw);
+  top: var(--space-12);
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(40vw, 560px);
+  min-width: 0;
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  background: color-mix(in srgb, var(--paper) 84%, transparent);
+  border-right: 1px solid var(--hairline);
+  color: var(--blueprint-ink);
+  opacity: 0;
   pointer-events: none;
 }
-.city-caption {
-  grid-area: 1 / 1;
-  align-self: end;
+@supports (backdrop-filter: blur(1px)) {
+  .city-terminal { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+}
+.city-stage[data-beat]:not([data-beat='hero']) .city-terminal { opacity: 1; }
+.term-kicker {
   margin: 0;
-  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--blueprint-ink-2);
+}
+.term-chapter {
+  margin: var(--space-2) 0 0;
   font-family: var(--font-display);
-  font-weight: 500;
-  font-size: var(--text-base);
-  line-height: 1.45;
+  font-weight: 700;
+  font-size: clamp(1.75rem, 3vw, 2.75rem);
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+}
+.term-line { margin: var(--space-2) 0 0; font-size: var(--text-sm); line-height: 1.45; color: var(--blueprint-ink-2); }
+.term-approval { opacity: 0; }
+.term-approval.is-on { opacity: 1; }
+.term-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  color: var(--blueprint-ink-2);
+}
+.term-dot { margin-right: var(--space-1); }
+.term-dot-opus { color: var(--blueprint-ink); }
+.term-dot-agy { color: var(--lane-agy); }
+.term-dot-opencode { color: var(--lane-opencode); }
+.term-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  margin: var(--space-3) 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.7;
+}
+/* Inner wrapper carrying every row: the client shifts it up with translateY so
+   the newest revealed row stays in view. A transform never disturbs the page's
+   own scroll; position: relative makes it the rows' offsetParent so the shift
+   distance reads directly off the latest row. position/transform are
+   compositor-only. */
+.term-rows { position: relative; will-change: transform; }
+/* Unrevealed rows take no space (display: none); revealing adds .is-on, whose
+   entry fade is an opacity/transform @keyframes so motion stays compositor-only.
+   Rows flow from the top; the client shifts the wrapper up only once the rows
+   overflow the body. */
+@keyframes term-row-in {
+  from { opacity: 0; transform: translateY(4px); }
+}
+.term-row {
+  display: none;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  color: var(--blueprint-ink-2);
   opacity: 0;
 }
-.city-caption.is-on { opacity: 1; }
-.city-approval { opacity: 0; }
-.city-approval.is-on { opacity: 1; }
-
-/* Counters, bottom-right: compact, one row of fixed cells on wide screens (two rows of four below 1280px). */
-.city-hud {
-  position: absolute;
-  right: var(--space-6);
-  bottom: var(--space-6);
-  padding: var(--space-2) var(--space-3);
-  font-family: var(--font-mono);
+.term-row.is-on { display: block; opacity: 0.6; }
+.term-row.is-latest { opacity: 1; }
+.term-row[data-lane='agy'] { color: var(--lane-agy); }
+.term-row[data-lane='opencode'] { color: var(--lane-opencode); }
+.term-row[data-ok='true'] { color: var(--status-ok); }
+.term-row[data-ok='false'] { color: var(--status-fail); }
+.term-row[data-kind='prompt'] { color: var(--blueprint-ink); }
+.term-footer {
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--hairline);
 }
-.city-replay { margin: 0; font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.35; color: var(--blueprint-line-soft); }
-.city-counters { display: grid; grid-template-columns: repeat(7, auto); gap: 2px var(--space-4); margin: 6px 0 0; }
-.city-counter dt { font-size: var(--text-xs); line-height: 1.25; letter-spacing: 0.06em; text-transform: uppercase; color: var(--blueprint-line-soft); }
-.city-counter dd { margin: 0; font-size: var(--text-sm); line-height: 1.3; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.city-counter.is-zero { opacity: 0.45; }
-@media (max-width: 1280px) {
-  .city-hud { max-width: min(24rem, 40vw); }
-  .city-counters { grid-template-columns: repeat(4, auto); }
-}
+.term-replay { margin: 0; font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.35; color: var(--blueprint-ink-2); }
+.term-stats { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: var(--space-2) 0 0; }
+.term-stat dt { font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.25; letter-spacing: 0.06em; text-transform: uppercase; color: var(--blueprint-ink-2); }
+.term-stat dd { margin: 0; font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 700; line-height: 1.3; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.term-stat dd[data-clock] { min-width: 11ch; }
+.term-stat.is-zero { opacity: 0.45; }
+.term-note { margin: var(--space-2) 0 0; font-size: var(--text-xs); line-height: 1.4; color: var(--blueprint-ink-2); }
 
-/* Labels pinned to the lots: positioned by the scene (transform), shown from the split beat (opacity). */
+/* Labels pinned to the lots: positioned by the scene (transform), shown from the split beat (opacity).
+   Dark translucent chips so they sit into the night scene; lane colour survives as a 2px left border. */
 .lot-label {
   position: absolute;
   top: 0;
   left: 0;
   padding: 2px var(--space-2);
-  background: var(--blueprint-ink);
-  border-left: 3px solid var(--blueprint-line);
+  background: rgba(7, 13, 26, 0.78);
+  border-left: 2px solid var(--blueprint-line-dim);
+  border-radius: 4px;
   font-family: var(--font-mono);
   font-size: var(--text-base);
   line-height: 1.3;
-  color: var(--paper);
+  color: var(--blueprint-ink);
   white-space: nowrap;
   opacity: 0;
   will-change: transform;
@@ -160,21 +264,35 @@
 .city-still img { display: none; width: 100%; height: auto; aspect-ratio: 8 / 5; background: var(--paper); border: 1px solid var(--blueprint-line-dim); }
 .city-still figcaption { font-size: var(--text-base); line-height: var(--leading-body); }
 
-/* Fallback: no canvas, normal flow, everything readable. */
-.city-stage.no-webgl { height: auto; padding-bottom: var(--space-16); }
+/* Fallback: no canvas, normal flow, everything readable. The terminal shows fully revealed (the client adds .is-on to
+   every row and sets the final chapter); the stills series follows below it. */
+.city-stage.no-webgl { height: auto; background: var(--paper); color: var(--blueprint-ink); }
 .city-stage.no-webgl .city-pin { position: static; height: auto; overflow: visible; }
-.city-stage.no-webgl :is(.city-canvas, .city-labels, .city-captions, .city-hud) { display: none; }
-.city-stage.no-webgl .city-hero { position: static; max-width: 40rem; margin: 0 var(--space-6); padding: calc(var(--space-16) + var(--space-8)) 0 var(--space-6); background: none; border: 0; }
+.city-stage.no-webgl :is(.city-canvas, .city-labels) { display: none; }
+.city-stage.no-webgl .city-hero { position: static; width: auto; max-width: 46rem; margin: 0 var(--space-6); padding: calc(var(--space-16) + var(--space-8)) 0 var(--space-6); }
+.city-stage.no-webgl .city-hero::before { display: none; }
 .city-stage.no-webgl .city-hero.is-off { opacity: 1; pointer-events: auto; }
+.city-stage.no-webgl .city-terminal {
+  position: static;
+  width: auto;
+  max-width: 60rem;
+  margin: 0 var(--space-6) var(--space-8);
+  border: 1px solid var(--hairline);
+  opacity: 1;
+}
+.city-stage.no-webgl .term-body { overflow: visible; }
+/* Fallback tier: the full terminal shows as static content, no shift. */
+.city-stage.no-webgl .term-rows { transform: none; will-change: auto; }
 .city-stage.no-webgl .city-static { position: static; width: auto; height: auto; margin: 0 var(--space-6); overflow: visible; clip: auto; white-space: normal; }
 .city-stage.no-webgl .city-static-list { list-style: none; padding-left: 0; gap: var(--space-8); max-width: 60rem; }
 .city-stage.no-webgl .city-still img { display: block; }
 @media (scripting: none) {
-  .city-stage { height: auto; padding-bottom: var(--space-16); }
+  .city-stage { height: auto; background: var(--paper); color: var(--blueprint-ink); }
   .city-pin { position: static; height: auto; overflow: visible; }
-  .city-canvas, .city-labels, .city-captions, .city-hud { display: none; }
-  .city-hero { position: static; max-width: 40rem; margin: 0 var(--space-6); padding: calc(var(--space-16) + var(--space-8)) 0 var(--space-6); background: none; border: 0; }
-  .city-static { position: static; width: auto; height: auto; margin: 0 var(--space-6); overflow: visible; clip: auto; white-space: normal; }
+  .city-canvas, .city-labels, .city-terminal { display: none; }
+  .city-hero { position: static; width: auto; max-width: 46rem; margin: 0 var(--space-6); padding: calc(var(--space-16) + var(--space-8)) 0 var(--space-6); }
+  .city-hero::before { display: none; }
+  .city-static { position: static; width: auto; height: auto; margin: 0 var(--space-6) var(--space-16); overflow: visible; clip: auto; white-space: normal; }
   .city-static-list { list-style: none; padding-left: 0; gap: var(--space-8); max-width: 60rem; }
   .city-still img { display: block; }
 }
@@ -183,28 +301,100 @@
 .city-pending-note { margin: var(--space-6) 0 0; padding: var(--space-4); border: 1px solid var(--blueprint-line-dim); font-family: var(--font-mono); }
 
 @media (prefers-reduced-motion: no-preference) {
-  .city-hero, .city-caption, .city-approval { transition: opacity 320ms ease; }
-  .city-counter { transition: opacity 240ms ease; }
-  .lot-label { transition: opacity 240ms ease; }
+  .city-hero, .term-approval, .city-terminal { transition: opacity 320ms ease; }
+  .city-terminal { transition-delay: 120ms; }
+  .term-rows { transition: transform 180ms ease; }
+  .term-row.is-on { animation: term-row-in 200ms ease; }
+  .term-stat { transition: opacity 240ms ease; }
+  .lot-label { transition: opacity 200ms ease; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .term-rows { transition: none; }
+  .term-row.is-on { animation: none; }
 }
 
 /* Tablet: narrower edge panels. */
 @media (max-width: 1100px) {
-  .city-hero { max-width: min(28rem, 55vw); }
-  .city-captions { width: min(30rem, 46vw); }
-  .city-hud { max-width: min(24rem, 44vw); }
+  .city-hero { width: min(34rem, 44vw); padding-top: var(--space-16); }
+  .city-actions { margin-top: var(--space-6); }
+  .city-copy { margin-top: var(--space-3); }
+  .city-cmd, .city-copy-btn { font-size: var(--text-sm); }
+  .city-terminal { width: min(46vw, 560px); }
 }
 
-/* Phone: HUD at the top, captions at the bottom, both full width; the camera fits the city between them. */
+/* Narrow and portrait: the title block takes the top band the camera keeps clear, over a top-down scrim. */
+@media (max-width: 900px) {
+  .city-hero { right: 0; width: auto; padding: var(--space-4) var(--space-4) var(--space-6); }
+  .city-hero::before {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--paper) 94%, transparent) 0%, color-mix(in srgb, var(--paper) 70%, transparent) 70%, transparent 100%);
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+  .city-tagline { max-width: none; margin-top: var(--space-2); font-size: var(--text-base); }
+  .city-actions { gap: var(--space-2); margin-top: var(--space-4); }
+  .city-btn { min-height: 44px; padding: 0 var(--space-4); }
+  .city-copy { flex-wrap: nowrap; margin-top: var(--space-3); }
+  .city-cmd, .city-copy-btn { font-size: var(--text-sm); }
+  .city-cmd { min-width: 0; padding-inline: var(--space-2); }
+  /* Terminal becomes a bottom sheet (~42% of the pin): smaller chapter header, compact single-row legend, the body
+     keeps the newest rows in view. Full width, rows wrap, so nothing overflows at 390px. */
+  .city-terminal {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    height: 42%;
+    padding: var(--space-3) var(--space-3) var(--space-2);
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    border-right: 0;
+    border-top: 1px solid var(--hairline);
+  }
+  /* Header stack never shrinks: the legend keeps its own line directly under the
+     chapter line and the body takes only the leftover space, so the legend can
+     never slide half-hidden behind the body. */
+  .term-kicker, .term-chapter, .term-line, .term-legend, .term-footer { flex: none; }
+  .term-chapter { font-size: clamp(1.25rem, 5.5vw, 1.5rem); }
+  .term-line { font-size: var(--text-xs); }
+  .term-legend {
+    flex-wrap: nowrap;
+    gap: var(--space-2) var(--space-3);
+    margin-top: var(--space-2);
+    overflow-x: hidden;
+    white-space: nowrap;
+  }
+  .term-legend li { flex: none; white-space: nowrap; }
+  .term-legend-sub { display: none; }
+  /* Body keeps room for at least the last 4 rows: ~4 single-line rows at
+     12px/1.7 (~82px) plus air for wrapped rows. */
+  .term-body { min-height: 6rem; font-size: var(--text-xs); }
+  /* Compact 4-column counter grid for exactly the 4 cells kept on mobile
+     (dispatched, merged, reviews, run clock): one row that never reaches the
+     browser toolbar. The other cells keep their data-counter hooks in the DOM
+     but stay hidden at this width. */
+  .term-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-1) var(--space-2);
+  }
+  .term-stat-mobile-hide { display: none; }
+  .term-stat { min-width: 0; }
+  .term-stat dt {
+    font-size: 0.625rem;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .term-stat dd { font-size: var(--text-xs); }
+  .term-stat dd[data-clock] { min-width: 0; }
+  .term-note { display: none; }
+  /* While the hero shows, the sheet under it would collide with the title and buttons: hide it until the run starts. */
+  .city-stage[data-beat='hero'] .city-terminal { opacity: 0; }
+}
+
 @media (max-width: 700px) {
-  .city-hero { top: var(--space-4); left: var(--space-4); right: var(--space-4); max-width: none; padding: var(--space-4); }
-  .city-captions { left: var(--space-3); right: var(--space-3); bottom: var(--space-3); width: auto; }
-  .city-caption { padding: var(--space-2) var(--space-3); font-size: var(--text-sm); }
-  .city-hud { top: var(--space-3); bottom: auto; left: var(--space-3); right: var(--space-3); max-width: none; padding: 6px var(--space-3); }
-  .city-counters { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px var(--space-3); margin-top: var(--space-1); }
   .lot-label { font-size: var(--text-xs); padding: 0 var(--space-1); border-left-width: 2px; }
-  /* While the hero shows, the HUD would sit under it: hide it until the run starts. */
-  .city-stage[data-beat='hero'] .city-hud { opacity: 0; }
 }
 
 /* ---------------------------------------------------------------------------------------------------------------
@@ -244,8 +434,10 @@
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
-/* Anchor targets sit below the slim top bar. */
-.city-section[id] { scroll-margin-top: var(--space-12); }
+/* Anchor targets sit below the slim top bar. html already provides
+   scroll-padding-top (space-16 = 64px: 48px bar + 16px air), so no extra
+   margin here — the two would add (48 + 64 = 112px overshoot). */
+.city-section[id] { scroll-margin-top: 0; }
 @media (max-width: 1024px) {
   .city-section { padding-block: var(--space-16); }
 }

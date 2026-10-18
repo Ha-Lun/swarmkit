@@ -29,7 +29,7 @@ const L = buildLayout(run);
 const T = buildTimeline(run);
 const part = createDrones(L, palette);
 
-assert.equal(part.object.children.length, L.depots.length * PER, 'one depot plus three drones per lane');
+assert.equal(part.object.children.length, L.depots.length * PER + 1, 'one depot plus three drones per lane, then the trails group');
 
 const finiteObject = () => {
   part.object.updateMatrixWorld(true);

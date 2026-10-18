@@ -27,7 +27,7 @@ interface Shot {
   yaw: number;
   /** Where in the beat the pose is reached, 0..1. */
   at: number;
-  /** Where the rect's centre lands on screen (NDC, -1..1) for landscape and portrait: keeps it clear of DOM panels. */
+  /** A nudge (NDC) added to where the rect's centre lands in the free region (see FRAME_BOUNDS). */
   offset?: { landscape: [number, number]; portrait: [number, number] };
   /**
    * Portrait overrides. A phone is tall and narrow, so the layout is turned (PORTRAIT_YAW, shared by all beats) to run
@@ -72,13 +72,13 @@ const slotsOr = (l: LotLayout): Rect => {
  */
 const SHOTS: Record<BeatId, Shot> = {
   // A finished city with an empty lot beside it: the whole city plus the blueprint plot.
-  // The hero panel sits top-left (top on phones): the city sits right of and below the panel.
+  // The terminal panel takes the left (the bottom sheet the lower part on phones): the city fills the free region.
   hero: {
     rect: (l) => union(blockOr(l), l.plot), zoom: 1.0, pitch: 36, yaw: 28, at: 0,
-    offset: { landscape: [0.3, -0.06], portrait: [0, -0.03] },
+    offset: { landscape: [0, -0.03], portrait: [0, -0.03] },
     // Portrait: the city and its empty slots fill the band between the hero panel and the caption; the plot is
     // mostly out of frame at u = 0 (blank paper then) and slides in on the way to the task beat.
-    portrait: { pitch: 50, rect: blockOr },
+    portrait: { pitch: 50, zoom: 1.0, rect: blockOr },
   },
   task: { rect: (l) => l.plot, zoom: 1.15, pitch: 52, yaw: 16, at: 0.6, portrait: { pitch: 56 } },
   plan: { rect: (l) => l.plot, zoom: 1.3, pitch: 78, yaw: 6, at: 0.55, portrait: { pitch: 78 } },
@@ -95,34 +95,45 @@ const FRAME_H = H_MAX + MERGE_LIFT;
 /** Look-at height (m). */
 const TARGET_Y = 0.6;
 
-/** Clear margins of the frame, as fractions of the half-width / half-height (NDC units / 1). */
-export interface FramePad { x: number; top: number; bottom: number }
 /**
- * Landscape: the caption (bottom-left) and the HUD (bottom-right) share the bottom band, so the subject is fitted
- * above it. Portrait: the HUD sits at the top, the caption at the bottom; the subject fits between them. Sized for
- * city.css (HUD and caption heights); the camera test checks the keys against these bands.
+ * The part of the screen the action must stay inside, in NDC (-1..1, y up). The stage is split: on a wide screen
+ * the terminal panel takes the left ~40% (so the city lives in x >= -0.2, less a margin); on a phone or in portrait
+ * the terminal is a bottom sheet over the lower ~42% (so the city lives in the top ~58%, y >= -0.16, less a margin).
+ * Sized for city.css (panel and sheet); the camera test checks the keys against these bounds.
  */
-export const FRAME_PAD: { landscape: FramePad; portrait: FramePad } = {
-  landscape: { x: 0.07, top: 0.06, bottom: 0.3 },
-  portrait: { x: 0.05, top: 0.33, bottom: 0.27 },
+export interface FrameBounds { xl: number; xr: number; yt: number; yb: number }
+export const FRAME_BOUNDS: { split: FrameBounds; stacked: FrameBounds } = {
+  split: { xl: -0.14, xr: 0.94, yt: 0.86, yb: -0.86 },
+  stacked: { xl: -0.94, xr: 0.94, yt: 0.84, yb: -0.12 },
 };
-export const framePad = (aspect: number): FramePad => FRAME_PAD[aspect < 1 ? 'portrait' : 'landscape'];
+/** Above this aspect the terminal sits left of the city; at or below it the terminal is a sheet under it. */
+export const SPLIT_ASPECT = 1.2;
+/**
+ * Stacked hero: the terminal sheet is not up yet, but the hero title block fills the top ~28% of a phone, so the city
+ * takes everything below it.
+ */
+export const HERO_STACKED: FrameBounds = { xl: -0.94, xr: 0.94, yt: 0.4, yb: -0.9 };
+/** The bounds a beat is framed in. */
+export const beatBounds = (beat: BeatId, aspect: number): FrameBounds => (beat === 'hero' && aspect <= SPLIT_ASPECT ? HERO_STACKED : frameBounds(aspect));
+export const frameBounds = (aspect: number): FrameBounds => FRAME_BOUNDS[aspect > SPLIT_ASPECT ? 'split' : 'stacked'];
 
 /**
  * Exact fit: the smallest distance from the rect's centre at which every corner of the rect's box (ground to FRAME_H)
- * projects inside the padded frame, in both width and height, for this aspect, pitch and yaw (radians).
+ * projects inside the frame bounds, in width and height, for this aspect, pitch and yaw (radians). The rect's centre
+ * is placed at NDC (ox, oy) (default: the middle of the bounds).
  */
-export function fitDistance(r: Rect, aspect: number, fovDeg: number, pitch: number, yaw: number, ox = 0, oy = 0): number {
+export function fitDistance(r: Rect, aspect: number, fovDeg: number, pitch: number, yaw: number, ox?: number, oy?: number, bounds?: FrameBounds): number {
   const cp = Math.cos(pitch), sp = Math.sin(pitch), cy = Math.cos(yaw), sy = Math.sin(yaw);
   // Camera basis: back (target -> camera), right, up.
   const bx = cp * sy, by = sp, bz = cp * cy;
   const rx = cy, rz = -sy; // right = up x back, normalised (ry = 0)
   const ux = by * rz, uy = bz * rx - bx * rz, uz = -by * rx; // up = back x right
   const tanV = Math.tan(((fovDeg * Math.PI) / 180) / 2);
-  const pad = framePad(aspect);
-  const tanT = tanV * (1 - pad.top), tanB = tanV * (1 - pad.bottom), tanX = tanV * aspect * (1 - pad.x);
-  // With the centre shifted to (ox, oy) on screen, a point's offset from the view axis gains o * tan * d.
-  const shx = ox * tanV * aspect, shy = oy * tanV;
+  const fb = bounds ?? frameBounds(aspect);
+  const cx = ox ?? (fb.xl + fb.xr) / 2, cyy = oy ?? (fb.yt + fb.yb) / 2;
+  const tanR = tanV * aspect * fb.xr, tanL = tanV * aspect * fb.xl, tanT = tanV * fb.yt, tanB = tanV * fb.yb;
+  // With the centre shifted to (cx, cyy) on screen, a point's offset from the view axis gains c * tan * d.
+  const shx = cx * tanV * aspect, shy = cyy * tanV;
   let d = 0;
   for (const dx of [-r.w / 2, r.w / 2]) {
     for (const dz of [-r.d / 2, r.d / 2]) {
@@ -132,8 +143,8 @@ export function fitDistance(r: Rect, aspect: number, fovDeg: number, pitch: numb
         const zc = dx * bx + dy * by + dz * bz;
         d = Math.max(
           d,
-          (xc + tanX * zc) / (tanX - shx), (tanX * zc - xc) / (tanX + shx),
-          (yc + tanT * zc) / (tanT - shy), (tanB * zc - yc) / (tanB + shy),
+          (xc + tanR * zc) / (tanR - shx), (-xc - tanL * zc) / (shx - tanL),
+          (yc + tanT * zc) / (tanT - shy), (-yc - tanB * zc) / (shy - tanB),
         );
       }
     }
@@ -162,8 +173,11 @@ export function buildCameraKeys(layout: LotLayout, beats: Beat[], aspect = 16 / 
     const r = (p?.rect ?? shot.rect)(layout);
     const pitch = ((p?.pitch ?? shot.pitch) * Math.PI) / 180;
     const yaw = ((a < 1 ? PORTRAIT_YAW : shot.yaw) * Math.PI) / 180;
-    const [ox, oy] = shot.offset ? shot.offset[a < 1 ? 'portrait' : 'landscape'] : [0, 0];
-    const dist = fitDistance(r, a, fovDeg, pitch, yaw, ox, oy) * (p?.zoom ?? shot.zoom);
+    // The rect's centre lands in the middle of the free region (plus the shot's own nudge, if any).
+    const fb = beatBounds(b.id, a);
+    const [nx, ny] = shot.offset ? shot.offset[a < 1 ? 'portrait' : 'landscape'] : [0, 0];
+    const ox = (fb.xl + fb.xr) / 2 + nx, oy = (fb.yt + fb.yb) / 2 + ny;
+    const dist = fitDistance(r, a, fovDeg, pitch, yaw, ox, oy, fb) * (p?.zoom ?? shot.zoom);
     // Shift camera and target together (the view direction stays) so the rect's centre lands at (ox, oy).
     const tanV = Math.tan(((fovDeg * Math.PI) / 180) / 2);
     const lx = -ox * tanV * a * dist, ly = -oy * tanV * dist;

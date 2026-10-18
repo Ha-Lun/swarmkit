@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { beatCaptions, replayLabel } from '../../src/lib/city/captions.ts';
 import { PerspectiveCamera, Vector3 } from 'three';
-import { beatKeyUs, beatPoseU, buildCameraKeys, CAMERA_FOV, createCameraPath, framePad, monotoneCubic, smoothDamp } from '../../src/lib/city/camera.ts';
+import { beatKeyUs, beatPoseU, buildCameraKeys, CAMERA_FOV, createCameraPath, beatBounds, frameBounds, monotoneCubic, smoothDamp } from '../../src/lib/city/camera.ts';
 import { buildLayout, H_MAX } from '../../src/lib/city/lots.ts';
 import { buildTimeline } from '../../src/lib/city/timeline.ts';
 import type { FeaturedRun } from '../../src/lib/run.ts';
@@ -59,20 +59,20 @@ for (const aspect of [16 / 9, 1440 / 810, 390 / 844, 1]) {
 
 // Aspect-aware framing: at every aspect, the lanes key keeps both depots and the plot inside the frame, and the merge
 // and review keys keep the plot and the slots the lots merge into (review: and the annex) inside it, in width and height, ground to the
-// tallest new building. Inside means inside the band the DOM leaves free: above the caption and HUD in landscape,
-// between the HUD (top) and the caption (bottom) in portrait.
+// tallest new building. Inside means inside the region the DOM leaves free: right of the terminal panel in landscape,
+// above the terminal sheet in portrait.
 {
-  const inFrame = (aspect: number, key: { pos: number[]; target: number[] }, rects: { x: number; z: number; w: number; d: number }[], what: string) => {
+  const inFrame = (aspect: number, key: { pos: number[]; target: number[] }, rects: { x: number; z: number; w: number; d: number }[], what: string, bounds?: ReturnType<typeof frameBounds>) => {
     const cam = new PerspectiveCamera(CAMERA_FOV, aspect, 0.1, 1000);
     cam.position.set(key.pos[0], key.pos[1], key.pos[2]);
     cam.lookAt(key.target[0], key.target[1], key.target[2]);
     cam.updateMatrixWorld();
-    const pad = framePad(aspect);
+    const fb = bounds ?? frameBounds(aspect);
     const v = new Vector3();
     for (const r of rects) {
       for (const dx of [-1, 1]) for (const dz of [-1, 1]) for (const y of [0, H_MAX]) {
         v.set(r.x + (dx * r.w) / 2, y, r.z + (dz * r.d) / 2).project(cam);
-        const ok = Math.abs(v.x) <= 1 - pad.x + 1e-6 && v.y <= 1 - pad.top + 1e-6 && v.y >= -(1 - pad.bottom) - 1e-6;
+        const ok = v.x <= fb.xr + 1e-6 && v.x >= fb.xl - 1e-6 && v.y <= fb.yt + 1e-6 && v.y >= fb.yb - 1e-6;
         assert.ok(ok, `${what} at aspect ${aspect.toFixed(2)}: corner at ndc ${v.x.toFixed(2)}, ${v.y.toFixed(2)}`);
       }
     }
@@ -87,7 +87,7 @@ for (const aspect of [16 / 9, 1440 / 810, 390 / 844, 1]) {
     inFrame(aspect, key('review'), [...slots, ...layout.annex], 'review: slots and annex');
     // Landscape frames the city and the empty plot; portrait frames the city with its empty slots (the plot may be
     // out of frame: it is blank paper at u = 0), so the city is big enough on a phone.
-    if (aspect < 1) inFrame(aspect, key('hero'), [layout.cityBlock, ...slots], 'hero (portrait): city and slots');
+    if (aspect < 1) inFrame(aspect, key('hero'), [layout.cityBlock, ...slots], 'hero (portrait): city and slots', beatBounds('hero', aspect));
     else inFrame(aspect, key('hero'), [layout.plot, layout.cityBlock], 'hero: city and empty plot');
   }
 }
@@ -100,7 +100,7 @@ for (const aspect of [16 / 9, 1440 / 810, 390 / 844, 1]) {
   cam.position.set(hero.pos[0], hero.pos[1], hero.pos[2]);
   cam.lookAt(hero.target[0], hero.target[1], hero.target[2]);
   cam.updateMatrixWorld();
-  const pad = framePad(aspect);
+  const fb = beatBounds('hero', aspect);
   const v = new Vector3();
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   const r = layout.cityBlock;
@@ -108,7 +108,7 @@ for (const aspect of [16 / 9, 1440 / 810, 390 / 844, 1]) {
     v.set(r.x + (dx * r.w) / 2, y, r.z + (dz * r.d) / 2).project(cam);
     x0 = Math.min(x0, v.x); x1 = Math.max(x1, v.x); y0 = Math.min(y0, v.y); y1 = Math.max(y1, v.y);
   }
-  const fillH = (y1 - y0) / (2 - pad.top - pad.bottom), fillW = (x1 - x0) / (2 - 2 * pad.x);
+  const fillH = (y1 - y0) / (fb.yt - fb.yb), fillW = (x1 - x0) / (fb.xr - fb.xl);
   assert.ok(Math.max(fillH, fillW) > 0.9, `portrait hero city fills the band (h ${fillH.toFixed(2)}, w ${fillW.toFixed(2)})`);
 }
 

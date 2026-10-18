@@ -141,8 +141,9 @@ export const createScan: CreateScan = (layout: LotLayout, palette: CityPalette):
   const orchGeo = new TorusGeometry(foot * 0.55, Math.max(0.1, foot * 0.034), 8, 48);
   // Flat wide bar: wide in x, thin in y, unit depth in z scaled per-frame to
   // the effective new-lot bounds (base or base+annex).
-  const barW = Math.max(0.7, foot * 0.25);
-  const barGeo = new BoxGeometry(barW, 0.22, 1);
+  // A thin translucent sheet, not a solid slab: a dark 3D block read as a black rectangle over the labels.
+  const barW = Math.max(0.4, foot * 0.12);
+  const barGeo = new BoxGeometry(barW, 0.06, 1);
   // Tick: a short and a long flat bar joined at the vertex, a check lying on its side (bar length along local x,
   // thickness along y, width along z). Directions are in the xz plane with -z as "up"; each bar starts half a width
   // behind the vertex so the joint is closed. The pair is centred on its bounding box (tickOffX/Z).
@@ -171,11 +172,13 @@ export const createScan: CreateScan = (layout: LotLayout, palette: CityPalette):
   pennShape.closePath();
   const flagGeo = new ShapeGeometry(pennShape);
 
-  const verifyMat = new MeshLambertMaterial({ color: palette.line });
-  const orchMat = new MeshLambertMaterial({ color: palette.lightWarm });
-  const barMat = new MeshLambertMaterial({ color: palette.ink });
-  const okMat = new MeshLambertMaterial({ color: palette.ok });
-  const failMat = new MeshLambertMaterial({ color: palette.fail, side: DoubleSide });
+  // Night: the scan is light. Emissive blue (palette.line) for verify and the cross-model sheet, translucent so the
+  // lots show through it; the orchestrator's ring is warm. Status markers glow too (shape still carries the meaning).
+  const verifyMat = new MeshLambertMaterial({ color: palette.line, emissive: palette.line, emissiveIntensity: 0.9, transparent: true, opacity: 0.85, depthWrite: false });
+  const orchMat = new MeshLambertMaterial({ color: palette.lightWarm, emissive: palette.lightWarm, emissiveIntensity: 0.8, transparent: true, opacity: 0.9, depthWrite: false });
+  const barMat = new MeshLambertMaterial({ color: palette.line, emissive: palette.line, emissiveIntensity: 1.0, transparent: true, opacity: 0.55, depthWrite: false });
+  const okMat = new MeshLambertMaterial({ color: palette.ok, emissive: palette.ok, emissiveIntensity: 0.6 });
+  const failMat = new MeshLambertMaterial({ color: palette.fail, emissive: palette.fail, emissiveIntensity: 0.6, side: DoubleSide });
 
   // --- Sweeping indicator meshes (exactly one kind visible at a time, none when idle).
   const verifyRing = new Mesh(verifyGeo, verifyMat);
@@ -188,6 +191,7 @@ export const createScan: CreateScan = (layout: LotLayout, palette: CityPalette):
   orchRing.visible = false;
   const crossBar = new Mesh(barGeo, barMat);
   crossBar.name = 'scan-ind-cross';
+  crossBar.userData.noShadowCast = true;
   crossBar.visible = false;
   root.add(verifyRing);
   root.add(orchRing);

@@ -10,7 +10,10 @@
 //
 // Children order (tests rely on it): per lane k, depot mesh then its 3 drone cones,
 // i.e. children[k * (1 + DRONES_PER_DEPOT) + 1 + d] is drone d of lane k.
-import { BoxGeometry, Color, ConeGeometry, Group, Material, Mesh, MeshLambertMaterial, Object3D } from 'three';
+import {
+  AdditiveBlending, BoxGeometry, BufferAttribute, BufferGeometry, Color, ConeGeometry, DynamicDrawUsage, Group, Line, LineBasicMaterial, Material, Mesh,
+  MeshBasicMaterial, MeshLambertMaterial, Object3D, Points, PointsMaterial, SphereGeometry,
+} from 'three';
 import type { CityPalette, CityPart, CreateDrones, LotLayout, StageState } from './types.ts';
 import { clamp01, smooth } from './timeline.ts';
 import type { Kit } from './kit.ts';
@@ -30,6 +33,93 @@ const CONE_HALF = 0.275;
 /** Hover bob amplitude (m) and angular frequency (rad/s). */
 const BOB_AMP = 0.18;
 const BOB_FREQ = 3.0;
+
+/** Night glow: lane emissive on the depot and canopy, a beacon bead on each drone, a fading trail behind it. */
+const LANE_EMISSIVE = 0.6;
+/** Trail: points per drone, and how far apart they are in job progress (so the trail is a pure function of state). */
+const TRAIL_N = 18;
+const TRAIL_STEP = 0.02;
+/** Trail point size (px), colour falloff exponent along its length, and brightness boost (additive blending, so > 1 reads as glow, not clip). */
+const TRAIL_PX = 6;
+const TRAIL_FADE = 1.2;
+const TRAIL_BOOST = 1.5;
+/** Beacon bead radius (m). */
+const BEAD_R = 0.07;
+
+/**
+ * Pooled drone trails: per drone one Line and one Points sharing a position buffer, fading to black (additive
+ * blending) along the trail. The points are where the drone was at job progress p - i * TRAIL_STEP, so the same state
+ * always draws the same trail and scrolling back rewinds it. A trail with no travel in it (parked, hovering) is hidden.
+ */
+function createTrails(colours: (string | null)[], perLane: number): {
+  /** One group holding every trail object; the caller adds it to the part's root (after the depots and drones). */
+  object: Group;
+  /** Place drone di's trail for a job at progress p flying (ax, az) -> (bx, bz) between heights y0 and y1; `show` false hides it. */
+  set(di: number, show: boolean, ax: number, az: number, bx: number, bz: number, y0: number, y1: number, p: number): void;
+  dispose(): void;
+} {
+  const lineMat = new LineBasicMaterial({ vertexColors: true, transparent: true, blending: AdditiveBlending, depthWrite: false });
+  const pointMat = new PointsMaterial({ size: TRAIL_PX, sizeAttenuation: false, vertexColors: true, transparent: true, blending: AdditiveBlending, depthWrite: false });
+  const geos: BufferGeometry[] = [];
+  const positions: Float32Array[] = [];
+  const attrs: BufferAttribute[] = [];
+  const objs: Object3D[][] = [];
+  const c = new Color();
+  const group = new Group();
+  group.name = 'trails';
+  for (let k = 0; k < colours.length; k++) {
+    for (let d = 0; d < perLane; d++) {
+      const geo = new BufferGeometry();
+      const pos = new Float32Array(TRAIL_N * 3);
+      const col = new Float32Array(TRAIL_N * 3);
+      if (colours[k] !== null) c.set(colours[k] as string);
+      for (let i = 0; i < TRAIL_N; i++) {
+        const f = Math.pow(1 - i / (TRAIL_N - 1), TRAIL_FADE) * TRAIL_BOOST;
+        col[i * 3] = c.r * f; col[i * 3 + 1] = c.g * f; col[i * 3 + 2] = c.b * f;
+      }
+      const attr = new BufferAttribute(pos, 3);
+      attr.setUsage(DynamicDrawUsage);
+      geo.setAttribute('position', attr);
+      geo.setAttribute('color', new BufferAttribute(col, 3));
+      const line = new Line(geo, lineMat);
+      const pts = new Points(geo, pointMat);
+      line.frustumCulled = false;
+      pts.frustumCulled = false;
+      line.visible = false;
+      pts.visible = false;
+      group.add(line, pts);
+      geos.push(geo);
+      positions.push(pos);
+      attrs.push(attr);
+      objs.push([line, pts]);
+    }
+  }
+  return {
+    object: group,
+    set(di, show, ax, az, bx, bz, y0, y1, p) {
+      const pos = positions[di];
+      let on = show && colours[Math.floor(di / perLane)] !== null;
+      if (on) {
+        for (let i = 0; i < TRAIL_N; i++) {
+          const s = jobTravel(p - i * TRAIL_STEP);
+          pos[i * 3] = ax + (bx - ax) * s;
+          pos[i * 3 + 1] = y0 + (y1 - y0) * s;
+          pos[i * 3 + 2] = az + (bz - az) * s;
+        }
+        // Nothing to trail while the drone sits still (hovering or parked).
+        on = jobTravel(p) - jobTravel(p - (TRAIL_N - 1) * TRAIL_STEP) > 1e-3;
+        attrs[di].needsUpdate = true;
+      }
+      objs[di][0].visible = on;
+      objs[di][1].visible = on;
+    },
+    dispose() {
+      for (const g of geos) g.dispose();
+      lineMat.dispose();
+      pointMat.dispose();
+    },
+  };
+}
 
 /** Depot -> lot travel for a job progress p: out over the first 15%, hover, home over the last 15%. */
 function jobTravel(p: number): number {
@@ -70,7 +160,9 @@ export const createDrones: CreateDrones = (layout: LotLayout, palette: CityPalet
     const laneColour = depot.lane === 'agy' ? palette.laneAgy : palette.laneOpencode;
 
     const depotMat = new MeshLambertMaterial({
-      color: used ? new Color(laneColour) : new Color(palette.ink).multiplyScalar(0.45),
+      color: used ? new Color(laneColour) : new Color(palette.ink).multiplyScalar(0.2),
+      emissive: used ? new Color(laneColour) : new Color(0x000000),
+      emissiveIntensity: LANE_EMISSIVE,
     });
     materials.push(depotMat);
     const depotMesh = new Mesh(used ? boxUsedGeo : boxFlatGeo, depotMat);
@@ -79,7 +171,9 @@ export const createDrones: CreateDrones = (layout: LotLayout, palette: CityPalet
     root.add(depotMesh);
 
     const droneMat = new MeshLambertMaterial({
-      color: used ? new Color(laneColour) : new Color(palette.ink).multiplyScalar(0.6),
+      color: used ? new Color(laneColour) : new Color(palette.ink).multiplyScalar(0.3),
+      emissive: used ? new Color(laneColour) : new Color(0x000000),
+      emissiveIntensity: LANE_EMISSIVE * 1.4,
     });
     materials.push(droneMat);
     for (let d = 0; d < DRONES_PER_DEPOT; d++) {
@@ -96,6 +190,10 @@ export const createDrones: CreateDrones = (layout: LotLayout, palette: CityPalet
     }
   }
 
+  const trails = createTrails(layout.depots.map((dp) => (dp.used ? (dp.lane === 'agy' ? palette.laneAgy : palette.laneOpencode) : null)), DRONES_PER_DEPOT);
+
+  root.add(trails.object);
+
   // Idle-motion clock only; the base position below is a pure function of `state`.
   let time = 0;
 
@@ -106,6 +204,7 @@ export const createDrones: CreateDrones = (layout: LotLayout, palette: CityPalet
       for (let d = 0; d < DRONES_PER_DEPOT; d++) {
         const di = k * DRONES_PER_DEPOT + d;
         const m = drones[di];
+        trails.set(di, false, 0, 0, 0, 0, 0, 0, 0);
         if (d < nJobs) {
           const job = state.drones[k].jobs[d];
           const li = lotBySlug.get(job.slug);
@@ -121,6 +220,7 @@ export const createDrones: CreateDrones = (layout: LotLayout, palette: CityPalet
             const bob = Math.sin(time * BOB_FREQ + di * 1.7) * BOB_AMP * s;
             m.position.set(x, CONE_HALF + (hoverY - CONE_HALF) * s + bob, z);
             m.rotation.set(0, Math.atan2(lot.x - depotX[k], lot.z - depotZ[k]), 0);
+            trails.set(di, true, depotX[k], depotZ[k], lot.x, lot.z, CONE_HALF, hoverY, job.progress);
           }
         } else {
           m.position.set(parkX[di], CONE_HALF, parkZ[di]);
@@ -134,6 +234,7 @@ export const createDrones: CreateDrones = (layout: LotLayout, palette: CityPalet
   function dispose(): void {
     if (disposed) return;
     disposed = true;
+    trails.dispose();
     coneGeo.dispose();
     boxUsedGeo.dispose();
     boxFlatGeo.dispose();
@@ -185,9 +286,13 @@ const ROTOR_GREY = '#aab2ba';
 const ROTOR_NAMES = ['rotor_fl', 'rotor_fr', 'rotor_bl', 'rotor_br'];
 
 /** A per-lane copy of the shared kit material, tinted to one colour. */
-function tintedClone(base: Material, hex: string): Material {
+function tintedClone(base: Material, hex: string, glow = 0): Material {
   const m = base.clone();
   (m as unknown as { color: Color }).color.set(hex);
+  if (glow > 0) {
+    (m as unknown as { emissive: Color }).emissive.set(hex);
+    (m as unknown as { emissiveIntensity: number }).emissiveIntensity = glow;
+  }
   return m;
 }
 
@@ -200,8 +305,8 @@ function createKitDrones(layout: LotLayout, palette: CityPalette, kit: Kit): Cit
   for (let i = 0; i < layout.lots.length; i++) lotBySlug.set(layout.lots[i].slug, i);
 
   // One lane material per colour (white map swatch times colour), plus a dim one for the unused lane.
-  const laneMatAgy = tintedClone(kit.material, palette.laneAgy);
-  const laneMatOpencode = tintedClone(kit.material, palette.laneOpencode);
+  const laneMatAgy = tintedClone(kit.material, palette.laneAgy, LANE_EMISSIVE);
+  const laneMatOpencode = tintedClone(kit.material, palette.laneOpencode, LANE_EMISSIVE);
   const laneMatDim = tintedClone(kit.material, palette.ink);
   (laneMatDim as unknown as { color: Color }).color.multiplyScalar(0.6);
   const laneMats = [laneMatAgy, laneMatOpencode];
@@ -212,6 +317,10 @@ function createKitDrones(layout: LotLayout, palette: CityPalette, kit: Kit): Cit
   (rotorMat as unknown as { color: Color }).color.set(ROTOR_GREY);
   rotorMat.needsUpdate = true;
 
+  // Beacon beads (one shared geometry, one unlit additive material per lane), added to each used lane's drones below.
+  const beadGeo = new SphereGeometry(BEAD_R, 10, 8);
+  const beadMats = [palette.laneAgy, palette.laneOpencode].map((hex) => new MeshBasicMaterial({ color: new Color(hex).multiplyScalar(1.6), toneMapped: false }));
+  const trails = createTrails(layout.depots.map((dp) => (dp.used ? (dp.lane === 'agy' ? palette.laneAgy : palette.laneOpencode) : null)), DRONES_PER_DEPOT);
   const droneTpl = kit.templates.get('drone');
   const depotTpl = kit.templates.get('depot');
 
@@ -279,6 +388,12 @@ function createKitDrones(layout: LotLayout, palette: CityPalette, kit: Kit): Cit
       const drone = droneTpl ? droneTpl.clone(true) : new Group();
       dress(drone, depot.used ? laneMat : laneMatDim);
       drone.scale.setScalar(DRONE_SCALE);
+      if (depot.used) {
+        const bead = new Mesh(beadGeo, beadMats[depot.lane === 'agy' ? 0 : 1]);
+        bead.position.set(0, 0.38, 0);
+        bead.userData.noShadowCast = true;
+        drone.add(bead);
+      }
       drone.position.set(px, PAD_RING_Y, pz);
       drone.rotation.set(0, depot.facing, 0);
       root.add(drone);
@@ -291,6 +406,8 @@ function createKitDrones(layout: LotLayout, palette: CityPalette, kit: Kit): Cit
       heads[heads.length - 1].position.y = HOOK_PARK_HEAD_Y;
     }
   }
+
+  root.add(trails.object);
 
   // Idle-motion clock only; base positions are a pure function of `state`.
   let time = 0;
@@ -305,6 +422,7 @@ function createKitDrones(layout: LotLayout, palette: CityPalette, kit: Kit): Cit
         const m = drones[di];
         const cable = cables[di];
         const head = heads[di];
+        trails.set(di, false, 0, 0, 0, 0, 0, 0, 0);
         if (d < nJobs) {
           const job = state.drones[k].jobs[d];
           const li = lotBySlug.get(job.slug);
@@ -322,6 +440,7 @@ function createKitDrones(layout: LotLayout, palette: CityPalette, kit: Kit): Cit
             const bob = Math.sin(time * BOB_FREQ + di * 1.7) * BOB_AMP * s;
             m.position.set(x, PAD_RING_Y + (hoverY - PAD_RING_Y) * s + bob, z);
             m.rotation.set(0, Math.atan2(lot.x - depotX[k], lot.z - depotZ[k]), 0);
+            trails.set(di, true, depotX[k], depotZ[k], lot.x, lot.z, PAD_RING_Y, hoverY, job.progress);
             // Pay the hook out while hovering so the head drops towards the roof; retracted in transit.
             const hk = HOOK_PARK_K + (HOOK_K_HOVER - HOOK_PARK_K) * s;
             cable.scale.y = hk;
@@ -350,6 +469,9 @@ function createKitDrones(layout: LotLayout, palette: CityPalette, kit: Kit): Cit
     if (disposed) return;
     disposed = true;
     root.clear();
+    trails.dispose();
+    beadGeo.dispose();
+    for (const m of beadMats) m.dispose();
     for (const m of laneMats) m.dispose();
     laneMatDim.dispose();
     rotorMat.dispose();
