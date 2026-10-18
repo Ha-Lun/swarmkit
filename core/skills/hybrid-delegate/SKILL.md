@@ -28,11 +28,12 @@ Everything else in the approved plan goes to a worker.
    | Task | Backend |
    |---|---|
    | Implementation where the worker should run its own tests | `opencode-task` (free `opencode-go/` model) |
+| The same, needing a specialty (UI, animation, backend, devops...) | `opencode-task --agent <specialist>` (lane model; opencode only, never `lead-dev-hybrid`) |
    | Bulk edits / boilerplate where you run the tests | `agy-task` (default `gemini-3.8-flash-high`) |
    | Second opinion on your own diff | `agy-task --review --model gemini-3.8-flash-high` |
    | Context-dependent work that cannot be handed off cold | Your own `Agent` subagents (Claude lane) |
 
-   Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'); use the lane default unless the owner names a model, and never add a model without the owner's OK. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`). Give it a verify command from that list, or run the verify yourself after it lands.
+   Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'); use the lane default unless the owner names a model, and never add a model without the owner's OK. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`). Give it a verify command from that list, or run the verify yourself after it lands. A worker can't `cd`, so for a project in a subdirectory (e.g. `site/`) run the verify yourself.
 
    Cross-review runs on the other lane's default model (agy reviews opencode-written branches, opencode-task reviews agy-written ones). No --model flag.
 
@@ -51,7 +52,7 @@ Everything else in the approved plan goes to a worker.
 
 ## Workflow mode
 
-With the `Workflow` tool available (dynamic workflows on) and 3 or more tasks, run the saved `hybrid-build` workflow instead of the hand-run loop above. It takes `args = { tasks: [{ slug, lane: 'opencode'|'agy', prompt, verify, files }], review: true }`, runs each worker through a small Haiku dispatcher (`--wait` queues behind the shared cap), verifies every branch with its own verify command, cross-reviews it per lane on the other lane's default model (no --model flag), and returns only `{ ready, failed, findings }`. You merge the `ready` branches and handle the rest; your context never sees raw worker output. Dynamic workflows are off by default on some plans: `enableWorkflows` in settings.json, or the Dynamic workflows row in `/config`.
+With the `Workflow` tool available (dynamic workflows on) and 3 or more tasks, run the saved `hybrid-build` workflow instead of the hand-run loop above. It takes `args = { tasks: [{ slug, lane: 'opencode'|'agy', prompt, verify, files, agent? }], review: true }` (`agent` names an opencode specialist; ignored on agy), runs each worker through a small Haiku dispatcher (`--wait` queues behind the shared cap), verifies every branch with its own verify command, cross-reviews it per lane on the other lane's default model (no --model flag), and returns only `{ ready, failed, findings }`. You merge the `ready` branches and handle the rest; your context never sees raw worker output. Dynamic workflows are off by default on some plans: `enableWorkflows` in settings.json, or the Dynamic workflows row in `/config`.
 
 ## Safety facts
 

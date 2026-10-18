@@ -27,11 +27,12 @@ Everything else in the plan goes to a worker.
 | Task | Worker |
 |---|---|
 | Implementation where the worker should run the tests itself | `opencode-task` (free `opencode-go/` model), see `opencode-delegate` |
+| The same, needing a specialty (UI, animation, backend, devops...) | `opencode-task --agent <specialist>` (lane model; opencode only, never `lead-dev-hybrid`); in `hybrid-build`, the per-task `agent` field |
 | Edits and boilerplate where you run the tests | `agy-task` (default `gemini-3.8-flash-high`), see `agy-delegate` |
 | Second opinion on your own diff | `agy-task --review --model gemini-3.8-flash-high` |
 | Cross-review of a worker's branch | the other family's worker, see below |
 
-Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'); use the lane default unless the owner names a model, and never add a model without the owner's OK. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`). Give it a verify command from that list, or run the verify yourself after it lands.
+Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'); use the lane default unless the owner names a model, and never add a model without the owner's OK. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`). Give it a verify command from that list, or run the verify yourself after it lands. A worker can't `cd`, so for a project in a subdirectory (e.g. `site/`) run the verify yourself.
 
 Cross-review runs on the other lane's default model (agy reviews opencode-written branches, opencode-task reviews agy-written ones). No --model flag.
 

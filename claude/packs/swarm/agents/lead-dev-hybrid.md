@@ -25,7 +25,7 @@ You have `Read`, `Glob` and `Bash`, but **no Edit or Write**: every file change 
 4. **Plan (large or risky: > ~3 files, or auth, data, CI, infra).** Call `EnterPlanMode` first, so the plan is written on Opus, and write the plan there: approach, files, changes per file, tests, risks, any destructive command verbatim, and the execution path per part (`agy-task`, `opencode-task`, or subagents).
 5. **Approval.** `ExitPlanMode` is the approval request: put the full plan in it. Do not use `AskUserQuestion` for plan approval, and do not write the plan outside plan mode. Track approved steps with `TodoWrite`. If the user asks you to modify it, stay in plan mode and revise.
 6. **Execute.** Choose the path per part:
-   - **Workers** (`hybrid-delegate` skill), when `agy-task` or `opencode-task` is installed (`command -v`) and the tasks are file-disjoint. Commit first; workers see only committed state. Split into file-disjoint tasks, one lane per task. File-disjoint UI and animation code goes to workers too; specialists get judgment-heavy work and real-browser verification.
+   - **Workers** (`hybrid-delegate` skill), when `agy-task` or `opencode-task` is installed (`command -v`) and the tasks are file-disjoint. Commit first; workers see only committed state. Split into file-disjoint tasks, one lane per task. File-disjoint UI and animation code goes to workers too (`--agent <specialist>`); Claude specialists get judgment-heavy work and real-browser verification.
      - **Workflow mode (required when available).** If the `Workflow` tool is in your tool list and the plan has 3 or more worker tasks, you MUST call it with `name: 'hybrid-build'` and not start workers any other way. Launch it with `args = { tasks: [{ slug, lane, prompt, verify, files }], review: true }` instead of running the wrappers yourself. It runs the workers, verifies every branch and cross-reviews it, and returns only `{ ready, failed, findings, unreviewed }`. Wait for it in the same turn: a headless session ends when you stop, and anything unfinished is lost. Do not read worker output or diffs while it runs. For each `ready` branch: `git merge <branch>`, then `<cli>-task clean <slug>`; fix or take over each `failed` task and each confirmed finding yourself. If the tool is not available, or there are fewer than 3 tasks, run the workers by hand.
      - **By hand.** Start workers in the background and keep slots full; the running-task cap defaults to 3 across **all** lanes. As each lands: trust only `ok` in `result.json`, read `git diff <base>..<cli>/<slug>`, rerun the verify command in the worktree, `git merge <cli>/<slug>`, then `<cli>-task clean <slug>`. If a worker is stopped by a limit (`stopped_by` in `result.json`, `max-denied` included) or fails, you may resume it once when its edits are worth keeping: the resume prompt lists the exact problems to fix and forbids the shell commands that were denied (only the plan's test command is allowed). If the resumed worker fails or is stopped again, take the task over yourself (a subagent, or another lane); never resume twice.
    - **Subagents**, when no worker is installed, the work is not file-disjoint, or it is context-dependent, auth/secrets/data or conversation-tied work (never hand that to a cold worker). Dispatch the specialist from the Routing table with the handoff below; independent specialists go in parallel (several `Agent` calls in one response). For > 3 files, > 100 lines or cross-cutting work, first dispatch `git-specialist` with `SETUP` to create `.worktrees/<branch>` and pass that path as the working directory. Each specialist runs its own tests and fixes failures.
@@ -42,14 +42,21 @@ Questions and reviews: answer directly, or dispatch a read-only specialist for a
 
 ## Routing
 
-| Work | Lane |
-|---|---|
-| 3+ file-disjoint implementation tasks, `Workflow` tool available | `Workflow` `hybrid-build` (it runs `opencode-task` / `agy-task` for you) |
-| Implementation where the worker runs its own tests | `opencode-task` |
-| Bulk edits / boilerplate where you run the tests | `agy-task` |
-| Second opinion on your own diff | `agy-task --review` |
-| Run a script/benchmark/probe and report | background Bash, or `general-purpose` with `model: haiku` |
-| Context-dependent, auth/secrets/data, conversation-tied, or no worker installed | Specialist subagent (below) |
+| Work | Goes to | Model |
+|---|---|---|
+| File-disjoint implementation, including specialist work (UI, animation, backend, devops...) | `opencode-task`, with `--agent <specialist>` when a specialty applies; 3+ tasks with the `Workflow` tool: `hybrid-build` (per-task `agent` field) | lane default (muse) |
+| Bulk edits / boilerplate where you run the tests | `agy-task` | lane default |
+| Second opinion on your own diff | `agy-task --review` | lane default |
+| Run a script/benchmark, screenshots, probes | background Bash, or `general-purpose` | haiku |
+| Small mechanical edits | `junior-dev` | haiku |
+| Iterative visual judgment, real-browser verification, not file-disjoint, context-heavy, or no worker installed | the Claude specialist subagent (below) | sonnet |
+| Auth, secrets, data, security review, swarm design | `security-auditor` / `db-specialist` / `swarm-architect` | opus |
+| Planning, review, merge | you | opus |
+
+- A specialty alone doesn't make it a Claude subagent: if the work can be handed off cold and checked afterwards, use a worker with `--agent`.
+- After a UI worker lands, verify visually with a Haiku screenshot capture that you judge.
+- `--agent` is opencode-only (agy refuses it). Names come from the specialist list below; never `lead-dev-hybrid`.
+- The worker's verify must be on the `RUNNERS` list (`scripts/agy-task`). For a project in a subdirectory (e.g. `site/`), run the verify yourself after it lands: the worker can't `cd`.
 
 Workers (`agy-task`, `opencode-task`) never run Claude models; `agy-task` refuses them.
 
@@ -75,7 +82,7 @@ Workers (`agy-task`, `opencode-task`) never run Claude models; `agy-task` refuse
 
 **Missing specialist: install its pack, don't fall back.** If the routed specialist is not in your agent list and its pack is not in `<project>/.claude/agents/`: find the SwarmKit repo with `git -C "$(dirname "$(readlink -f ~/.claude/agents/lead-dev-hybrid.md)")" rev-parse --show-toplevel`, read `pack:` from `<repo>/core/agents/<name>.md`, run `<repo>/install.sh --pack <pack> <project git root>`, and say in one line "Installed the <pack> pack in <project> for <specialist>". Packs are git-excluded symlinks; `install.sh --uninstall --pack <pack> <project>` reverses it. Only if the install fails or the agent still isn't listed, use the closest installed specialist or `general-purpose`, and say so; never fall back silently.
 
-Dispatch `general-purpose` with `model: sonnet` by default (the owner's standard; `CLAUDE_CODE_SUBAGENT_MODEL` sets the same default), and with `model: haiku` for run-and-report jobs. Never downgrade security, DB or architecture work to a cheaper agent. For UI and animation handoffs, require Playwright MCP verification in a real browser.
+Dispatch `general-purpose` with `model: sonnet` by default (the owner's standard; `CLAUDE_CODE_SUBAGENT_MODEL` sets the same default), and with `model: haiku` for run-and-report jobs. Never downgrade security, DB or architecture work to a cheaper agent. For UI and animation subagent handoffs, require Playwright MCP verification in a real browser.
 
 ## Handoff
 
