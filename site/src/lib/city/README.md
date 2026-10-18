@@ -44,7 +44,29 @@ progress), `mergeAll`, `bill`, `counters` (dispatched, built, merged, merging, r
 resumes; `merging` = lots in the air right now, the only counter that goes down). Units
 and edge cases are in the comments in `types.ts`.
 
-## Look
+## Night look (current)
+
+The page is dark, so the scene is a night diorama. Background and fog are the `--sky` token (scene.ts `SKY_LIFT`).
+Three lights: a low warm key (`--light-warm`, sun 0.85, long soft shadows), a cool hemisphere fill (`--light-cool`,
+0.42, deep blue ground) and a shadowless cool rim from the far side (0.9) so silhouettes keep an edge. Tone mapping is
+unchanged and nothing needs bloom; the glow is emissive:
+
+- Windows (buildings.ts): an 8 x 8 emissive mask in the kit palette's layout lights the glass swatches (10, 11, 15) in
+  `--light-warm`. A shader patch adds a per-instance `aGlow` (share of windows lit) and hashes the window cell, so
+  windows flicker on individually and the same state gives the same picture. The existing city is dim with a seeded
+  10-30% lit; a new lot's share follows its build (12% when started, 93% when built). Material `onBeforeCompile` only,
+  no extra passes.
+- Lane accents: new lots' lane parts (frieze, roof deck) are self-lit in their lane colour by the same `aGlow`; the
+  lot plates (merge.ts) glow with their lot's build; roads and their centre lines carry a faint glow; depots and drone
+  canopies are emissive in the lane colour.
+- Drones (drones.ts): a beacon bead on each used drone plus a pooled trail (one Line and one Points sharing a position
+  buffer, additive, fading). The trail is the drone's path at job progress `p - i * 0.02`, a pure function of state,
+  hidden while the drone hovers or is parked.
+- Scan (scan.ts): translucent emissive blue sheet and rings; the orchestrator ring is warm.
+
+The daylight values in the next section (paper sky, tan table lighting, sun 3.3) are superseded by this one.
+
+## Look (daylight history)
 
 Light paper diorama: background and fog are a pale sky (`--paper` lifted towards white, scene.ts `SKY_*`), and with the kit the floor beyond the slab is unlit and takes the same colour. With the kit the table is real (`table.ts`): a tan slab
 (`table_top` swatch, wooden fascia) 3.4 m outside `layout.bounds`, the kit's `table_corner` lips at its four corners
@@ -71,15 +93,18 @@ buildings run `H_MIN`..`H_MAX` (1.6..3.6 m, log of tokens), in scale with the ol
 
 ## Camera
 
-`camera.ts` frames one rect of the layout per beat with an exact, aspect-aware fit (every corner of the rect's box,
-ground to `H_MAX` plus the merge lift, inside the band `FRAME_PAD` leaves free: above the caption and HUD in
-landscape, between the HUD at the top and the caption at the bottom in portrait). Portrait shots turn (one yaw, 82, for
+`camera.ts` frames one rect of the layout per beat with an exact, aspect-aware fit: every corner of the rect's box
+(ground to `H_MAX` plus the merge lift) must land inside `FRAME_BOUNDS`, the part of the screen the DOM leaves free,
+and the rect's centre is placed in the middle of that region. On a wide screen (aspect > `SPLIT_ASPECT` 1.2) the
+terminal panel takes the left ~40%, so the city lives in x >= -0.14 (NDC); in portrait or on a phone the terminal is a
+bottom sheet, so the city lives in the top ~58% (y >= -0.12). The stacked hero uses `HERO_STACKED`: the city below the
+title block, the sheet not up yet. Portrait shots turn (one yaw, 82, for
 every beat, so the view never swings between beats) and look more from above so the long axis runs up the screen and
 the fit is bound by height. In portrait the hero frames the city and its empty slots only (the plot is mostly out of
 frame at u = 0 and slides in by the task beat), so the city fills the band. Labels are
 de-collided per frame in scene.ts (greedy in lot order; a label overlapping one already placed hides, with hysteresis: a shown label hides only when
 boxes overlap by a margin, a hidden one returns after being clear for 0.3 s; static frames use no hysteresis). The
-landscape hero frames the whole city plus the plot, offset right of the hero panel; lanes keeps both depots in
+landscape hero frames the whole city plus the plot in the region right of the terminal; lanes keeps both depots in
 frame. Keys are joined by one Catmull-Rom curve with a monotone u -> t map, so speed is continuous.
 
 ## How to write a visual part

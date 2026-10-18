@@ -172,11 +172,13 @@ export const createScan: CreateScan = (layout: LotLayout, palette: CityPalette):
   pennShape.closePath();
   const flagGeo = new ShapeGeometry(pennShape);
 
-  const verifyMat = new MeshLambertMaterial({ color: palette.line });
-  const orchMat = new MeshLambertMaterial({ color: palette.lightWarm });
-  const barMat = new MeshLambertMaterial({ color: palette.line, transparent: true, opacity: 0.8, depthWrite: false });
-  const okMat = new MeshLambertMaterial({ color: palette.ok });
-  const failMat = new MeshLambertMaterial({ color: palette.fail, side: DoubleSide });
+  // Night: the scan is light. Emissive blue (palette.line) for verify and the cross-model sheet, translucent so the
+  // lots show through it; the orchestrator's ring is warm. Status markers glow too (shape still carries the meaning).
+  const verifyMat = new MeshLambertMaterial({ color: palette.line, emissive: palette.line, emissiveIntensity: 0.9, transparent: true, opacity: 0.85, depthWrite: false });
+  const orchMat = new MeshLambertMaterial({ color: palette.lightWarm, emissive: palette.lightWarm, emissiveIntensity: 0.8, transparent: true, opacity: 0.9, depthWrite: false });
+  const barMat = new MeshLambertMaterial({ color: palette.line, emissive: palette.line, emissiveIntensity: 1.0, transparent: true, opacity: 0.55, depthWrite: false });
+  const okMat = new MeshLambertMaterial({ color: palette.ok, emissive: palette.ok, emissiveIntensity: 0.6 });
+  const failMat = new MeshLambertMaterial({ color: palette.fail, emissive: palette.fail, emissiveIntensity: 0.6, side: DoubleSide });
 
   // --- Sweeping indicator meshes (exactly one kind visible at a time, none when idle).
   const verifyRing = new Mesh(verifyGeo, verifyMat);

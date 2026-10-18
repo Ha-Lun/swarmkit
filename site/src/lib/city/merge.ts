@@ -22,17 +22,23 @@ import type { CityPalette, CityPart, CreateMerge, LotLayout, StageState } from '
 const PLATE_H = 0.12;
 /** Road strip thickness (m). */
 const ROAD_H = 0.03;
-/** Road surface: palette.paper darkened, then mixed this far towards palette.line. */
-const ROAD_DARKEN = 0.84;
-const ROAD_TINT = 0.12;
-/** Centre line: width (m), share of the road's length, and how far palette.paper is mixed towards palette.line. */
+/** Road surface at night: palette.paper mixed this far towards palette.line (dark asphalt with a blue cast), faintly self-lit. */
+const ROAD_TINT = 0.3;
+const ROAD_GLOW = 0.35;
+/** Centre line: width (m), share of the road's length, and how far palette.paper is mixed towards palette.line; it glows. */
 const CENTRE_W = 0.07;
 const CENTRE_LEN = 0.94;
-const CENTRE_TINT = 0.45;
+const CENTRE_TINT = 0.85;
+const CENTRE_GLOW = 0.7;
+/** Lane plates and status markers are self-lit, so a lot reads as lit ground, not a flat tile. */
+const PLATE_GLOW = 0.45;
+/** A plate glows this much before its lot is built; the rest comes with the build. */
+const PLATE_IDLE = 0.1;
+const MARK_GLOW = 0.4;
 /** City-block ground plate thickness (m); its top sits at y = 0. */
 const GROUND_H = 0.3;
-/** How much the block ground plate darkens palette.paper. */
-const PAPER_DARKEN = 0.9;
+/** The block ground plate: palette.paper lifted this far towards palette.line, so the old town reads as a slate lot, not a hole. */
+const GROUND_TINT = 0.2;
 
 type PlateMesh = Mesh<BoxGeometry, MeshLambertMaterial>;
 
@@ -42,14 +48,17 @@ export const createMerge: CreateMerge = (layout: LotLayout, palette: CityPalette
   const geometries: BufferGeometry[] = [];
   const materials: Material[] = [];
 
-  const groundMat = new MeshLambertMaterial({ color: new Color(palette.paper).multiplyScalar(PAPER_DARKEN) });
   const line = new Color(palette.line);
-  const roadMat = new MeshLambertMaterial({ color: new Color(palette.paper).multiplyScalar(ROAD_DARKEN).lerp(line, ROAD_TINT) });
-  const centreMat = new MeshLambertMaterial({ color: new Color(palette.paper).lerp(line, CENTRE_TINT) });
-  const agyMat = new MeshLambertMaterial({ color: new Color(palette.laneAgy) });
-  const opencodeMat = new MeshLambertMaterial({ color: new Color(palette.laneOpencode) });
-  const okMat = new MeshLambertMaterial({ color: new Color(palette.ok) });
-  const failMat = new MeshLambertMaterial({ color: new Color(palette.fail) });
+  const groundMat = new MeshLambertMaterial({ color: new Color(palette.paper).lerp(line, GROUND_TINT) });
+  const roadColour = new Color(palette.paper).lerp(line, ROAD_TINT);
+  const roadMat = new MeshLambertMaterial({ color: roadColour, emissive: roadColour, emissiveIntensity: ROAD_GLOW });
+  const centreColour = new Color(palette.paper).lerp(line, CENTRE_TINT);
+  const centreMat = new MeshLambertMaterial({ color: centreColour, emissive: centreColour, emissiveIntensity: CENTRE_GLOW });
+  const glowing = (hex: string, k: number) => new MeshLambertMaterial({ color: hex, emissive: hex, emissiveIntensity: k });
+  const agyMat = glowing(palette.laneAgy, PLATE_GLOW);
+  const opencodeMat = glowing(palette.laneOpencode, PLATE_GLOW);
+  const okMat = glowing(palette.ok, MARK_GLOW);
+  const failMat = glowing(palette.fail, MARK_GLOW);
   materials.push(groundMat, roadMat, centreMat, agyMat, opencodeMat, okMat, failMat);
 
   // The existing city block's ground: always visible, never moves.
@@ -74,13 +83,19 @@ export const createMerge: CreateMerge = (layout: LotLayout, palette: CityPalette
   geometries.push(tickGeo, flagGeo);
 
   const footprintMeshes: PlateMesh[] = [];
+  const plateMats: MeshLambertMaterial[] = [];
+  const annexMats: MeshLambertMaterial[] = [];
   const tickMeshes: PlateMesh[] = [];
   const flagMeshes: Array<Mesh<ConeGeometry, MeshLambertMaterial>> = [];
   for (let f = 0; f < origIndex.length; f++) {
     const lot = layout.lots[origIndex[f]];
     const geo = new BoxGeometry(lot.w, PLATE_H, lot.d);
     geometries.push(geo);
-    const mesh: PlateMesh = new Mesh(geo, lot.lane === 'agy' ? agyMat : opencodeMat);
+    // Own material per plate: it lights up with its lot's build (see update).
+    const plateMat = (lot.lane === 'agy' ? agyMat : opencodeMat).clone();
+    materials.push(plateMat);
+    plateMats.push(plateMat);
+    const mesh: PlateMesh = new Mesh(geo, plateMat);
     mesh.position.set(lot.x, PLATE_H / 2, lot.z);
     mesh.userData.kind = 'footprint';
     mesh.userData.slug = lot.slug;
@@ -176,7 +191,10 @@ export const createMerge: CreateMerge = (layout: LotLayout, palette: CityPalette
     const lot = layout.lots[extraIndex[j]];
     const geo = new BoxGeometry(lot.w, PLATE_H, lot.d);
     geometries.push(geo);
-    const mesh: PlateMesh = new Mesh(geo, lot.lane === 'agy' ? agyMat : opencodeMat);
+    const plateMat = (lot.lane === 'agy' ? agyMat : opencodeMat).clone();
+    materials.push(plateMat);
+    annexMats.push(plateMat);
+    const mesh: PlateMesh = new Mesh(geo, plateMat);
     mesh.position.set(lot.x, PLATE_H / 2, lot.z);
     mesh.scale.set(0, 1, 0);
     mesh.visible = false;
@@ -198,6 +216,7 @@ export const createMerge: CreateMerge = (layout: LotLayout, palette: CityPalette
       footprintMeshes[f].position.set(pose.x, pose.y + PLATE_H / 2, pose.z);
       // Lots exist only once the plan splits the plot: before that the plot is an empty blueprint.
       footprintMeshes[f].visible = state.split > 0;
+      plateMats[f].emissiveIntensity = PLATE_IDLE + (PLATE_GLOW - PLATE_IDLE) * (w.build <= 0 ? 0 : w.build >= 1 ? 1 : w.build);
       tickMeshes[f].visible = w.scan === 'passed';
       flagMeshes[f].visible = w.scan === 'flagged';
     }
@@ -232,6 +251,7 @@ export const createMerge: CreateMerge = (layout: LotLayout, palette: CityPalette
       const mesh = annexMeshes[j];
       mesh.scale.set(m, 1, m);
       mesh.visible = m > 0;
+      annexMats[j].emissiveIntensity = PLATE_IDLE + (PLATE_GLOW - PLATE_IDLE) * (xs.build <= 0 ? 0 : xs.build >= 1 ? 1 : xs.build);
     }
   }
 
