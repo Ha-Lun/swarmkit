@@ -5,6 +5,7 @@ All notable changes to the opencode-config repository.
 ## [Unreleased]
 
 ### Removed
+- 2026-10-18: the showcase site (`site/`) from `main`, so clones of the swarm config don't carry it. Why: it is a separate deploy, not part of the config. It now lives on branch `showcase`, which Vercel deploys to production; merge `main` into `showcase` when agents or skills change (the site build reads `../core/agents` and `../core/skills`). `scripts/bench/summarize.py --write` targets `site/public/data/benchmark_metrics.json`, so run it on `showcase`.
 - 2026-10-16: the `lead-dev` agent and the whole Codex target (the `codex-task` worker lane and `codex-delegate` skill, the `codex/` build outputs and `codex/rules.md`, `./install.sh --codex`). Why: `lead-dev-hybrid` is now the single orchestrator (OpenCode's default primary agent too) and also covers the no-worker case by dispatching specialist subagents; there is no Codex subscription. To get them back: the last commit before the removal is tagged `archive/lead-dev-and-codex-task` (a local tag; the same commit, `f3afa6c`, is in main's history).
   - Read a file: `git show archive/lead-dev-and-codex-task:core/agents/lead-dev.md`; list what was there: `git ls-tree -r --name-only archive/lead-dev-and-codex-task -- codex core/skills/codex-delegate`
   - Restore: `git checkout archive/lead-dev-and-codex-task -- core/agents/lead-dev.md core/agents/claude/lead-dev.md core/agents/opencode/lead-dev.md core/skills/codex-delegate scripts/codex-task codex`, then `python3 scripts/build.py`.
