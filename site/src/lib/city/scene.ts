@@ -103,7 +103,7 @@ const PROBE = { warmup: 10, ms: 800, minFrames: 20, stepDownBelow: 45, lowBelow:
 // the picture comes from emissive: lit windows, lane accents, drones (no bloom; see buildings.ts, drones.ts).
 const SUN_INTENSITY = 0.85;
 const HEMI_INTENSITY = 0.42;
-const RIM_INTENSITY = 0.9;
+const RIM_INTENSITY = 1.3;
 /** How far the key moves from white towards --light-warm, and the fill / rim towards --light-cool. */
 const SUN_WARMTH = 0.9;
 const SKY_COOLNESS = 0.7;
@@ -112,6 +112,14 @@ const RIM_COOLNESS = 0.85;
 const SKY_LIFT = 0.012;
 /** The hemisphere's ground colour: the paper token (deep navy) lifted towards the cool light, so shadows stay blue. */
 const GROUND_LIFT = 0.16;
+/**
+ * Night board (table.ts is frozen): the kit slab's daylight tan swatch renders as dull taupe under the dim key, so
+ * the board gets its own dark blue-grey material at load (see the slab swap below): near-black, a touch lighter
+ * than the sky so the board's edge still shows.
+ */
+const BOARD_COLOR = '#1a2230';
+const BOARD_EMISSIVE = '#141a26';
+const BOARD_GLOW = 0.55;
 /** Faint blueprint grid on the table: spacing in lot cells, opacity. */
 const GRID_CELLS = 2;
 const GRID_OPACITY = 0.1;
@@ -335,6 +343,13 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
       }
     });
     scene.add(p.object);
+  }
+  // The board the city stands on keeps the shared kit material's daylight tan swatch, which reads as dull taupe at
+  // night: swap the slab onto its own dark board material (load-time only, nothing per frame; table.ts untouched).
+  const boardMat = new MeshLambertMaterial({ color: new Color(BOARD_COLOR), emissive: new Color(BOARD_EMISSIVE), emissiveIntensity: BOARD_GLOW });
+  for (const p of parts) {
+    const slab = p.object.getObjectByName('table-slab') as Mesh | undefined;
+    if (slab && slab.isMesh) slab.material = boardMat;
   }
 
   // --- Post (high tier only): RenderPass -> tilt-shift (two passes) -> OutputPass.
@@ -651,6 +666,7 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
       dropComposer();
       tableGeo.dispose();
       tableMat.dispose();
+      boardMat.dispose();
       grid.geometry.dispose();
       gridMat.dispose();
       sun.shadow.map?.dispose();
