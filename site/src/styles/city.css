@@ -79,6 +79,7 @@
   font-weight: 700;
   font-size: var(--text-base);
   text-decoration: none;
+  transition: background-color .15s, color .15s, border-color .15s, transform .15s;
 }
 .city-btn-primary { background: var(--blueprint-ink); color: var(--paper); }
 .city-btn-primary:hover { background: var(--light-warm); border-color: var(--light-warm); }
@@ -111,7 +112,9 @@
 
 /* Terminal replay panel: pinned left, ~40vw (max 560px), full pin height minus the top bar. Translucent dark panel
    with backdrop blur where supported and a hairline border. Display-only (pointer-events: none) so scroll stays with
-   the page; the client auto-scrolls the body programmatically. Hidden until the client reports a beat past hero. */
+   the page; the client keeps the newest row in view with a transform on the inner wrapper, never with a programmatic
+   scroll (a nested scroller's scrollTop cancels the document's smooth anchor scroll in Chromium). Hidden until the
+   client reports a beat past hero. */
 .city-terminal {
   position: absolute;
   top: var(--space-12);
@@ -180,9 +183,16 @@
   font-size: 0.8125rem;
   line-height: 1.7;
 }
+/* Inner wrapper carrying every row: the client shifts it up with translateY so
+   the newest revealed row stays in view. A transform never disturbs the page's
+   own scroll; position: relative makes it the rows' offsetParent so the shift
+   distance reads directly off the latest row. position/transform are
+   compositor-only. */
+.term-rows { position: relative; will-change: transform; }
 /* Unrevealed rows take no space (display: none); revealing adds .is-on, whose
    entry fade is an opacity/transform @keyframes so motion stays compositor-only.
-   Rows flow from the top; the client scrolls only once the body is full. */
+   Rows flow from the top; the client shifts the wrapper up only once the rows
+   overflow the body. */
 @keyframes term-row-in {
   from { opacity: 0; transform: translateY(4px); }
 }
@@ -271,6 +281,8 @@
   opacity: 1;
 }
 .city-stage.no-webgl .term-body { overflow: visible; }
+/* Fallback tier: the full terminal shows as static content, no shift. */
+.city-stage.no-webgl .term-rows { transform: none; will-change: auto; }
 .city-stage.no-webgl .city-static { position: static; width: auto; height: auto; margin: 0 var(--space-6); overflow: visible; clip: auto; white-space: normal; }
 .city-stage.no-webgl .city-static-list { list-style: none; padding-left: 0; gap: var(--space-8); max-width: 60rem; }
 .city-stage.no-webgl .city-still img { display: block; }
@@ -291,11 +303,13 @@
 @media (prefers-reduced-motion: no-preference) {
   .city-hero, .term-approval, .city-terminal { transition: opacity 320ms ease; }
   .city-terminal { transition-delay: 120ms; }
+  .term-rows { transition: transform 180ms ease; }
   .term-row.is-on { animation: term-row-in 200ms ease; }
   .term-stat { transition: opacity 240ms ease; }
   .lot-label { transition: opacity 200ms ease; }
 }
 @media (prefers-reduced-motion: reduce) {
+  .term-rows { transition: none; }
   .term-row.is-on { animation: none; }
 }
 
@@ -354,13 +368,16 @@
   /* Body keeps room for at least the last 4 rows: ~4 single-line rows at
      12px/1.7 (~82px) plus air for wrapped rows. */
   .term-body { min-height: 6rem; font-size: var(--text-xs); }
-  /* Compact 4-column counter grid (2 rows for the 7 cells) with smaller labels,
-     so the footer never wraps to 3 lines or reaches the browser toolbar. */
+  /* Compact 4-column counter grid for exactly the 4 cells kept on mobile
+     (dispatched, merged, reviews, run clock): one row that never reaches the
+     browser toolbar. The other cells keep their data-counter hooks in the DOM
+     but stay hidden at this width. */
   .term-stats {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: var(--space-1) var(--space-2);
   }
+  .term-stat-mobile-hide { display: none; }
   .term-stat { min-width: 0; }
   .term-stat dt {
     font-size: 0.625rem;

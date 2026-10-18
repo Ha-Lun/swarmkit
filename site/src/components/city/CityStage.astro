@@ -3,7 +3,7 @@
  // the DOM labels pinned to the lots, the hero, and a terminal panel replaying the featured run line by line as you
  // scroll. All text is DOM and every number comes from the run (read here at build time) or from the scene's
  // StageState at run time. The terminal renders ALL lines from buildTerminalLines(run) once at build time; the client
- // reveals rows whose t has passed and auto-scrolls the body. Without a run: an honest "replay pending" panel and no
+ // reveals rows whose t has passed and shifts the inner rows wrapper with a transform so the newest row stays in view. Without a run: an honest "replay pending" panel and no
  // canvas. Without WebGL (or with ?tier=fallback, or when the scene fails to start): the client adds .no-webgl and the
  // terminal shows fully revealed with the chapter header set to the final chapter, above a stacked series of stills,
  // one per beat. The same series shows without scripting (the terminal needs JS to reveal rows, so it stays hidden
@@ -32,12 +32,12 @@ const command = 'claude --agent lead-dev-hybrid';
 // One still per beat: public/stills/beat-<id>.webp (1440x900). Width and height give the fixed aspect box (low CLS).
 const STILL = { w: 1440, h: 900 };
 const counters = [
-  { key: 'dispatched', name: 'dispatched' },
-  { key: 'built', name: 'built' },
-  { key: 'merging', name: 'merging' },
-  { key: 'merged', name: 'merged' },
-  { key: 'reviewsDone', name: 'reviews' },
-  { key: 'resumes', name: 'resumes' },
+  { key: 'dispatched', name: 'dispatched', hideMobile: false },
+  { key: 'built', name: 'built', hideMobile: true },
+  { key: 'merging', name: 'merging', hideMobile: true },
+  { key: 'merged', name: 'merged', hideMobile: false },
+  { key: 'reviewsDone', name: 'reviews', hideMobile: false },
+  { key: 'resumes', name: 'resumes', hideMobile: true },
 ];
 ---
 {run ? (
@@ -74,21 +74,23 @@ const counters = [
           <li><span class="term-dot term-dot-opencode" aria-hidden="true">&#9679;</span> opencode</li>
         </ul>
         <div class="term-body" data-term-body role="log" aria-label="Terminal output, revealed as you scroll">
-          {termLines.map((l) => (
-            <div
-              class="term-row"
-              data-t={l.t}
-              data-kind={l.kind}
-              data-lane={l.lane}
-              data-ok={l.ok === true ? 'true' : l.ok === false ? 'false' : undefined}
-            >{l.text}</div>
-          ))}
+          <div class="term-rows" data-term-rows>
+            {termLines.map((l) => (
+              <div
+                class="term-row"
+                data-t={l.t}
+                data-kind={l.kind}
+                data-lane={l.lane}
+                data-ok={l.ok === true ? 'true' : l.ok === false ? 'false' : undefined}
+              >{l.text}</div>
+            ))}
+          </div>
         </div>
         <div class="term-footer">
           <p class="term-replay">{label}</p>
           <dl class="term-stats">
             {counters.map((c) => (
-              <div class:list={['term-stat', { 'is-zero': c.key === 'merging' }]}><dt>{c.name}</dt><dd data-counter={c.key}>0</dd></div>
+              <div class:list={['term-stat', { 'is-zero': c.key === 'merging' }, { 'term-stat-mobile-hide': c.hideMobile }]}><dt>{c.name}</dt><dd data-counter={c.key}>0</dd></div>
             ))}
             <div class="term-stat"><dt>run clock</dt><dd data-clock>{formatDuration(0)}</dd></div>
           </dl>

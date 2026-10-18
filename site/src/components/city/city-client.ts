@@ -51,6 +51,7 @@ async function boot(stage: HTMLElement) {
   const labelLayer = stage.querySelector<HTMLElement>('[data-city-labels]');
   const terminal = stage.querySelector<HTMLElement>('[data-terminal]');
   const termBody = terminal?.querySelector<HTMLElement>('[data-term-body]');
+  const termRowsEl = terminal?.querySelector<HTMLElement>('[data-term-rows]');
   const termNum = terminal?.querySelector<HTMLElement>('[data-term-num]');
   const termTitle = terminal?.querySelector<HTMLElement>('[data-term-title]');
   const termLine = terminal?.querySelector<HTMLElement>('[data-term-line]');
@@ -92,16 +93,21 @@ async function boot(stage: HTMLElement) {
       next?.classList.add('is-latest');
       latestEl = next;
     }
-    // One programmatic scroll per change of the revealed count, never per frame.
-    // Rows flow from the top (unrevealed rows take no space); only once the body
-    // is full does the newest revealed row pin to the bottom of the visible body.
-    // Scrolling backwards (rows un-revealed) steps the scroll back up the same way.
-    if (termBody && revealed !== lastScrolled) {
+    // One transform update per change of the revealed count, never per frame.
+    // Rows flow from the top (unrevealed rows take no space); only once the rows
+    // overflow the body does the inner wrapper shift up so the newest revealed
+    // row pins to the bottom of the visible body. A transform is used instead of
+    // a programmatic scroll because scrolling a nested scroller cancels the
+    // document's smooth anchor scroll in Chromium. Scrolling backwards (rows
+    // un-revealed) steps the shift back up the same way. The terminal body is
+    // never scrolled programmatically.
+    if (termBody && termRowsEl && revealed !== lastScrolled) {
       if (!latestEl) {
-        termBody.scrollTop = 0;
+        termRowsEl.style.transform = '';
       } else {
+        // term-rows is the rows' offsetParent, so offsetTop reads relative to it.
         const target = latestEl.offsetTop + latestEl.offsetHeight - termBody.clientHeight;
-        termBody.scrollTop = target > 0 ? target : 0;
+        termRowsEl.style.transform = target > 0 ? `translateY(${-target}px)` : '';
       }
       lastScrolled = revealed;
     }
@@ -111,12 +117,14 @@ async function boot(stage: HTMLElement) {
     stage.classList.add('no-webgl');
     stage.dataset.cityFallback = reason;
     // Fallback tier: the full terminal, all rows visible, chapter header on the final chapter.
+    // Static content: no transform, no programmatic scroll; the .no-webgl CSS
+    // keeps the body overflow visible so every row shows.
     setChapter(5);
     for (const row of termRows) row.classList.add('is-on');
     revealed = termRows.length;
     latestEl = termRows[termRows.length - 1] ?? null;
     latestEl?.classList.add('is-latest');
-    if (termBody) termBody.scrollTop = termBody.scrollHeight;
+    if (termRowsEl) termRowsEl.style.transform = '';
     city?.dispose();
     scroll?.destroy();
     city = null;
