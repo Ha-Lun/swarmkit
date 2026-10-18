@@ -147,6 +147,9 @@
   border: 1px solid color-mix(in srgb, var(--blueprint-ink) 20%, transparent);
   color: var(--blueprint-ink);
   font-family: var(--font-mono);
+  /* Display-only counters (replay label + dl/dt/dd, no links or buttons):
+     must never intercept taps aimed at the hero or the canvas. */
+  pointer-events: none;
 }
 .city-replay { margin: 0; font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.35; color: var(--blueprint-line-soft); }
 .city-hud .city-replay { font-size: var(--text-sm); color: var(--blueprint-ink); }
@@ -271,11 +274,14 @@
   .city-counters { column-gap: var(--space-2); }
 }
 
-/* Phone: HUD at the top, captions at the bottom, both full width; the camera fits the city between them. */
+/* Phone: captions at the top (the band the hero vacates once it fades), HUD at the
+   bottom, both full width; the camera fits the city between them. The HUD stays
+   bottom-anchored at every width <= 900px so it can never sit over the hero's
+   title, buttons or copy row, and it is display-only (pointer-events: none). */
 @media (max-width: 700px) {
-  .city-captions { left: var(--space-3); right: var(--space-3); bottom: var(--space-3); width: auto; }
+  .city-captions { left: var(--space-3); right: var(--space-3); top: var(--space-3); bottom: auto; width: auto; }
   .city-caption { padding: var(--space-2) var(--space-3); font-size: var(--text-sm); }
-  .city-hud { top: var(--space-3); bottom: auto; left: var(--space-3); right: var(--space-3); max-width: none; padding: var(--space-2) var(--space-3); }
+  .city-hud { top: auto; bottom: var(--space-3); left: var(--space-3); right: var(--space-3); max-width: none; padding: var(--space-2) var(--space-3); }
   .city-hud .city-replay { font-size: var(--text-xs); }
   .city-counters { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-1) var(--space-3); margin-top: var(--space-2); }
   .city-counter dd { font-size: var(--text-lg); line-height: 1.2; }
