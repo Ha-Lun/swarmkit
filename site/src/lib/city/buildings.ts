@@ -56,11 +56,12 @@ const oldBaseColour = (palette: CityPalette): Color => new Color(palette.ink).mu
 /**
  * Night glow (no bloom). Windows: the kit's glass swatches emit --light-warm, and a per-window hash decides which are
  * lit against the lot's `aGlow` (0..1, the share of windows lit). Old city: a dim glow, few lit. New lots: a bright
- * glow whose share of lit windows follows the lot's build. Lane parts of new lots self-illuminate in their lane colour.
+ * glow whose share of lit windows follows the lot's build (built new lots are the brightest things in the
+ * scene). Lane parts of new lots self-illuminate in their lane colour.
  */
-const WIN_GLOW_NEW = 1.7;
-const WIN_GLOW_OLD = 0.75;
-const LANE_GLOW_NEW = 0.55;
+const WIN_GLOW_NEW = 3.1;
+const WIN_GLOW_OLD = 1.2;
+const LANE_GLOW_NEW = 1.0;
 /** Share of windows lit at the finished state of a new lot, and the base share while it is only started. */
 const LIT_MAX = 0.93;
 const LIT_MIN = 0.12;

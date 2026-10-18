@@ -35,13 +35,14 @@ const BOB_AMP = 0.18;
 const BOB_FREQ = 3.0;
 
 /** Night glow: lane emissive on the depot and canopy, a beacon bead on each drone, a fading trail behind it. */
-const LANE_EMISSIVE = 0.45;
+const LANE_EMISSIVE = 0.6;
 /** Trail: points per drone, and how far apart they are in job progress (so the trail is a pure function of state). */
-const TRAIL_N = 12;
+const TRAIL_N = 18;
 const TRAIL_STEP = 0.02;
-/** Trail point size (px) and colour falloff exponent along its length. */
-const TRAIL_PX = 4;
-const TRAIL_FADE = 1.5;
+/** Trail point size (px), colour falloff exponent along its length, and brightness boost (additive blending, so > 1 reads as glow, not clip). */
+const TRAIL_PX = 6;
+const TRAIL_FADE = 1.2;
+const TRAIL_BOOST = 1.5;
 /** Beacon bead radius (m). */
 const BEAD_R = 0.07;
 
@@ -73,7 +74,7 @@ function createTrails(colours: (string | null)[], perLane: number): {
       const col = new Float32Array(TRAIL_N * 3);
       if (colours[k] !== null) c.set(colours[k] as string);
       for (let i = 0; i < TRAIL_N; i++) {
-        const f = Math.pow(1 - i / (TRAIL_N - 1), TRAIL_FADE);
+        const f = Math.pow(1 - i / (TRAIL_N - 1), TRAIL_FADE) * TRAIL_BOOST;
         col[i * 3] = c.r * f; col[i * 3 + 1] = c.g * f; col[i * 3 + 2] = c.b * f;
       }
       const attr = new BufferAttribute(pos, 3);
