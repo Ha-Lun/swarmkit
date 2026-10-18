@@ -164,7 +164,7 @@ rc=0; out=$("$TASK" start no_kimi_oc --model opencode-go/kimi-k2.7-code "hi" 2>&
 export SWARMKIT_OPENCODE_AGENTS_DIR="$T/agents"
 mkdir -p "$SWARMKIT_OPENCODE_AGENTS_DIR"
 echo "# frontend" > "$SWARMKIT_OPENCODE_AGENTS_DIR/frontend-specialist.md"
-last_agent() { tail -1 "$STUB_ARGS" | sed -n 's/.* --agent \([^ ]*\) .*/\1/p'; }
+last_agent() { grep -o -- '--agent [^ ]*' "$STUB_ARGS" | tail -1 | cut -d' ' -f2; }
 "$TASK" start ag1 --agent frontend-specialist "p" >/dev/null 2>&1 || true
 [ "$(last_agent)" = "frontend-specialist" ] || fail "agent not passed to worker, got $(last_agent)"
 [ "$(jq -r '.agent["frontend-specialist"].permission.bash["*"]' "$STUB_ARGS.cfg")" = deny ] \
@@ -175,6 +175,9 @@ rc=0; out=$("$TASK" start ag_bad --agent no-such-agent "hi" 2>&1) || rc=$?
 [ "$rc" = 2 ] || fail "unknown agent exit code: $rc"
 echo "$out" | grep -q "^opencode-task: unknown OpenCode agent: no-such-agent" || fail "unknown agent message: $out"
 [ ! -e "$OPENCODE_TASK_DIR"/*/ag_bad ] || fail "unknown agent left a task dir"
+rc=0; out=$("$TASK" start ag_path --agent ../x "hi" 2>&1) || rc=$?
+[ "$rc" = 2 ] || fail "path agent exit code: $rc"
+[ ! -e "$OPENCODE_TASK_DIR"/*/ag_path ] || fail "path agent left a task dir"
 rc=0; out=$("$TASK" start ag_orch --agent lead-dev-hybrid "hi" 2>&1) || rc=$?
 [ "$rc" = 2 ] || fail "orchestrator agent exit code: $rc"
 echo "$out" | grep -q "^opencode-task: orchestrators cannot run as workers: lead-dev-hybrid" || fail "orchestrator message: $out"

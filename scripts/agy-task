@@ -465,6 +465,9 @@ def main():
         if PROG == "agy-task":
             print("agy-task: --agent is not supported on the agy lane (headless agy denies file reads under a named agent)", file=sys.stderr)
             sys.exit(2)
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", a.agent):
+            print(f"{PROG}: invalid agent name: {a.agent}", file=sys.stderr)
+            sys.exit(2)
         if a.agent == "lead-dev-hybrid":
             print(f"{PROG}: orchestrators cannot run as workers: lead-dev-hybrid", file=sys.stderr)
             sys.exit(2)
