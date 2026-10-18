@@ -322,8 +322,10 @@
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
-/* Anchor targets sit below the slim top bar. */
-.city-section[id] { scroll-margin-top: var(--space-12); }
+/* Anchor targets sit below the slim top bar. html already provides
+   scroll-padding-top (space-16 = 64px: 48px bar + 16px air), so no extra
+   margin here — the two would add (48 + 64 = 112px overshoot). */
+.city-section[id] { scroll-margin-top: 0; }
 @media (max-width: 1024px) {
   .city-section { padding-block: var(--space-16); }
 }
