@@ -40,6 +40,13 @@ claude:
   - AskUserQuestion
   - EnterPlanMode
   - ExitPlanMode
+  - Write
+  hooks:
+    PreToolUse:
+    - matcher: Write
+      hooks:
+      - type: command
+        command: python3 ~/.claude/hooks/guard.py lead-dev-hybrid
 antigravity:
   description: 'Orchestrator for `agy --agent lead-dev-hybrid` sessions only. Never invoke it as a subagent: subagents cannot spawn subagents, so it cannot work there.'
 ---

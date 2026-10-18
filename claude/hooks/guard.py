@@ -29,7 +29,7 @@ ALLOWED = {
     'release-tester': [('git', 'status'), ('git', 'diff'), ('ls',), ('cat',)] + RUNNERS,
     'test-writer': READ_ONLY + RUNNERS,
 }
-PATH_RULES = ('test-writer', 'git-specialist')  # agents whose Edit/Write paths are checked
+PATH_RULES = ('test-writer', 'git-specialist', 'lead-dev-hybrid')  # agents whose Edit/Write paths are checked
 GUARDED = set(ALLOWED) | set(PATH_RULES)
 
 # Flags that make an allowed command write files, run another program or fetch code. Matched by exact name
@@ -221,7 +221,18 @@ def project_root(cwd):
     return cwd
 
 
+def check_plan_path(path, cwd):
+    """lead-dev-hybrid may write only a .md file directly inside the Claude plans dir (plan-mode plan file)."""
+    plans = os.path.realpath(os.path.join(os.environ.get('CLAUDE_CONFIG_DIR') or os.path.expanduser('~/.claude'), 'plans'))
+    target = os.path.realpath(os.path.join(cwd or '.', os.path.expanduser(path)))
+    if os.path.dirname(target) == plans and target.endswith('.md') and os.path.basename(target) != '.md':
+        return None
+    return "lead-dev-hybrid can only write its plan file in ~/.claude/plans/; dispatch a subagent or worker for file changes: " + path
+
+
 def check_path(agent_name, path, cwd):
+    if agent_name == 'lead-dev-hybrid':
+        return check_plan_path(path, cwd)
     if not cwd:
         return f"{agent_name}: the hook input has no cwd, so edits cannot be checked: {path}"
     cwd = os.path.realpath(cwd)
