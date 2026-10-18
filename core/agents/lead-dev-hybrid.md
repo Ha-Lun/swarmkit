@@ -40,7 +40,6 @@ claude:
   - AskUserQuestion
   - EnterPlanMode
   - ExitPlanMode
-  - Workflow
 antigravity:
   description: 'Orchestrator for `agy --agent lead-dev-hybrid` sessions only. Never invoke it as a subagent: subagents cannot spawn subagents, so it cannot work there.'
 ---

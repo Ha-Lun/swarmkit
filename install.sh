@@ -367,16 +367,12 @@ install_agy() {
 
 install_claude() {
   echo "=== Installing Claude Code Config ==="
-  mkdir -p "$CLAUDE_DIR/hooks" "$CLAUDE_DIR/workflows"
+  mkdir -p "$CLAUDE_DIR/hooks"
 
   link "$REPO_DIR/claude/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
   link_files "$REPO_DIR/claude/agents" "$CLAUDE_DIR/agents"
   link_files "$REPO_DIR/claude/packs/swarm/agents" "$CLAUDE_DIR/agents"
   link "$REPO_DIR/claude/hooks/guard.py" "$CLAUDE_DIR/hooks/guard.py"
-  # Saved workflows (hybrid-build). They only run where dynamic workflows are on: set "enableWorkflows": true
-  # in settings.json or use the Dynamic workflows row in /config.
-  link_files "$REPO_DIR/core/workflows" "$CLAUDE_DIR/workflows"
-  prune_dead_repo_links "$CLAUDE_DIR/workflows"
   # plan-gate.py was dropped; clean up its link and settings entry from old installs.
   prune_dead_repo_links "$CLAUDE_DIR/hooks"
   plan_gate_settings remove

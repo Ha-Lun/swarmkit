@@ -34,8 +34,8 @@ Bind to `0.0.0.0` (e.g. `vite --host 0.0.0.0`); report them as
 
 ## Claude Code
 
-- Large or risky work: call `EnterPlanMode` first so `opusplan` plans on Opus;
-  `ExitPlanMode` is the approval request.
+- Large or risky work: call `EnterPlanMode` first; the session runs on Opus, so
+  the plan is written there. `ExitPlanMode` is the approval request.
 - After an approved plan, hand implementation to agy or OpenCode
   (`delegate-implementation`); do small, context-heavy or security
   edits yourself.

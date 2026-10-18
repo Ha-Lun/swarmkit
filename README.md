@@ -8,7 +8,7 @@ You write every agent, skill and rule once in `core/`. A small compiler turns th
 
 ## ⚙️ How it works
 
-- **The main agent does the work.** Small and medium work happens directly. Large or risky work (more than ~3 files, or auth, data, CI or infra) gets a plan and your approval first (Claude Code: plan mode, so `opusplan` plans on Opus). A non-interactive session states the plan and continues instead of waiting.
+- **The main agent does the work.** Small and medium work happens directly. Large or risky work (more than ~3 files, or auth, data, CI or infra) gets a plan and your approval first (Claude Code: plan mode; the session runs on Opus, so the plan is written there). A non-interactive session states the plan and continues instead of waiting.
 - **Delegation where it helps:** `explore` for wide read-only searches; `security-auditor`, `code-proofreader` or `release-tester` as an independent review after large changes. Domain specialists say in their descriptions when to use them.
 - **`lead-dev-hybrid`** is the optional orchestrator for big multi-specialist jobs (`claude --agent lead-dev-hybrid`, `agy --agent lead-dev-hybrid`, or the default primary agent in OpenCode). It plans, gets approval, then spreads file-disjoint implementation in parallel across `agy-task` and `opencode-task` workers; with no worker installed, or work that isn't file-disjoint, it dispatches specialist subagents instead.
 
@@ -26,9 +26,13 @@ Each agent has a **tier** (`fast`, `standard`, `deep`). The model for each tier 
 
 | Tier | Claude Code | OpenCode | Used for |
 |---|---|---|---|
-| fast | `haiku` | `opencode-go/deepseek-v4.1-flash` | explore, junior-dev, git-specialist, release-tester, showroom-asset-processor, test-writer and seo-worker (in OpenCode, explore, junior-dev, git-specialist, release-tester and showroom-asset-processor use `deepseek-v4.1-flash`; test-writer and seo-worker use `opencode-go/qwen3.7-plus`; all seven are in `opencode/agents/`, none is Claude-only) |
+| fast | `haiku` | `opencode-go/deepseek-v4.1-flash` | explore, junior-dev, git-specialist, release-tester, showroom-asset-processor, test-writer\*, seo-worker\* |
 | standard | `sonnet` | `opencode-go/qwen3.7-plus` | most specialists |
 | deep | `opus` | `opencode-go/kimi-k2.7-code` | db-specialist, security-auditor, swarm-architect, lead-dev-hybrid |
+
+\* In OpenCode, test-writer and seo-worker override the fast tier to `opencode-go/qwen3.7-plus`.
+
+Antigravity plugin agents have no per-agent model; subagents run on the agy session's model.
 
 ## ✨ Key features
 
@@ -207,8 +211,8 @@ Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allow
 
 | Worker | Runs | Can run tests? | Notes |
 |---|---|---|---|
-| `agy-task` | `agy -p`, Gemini on agy's quota | No: edit-only, Claude runs the tests | `agy-delegate` skill. `--yolo` allows shell, unsandboxed |
-| `opencode-task` | `opencode run --standalone`, free `opencode-go/` models (OpenCode Go subscription) | Yes: shell limited to test/build runners and read-only git, a guard against accidents rather than a sandbox | `opencode-delegate` skill. A per-run config overlay; your own OpenCode config is untouched |
+| `agy-task` | `agy -p`, Gemini on agy's quota, Gemini 3.8 Flash only (allowlist) | No: edit-only, Claude runs the tests | `agy-delegate` skill. `--yolo` allows shell, unsandboxed |
+| `opencode-task` | `opencode run --standalone`, allowlisted opencode-go models (default muse-spark-1.3-contributor; OpenCode Go subscription) | Yes: shell limited to test/build runners and read-only git, a guard against accidents rather than a sandbox | `opencode-delegate` skill. A per-run config overlay; your own OpenCode config is untouched |
 
 ```bash
 agy-task start diff-review "Review the auth refactor for regressions" --review
