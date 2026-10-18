@@ -48,7 +48,7 @@ Antigravity plugin agents have no per-agent model; subagents run on the agy sess
 
 ## 🤖 Agent roster
 
-In Claude Code, `--claude` installs the five quality and review agents below, the swarm orchestration pack (`lead-dev-hybrid`, `swarm-architect`, `junior-dev`, `git-specialist`), and the `release-testing`, `security-review`, `diagnosing-bugs`, `swarm-handoff`, `git-workflow`, `writing-for-agents`, `caveman*`, `ponytail*` and `curated-resources` skills (the last three groups are slash-command only, so they cost no context). Everything else is a pack you link into a project with `./install.sh --pack <name> [project]`:
+In Claude Code, `--claude` installs the five quality and review agents below and the `release-testing`, `security-review`, `diagnosing-bugs`, `caveman*`, `ponytail*` and `curated-resources` skills (the last three groups are slash-command only, so they cost no context). In the hybrid profile (see Profiles) it also installs the swarm orchestration pack (`lead-dev-hybrid`, `swarm-architect`, `junior-dev`, `git-specialist`) and the `swarm-handoff`, `git-workflow`, `writing-for-agents` and `hybrid-delegate` skills globally; slim installs leave them out (`--pack swarm` per project still adds them). Everything else is a pack you link into a project with `./install.sh --pack <name> [project]`:
 
 | Pack | Agents | Skills |
 |---|---|---|
@@ -112,7 +112,7 @@ OpenCode and Antigravity get every agent and skill globally.
 ```bash
 git clone https://github.com/Ha-Lun/swarmkit.git
 cd swarmkit
-./install.sh --all
+./install.sh --mcp --alias   # installs the CLIs it finds; --mcp and --alias are opt-in
 ```
 
 The installer symlinks everything into each CLI's config directory. The agents and command directories are real directories holding one link per file, so files you add there are left alone (a name you already use is skipped and reported). Anything it replaces is first backed up to `~/.opencode-backup-<timestamp>/`. You can run it again safely; a second run changes nothing.
@@ -148,10 +148,10 @@ With no flag the installer looks for `claude`, `opencode` and `agy` and ends wit
 ```bash
 cd swarmkit
 git pull
-./install.sh --all      # or only the flags for the CLIs you use on this machine
+./install.sh --mcp --alias   # same flags as your first install
 ```
 
-Always rerun the installer after pulling. It relinks moved files and removes links left over from older layouts. With per-file links a new agent only appears after the rerun. MCP servers that are already registered are skipped, so an existing install keeps its old registrations: to adopt the pinned versions, `claude mcp remove <name> -s user` and rerun.
+Always rerun the installer after pulling. It relinks moved files and removes links left over from older layouts. With per-file links a new agent only appears after the rerun. MCP servers that are already registered are skipped, so an existing install keeps its old registrations: to adopt the pinned versions, `claude mcp remove <name> -s user` and rerun. Rerunning without `--mcp` replaces OpenCode's `opencode.jsonc` link with a copy without MCP servers.
 
 ## 🛠️ Customising the swarm
 
