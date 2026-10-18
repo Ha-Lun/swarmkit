@@ -141,8 +141,9 @@ export const createScan: CreateScan = (layout: LotLayout, palette: CityPalette):
   const orchGeo = new TorusGeometry(foot * 0.55, Math.max(0.1, foot * 0.034), 8, 48);
   // Flat wide bar: wide in x, thin in y, unit depth in z scaled per-frame to
   // the effective new-lot bounds (base or base+annex).
-  const barW = Math.max(0.7, foot * 0.25);
-  const barGeo = new BoxGeometry(barW, 0.22, 1);
+  // A thin translucent sheet, not a solid slab: a dark 3D block read as a black rectangle over the labels.
+  const barW = Math.max(0.4, foot * 0.12);
+  const barGeo = new BoxGeometry(barW, 0.06, 1);
   // Tick: a short and a long flat bar joined at the vertex, a check lying on its side (bar length along local x,
   // thickness along y, width along z). Directions are in the xz plane with -z as "up"; each bar starts half a width
   // behind the vertex so the joint is closed. The pair is centred on its bounding box (tickOffX/Z).
@@ -173,7 +174,7 @@ export const createScan: CreateScan = (layout: LotLayout, palette: CityPalette):
 
   const verifyMat = new MeshLambertMaterial({ color: palette.line });
   const orchMat = new MeshLambertMaterial({ color: palette.lightWarm });
-  const barMat = new MeshLambertMaterial({ color: palette.ink });
+  const barMat = new MeshLambertMaterial({ color: palette.line, transparent: true, opacity: 0.8, depthWrite: false });
   const okMat = new MeshLambertMaterial({ color: palette.ok });
   const failMat = new MeshLambertMaterial({ color: palette.fail, side: DoubleSide });
 
@@ -188,6 +189,7 @@ export const createScan: CreateScan = (layout: LotLayout, palette: CityPalette):
   orchRing.visible = false;
   const crossBar = new Mesh(barGeo, barMat);
   crossBar.name = 'scan-ind-cross';
+  crossBar.userData.noShadowCast = true;
   crossBar.visible = false;
   root.add(verifyRing);
   root.add(orchRing);

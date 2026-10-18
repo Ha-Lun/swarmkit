@@ -10,7 +10,7 @@ import type {
 } from './types.ts';
 
 /** Recommended pinned-scroll runway for the whole replay, in viewport heights. */
-export const SCROLL_VH = 900;
+export const SCROLL_VH = 500;
 /** Fixed shares of the runway: hero (run not started) and bill (run over). */
 export const HERO_SHARE = 0.07;
 export const BILL_SHARE = 0.09;

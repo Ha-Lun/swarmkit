@@ -183,9 +183,12 @@
 .city-pending-note { margin: var(--space-6) 0 0; padding: var(--space-4); border: 1px solid var(--blueprint-line-dim); font-family: var(--font-mono); }
 
 @media (prefers-reduced-motion: no-preference) {
-  .city-hero, .city-caption, .city-approval { transition: opacity 320ms ease; }
+  .city-hero, .city-approval { transition: opacity 320ms ease; }
+  /* One caption at a time: the outgoing one is gone (140 ms) before the incoming one starts (140 ms delay). */
+  .city-caption { transition: opacity 140ms ease; }
+  .city-caption.is-on { transition: opacity 220ms ease 140ms; }
   .city-counter { transition: opacity 240ms ease; }
-  .lot-label { transition: opacity 240ms ease; }
+  .lot-label { transition: opacity 200ms ease; }
 }
 
 /* Tablet: narrower edge panels. */

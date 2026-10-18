@@ -74,11 +74,11 @@ const SHOTS: Record<BeatId, Shot> = {
   // A finished city with an empty lot beside it: the whole city plus the blueprint plot.
   // The hero panel sits top-left (top on phones): the city sits right of and below the panel.
   hero: {
-    rect: (l) => union(blockOr(l), l.plot), zoom: 1.0, pitch: 36, yaw: 28, at: 0,
-    offset: { landscape: [0.3, -0.06], portrait: [0, -0.03] },
+    rect: (l) => union(blockOr(l), l.plot), zoom: 0.96, pitch: 36, yaw: 28, at: 0,
+    offset: { landscape: [0.24, -0.03], portrait: [0, -0.03] },
     // Portrait: the city and its empty slots fill the band between the hero panel and the caption; the plot is
     // mostly out of frame at u = 0 (blank paper then) and slides in on the way to the task beat.
-    portrait: { pitch: 50, rect: blockOr },
+    portrait: { pitch: 50, zoom: 1.0, rect: blockOr },
   },
   task: { rect: (l) => l.plot, zoom: 1.15, pitch: 52, yaw: 16, at: 0.6, portrait: { pitch: 56 } },
   plan: { rect: (l) => l.plot, zoom: 1.3, pitch: 78, yaw: 6, at: 0.55, portrait: { pitch: 78 } },

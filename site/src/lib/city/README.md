@@ -16,7 +16,7 @@ the slot columns. Lane depots sit off the plot: `agy` at `-z` (facing `+z`),
 ## Beats (real run, from `buildTimeline`)
 
 Beats open on event predicates; idle gaps are compressed by `sqrt(seconds)` and every present beat gets at least 6%
-of the runway. Recommended runway: `SCROLL_VH` = 900 vh.
+of the runway. Recommended runway: `SCROLL_VH` = 500 vh.
 
 | Beat | Opens on | u | Run time (s) |
 |---|---|---|---|
@@ -46,7 +46,7 @@ and edge cases are in the comments in `types.ts`.
 
 ## Look
 
-Light paper diorama: background and fog are `--paper`. With the kit the table is real (`table.ts`): a tan slab
+Light paper diorama: background and fog are a pale sky (`--paper` lifted towards white, scene.ts `SKY_*`), and with the kit the floor beyond the slab is unlit and takes the same colour. With the kit the table is real (`table.ts`): a tan slab
 (`table_top` swatch, wooden fascia) 3.4 m outside `layout.bounds`, the kit's `table_corner` lips at its four corners
 (90 degree steps), and a pale-blue blueprint sheet (`sheet_blue`) half a metre larger than the plot, flat at
 y = 0.02 under the blueprint lines (a receiver only: no shadow of its own, so no acne). The slab top sits at
