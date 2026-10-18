@@ -143,7 +143,7 @@ for s in cap1 cap3; do (cd "$T/r1" && "$TASK" clean $s --force); done
 unset OPENCODE_TASK_MAX STUB_MODE STUB_SLEEP
 
 # --- no Claude-family models for worker tasks
-AGY_TASK="$(cd "$(dirname "$0")" && pwd)/agy-task"
+AGY_TASK="${TASK%/*}/agy-task"
 rc=0; out=$("$AGY_TASK" start no_claude_agy --model claude-sonnet-4-6 "hi" 2>&1) || rc=$?
 [ "$rc" = 2 ] || fail "agy-task Claude guard exit code: $rc"
 echo "$out" | grep -q "^agy-task: Claude models are not allowed for workers: claude-sonnet-4-6" \

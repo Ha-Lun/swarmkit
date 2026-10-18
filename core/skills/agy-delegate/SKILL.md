@@ -9,9 +9,11 @@ description: Use when handing a self-contained task to a headless Antigravity (a
 
 ## When
 
-- Independent review of your own diff by a different model family (`--model claude-sonnet-4-6`; run `agy models` for what is installed).
+- Independent review by a different model family: your own diff, or an opencode-written branch (`--review --model gemini-3.8-flash-high`). An agy-written branch is reviewed by `opencode-task --review --model opencode-go/glm-5.3` instead.
 - Bulk mechanical edits or test writing, on agy's quota instead of yours (default `gemini-3.8-flash-high`).
 - 2-3 independent tasks at once. Never more: the box has 8 cores and little spare RAM.
+
+Workers never run Claude models; agy-task refuses them. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`). Give it a verify command from that list, or run the verify yourself after it lands.
 
 Skip it for small edits (do them inline), for anything that depends on conversation context, and for the same work a Claude subagent already does. agy starts cold: the prompt must carry the goal, the files, the constraints and what "done" looks like. Say "use your file view, search and edit tools, not the shell" in every prompt, reviews included: a model that reaches for a shell command (often `cat -n` for line numbers) is denied and returns nothing. If that happens, `resume` it with that instruction; in testing the retry succeeded.
 

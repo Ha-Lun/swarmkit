@@ -27,8 +27,14 @@ Everything else in the plan goes to a worker.
 | Task | Worker |
 |---|---|
 | Implementation where the worker should run the tests itself | `opencode-task` (free `opencode-go/` model), see `opencode-delegate` |
-| Edits and boilerplate where you run the tests | `agy-task` (default `gemini-3.8-flash-high`; `--model claude-sonnet-4-6` for harder logic), see `agy-delegate` |
-| Second opinion on your own diff | `agy-task --review --model claude-sonnet-4-6` |
+| Edits and boilerplate where you run the tests | `agy-task` (default `gemini-3.8-flash-high`), see `agy-delegate` |
+| Harder logic | `opencode-task --model opencode-go/kimi-k2.7-code` |
+| Second opinion on your own diff | `agy-task --review --model gemini-3.8-flash-high` |
+| Cross-review of a worker's branch | the other family's worker, see below |
+
+Workers never run Claude models; agy-task refuses them. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`). Give it a verify command from that list, or run the verify yourself after it lands.
+
+Cross-review uses a different model family from the writer: an opencode-written branch gets `agy-task --review --model gemini-3.8-flash-high`; an agy-written branch gets `opencode-task --review --model opencode-go/glm-5.3`.
 
 If the preferred worker fails twice on the same kind of task, use another one. If none is available, Claude's own `junior-dev` (mechanical edits) and `test-writer` (tests) subagents are the fallback.
 
