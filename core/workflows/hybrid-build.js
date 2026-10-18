@@ -3,7 +3,7 @@ export const meta = {
   description: 'Run approved, file-disjoint tasks on headless agy and opencode workers, verify each branch, cross-review it, and return only what held up',
 }
 
-// args: { tasks: [{ slug, lane: 'opencode' | 'agy', prompt, verify, files? }], review?: boolean }
+// args: { tasks: [{ slug, lane: 'opencode' | 'agy', prompt, verify, files?, agent? }], review?: boolean }
 // Returns { ready, failed, findings, unreviewed }: branches to merge, what did not hold up, confirmed review findings,
 // and ready slugs whose cross-review did not complete.
 // The script itself has no shell: every external step is a small Haiku agent that runs a wrapper and reports.
@@ -51,7 +51,7 @@ const promptFor = (t) => (t.lane === 'agy' ? AGY_RULE + t.prompt : t.prompt)
 const start = (t) =>
   agent(
     `Run this command with the Bash tool, exactly as written:\n\n` +
-      `${wrapper(t.lane)} start ${t.slug} --wait --timeout 9m - <<'TASK_PROMPT_EOF'\n${promptFor(t)}\nTASK_PROMPT_EOF\n\n${readResult}`,
+      `${wrapper(t.lane)} start ${t.slug}${t.agent && t.lane === 'opencode' ? ` --agent ${t.agent}` : ''} --wait --timeout 9m - <<'TASK_PROMPT_EOF'\n${promptFor(t)}\nTASK_PROMPT_EOF\n\n${readResult}`,
     { model: 'haiku', label: `edit:${t.slug}`, schema: resultSchema },
   )
 

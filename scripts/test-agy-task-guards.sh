@@ -160,14 +160,42 @@ rc=0; out=$("$TASK" start no_kimi_oc --model opencode-go/kimi-k2.7-code "hi" 2>&
 [ "$rc" = 2 ] || fail "opencode-task allowlist guard exit code for kimi: $rc"
 [ ! -e "$OPENCODE_TASK_DIR"/*/no_kimi_oc ] || fail "opencode-task allowlist guard left a task dir"
 
+# --- opencode --agent: named specialist without widening the sandbox
+export SWARMKIT_OPENCODE_AGENTS_DIR="$T/agents"
+mkdir -p "$SWARMKIT_OPENCODE_AGENTS_DIR"
+echo "# frontend" > "$SWARMKIT_OPENCODE_AGENTS_DIR/frontend-specialist.md"
+last_agent() { tail -1 "$STUB_ARGS" | sed -n 's/.* --agent \([^ ]*\) .*/\1/p'; }
+"$TASK" start ag1 --agent frontend-specialist "p" >/dev/null 2>&1 || true
+[ "$(last_agent)" = "frontend-specialist" ] || fail "agent not passed to worker, got $(last_agent)"
+[ "$(jq -r '.agent["frontend-specialist"].permission.bash["*"]' "$STUB_ARGS.cfg")" = deny ] \
+  || fail "agent overlay must deny bash *: $(cat "$STUB_ARGS.cfg")"
+"$TASK" resume ag1 "again" >/dev/null 2>&1 || true
+[ "$(last_agent)" = "frontend-specialist" ] || fail "resume must keep --agent, got $(last_agent)"
+rc=0; out=$("$TASK" start ag_bad --agent no-such-agent "hi" 2>&1) || rc=$?
+[ "$rc" = 2 ] || fail "unknown agent exit code: $rc"
+echo "$out" | grep -q "^opencode-task: unknown OpenCode agent: no-such-agent" || fail "unknown agent message: $out"
+[ ! -e "$OPENCODE_TASK_DIR"/*/ag_bad ] || fail "unknown agent left a task dir"
+rc=0; out=$("$TASK" start ag_orch --agent lead-dev-hybrid "hi" 2>&1) || rc=$?
+[ "$rc" = 2 ] || fail "orchestrator agent exit code: $rc"
+echo "$out" | grep -q "^opencode-task: orchestrators cannot run as workers: lead-dev-hybrid" || fail "orchestrator message: $out"
+[ ! -e "$OPENCODE_TASK_DIR"/*/ag_orch ] || fail "orchestrator agent left a task dir"
+rc=0; out=$("$AGY_TASK" start ag_agy --agent frontend-specialist "hi" 2>&1) || rc=$?
+[ "$rc" = 2 ] || fail "agy lane agent exit code: $rc"
+echo "$out" | grep -q "^agy-task: --agent is not supported on the agy lane" || fail "agy lane message: $out"
+[ ! -e "$AGY_TASK_DIR"/*/ag_agy ] || fail "agy lane agent left a task dir"
+"$TASK" start ag2 "p" >/dev/null 2>&1 || true
+[ "$(last_agent)" = "build" ] || fail "default agent should be build, got $(last_agent)"
+for s in ag1 ag2; do "$TASK" clean $s --force; done
+unset SWARMKIT_OPENCODE_AGENTS_DIR
+
 # --- dispatch log: allowlisted fields only
 export SWARMKIT_DISPATCH_LOG="$T/dispatch.jsonl"
 "$TASK" start dl1 "PROMPT-SECRET please" >/dev/null 2>&1 || true
 STUB_MODE=deny "$TASK" start dl2 "p" >/dev/null 2>&1 || true
 [ "$(wc -l < "$SWARMKIT_DISPATCH_LOG")" = 4 ] || fail "expected a start and a finish line per task"
-jq -es '[.[] | select(.event == "start")] | length == 2 and all(.[]; keys == ["cli","effort","event","model","slug","ts"])' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
+jq -es '[.[] | select(.event == "start")] | length == 2 and all(.[]; keys == ["agent","cli","effort","event","model","slug","ts"])' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
   || fail "start lines not the allowlist"
-jq -es '[.[] | select(.event == "finish")] | length == 2 and all(.[]; keys == ["cli","denied","event","model","ok","slug","stopped_by","tokens","ts","wall_s"])' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
+jq -es '[.[] | select(.event == "finish")] | length == 2 and all(.[]; keys == ["agent","cli","denied","event","model","ok","slug","stopped_by","tokens","ts","wall_s"])' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
   || fail "finish lines not the allowlist"
 jq -es '.[0] | .event == "start" and .cli == "opencode" and .slug == "dl1" and .model == "'"$D"'" and .effort == null' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
   || fail "start log line: $(head -1 "$SWARMKIT_DISPATCH_LOG")"

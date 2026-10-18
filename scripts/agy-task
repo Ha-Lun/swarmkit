@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run one agy (or OpenCode) task headlessly in an isolated git worktree and report honestly.
 
-  agy-task start  SLUG [--model M] [--effort E] [--max-denied 10] [--max-tool-errors 20] [--timeout 20m] [--base REF] [--setup CMD] [--review] [--yolo] [--wait] PROMPT|-
+  agy-task start  SLUG [--model M] [--effort E] [--agent NAME] [--max-denied 10] [--max-tool-errors 20] [--timeout 20m] [--base REF] [--setup CMD] [--review] [--yolo] [--wait] PROMPT|-
   agy-task resume SLUG [--timeout 20m] [--review] [--yolo] PROMPT|-
   agy-task list
   agy-task clean  SLUG [--force]
@@ -30,11 +30,18 @@ stopped worker at most once (only if its edits are worth keeping); then take the
 from a small table (currently empty); a model not in the table gets no effort suffix, since a variant
 a model lacks fails the whole run (muse rejects `max`). --effort "" forces none. Resume reuses the model and effort of start.
 
+An opencode worker can run as a named specialist with --agent NAME (start only; resume reuses it).
+The worker launches with `--agent NAME` instead of `--agent build` while the model flag stays on the
+worker allowlist. The sandbox overlay is also applied under `agent.NAME.permission`, so the agent's
+own permission block (e.g. bash '*': allow) cannot widen the sandbox. A headless note (no browser or
+MCP here) is prepended to the prompt. --agent is rejected on the agy lane, for the lead-dev-hybrid
+orchestrator, and for unknown agents (opencode/agents/NAME.md, or $SWARMKIT_OPENCODE_AGENTS_DIR in tests).
+
 start and resume print one banner line to stderr before the worker launches (slug, model, effort, base, log);
 the log is written live, and list shows model, elapsed time or wall seconds and (opencode) the live denied count.
 
 $SWARMKIT_DISPATCH_LOG=FILE: JSON lines with only allowlisted fields. At launch: ts, event "start", cli, slug,
-model, effort. Per finished task: ts, event "finish", cli, slug, model, ok, denied (count), tokens (total or
+model, effort, agent. Per finished task: ts, event "finish", cli, slug, model, agent, ok, denied (count), tokens (total or
 null), wall_s and stopped_by (null | max-denied | max-tool-errors | timeout).
 
 The running-task limit is shared: agy and opencode tasks of all repos together never exceed it
@@ -81,11 +88,11 @@ EFFORT_DEFAULTS = {}
 
 
 def remembered_opts(task, a, resume_id):
-    """Model and effort of the first run: opencode forgets them on resume."""
+    """Model, effort and agent of the first run: opencode forgets them on resume."""
     f = task / "opts.json"
     if resume_id:
         return json.loads(f.read_text()) if f.exists() else {}
-    o = {"model": a.model, "effort": a.effort}
+    o = {"model": a.model, "effort": a.effort, "agent": getattr(a, "agent", None)}
     f.write_text(json.dumps(o))
     return o
 
@@ -119,13 +126,25 @@ OPENCODE_OVERLAY = {
 }
 
 
+def agents_dir():
+    d = os.environ.get("SWARMKIT_OPENCODE_AGENTS_DIR")
+    return Path(d) if d else Path(__file__).resolve().parent.parent / "opencode" / "agents"
+
+
+HEADLESS_NOTE = ("Headless worker: there is no browser or MCP here, so skip Playwright/screenshot steps;"
+                 " the orchestrator verifies visually.")
+
+
 def opencode_cmd(task, prompt, a, resume_id):
     o = remembered_opts(task, a, resume_id)
+    agent = o.get("agent")
+    if agent:
+        prompt = HEADLESS_NOTE + "\n\n" + prompt
     if a.yolo:
         print("opencode-task: --yolo, the shell is unrestricted and unsandboxed", file=sys.stderr)
     # --standalone: a private server started with our env (and so the overlay). The shared background
     # service would apply the user's own config.
-    cmd = ["opencode", "run", "--standalone", "--format", "json", "--agent", "build",
+    cmd = ["opencode", "run", "--standalone", "--format", "json", "--agent", agent or "build",
            "--title", f"delegate: {task.name}"] + (["-s", resume_id] if resume_id else [])
     if o.get("model"):
         cmd += ["-m", o["model"] + (f"#{o['effort']}" if o.get("effort") else "")]
@@ -138,9 +157,13 @@ def opencode_env(a, wt):
         perm["bash"] = "allow"
     if a.review:  # a review answers in text and must not edit
         perm["edit"] = "deny"
+    cfg = {"permission": perm}
+    agent = getattr(a, "agent", None)
+    if agent:
+        cfg["agent"] = {agent: {"permission": perm}}
     # opencode takes its project directory from $PWD, not the real cwd: without this it edits the
     # checkout agy-task was started from instead of the worktree.
-    return {**os.environ, "PWD": str(wt), "OPENCODE_CONFIG_CONTENT": json.dumps({"permission": perm})}
+    return {**os.environ, "PWD": str(wt), "OPENCODE_CONFIG_CONTENT": json.dumps(cfg)}
 
 
 DENIED = re.compile(r"rule which prevents|permission|rejected", re.I)
@@ -295,9 +318,11 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     wt, t0 = task / "worktree", time.monotonic()
     (task / "pid").write_text(str(os.getpid()))
     o = remembered_opts(task, a, resume_id)
+    if o.get("agent"):
+        a.agent = o["agent"]
     cmd = BACKEND["cmd"](task, prompt, a, resume_id)
     banner(task, o, resume_id)
-    dispatch_log("start", task.name, o.get("model"), effort=o.get("effort") or None)
+    dispatch_log("start", task.name, o.get("model"), effort=o.get("effort") or None, agent=o.get("agent"))
     logf = open(task / f"{CLI}.log", "w")  # live, so `tail -f` and `list` work; rewritten in order at the end
     main_before = main_state(repo)
     # Own process group so a SIGTERM/SIGINT to us (or a timeout) takes the agent and its tools down too.
@@ -395,7 +420,7 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     produced = bool(res["response"].strip()) if review else changed != "no changes"
     ok = res["done"] and not denied and code == 0 and not incomplete and produced
     wall = time.monotonic() - t0
-    result = {"ok": ok, "slug": task.name, "model": o.get("model"), "wall_s": round(wall), "branch": f"{CLI}/{task.name}", "worktree": str(wt), "review": review,
+    result = {"ok": ok, "slug": task.name, "model": o.get("model"), "agent": o.get("agent"), "wall_s": round(wall), "branch": f"{CLI}/{task.name}", "worktree": str(wt), "review": review,
               "base": base, "changes": changed, "denied_actions": denied, "warnings": warnings,
               "conversation_id": res["conversation_id"], "stopped_by": stopped_by, "exit_code": code, "usage": res["usage"],
               "response": res["response"], "stderr": err.strip()[-500:]}
@@ -403,7 +428,7 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     u = res["usage"]
     tokens = u.get("total_tokens", sum(v for v in u.values() if isinstance(v, int))) if isinstance(u, dict) and u else None
     dispatch_log("finish", task.name, o.get("model"), ok=ok, denied=len(denied), tokens=tokens,
-                 wall_s=round(wall), stopped_by=stopped_by)
+                 wall_s=round(wall), stopped_by=stopped_by, agent=o.get("agent"))
     hint = " (resume it: use file view/edit tools only, no shell)" if CLI == "agy" else ""
     note = (f" DENIED: {', '.join(denied)}{hint}" if denied else "") \
         + "".join(f" WARNING: {w}" for w in warnings)
@@ -418,6 +443,7 @@ def main():
     ap.add_argument("prompt", nargs="?", help="task text, or - to read it from stdin")
     ap.add_argument("--model", default=BACKEND["model"])
     ap.add_argument("--effort", help="model variant; default per model, '' for none")
+    ap.add_argument("--agent", default=None, help="opencode specialist agent (start only; resume reuses it)")
     ap.add_argument("--timeout", default="20m")
     ap.add_argument("--base", default="HEAD")
     ap.add_argument("--setup", help="shell command run in the worktree before agy (start only)")
@@ -434,6 +460,17 @@ def main():
     if a.cmd == "start" and a.model not in BACKEND["allowed"]:
         print(f"{PROG}: model not on the worker allowlist: {a.model} (allowed: {', '.join(BACKEND['allowed'])})", file=sys.stderr)
         sys.exit(2)
+
+    if a.cmd == "start" and getattr(a, "agent", None):
+        if PROG == "agy-task":
+            print("agy-task: --agent is not supported on the agy lane (headless agy denies file reads under a named agent)", file=sys.stderr)
+            sys.exit(2)
+        if a.agent == "lead-dev-hybrid":
+            print(f"{PROG}: orchestrators cannot run as workers: lead-dev-hybrid", file=sys.stderr)
+            sys.exit(2)
+        if not (agents_dir() / f"{a.agent}.md").is_file():
+            print(f"{PROG}: unknown OpenCode agent: {a.agent}", file=sys.stderr)
+            sys.exit(2)
 
     # The first `git worktree list` entry is the main working tree, also when run from inside a
     # task worktree or a submodule: it keys the task dirs, so every worktree shares one list and cap.
