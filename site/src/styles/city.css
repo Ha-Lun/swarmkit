@@ -26,41 +26,74 @@
 }
 .city-labels { position: absolute; inset: 0; pointer-events: none; }
 
-/* Panels on the scene: paper text on a navy plate, at the edges only. */
-.city-hero,
-.city-caption,
-.city-hud {
+/* Captions: paper text on a navy plate, at the bottom edge. The hero and the HUD are lighter (see below). */
+.city-caption {
   background: color-mix(in srgb, var(--blueprint-ink) 88%, transparent);
   border: 1px solid var(--blueprint-ink-2);
 }
 
+/* Hero: navy type set straight onto the scene's pale sky, over the clear left third. A left-to-right scrim (the sky
+   colour fading out, no box) keeps the title legible where the city's nearest buildings creep under it. */
 .city-hero {
   position: absolute;
-  top: calc(var(--space-16) + var(--space-6));
-  left: var(--space-6);
-  max-width: min(30rem, 42vw);
-  padding: var(--space-6);
+  top: 0;
+  left: 0;
+  isolation: isolate;
+  width: min(46rem, 56vw);
+  padding: calc(var(--space-16) + var(--space-8)) var(--space-6) var(--space-12);
+  color: var(--blueprint-ink);
+}
+.city-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(90deg, var(--sky) 0%, color-mix(in srgb, var(--sky) 82%, transparent) 55%, transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, #000 72%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 72%, transparent 100%);
+  pointer-events: none;
 }
 .city-hero.is-off { opacity: 0; pointer-events: none; }
 .city-title {
   margin: 0;
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: clamp(2.75rem, 5vw, 4.5rem);
-  line-height: var(--leading-tight);
-  letter-spacing: -0.02em;
+  font-size: clamp(3.5rem, 8vw, 7.5rem);
+  line-height: 0.95;
+  letter-spacing: -0.03em;
 }
 .city-tagline {
-  margin: var(--space-3) 0 0;
+  max-width: 24ch;
+  margin: var(--space-4) 0 0;
   font-family: var(--font-display);
   font-weight: 500;
-  font-size: clamp(1.125rem, 1.6vw, 1.375rem);
-  line-height: 1.35;
+  font-size: clamp(1.25rem, 1.8vw, 1.625rem);
+  line-height: 1.3;
+  color: var(--blueprint-ink-2);
 }
+.city-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); margin: var(--space-8) 0 0; }
+.city-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--space-12);
+  padding: 0 var(--space-6);
+  border: 2px solid var(--blueprint-ink);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-base);
+  text-decoration: none;
+}
+.city-btn-primary { background: var(--blueprint-ink); color: var(--paper); }
+.city-btn-primary:hover { background: var(--blueprint-ink-2); border-color: var(--blueprint-ink-2); }
+.city-btn-secondary { background: transparent; color: var(--blueprint-ink); }
+.city-btn-secondary:hover { background: color-mix(in srgb, var(--blueprint-ink) 8%, transparent); }
+.city-btn:focus-visible,
+.city-copy-btn:focus-visible { outline: 2px solid var(--blueprint-ink); outline-offset: 3px; }
 .city-copy { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-4); }
 .city-cmd {
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--blueprint-line);
+  background: color-mix(in srgb, var(--blueprint-ink) 7%, var(--sky));
+  border: 1px solid color-mix(in srgb, var(--blueprint-ink) 28%, var(--sky));
   font-family: var(--font-mono);
   font-size: var(--text-base);
   user-select: all;
@@ -68,16 +101,15 @@
 }
 .city-copy-btn {
   padding: var(--space-2) var(--space-3);
-  background: var(--paper);
+  background: var(--sky);
   color: var(--blueprint-ink);
-  border: 1px solid var(--paper);
+  border: 1px solid var(--blueprint-ink);
   font-family: var(--font-mono);
   font-size: var(--text-base);
   cursor: pointer;
 }
-.city-copy-btn:hover { background: var(--paper-2); }
-.city-copy-btn:focus-visible { outline: 2px solid var(--light-warm); outline-offset: 2px; }
-.city-copy-status { font-family: var(--font-mono); font-size: var(--text-base); }
+.city-copy-btn:hover { background: color-mix(in srgb, var(--blueprint-ink) 8%, var(--sky)); }
+.city-copy-status { font-family: var(--font-mono); font-size: var(--text-base); color: var(--blueprint-ink-2); }
 
 /* One caption per beat, bottom-left, stacked in one grid cell; only the current beat's is visible. The camera keeps
    the subject above the bottom band the caption and HUD share (FRAME_PAD in camera.ts). */
@@ -104,22 +136,36 @@
 .city-approval { opacity: 0; }
 .city-approval.is-on { opacity: 1; }
 
-/* Counters, bottom-right: compact, one row of fixed cells on wide screens (two rows of four below 1280px). */
+/* Counters, bottom-right: big numerals on a light panel (the sky colour, hairline border), one row of fixed cells on
+   wide screens (two rows of four below 1360px). The two lane accents sit under the counters of worker lane output. */
 .city-hud {
   position: absolute;
   right: var(--space-6);
   bottom: var(--space-6);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: color-mix(in srgb, var(--sky) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--blueprint-ink) 20%, transparent);
+  color: var(--blueprint-ink);
   font-family: var(--font-mono);
 }
 .city-replay { margin: 0; font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.35; color: var(--blueprint-line-soft); }
-.city-counters { display: grid; grid-template-columns: repeat(7, auto); gap: 2px var(--space-4); margin: 6px 0 0; }
-.city-counter dt { font-size: var(--text-xs); line-height: 1.25; letter-spacing: 0.06em; text-transform: uppercase; color: var(--blueprint-line-soft); }
-.city-counter dd { margin: 0; font-size: var(--text-sm); line-height: 1.3; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.city-hud .city-replay { font-size: var(--text-sm); color: var(--blueprint-ink); }
+.city-counters { display: grid; grid-template-columns: repeat(7, auto); gap: var(--space-1) var(--space-4); margin: var(--space-2) 0 0; }
+.city-counter dt { font-size: var(--text-xs); line-height: 1.25; letter-spacing: 0.06em; white-space: nowrap; text-transform: uppercase; color: var(--blueprint-ink-2); }
+.city-counter dd { margin: 0; font-size: var(--text-xl); font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.city-counter dd[data-clock] { min-width: 11ch; font-size: var(--text-lg); line-height: 1.45; }
+.city-counter.is-lanes dd::after {
+  content: '';
+  display: block;
+  height: 3px;
+  margin-top: var(--space-1);
+  background: linear-gradient(90deg, var(--lane-opencode) 50%, var(--lane-agy) 50%);
+}
 .city-counter.is-zero { opacity: 0.45; }
-@media (max-width: 1280px) {
-  .city-hud { max-width: min(24rem, 40vw); }
-  .city-counters { grid-template-columns: repeat(4, auto); }
+@media (max-width: 1360px) {
+  .city-hud { max-width: min(26rem, 44vw); }
+  .city-counters { grid-template-columns: repeat(4, auto); justify-content: space-between; gap: var(--space-1) var(--space-3); }
+  .city-counter dd[data-clock] { min-width: 0; }
 }
 
 /* Labels pinned to the lots: positioned by the scene (transform), shown from the split beat (opacity). */
@@ -164,7 +210,9 @@
 .city-stage.no-webgl { height: auto; padding-bottom: var(--space-16); }
 .city-stage.no-webgl .city-pin { position: static; height: auto; overflow: visible; }
 .city-stage.no-webgl :is(.city-canvas, .city-labels, .city-captions, .city-hud) { display: none; }
-.city-stage.no-webgl .city-hero { position: static; max-width: 40rem; margin: 0 var(--space-6); padding: calc(var(--space-16) + var(--space-8)) 0 var(--space-6); background: none; border: 0; }
+.city-stage.no-webgl .city-hero { position: static; width: auto; max-width: 46rem; margin: 0 var(--space-6); padding: calc(var(--space-16) + var(--space-8)) 0 var(--space-6); }
+.city-stage.no-webgl .city-hero::before { display: none; }
+.city-stage.no-webgl { background: var(--sky); color: var(--blueprint-ink); }
 .city-stage.no-webgl .city-hero.is-off { opacity: 1; pointer-events: auto; }
 .city-stage.no-webgl .city-static { position: static; width: auto; height: auto; margin: 0 var(--space-6); overflow: visible; clip: auto; white-space: normal; }
 .city-stage.no-webgl .city-static-list { list-style: none; padding-left: 0; gap: var(--space-8); max-width: 60rem; }
@@ -173,7 +221,9 @@
   .city-stage { height: auto; padding-bottom: var(--space-16); }
   .city-pin { position: static; height: auto; overflow: visible; }
   .city-canvas, .city-labels, .city-captions, .city-hud { display: none; }
-  .city-hero { position: static; max-width: 40rem; margin: 0 var(--space-6); padding: calc(var(--space-16) + var(--space-8)) 0 var(--space-6); background: none; border: 0; }
+  .city-hero { position: static; width: auto; max-width: 46rem; margin: 0 var(--space-6); padding: calc(var(--space-16) + var(--space-8)) 0 var(--space-6); }
+  .city-hero::before { display: none; }
+  .city-stage { background: var(--sky); color: var(--blueprint-ink); }
   .city-static { position: static; width: auto; height: auto; margin: 0 var(--space-6); overflow: visible; clip: auto; white-space: normal; }
   .city-static-list { list-style: none; padding-left: 0; gap: var(--space-8); max-width: 60rem; }
   .city-still img { display: block; }
@@ -193,18 +243,43 @@
 
 /* Tablet: narrower edge panels. */
 @media (max-width: 1100px) {
-  .city-hero { max-width: min(28rem, 55vw); }
+  .city-hero { width: min(34rem, 62vw); padding-top: var(--space-16); }
+  .city-actions { margin-top: var(--space-6); }
+  .city-copy { margin-top: var(--space-3); }
+  .city-cmd, .city-copy-btn { font-size: var(--text-sm); }
   .city-captions { width: min(30rem, 46vw); }
   .city-hud { max-width: min(24rem, 44vw); }
 }
 
+/* Narrow and portrait: the title block takes the top band the camera leaves clear (FRAME_PAD.portrait.top), over a
+   top-down scrim, with the tagline on two lines and the controls in one row each. */
+@media (max-width: 900px) {
+  .city-hero { right: 0; width: auto; padding: var(--space-4) var(--space-4) var(--space-6); }
+  .city-hero::before {
+    background: linear-gradient(180deg, var(--sky) 0%, color-mix(in srgb, var(--sky) 88%, transparent) 70%, transparent 100%);
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+  .city-tagline { max-width: none; margin-top: var(--space-2); font-size: var(--text-base); }
+  .city-actions { gap: var(--space-2); margin-top: var(--space-4); }
+  .city-btn { min-height: 44px; padding: 0 var(--space-4); }
+  .city-copy { flex-wrap: nowrap; margin-top: var(--space-3); }
+  .city-cmd, .city-copy-btn { font-size: var(--text-sm); }
+  .city-cmd { min-width: 0; padding-inline: var(--space-2); }
+  .city-hud { max-width: min(24rem, 46vw); }
+  .city-counter dt { letter-spacing: 0.02em; }
+  .city-counters { column-gap: var(--space-2); }
+}
+
 /* Phone: HUD at the top, captions at the bottom, both full width; the camera fits the city between them. */
 @media (max-width: 700px) {
-  .city-hero { top: var(--space-4); left: var(--space-4); right: var(--space-4); max-width: none; padding: var(--space-4); }
   .city-captions { left: var(--space-3); right: var(--space-3); bottom: var(--space-3); width: auto; }
   .city-caption { padding: var(--space-2) var(--space-3); font-size: var(--text-sm); }
-  .city-hud { top: var(--space-3); bottom: auto; left: var(--space-3); right: var(--space-3); max-width: none; padding: 6px var(--space-3); }
-  .city-counters { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px var(--space-3); margin-top: var(--space-1); }
+  .city-hud { top: var(--space-3); bottom: auto; left: var(--space-3); right: var(--space-3); max-width: none; padding: var(--space-2) var(--space-3); }
+  .city-hud .city-replay { font-size: var(--text-xs); }
+  .city-counters { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-1) var(--space-3); margin-top: var(--space-2); }
+  .city-counter dd { font-size: var(--text-lg); line-height: 1.2; }
+  .city-counter dd[data-clock] { font-size: var(--text-base); line-height: 1.4; }
   .lot-label { font-size: var(--text-xs); padding: 0 var(--space-1); border-left-width: 2px; }
   /* While the hero shows, the HUD would sit under it: hide it until the run starts. */
   .city-stage[data-beat='hero'] .city-hud { opacity: 0; }

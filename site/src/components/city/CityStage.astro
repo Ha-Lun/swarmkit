@@ -12,6 +12,7 @@ import '../../styles/city.css';
 import { beatCaptions, formatDuration, replayLabel } from '../../lib/city/captions.ts';
 import { buildLayout } from '../../lib/city/lots.ts';
 import { SCROLL_VH } from '../../lib/city/timeline.ts';
+import { repoUrl } from '../../lib/facts.ts';
 import { loadFeaturedRun } from '../../lib/run.ts';
 
 const run = loadFeaturedRun();
@@ -45,6 +46,10 @@ const counters = [
       <div class="city-hero" data-city-hero>
         <h1 id="city-title" class="city-title">SwarmKit</h1>
         <p class="city-tagline">Opus plans. Cheaper models build, in parallel. One config, three CLIs.</p>
+        <p class="city-actions">
+          <a class="city-btn city-btn-primary" href="#install">Install</a>
+          <a class="city-btn city-btn-secondary" href={repoUrl}>GitHub</a>
+        </p>
         <div class="city-copy">
           <code class="city-cmd">{command}</code>
           <button type="button" class="city-copy-btn" data-copy={command}>Copy</button>
@@ -65,7 +70,7 @@ const counters = [
         <p class="city-replay">{label}</p>
         <dl class="city-counters">
           {counters.map((c) => (
-            <div class:list={['city-counter', { 'is-zero': c.key === 'merging' }]}><dt>{c.name}</dt><dd data-counter={c.key}>0</dd></div>
+            <div class:list={['city-counter', { 'is-zero': c.key === 'merging', 'is-lanes': c.key === 'dispatched' || c.key === 'built' }]}><dt>{c.name}</dt><dd data-counter={c.key}>0</dd></div>
           ))}
           <div class="city-counter"><dt>run clock</dt><dd data-clock>{formatDuration(0)}</dd></div>
         </dl>

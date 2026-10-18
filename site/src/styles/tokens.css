@@ -36,6 +36,7 @@
   --blueprint-line-dim: #4f6d99;  /* disabled / quiet lines on navy */
   --light-warm: #ffc77a;     /* golden-hour key light colour */
   --light-cool: #9cc3ee;     /* sky fill */
+  --sky: #f5f4ee;            /* the City scene's sky as rendered: scrims and light panels on the stage match it */
 
   /* one accent per lane (colour-vision safe: yellow-orange, blue-green) */
   --lane-agy: #e69f00;       /* amber */
