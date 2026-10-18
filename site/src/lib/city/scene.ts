@@ -237,8 +237,6 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
   const timeline = buildTimeline(run);
   const palette = readPalette();
   const lightCool = readToken(getComputedStyle(document.documentElement), '--light-cool', '#9cc3ee');
-  // The Blender kit is progressive enhancement: a failed load keeps the placeholder look working unchanged.
-  const kit: Kit | null = await loadKit().catch(() => null);
 
   const reduced = !!opts.reducedMotion;
   const cores = navigator.hardwareConcurrency || 4;
@@ -246,12 +244,15 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
   let tier: CityTier = opts.tier ?? (reduced ? 'low' : cores >= 8 && !coarse ? 'high' : 'medium');
   let tierReason = opts.tier ? `forced ${opts.tier}` : reduced ? 'prefers-reduced-motion' : `${cores} cores${coarse ? ', coarse pointer' : ''}`;
 
-  // --- Renderer, scene, camera, lights.
+  // --- Renderer, scene, camera, lights. The renderer goes first: a context-creation failure must reject before
+  // any model is fetched (the client probes too, but a context can still fail here).
   const renderer = new WebGLRenderer({ canvas, antialias: tier === 'high', powerPreference: 'high-performance' });
   renderer.toneMapping = NoToneMapping; // the palette stays the palette
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = PCFShadowMap;
+  // The Blender kit is progressive enhancement: a failed load keeps the placeholder look working unchanged.
+  const kit: Kit | null = await loadKit().catch(() => null);
 
   const scene = new Scene();
   // Drafting paper all the way out: the background is the paper token and the table fogs into it.
