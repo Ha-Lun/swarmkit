@@ -171,6 +171,7 @@
 .term-dot-agy { color: var(--lane-agy); }
 .term-dot-opencode { color: var(--lane-opencode); }
 .term-body {
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
@@ -179,14 +180,21 @@
   font-size: 0.8125rem;
   line-height: 1.7;
 }
+/* Unrevealed rows take no space (display: none); revealing adds .is-on, whose
+   entry fade is an opacity/transform @keyframes so motion stays compositor-only.
+   Rows flow from the top; the client scrolls only once the body is full. */
+@keyframes term-row-in {
+  from { opacity: 0; transform: translateY(4px); }
+}
 .term-row {
+  display: none;
   margin: 0;
   white-space: pre-wrap;
   overflow-wrap: break-word;
   color: var(--blueprint-ink-2);
   opacity: 0;
 }
-.term-row.is-on { opacity: 0.6; }
+.term-row.is-on { display: block; opacity: 0.6; }
 .term-row.is-latest { opacity: 1; }
 .term-row[data-lane='agy'] { color: var(--lane-agy); }
 .term-row[data-lane='opencode'] { color: var(--lane-opencode); }
@@ -206,18 +214,20 @@
 .term-stat.is-zero { opacity: 0.45; }
 .term-note { margin: var(--space-2) 0 0; font-size: var(--text-xs); line-height: 1.4; color: var(--blueprint-ink-2); }
 
-/* Labels pinned to the lots: positioned by the scene (transform), shown from the split beat (opacity). */
+/* Labels pinned to the lots: positioned by the scene (transform), shown from the split beat (opacity).
+   Dark translucent chips so they sit into the night scene; lane colour survives as a 2px left border. */
 .lot-label {
   position: absolute;
   top: 0;
   left: 0;
   padding: 2px var(--space-2);
-  background: var(--blueprint-ink);
-  border-left: 3px solid var(--blueprint-line);
+  background: rgba(7, 13, 26, 0.78);
+  border-left: 2px solid var(--blueprint-line-dim);
+  border-radius: 4px;
   font-family: var(--font-mono);
   font-size: var(--text-base);
   line-height: 1.3;
-  color: var(--paper);
+  color: var(--blueprint-ink);
   white-space: nowrap;
   opacity: 0;
   will-change: transform;
@@ -281,13 +291,12 @@
 @media (prefers-reduced-motion: no-preference) {
   .city-hero, .term-approval, .city-terminal { transition: opacity 320ms ease; }
   .city-terminal { transition-delay: 120ms; }
-  .term-row { transform: translateY(4px); transition: opacity 200ms ease, transform 200ms ease; }
-  .term-row.is-on { transform: none; }
+  .term-row.is-on { animation: term-row-in 200ms ease; }
   .term-stat { transition: opacity 240ms ease; }
   .lot-label { transition: opacity 200ms ease; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .term-row { transform: none; }
+  .term-row.is-on { animation: none; }
 }
 
 /* Tablet: narrower edge panels. */
@@ -323,14 +332,43 @@
     width: auto;
     height: 42%;
     padding: var(--space-3) var(--space-3) var(--space-2);
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
     border-right: 0;
     border-top: 1px solid var(--hairline);
   }
+  /* Header stack never shrinks: the legend keeps its own line directly under the
+     chapter line and the body takes only the leftover space, so the legend can
+     never slide half-hidden behind the body. */
+  .term-kicker, .term-chapter, .term-line, .term-legend, .term-footer { flex: none; }
   .term-chapter { font-size: clamp(1.25rem, 5.5vw, 1.5rem); }
   .term-line { font-size: var(--text-xs); }
-  .term-legend { flex-wrap: nowrap; gap: var(--space-2) var(--space-3); overflow-x: hidden; }
+  .term-legend {
+    flex-wrap: nowrap;
+    gap: var(--space-2) var(--space-3);
+    margin-top: var(--space-2);
+    overflow-x: hidden;
+    white-space: nowrap;
+  }
+  .term-legend li { flex: none; white-space: nowrap; }
   .term-legend-sub { display: none; }
-  .term-body { font-size: var(--text-xs); }
+  /* Body keeps room for at least the last 4 rows: ~4 single-line rows at
+     12px/1.7 (~82px) plus air for wrapped rows. */
+  .term-body { min-height: 6rem; font-size: var(--text-xs); }
+  /* Compact 4-column counter grid (2 rows for the 7 cells) with smaller labels,
+     so the footer never wraps to 3 lines or reaches the browser toolbar. */
+  .term-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-1) var(--space-2);
+  }
+  .term-stat { min-width: 0; }
+  .term-stat dt {
+    font-size: 0.625rem;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .term-stat dd { font-size: var(--text-xs); }
   .term-stat dd[data-clock] { min-width: 0; }
   .term-note { display: none; }

@@ -92,9 +92,17 @@ async function boot(stage: HTMLElement) {
       next?.classList.add('is-latest');
       latestEl = next;
     }
-    // One programmatic scroll per newly revealed batch, never per frame.
+    // One programmatic scroll per change of the revealed count, never per frame.
+    // Rows flow from the top (unrevealed rows take no space); only once the body
+    // is full does the newest revealed row pin to the bottom of the visible body.
+    // Scrolling backwards (rows un-revealed) steps the scroll back up the same way.
     if (termBody && revealed !== lastScrolled) {
-      termBody.scrollTop = termBody.scrollHeight;
+      if (!latestEl) {
+        termBody.scrollTop = 0;
+      } else {
+        const target = latestEl.offsetTop + latestEl.offsetHeight - termBody.clientHeight;
+        termBody.scrollTop = target > 0 ? target : 0;
+      }
       lastScrolled = revealed;
     }
   };
