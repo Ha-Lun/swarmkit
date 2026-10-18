@@ -2,6 +2,7 @@
 // The SwarmKit homepage: the scroll-scrubbed City replay of one real run, then the content sections.
 import Base from '../layouts/Base.astro';
 import CityStage from '../components/city/CityStage.astro';
+import RunResult from '../components/city/sections/RunResult.astro';
 import CityBar from '../components/city/CityBar.astro';
 import CityFooter from '../components/city/CityFooter.astro';
 import WhichMode from '../components/city/sections/WhichMode.astro';
@@ -16,6 +17,7 @@ import BuildLog from '../components/city/sections/BuildLog.astro';
   <CityBar slot="top" />
   <span id="top"></span>
   <CityStage />
+  <RunResult />
   <WhichMode />
   <Numbers />
   <ThreeClis />

@@ -1,0 +1,122 @@
+---
+import { loadFeaturedRun } from '../../../lib/run.ts';
+
+const run = loadFeaturedRun();
+
+const formatUsd = (usd: number): string => `$${usd.toFixed(2)}`;
+const formatWall = (seconds: number): string => {
+  const total = Math.max(0, Math.round(seconds));
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  return mins > 0 ? `${mins} min ${secs} s` : `${secs} s`;
+};
+const formatCount = (n: number): string => Math.round(n).toLocaleString('en-US');
+const plural = (n: number, one: string, many?: string): string => `${n} ${n === 1 ? one : (many ?? `${one}s`)}`;
+
+// The final-test figure only renders when the run data says the final tests passed.
+const finalPass = run !== null && run.verify_ok === true;
+const laneCount = (lane: 'agy' | 'opencode'): number =>
+  run?.workers.filter((w) => w.lane === lane).length ?? 0;
+const merges = run?.events.filter((e) => e.type === 'merge').length ?? 0;
+const crossReviews = run?.events.filter((e) => e.type === 'review' && e.by === 'cross-model').length ?? 0;
+// Worker tokens are quota and are never converted to USD.
+const tokenEntries = run
+  ? (['agy', 'opencode'] as const)
+      .map((lane) => ({ lane, n: run.worker_tokens?.[lane] ?? 0 }))
+      .filter((x) => x.n > 0)
+  : [];
+---
+
+{run && (
+  <section id="result" class="city-section result" aria-labelledby="result-title">
+    <p class="result-eyebrow">One real run, not a median</p>
+    <h2 id="result-title">What the run delivered</h2>
+    <div class="result-figures">
+      <div class="result-figure">
+        <p class="result-value">{formatUsd(run.cost_usd)}</p>
+        <p class="result-label">Claude cost</p>
+      </div>
+      <div class="result-figure">
+        <p class="result-value">{formatWall(run.wall_s)}</p>
+        <p class="result-label">wall time</p>
+      </div>
+      {finalPass && (
+        <div class="result-figure">
+          <p class="result-value result-value--text"><span aria-hidden="true">✓ </span>Final tests pass</p>
+          <p class="result-label">final tests</p>
+        </div>
+      )}
+    </div>
+    <p class="result-summary">{plural(run.workers.length, 'worker')} ({laneCount('agy')} on agy, {laneCount('opencode')} on opencode) · {plural(merges, 'merge')} · {plural(crossReviews, 'cross-model review')}</p>
+    {tokenEntries.length > 0 && (
+      <p class="result-tokens">Worker tokens (quota): {tokenEntries.map((x) => `${x.lane} ${formatCount(x.n)}`).join(' · ')}</p>
+    )}
+  </section>
+)}
+
+<style>
+  .result {
+    background: var(--paper);
+    color: var(--blueprint-ink);
+    padding-block: var(--space-24);
+  }
+  .result-eyebrow {
+    margin: 0 0 var(--space-3);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--lane-agy);
+  }
+  .result-figures {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-8);
+    margin-top: var(--space-8);
+  }
+  .result-value {
+    margin: 0;
+    font-weight: 700;
+    font-size: clamp(2.5rem, 6vw, 5rem);
+    line-height: 1.05;
+    letter-spacing: -0.01em;
+    color: var(--blueprint-ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .result-value--text {
+    font-size: clamp(1.75rem, 4vw, 3rem);
+    line-height: 1.1;
+  }
+  .result-label {
+    margin: var(--space-2) 0 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--lane-opencode);
+  }
+  .result-figure:nth-child(2) .result-label {
+    color: var(--lane-agy);
+  }
+  .result-summary {
+    margin: var(--space-8) 0 0;
+    max-width: 70ch;
+    font-weight: 500;
+  }
+  .result-tokens {
+    margin: var(--space-3) 0 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    max-width: 70ch;
+  }
+  @media (max-width: 1024px) {
+    .result-figures {
+      gap: var(--space-6);
+    }
+  }
+  @media (max-width: 768px) {
+    .result-figures {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
