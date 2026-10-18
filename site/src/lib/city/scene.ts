@@ -4,9 +4,9 @@
 // touches scroll or copy itself: text is DOM, the page gets each frame's StageState through onState.
 //
 // Tiers: high = antialias, DPR <= 2, shadows 2048, EffectComposer with the tilt-shift passes; medium = plain render,
-// DPR <= 1.5, shadows 1024; low = no animation loop (a single static frame at the current beat's pose, re-rendered
-// when scrolling stops). Reduced motion starts on low. An fps probe on the first frames steps high -> medium -> low.
-// The loop only runs while the stage is on screen.
+// DPR <= 1.5, shadows 1024; low = plain render, no smoothing or idle animation, drawn only when scroll progress
+// changes. Reduced motion starts on low but draws static frames at each beat's pose, re-rendered when scrolling stops.
+// An fps probe on the first frames steps high -> medium -> low. The loop only runs while the stage is on screen.
 import {
   Color, DirectionalLight, Fog, GridHelper, Group, HalfFloatType, HemisphereLight, InstancedMesh, Matrix4, Mesh, MeshLambertMaterial, NoToneMapping,
   PCFShadowMap, PerspectiveCamera, PlaneGeometry, Quaternion, Scene, SRGBColorSpace, Vector3, WebGLRenderer, WebGLRenderTarget,
@@ -475,16 +475,19 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
     opts.onState?.(state);
   }
 
-  // --- Static frames (low tier, reduced motion): the current beat's pose, no loop.
+  // --- Static frames (reduced motion): the current beat's pose, no loop. A low tier without reduced motion is not
+  // static: it follows scroll progress (see frame()).
+  const isStatic = () => reduced && tier === 'low';
   function drawStatic() {
     if (disposed) return;
     drawAt(beatPoseU(timeline.beats, progress.u), 0);
   }
 
-  // --- Loop (high / medium), only while the stage is on screen.
+  // --- Loop, only while the stage is on screen.
   let raf = 0;
   let last = 0;
   let du = progress.u;
+  let lowU = -1; // low tier: the progress last drawn (-1 = redraw on the next frame)
   const damp = { v: 0 };
   let visible = false;
   let disposed = false;
@@ -495,13 +498,22 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
     const dtMs = last ? now - last : 0;
     last = now;
     const dt = Math.min(0.1, dtMs / 1000);
-    du = smoothDamp(du, progress.u, damp, DAMP_TIME, dt);
-    drawAt(du, dt);
+    if (tier === 'low') {
+      // On demand: follow scroll directly, no smoothing, dt 0 keeps the idle animation still.
+      if (progress.u !== lowU) {
+        lowU = progress.u;
+        drawAt(lowU, 0);
+      }
+    } else {
+      du = smoothDamp(du, progress.u, damp, DAMP_TIME, dt);
+      drawAt(du, dt);
+    }
     if (probe && dtMs > 0) probe(dtMs);
   }
   function start() {
-    if (raf || disposed || tier === 'low') return;
+    if (raf || disposed || isStatic()) return;
     last = 0;
+    lowU = -1;
     du = progress.u; // resume where the page is, no glide from a stale value
     damp.v = 0;
     raf = requestAnimationFrame(frame);
@@ -550,7 +562,8 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
       composer.setSize(w, h);
       tilt.setSize(Math.round(w * pr), Math.round(h * pr));
     }
-    if (tier === 'low') drawStatic();
+    if (isStatic()) drawStatic();
+    else lowU = -1; // low tier: the loop redraws at the new size
   }
 
   function applyTier() {
@@ -571,7 +584,7 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
     tier = next;
     tierReason = reason;
     applyTier();
-    if (tier === 'low') {
+    if (isStatic()) {
       stop();
       drawStatic();
     } else if (visible) start();
@@ -590,7 +603,7 @@ export async function mountCity(opts: MountCityOptions): Promise<CityHandle> {
   });
   io.observe(opts.visibilityTarget ?? canvas);
   // Re-render in the next frame, not inside the scroll event itself.
-  const unsubEnd = opts.onScrollEnd?.(() => { if (tier === 'low') requestAnimationFrame(drawStatic); });
+  const unsubEnd = opts.onScrollEnd?.(() => { if (isStatic()) requestAnimationFrame(drawStatic); });
   const onLost = (e: Event) => {
     e.preventDefault();
     stop();
