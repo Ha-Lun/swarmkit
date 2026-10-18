@@ -426,6 +426,10 @@ def main():
     if a.effort is None:
         a.effort = EFFORT_DEFAULTS.get(a.model, "")
 
+    if a.cmd == "start" and re.search(r"claude|anthropic|haiku|sonnet|opus", a.model, re.I):
+        print(f"{PROG}: Claude models are not allowed for workers: {a.model}", file=sys.stderr)
+        sys.exit(2)
+
     # The first `git worktree list` entry is the main working tree, also when run from inside a
     # task worktree or a submodule: it keys the task dirs, so every worktree shares one list and cap.
     # `here` is the checkout we were invoked from: HEAD (default base, merged check) means its HEAD.

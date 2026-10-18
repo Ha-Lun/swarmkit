@@ -12,10 +12,11 @@ const tasks = (args && args.tasks) || []
 const review = !(args && args.review === false)
 if (tasks.length === 0) return { ready: [], failed: [], findings: [], error: 'args.tasks is empty' }
 
-// A different model family from the writers (Gemini Flash, opencode). `agy models` lists what is installed.
-const REVIEW_MODEL = 'claude-sonnet-4-6'
+// The reviewer uses a different backend+model family than the writer, chosen per task lane.
 
 const wrapper = (lane) => (lane === 'agy' ? 'agy-task' : 'opencode-task')
+const reviewWrapper = (lane) => (lane === 'agy' ? 'opencode-task' : 'agy-task')
+const reviewModel = (lane) => (lane === 'agy' ? 'opencode-go/glm-5.3' : 'gemini-3.8-flash-high')
 
 const resultSchema = {
   type: 'object',
@@ -105,7 +106,7 @@ const check = async ({ t, r }) => {
     // a different model reads the result and the contract; only concrete defects count
     const rv = await agent(
       `Run this command with the Bash tool, exactly as written:\n\n` +
-        `agy-task start review-${t.slug} --wait --review --base ${r.branch} --model ${REVIEW_MODEL} --timeout 9m - <<'TASK_PROMPT_EOF'\n` +
+        `${reviewWrapper(t.lane)} start review-${t.slug} --wait --review --base ${r.branch} --model ${reviewModel(t.lane)} --timeout 9m - <<'TASK_PROMPT_EOF'\n` +
         `${AGY_RULE}Review the work on this branch. The task was:\n${t.prompt}\n\nRead the changed files${t.files ? ` (${t.files.join(', ')})` : ''} and the tests that define the contract. ` +
         `List only concrete defects: file, what is wrong, and the input that breaks it. Your final answer must be only that list, one defect per line, or the single word: none. Do not think aloud in the answer.\n` +
         `TASK_PROMPT_EOF\n\n` +

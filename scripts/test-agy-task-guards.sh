@@ -142,6 +142,20 @@ for s in cap1 cap3; do (cd "$T/r1" && "$TASK" clean $s --force); done
 (cd "$T/r2" && "$TASK" clean cap2 --force)
 unset OPENCODE_TASK_MAX STUB_MODE STUB_SLEEP
 
+# --- no Claude-family models for worker tasks
+AGY_TASK="$(cd "$(dirname "$0")" && pwd)/agy-task"
+rc=0; out=$("$AGY_TASK" start no_claude_agy --model claude-sonnet-4-6 "hi" 2>&1) || rc=$?
+[ "$rc" = 2 ] || fail "agy-task Claude guard exit code: $rc"
+echo "$out" | grep -q "^agy-task: Claude models are not allowed for workers: claude-sonnet-4-6" \
+  || fail "agy-task Claude guard message: $out"
+[ ! -e "$AGY_TASK_DIR"/*/no_claude_agy ] || fail "agy-task Claude guard left a task dir"
+
+rc=0; out=$("$TASK" start no_claude_oc --model opencode-go/claude-haiku-5-5 "hi" 2>&1) || rc=$?
+[ "$rc" = 2 ] || fail "opencode-task Claude guard exit code: $rc"
+echo "$out" | grep -q "^opencode-task: Claude models are not allowed for workers: opencode-go/claude-haiku-5-5" \
+  || fail "opencode-task Claude guard message: $out"
+[ ! -e "$OPENCODE_TASK_DIR"/*/no_claude_oc ] || fail "opencode-task Claude guard left a task dir"
+
 # --- dispatch log: allowlisted fields only
 export SWARMKIT_DISPATCH_LOG="$T/dispatch.jsonl"
 "$TASK" start dl1 "PROMPT-SECRET please" >/dev/null 2>&1 || true
