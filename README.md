@@ -203,7 +203,7 @@ Claude Code is meant to run on Opus for the thinking and hand the implementation
 
 Both workers are the same script (`scripts/agy-task`; `opencode-task` is a symlink to it) with the same commands (`start`, `resume`, `list`, `clean`), `result.json` and `--review`. Each task runs on its own git worktree and branch `<cli>/<slug>`, and at most 3 run at once across both.
 
-Workers never run Claude models (`agy-task` refuses them). Cross-review uses the other family: an opencode-written branch is reviewed by `agy-task --review --model gemini-3.8-flash-high`, an agy-written branch by `opencode-task --review --model opencode-go/glm-5.3`. Jobs that only run a script and report go to background Bash or a Haiku subagent, not Sonnet.
+Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'); use the lane default unless the owner names a model, and never add a model without the owner's OK. Cross-review runs on the other lane's default model (agy reviews opencode-written branches, opencode-task reviews agy-written ones; no --model flag). Jobs that only run a script and report go to background Bash or a Haiku subagent, not Sonnet.
 
 | Worker | Runs | Can run tests? | Notes |
 |---|---|---|---|

@@ -191,10 +191,15 @@ def opencode_parse(out, err):
 
 BACKENDS = {
     "agy-task": {"cli": "agy", "env": "AGY_TASK", "home": ".agy-tasks",
-                 "model": "gemini-3.8-flash-high", "cmd": agy_cmd, "parse": agy_parse, "grace": 30},
+                 "model": "gemini-3.8-flash-high", "cmd": agy_cmd, "parse": agy_parse, "grace": 30,
+                 "allowed": ("gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low")},
     "opencode-task": {"cli": "opencode", "env": "OPENCODE_TASK", "home": ".opencode-tasks",
                       "model": "opencode-go/muse-spark-1.3-contributor", "cmd": opencode_cmd,
-                      "parse": opencode_parse, "grace": 0, "proc_env": opencode_env, "watch": tool_failure},
+                      "parse": opencode_parse, "grace": 0, "proc_env": opencode_env, "watch": tool_failure,
+                      "allowed": ("opencode-go/glm-5.3-flash", "opencode-go/mimo-v2.6-flash",
+                                  "opencode-go/deepseek-v4.1-flash", "opencode-go/muse-spark-1.3-contributor",
+                                  # TODO: remove beam-free when its free period ends
+                                  "opencode-go/beam-free")},
 }
 BACKEND = BACKENDS[PROG]
 CLI = BACKEND["cli"]
@@ -426,8 +431,8 @@ def main():
     if a.effort is None:
         a.effort = EFFORT_DEFAULTS.get(a.model, "")
 
-    if a.cmd == "start" and re.search(r"claude|anthropic|haiku|sonnet|opus", a.model, re.I):
-        print(f"{PROG}: Claude models are not allowed for workers: {a.model}", file=sys.stderr)
+    if a.cmd == "start" and a.model not in BACKEND["allowed"]:
+        print(f"{PROG}: model not on the worker allowlist: {a.model} (allowed: {', '.join(BACKEND['allowed'])})", file=sys.stderr)
         sys.exit(2)
 
     # The first `git worktree list` entry is the main working tree, also when run from inside a

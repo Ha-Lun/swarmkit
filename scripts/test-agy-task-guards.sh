@@ -37,16 +37,16 @@ mkrepo r1; cd "$T/r1"
 D=opencode-go/muse-spark-1.3-contributor
 "$TASK" start e1 "p" >/dev/null 2>&1 || true
 [ "$(last_model)" = "$D" ] || fail "default model should get no effort suffix, got $(last_model)"
-"$TASK" start e2 --model opencode-go/other "p" >/dev/null 2>&1 || true
-[ "$(last_model)" = "opencode-go/other" ] || fail "unknown model should get no effort, got $(last_model)"
+"$TASK" start e2 --model opencode-go/glm-5.3-flash "p" >/dev/null 2>&1 || true
+[ "$(last_model)" = "opencode-go/glm-5.3-flash" ] || fail "unknown model should get no effort, got $(last_model)"
 "$TASK" start e3 --model "$D" --effort "" "p" >/dev/null 2>&1 || true
 [ "$(last_model)" = "$D" ] || fail "empty --effort should mean none, got $(last_model)"
-"$TASK" start e4 --model opencode-go/other --effort high "p" >/dev/null 2>&1 || true
-[ "$(last_model)" = "opencode-go/other#high" ] || fail "explicit effort ignored, got $(last_model)"
+"$TASK" start e4 --model opencode-go/glm-5.3-flash --effort high "p" >/dev/null 2>&1 || true
+[ "$(last_model)" = "opencode-go/glm-5.3-flash#high" ] || fail "explicit effort ignored, got $(last_model)"
 "$TASK" resume e1 --effort high "again" >/dev/null 2>&1 || true
 [ "$(last_model)" = "$D" ] || fail "resume must keep start's (empty) effort, got $(last_model)"
 "$TASK" resume e2 --effort max "again" >/dev/null 2>&1 || true
-[ "$(last_model)" = "opencode-go/other" ] || fail "resume must keep start's (empty) effort, got $(last_model)"
+[ "$(last_model)" = "opencode-go/glm-5.3-flash" ] || fail "resume must keep start's (empty) effort, got $(last_model)"
 for s in e1 e2 e3 e4; do "$TASK" clean $s --force; done
 
 # --- worker shell: test files in a subdirectory are allowed, node -e is not (only the default deny covers it)
@@ -142,19 +142,23 @@ for s in cap1 cap3; do (cd "$T/r1" && "$TASK" clean $s --force); done
 (cd "$T/r2" && "$TASK" clean cap2 --force)
 unset OPENCODE_TASK_MAX STUB_MODE STUB_SLEEP
 
-# --- no Claude-family models for worker tasks
+# --- worker model allowlist
 AGY_TASK="${TASK%/*}/agy-task"
 rc=0; out=$("$AGY_TASK" start no_claude_agy --model claude-sonnet-4-6 "hi" 2>&1) || rc=$?
-[ "$rc" = 2 ] || fail "agy-task Claude guard exit code: $rc"
-echo "$out" | grep -q "^agy-task: Claude models are not allowed for workers: claude-sonnet-4-6" \
-  || fail "agy-task Claude guard message: $out"
-[ ! -e "$AGY_TASK_DIR"/*/no_claude_agy ] || fail "agy-task Claude guard left a task dir"
+[ "$rc" = 2 ] || fail "agy-task allowlist guard exit code: $rc"
+echo "$out" | grep -q "^agy-task: model not on the worker allowlist: claude-sonnet-4-6" \
+  || fail "agy-task allowlist guard message: $out"
+[ ! -e "$AGY_TASK_DIR"/*/no_claude_agy ] || fail "agy-task allowlist guard left a task dir"
 
 rc=0; out=$("$TASK" start no_claude_oc --model opencode-go/claude-haiku-5-5 "hi" 2>&1) || rc=$?
-[ "$rc" = 2 ] || fail "opencode-task Claude guard exit code: $rc"
-echo "$out" | grep -q "^opencode-task: Claude models are not allowed for workers: opencode-go/claude-haiku-5-5" \
-  || fail "opencode-task Claude guard message: $out"
-[ ! -e "$OPENCODE_TASK_DIR"/*/no_claude_oc ] || fail "opencode-task Claude guard left a task dir"
+[ "$rc" = 2 ] || fail "opencode-task allowlist guard exit code: $rc"
+echo "$out" | grep -q "^opencode-task: model not on the worker allowlist: opencode-go/claude-haiku-5-5" \
+  || fail "opencode-task allowlist guard message: $out"
+[ ! -e "$OPENCODE_TASK_DIR"/*/no_claude_oc ] || fail "opencode-task allowlist guard left a task dir"
+
+rc=0; out=$("$TASK" start no_kimi_oc --model opencode-go/kimi-k2.7-code "hi" 2>&1) || rc=$?
+[ "$rc" = 2 ] || fail "opencode-task allowlist guard exit code for kimi: $rc"
+[ ! -e "$OPENCODE_TASK_DIR"/*/no_kimi_oc ] || fail "opencode-task allowlist guard left a task dir"
 
 # --- dispatch log: allowlisted fields only
 export SWARMKIT_DISPATCH_LOG="$T/dispatch.jsonl"

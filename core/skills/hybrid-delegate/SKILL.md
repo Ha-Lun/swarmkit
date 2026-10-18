@@ -29,13 +29,12 @@ Everything else in the approved plan goes to a worker.
    |---|---|
    | Implementation where the worker should run its own tests | `opencode-task` (free `opencode-go/` model) |
    | Bulk edits / boilerplate where you run the tests | `agy-task` (default `gemini-3.8-flash-high`) |
-   | Harder logic | `opencode-task --model opencode-go/kimi-k2.7-code` |
    | Second opinion on your own diff | `agy-task --review --model gemini-3.8-flash-high` |
    | Context-dependent work that cannot be handed off cold | Your own `Agent` subagents (Claude lane) |
 
-   Workers never run Claude models; agy-task refuses them. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`). Give it a verify command from that list, or run the verify yourself after it lands.
+   Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'); use the lane default unless the owner names a model, and never add a model without the owner's OK. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`). Give it a verify command from that list, or run the verify yourself after it lands.
 
-   Cross-review uses a different model family from the writer: an opencode-written branch gets `agy-task --review --model gemini-3.8-flash-high`; an agy-written branch gets `opencode-task --review --model opencode-go/glm-5.3`.
+   Cross-review runs on the other lane's default model (agy reviews opencode-written branches, opencode-task reviews agy-written ones). No --model flag.
 
    The wrapper prints a start banner (slug, model, effort, base, log) on stderr, and `list` shows each task's model, elapsed time and live denied count.
 
@@ -47,12 +46,12 @@ Everything else in the approved plan goes to a worker.
    - Rerun the verify command in the worktree yourself.
    - If something is wrong, `resume` once with concrete feedback (file, line, expected behaviour). `opencode-task` kills a worker at `--max-denied` (10) denied commands or `--max-tool-errors` (20) failed tool calls and records `stopped_by` in `result.json` (`max-denied`, `max-tool-errors`, `timeout`). One resume is allowed after any stop, `max-denied` included, when the worker's edits are worth keeping: the prompt lists the exact problems to fix and forbids the shell commands that were denied (only the plan's test command allowed). If the resumed worker fails or is stopped again, take the task over yourself (a subagent or another lane); never resume twice.
    - `git merge <cli>/<slug>`, then `<cli>-task clean <slug>`.
-7. **Cheap second opinion before you report.** Your own review reads diffs on Claude quota; a different model catches different mistakes on other quota. For merged logic of more than ~50 lines, run a cross-review on the merged diff with the family that did not write it (`agy-task start review-<n> --review --model gemini-3.8-flash-high` for opencode work, `opencode-task start review-<n> --review --model opencode-go/glm-5.3` for agy work) and read only its findings. Skip it for boilerplate and renames.
+7. **Cheap second opinion before you report.** Your own review reads diffs on Claude quota; a different model catches different mistakes on other quota. For merged logic of more than ~50 lines, run a cross-review on the merged diff on the other lane's default model (agy reviews opencode-written branches, opencode-task reviews agy-written ones; no --model flag) and read only its findings. Skip it for boilerplate and renames.
 8. **After the last merge:** run the full test suite, then apply the usual quality gate (`security-auditor`, `code-proofreader`, `release-tester` as the change requires). Report to the user which parts went to which worker/backend.
 
 ## Workflow mode
 
-With the `Workflow` tool available (dynamic workflows on) and 3 or more tasks, run the saved `hybrid-build` workflow instead of the hand-run loop above. It takes `args = { tasks: [{ slug, lane: 'opencode'|'agy', prompt, verify, files }], review: true }`, runs each worker through a small Haiku dispatcher (`--wait` queues behind the shared cap), verifies every branch with its own verify command, cross-reviews it per lane (opencode branch → `agy-task --review --model gemini-3.8-flash-high`, agy branch → `opencode-task --review --model opencode-go/glm-5.3`), and returns only `{ ready, failed, findings }`. You merge the `ready` branches and handle the rest; your context never sees raw worker output. Dynamic workflows are off by default on some plans: `enableWorkflows` in settings.json, or the Dynamic workflows row in `/config`.
+With the `Workflow` tool available (dynamic workflows on) and 3 or more tasks, run the saved `hybrid-build` workflow instead of the hand-run loop above. It takes `args = { tasks: [{ slug, lane: 'opencode'|'agy', prompt, verify, files }], review: true }`, runs each worker through a small Haiku dispatcher (`--wait` queues behind the shared cap), verifies every branch with its own verify command, cross-reviews it per lane on the other lane's default model (no --model flag), and returns only `{ ready, failed, findings }`. You merge the `ready` branches and handle the rest; your context never sees raw worker output. Dynamic workflows are off by default on some plans: `enableWorkflows` in settings.json, or the Dynamic workflows row in `/config`.
 
 ## Safety facts
 
