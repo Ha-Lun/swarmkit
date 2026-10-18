@@ -1,12 +1,15 @@
 // Client for CityStage.astro. Decides whether the scene can run at all (no WebGL or ?tier=fallback -> the
 // .no-webgl static fallback), then loads three, gsap and the scene in this page's own chunk, wires scroll -> scene,
-// and turns each frame's StageState into DOM updates (captions, counters, run clock, hero). The DOM writes happen in
-// the scene's animation frame, never inside a scroll callback, and toggle classes (opacity in CSS) or text only.
+// and turns each frame's StageState into DOM updates (chapter header, terminal rows, counters, run clock, hero). The
+// DOM writes happen in the scene's animation frame, never inside a scroll callback, and toggle classes (opacity in
+// CSS) or text only.
 import type { FeaturedRun } from '../../lib/run.ts';
 import type { CityHandle, CityTier } from '../../lib/city/scene.ts';
 import type { ScrollProgress } from '../../lib/city/scroll.ts';
 import type { StageCounters, StageState } from '../../lib/city/types.ts';
 import { formatDuration } from '../../lib/city/captions.ts';
+import { CHAPTERS, chapterFor } from '../../lib/city/terminal.ts';
+import type { ChapterId } from '../../lib/city/terminal.ts';
 
 function setupCopy() {
   for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-copy]')) {
@@ -42,9 +45,70 @@ function hasWebGL(): boolean {
 async function boot(stage: HTMLElement) {
   let city: CityHandle | null = null;
   let scroll: ScrollProgress | null = null;
+
+  const runEl = document.getElementById('city-run');
+  const canvas = stage.querySelector<HTMLCanvasElement>('.city-canvas');
+  const labelLayer = stage.querySelector<HTMLElement>('[data-city-labels]');
+  const terminal = stage.querySelector<HTMLElement>('[data-terminal]');
+  const termBody = terminal?.querySelector<HTMLElement>('[data-term-body]');
+  const termNum = terminal?.querySelector<HTMLElement>('[data-term-num]');
+  const termTitle = terminal?.querySelector<HTMLElement>('[data-term-title]');
+  const termLine = terminal?.querySelector<HTMLElement>('[data-term-line]');
+  const termRows = terminal ? [...terminal.querySelectorAll<HTMLElement>('.term-row')] : [];
+  const approval = terminal?.querySelector<HTMLElement>('[data-approval]');
+  const hero = stage.querySelector<HTMLElement>('[data-city-hero]');
+
+  let lastChapter: ChapterId | 0 = 0;
+  let revealed = 0;
+  let latestEl: HTMLElement | null = null;
+  let lastScrolled = -1;
+
+  const setChapter = (n: ChapterId) => {
+    if (n === lastChapter) return;
+    lastChapter = n;
+    if (termNum) termNum.textContent = String(n);
+    if (termTitle) termTitle.textContent = CHAPTERS[n].title;
+    if (termLine) termLine.textContent = CHAPTERS[n].line;
+  };
+  const tOf = (i: number): number => Number(termRows[i]?.dataset.t ?? Number.NaN);
+  const revealTo = (runTime: number) => {
+    if (termRows.length === 0) return;
+    if (revealed === 0 || runTime >= tOf(revealed - 1)) {
+      while (revealed < termRows.length) {
+        const row = termRows[revealed];
+        if (!row || !(tOf(revealed) <= runTime)) break;
+        row.classList.add('is-on');
+        revealed++;
+      }
+    } else {
+      while (revealed > 0 && tOf(revealed - 1) > runTime) {
+        revealed--;
+        termRows[revealed]?.classList.remove('is-on');
+      }
+    }
+    const next: HTMLElement | null = revealed > 0 ? (termRows[revealed - 1] ?? null) : null;
+    if (next !== latestEl) {
+      latestEl?.classList.remove('is-latest');
+      next?.classList.add('is-latest');
+      latestEl = next;
+    }
+    // One programmatic scroll per newly revealed batch, never per frame.
+    if (termBody && revealed !== lastScrolled) {
+      termBody.scrollTop = termBody.scrollHeight;
+      lastScrolled = revealed;
+    }
+  };
+
   const fail = (reason: string) => {
     stage.classList.add('no-webgl');
     stage.dataset.cityFallback = reason;
+    // Fallback tier: the full terminal, all rows visible, chapter header on the final chapter.
+    setChapter(5);
+    for (const row of termRows) row.classList.add('is-on');
+    revealed = termRows.length;
+    latestEl = termRows[termRows.length - 1] ?? null;
+    latestEl?.classList.add('is-latest');
+    if (termBody) termBody.scrollTop = termBody.scrollHeight;
     city?.dispose();
     scroll?.destroy();
     city = null;
@@ -54,18 +118,12 @@ async function boot(stage: HTMLElement) {
   const param = new URLSearchParams(location.search).get('tier');
   if (param === 'fallback') return fail('?tier=fallback');
   if (!hasWebGL()) return fail('no WebGL');
-  const runEl = document.getElementById('city-run');
-  const canvas = stage.querySelector<HTMLCanvasElement>('.city-canvas');
-  const labelLayer = stage.querySelector<HTMLElement>('[data-city-labels]');
   if (!runEl || !canvas || !labelLayer) return fail('stage markup missing');
 
-  const captions = new Map([...stage.querySelectorAll<HTMLElement>('.city-caption')].map((el) => [el.dataset.beat!, el]));
-  const approval = stage.querySelector<HTMLElement>('[data-approval]');
-  const hero = stage.querySelector<HTMLElement>('[data-city-hero]');
   const counterEls = [...stage.querySelectorAll<HTMLElement>('[data-counter]')].map((el) => ({
     el, key: el.dataset.counter as keyof StageCounters, last: -1,
-    // 'merging' is transient (lots in the air right now): its fixed cell dims while it is 0, never hides.
-    cell: el.dataset.counter === 'merging' ? el.closest<HTMLElement>('.city-counter') : null,
+    // 'merging' is transient (lots in the air right now): its cell dims while it is 0, never hides.
+    cell: el.dataset.counter === 'merging' ? el.closest<HTMLElement>('.term-stat') : null,
   }));
   const clock = stage.querySelector<HTMLElement>('[data-clock]');
   let lastBeat = '';
@@ -73,15 +131,18 @@ async function boot(stage: HTMLElement) {
   let lastSecond = -1;
 
   const onState = (s: StageState) => {
+    const chapter = chapterFor(s.beat);
+    const chapterChanged = chapter !== lastChapter;
+    setChapter(chapter);
+    revealTo(s.runTime);
     if (s.beat !== lastBeat) {
-      captions.get(lastBeat)?.classList.remove('is-on');
-      captions.get(s.beat)?.classList.add('is-on');
       hero?.classList.toggle('is-off', s.beat !== 'hero');
       stage.dataset.beat = s.beat;
       lastBeat = s.beat;
     }
-    if (approval && s.planApproved !== lastApproved) {
-      approval.classList.toggle('is-on', s.planApproved && s.planApproval !== null);
+    // The plan-approval note belongs to the plan chapter only.
+    if (approval && (s.planApproved !== lastApproved || chapterChanged)) {
+      approval.classList.toggle('is-on', chapter === 2 && s.planApproved && s.planApproval !== null);
       lastApproved = s.planApproved;
     }
     for (const c of counterEls) {

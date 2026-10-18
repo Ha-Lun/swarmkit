@@ -1,14 +1,16 @@
-/* SwarmKit City stage (src/components/city/CityStage.astro). Palette and type from tokens.css only.
+/* SwarmKit City stage (src/components/city/CityStage.astro). Dark cinematic palette from tokens.css only.
    Live layout by default: a tall section (runway --city-runway vh past one viewport) with a sticky, viewport-tall pin.
-   The canvas box is fixed by CSS (100svh), so nothing shifts when the scene mounts (CLS 0).
-   Fallback (.no-webgl from JS, or no scripting): no canvas, a stacked series of stills with their captions.
-   DOM motion is opacity only and is switched off for prefers-reduced-motion. */
+   The canvas box is fixed by CSS (100svh), so nothing shifts when the scene mounts (CLS 0). The left of the pin holds
+   the hero (hero beat) crossfading with the terminal replay panel (every later beat); the right stays clear for the
+   3D city. Fallback (.no-webgl from JS, or no scripting): no canvas; with JS the full terminal shows revealed above a
+   stacked series of stills with their captions, without scripting the stills series shows alone. DOM motion is
+   opacity-only (terminal rows add a 4px translate) and is switched off for prefers-reduced-motion. */
 
 .city-stage {
   position: relative;
   height: calc((var(--city-runway, 900) + 100) * 1vh);
-  background: var(--blueprint-ink);
-  color: var(--paper);
+  background: var(--paper);
+  color: var(--blueprint-ink);
 }
 .city-pin {
   position: sticky;
@@ -26,20 +28,15 @@
 }
 .city-labels { position: absolute; inset: 0; pointer-events: none; }
 
-/* Captions: paper text on a navy plate, at the bottom edge. The hero and the HUD are lighter (see below). */
-.city-caption {
-  background: color-mix(in srgb, var(--blueprint-ink) 88%, transparent);
-  border: 1px solid var(--blueprint-ink-2);
-}
-
-/* Hero: navy type set straight onto the scene's pale sky, over the clear left third. A left-to-right scrim (the sky
-   colour fading out, no box) keeps the title legible where the city's nearest buildings creep under it. */
+/* Hero: light type over the dark scene, over the left zone the terminal later occupies. A left-to-right scrim (the
+   paper colour fading out, no box) keeps the title legible where the city renders behind it. Hidden after the hero
+   beat, exactly when the terminal fades in, so the two never overlap. */
 .city-hero {
   position: absolute;
   top: 0;
   left: 0;
   isolation: isolate;
-  width: min(46rem, 56vw);
+  width: min(40rem, 38vw);
   padding: calc(var(--space-16) + var(--space-8)) var(--space-6) var(--space-12);
   color: var(--blueprint-ink);
 }
@@ -48,7 +45,7 @@
   position: absolute;
   inset: 0;
   z-index: -1;
-  background: linear-gradient(90deg, var(--sky) 0%, color-mix(in srgb, var(--sky) 82%, transparent) 55%, transparent 100%);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--paper) 94%, transparent) 0%, color-mix(in srgb, var(--paper) 72%, transparent) 55%, transparent 100%);
   -webkit-mask-image: linear-gradient(180deg, #000 72%, transparent 100%);
   mask-image: linear-gradient(180deg, #000 72%, transparent 100%);
   pointer-events: none;
@@ -84,16 +81,17 @@
   text-decoration: none;
 }
 .city-btn-primary { background: var(--blueprint-ink); color: var(--paper); }
-.city-btn-primary:hover { background: var(--blueprint-ink-2); border-color: var(--blueprint-ink-2); }
+.city-btn-primary:hover { background: var(--light-warm); border-color: var(--light-warm); }
 .city-btn-secondary { background: transparent; color: var(--blueprint-ink); }
-.city-btn-secondary:hover { background: color-mix(in srgb, var(--blueprint-ink) 8%, transparent); }
+.city-btn-secondary:hover { background: color-mix(in srgb, var(--blueprint-ink) 12%, transparent); }
 .city-btn:focus-visible,
-.city-copy-btn:focus-visible { outline: 2px solid var(--blueprint-ink); outline-offset: 3px; }
+.city-copy-btn:focus-visible { outline: 2px solid var(--light-warm); outline-offset: 3px; }
 .city-copy { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-4); }
 .city-cmd {
   padding: var(--space-2) var(--space-3);
-  background: color-mix(in srgb, var(--blueprint-ink) 7%, var(--sky));
-  border: 1px solid color-mix(in srgb, var(--blueprint-ink) 28%, var(--sky));
+  background: var(--paper-2);
+  border: 1px solid var(--hairline);
+  color: var(--blueprint-ink);
   font-family: var(--font-mono);
   font-size: var(--text-base);
   user-select: all;
@@ -101,75 +99,112 @@
 }
 .city-copy-btn {
   padding: var(--space-2) var(--space-3);
-  background: var(--sky);
+  background: transparent;
   color: var(--blueprint-ink);
   border: 1px solid var(--blueprint-ink);
   font-family: var(--font-mono);
   font-size: var(--text-base);
   cursor: pointer;
 }
-.city-copy-btn:hover { background: color-mix(in srgb, var(--blueprint-ink) 8%, var(--sky)); }
+.city-copy-btn:hover { background: color-mix(in srgb, var(--blueprint-ink) 12%, transparent); }
 .city-copy-status { font-family: var(--font-mono); font-size: var(--text-base); color: var(--blueprint-ink-2); }
 
-/* One caption per beat, bottom-left, stacked in one grid cell; only the current beat's is visible. The camera keeps
-   the subject above the bottom band the caption and HUD share (FRAME_PAD in camera.ts). */
-.city-captions {
+/* Terminal replay panel: pinned left, ~40vw (max 560px), full pin height minus the top bar. Translucent dark panel
+   with backdrop blur where supported and a hairline border. Display-only (pointer-events: none) so scroll stays with
+   the page; the client auto-scrolls the body programmatically. Hidden until the client reports a beat past hero. */
+.city-terminal {
   position: absolute;
-  left: var(--space-6);
-  bottom: var(--space-6);
-  display: grid;
-  width: min(34rem, 38vw);
+  top: var(--space-12);
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(40vw, 560px);
+  min-width: 0;
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  background: color-mix(in srgb, var(--paper) 84%, transparent);
+  border-right: 1px solid var(--hairline);
+  color: var(--blueprint-ink);
+  opacity: 0;
   pointer-events: none;
 }
-.city-caption {
-  grid-area: 1 / 1;
-  align-self: end;
+@supports (backdrop-filter: blur(1px)) {
+  .city-terminal { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+}
+.city-stage[data-beat]:not([data-beat='hero']) .city-terminal { opacity: 1; }
+.term-kicker {
   margin: 0;
-  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--blueprint-ink-2);
+}
+.term-chapter {
+  margin: var(--space-2) 0 0;
   font-family: var(--font-display);
-  font-weight: 500;
-  font-size: var(--text-base);
-  line-height: 1.45;
+  font-weight: 700;
+  font-size: clamp(1.75rem, 3vw, 2.75rem);
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+}
+.term-line { margin: var(--space-2) 0 0; font-size: var(--text-sm); line-height: 1.45; color: var(--blueprint-ink-2); }
+.term-approval { opacity: 0; }
+.term-approval.is-on { opacity: 1; }
+.term-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  color: var(--blueprint-ink-2);
+}
+.term-dot { margin-right: var(--space-1); }
+.term-dot-opus { color: var(--blueprint-ink); }
+.term-dot-agy { color: var(--lane-agy); }
+.term-dot-opencode { color: var(--lane-opencode); }
+.term-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  margin: var(--space-3) 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.7;
+}
+.term-row {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  color: var(--blueprint-ink-2);
   opacity: 0;
 }
-.city-caption.is-on { opacity: 1; }
-.city-approval { opacity: 0; }
-.city-approval.is-on { opacity: 1; }
-
-/* Counters, bottom-right: big numerals on a light panel (the sky colour, hairline border), one row of fixed cells on
-   wide screens (two rows of four below 1360px). The two lane accents sit under the counters of worker lane output. */
-.city-hud {
-  position: absolute;
-  right: var(--space-6);
-  bottom: var(--space-6);
-  padding: var(--space-3) var(--space-4);
-  background: color-mix(in srgb, var(--sky) 90%, transparent);
-  border: 1px solid color-mix(in srgb, var(--blueprint-ink) 20%, transparent);
-  color: var(--blueprint-ink);
-  font-family: var(--font-mono);
-  /* Display-only counters (replay label + dl/dt/dd, no links or buttons):
-     must never intercept taps aimed at the hero or the canvas. */
-  pointer-events: none;
+.term-row.is-on { opacity: 0.6; }
+.term-row.is-latest { opacity: 1; }
+.term-row[data-lane='agy'] { color: var(--lane-agy); }
+.term-row[data-lane='opencode'] { color: var(--lane-opencode); }
+.term-row[data-ok='true'] { color: var(--status-ok); }
+.term-row[data-ok='false'] { color: var(--status-fail); }
+.term-row[data-kind='prompt'] { color: var(--blueprint-ink); }
+.term-footer {
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--hairline);
 }
-.city-replay { margin: 0; font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.35; color: var(--blueprint-line-soft); }
-.city-hud .city-replay { font-size: var(--text-sm); color: var(--blueprint-ink); }
-.city-counters { display: grid; grid-template-columns: repeat(7, auto); gap: var(--space-1) var(--space-4); margin: var(--space-2) 0 0; }
-.city-counter dt { font-size: var(--text-xs); line-height: 1.25; letter-spacing: 0.06em; white-space: nowrap; text-transform: uppercase; color: var(--blueprint-ink-2); }
-.city-counter dd { margin: 0; font-size: var(--text-xl); font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.city-counter dd[data-clock] { min-width: 11ch; font-size: var(--text-lg); line-height: 1.45; }
-.city-counter.is-lanes dd::after {
-  content: '';
-  display: block;
-  height: 3px;
-  margin-top: var(--space-1);
-  background: linear-gradient(90deg, var(--lane-opencode) 50%, var(--lane-agy) 50%);
-}
-.city-counter.is-zero { opacity: 0.45; }
-@media (max-width: 1360px) {
-  .city-hud { max-width: min(26rem, 44vw); }
-  .city-counters { grid-template-columns: repeat(4, auto); justify-content: space-between; gap: var(--space-1) var(--space-3); }
-  .city-counter dd[data-clock] { min-width: 0; }
-}
+.term-replay { margin: 0; font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.35; color: var(--blueprint-ink-2); }
+.term-stats { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: var(--space-2) 0 0; }
+.term-stat dt { font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.25; letter-spacing: 0.06em; text-transform: uppercase; color: var(--blueprint-ink-2); }
+.term-stat dd { margin: 0; font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 700; line-height: 1.3; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.term-stat dd[data-clock] { min-width: 11ch; }
+.term-stat.is-zero { opacity: 0.45; }
+.term-note { margin: var(--space-2) 0 0; font-size: var(--text-xs); line-height: 1.4; color: var(--blueprint-ink-2); }
 
 /* Labels pinned to the lots: positioned by the scene (transform), shown from the split beat (opacity). */
 .lot-label {
@@ -209,25 +244,33 @@
 .city-still img { display: none; width: 100%; height: auto; aspect-ratio: 8 / 5; background: var(--paper); border: 1px solid var(--blueprint-line-dim); }
 .city-still figcaption { font-size: var(--text-base); line-height: var(--leading-body); }
 
-/* Fallback: no canvas, normal flow, everything readable. */
-.city-stage.no-webgl { height: auto; padding-bottom: var(--space-16); }
+/* Fallback: no canvas, normal flow, everything readable. The terminal shows fully revealed (the client adds .is-on to
+   every row and sets the final chapter); the stills series follows below it. */
+.city-stage.no-webgl { height: auto; background: var(--paper); color: var(--blueprint-ink); }
 .city-stage.no-webgl .city-pin { position: static; height: auto; overflow: visible; }
-.city-stage.no-webgl :is(.city-canvas, .city-labels, .city-captions, .city-hud) { display: none; }
+.city-stage.no-webgl :is(.city-canvas, .city-labels) { display: none; }
 .city-stage.no-webgl .city-hero { position: static; width: auto; max-width: 46rem; margin: 0 var(--space-6); padding: calc(var(--space-16) + var(--space-8)) 0 var(--space-6); }
 .city-stage.no-webgl .city-hero::before { display: none; }
-.city-stage.no-webgl { background: var(--sky); color: var(--blueprint-ink); }
 .city-stage.no-webgl .city-hero.is-off { opacity: 1; pointer-events: auto; }
+.city-stage.no-webgl .city-terminal {
+  position: static;
+  width: auto;
+  max-width: 60rem;
+  margin: 0 var(--space-6) var(--space-8);
+  border: 1px solid var(--hairline);
+  opacity: 1;
+}
+.city-stage.no-webgl .term-body { overflow: visible; }
 .city-stage.no-webgl .city-static { position: static; width: auto; height: auto; margin: 0 var(--space-6); overflow: visible; clip: auto; white-space: normal; }
 .city-stage.no-webgl .city-static-list { list-style: none; padding-left: 0; gap: var(--space-8); max-width: 60rem; }
 .city-stage.no-webgl .city-still img { display: block; }
 @media (scripting: none) {
-  .city-stage { height: auto; padding-bottom: var(--space-16); }
+  .city-stage { height: auto; background: var(--paper); color: var(--blueprint-ink); }
   .city-pin { position: static; height: auto; overflow: visible; }
-  .city-canvas, .city-labels, .city-captions, .city-hud { display: none; }
+  .city-canvas, .city-labels, .city-terminal { display: none; }
   .city-hero { position: static; width: auto; max-width: 46rem; margin: 0 var(--space-6); padding: calc(var(--space-16) + var(--space-8)) 0 var(--space-6); }
   .city-hero::before { display: none; }
-  .city-stage { background: var(--sky); color: var(--blueprint-ink); }
-  .city-static { position: static; width: auto; height: auto; margin: 0 var(--space-6); overflow: visible; clip: auto; white-space: normal; }
+  .city-static { position: static; width: auto; height: auto; margin: 0 var(--space-6) var(--space-16); overflow: visible; clip: auto; white-space: normal; }
   .city-static-list { list-style: none; padding-left: 0; gap: var(--space-8); max-width: 60rem; }
   .city-still img { display: block; }
 }
@@ -236,30 +279,31 @@
 .city-pending-note { margin: var(--space-6) 0 0; padding: var(--space-4); border: 1px solid var(--blueprint-line-dim); font-family: var(--font-mono); }
 
 @media (prefers-reduced-motion: no-preference) {
-  .city-hero, .city-approval { transition: opacity 320ms ease; }
-  /* One caption at a time: the outgoing one is gone (140 ms) before the incoming one starts (140 ms delay). */
-  .city-caption { transition: opacity 140ms ease; }
-  .city-caption.is-on { transition: opacity 220ms ease 140ms; }
-  .city-counter { transition: opacity 240ms ease; }
+  .city-hero, .term-approval, .city-terminal { transition: opacity 320ms ease; }
+  .city-terminal { transition-delay: 120ms; }
+  .term-row { transform: translateY(4px); transition: opacity 200ms ease, transform 200ms ease; }
+  .term-row.is-on { transform: none; }
+  .term-stat { transition: opacity 240ms ease; }
   .lot-label { transition: opacity 200ms ease; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .term-row { transform: none; }
 }
 
 /* Tablet: narrower edge panels. */
 @media (max-width: 1100px) {
-  .city-hero { width: min(34rem, 62vw); padding-top: var(--space-16); }
+  .city-hero { width: min(34rem, 44vw); padding-top: var(--space-16); }
   .city-actions { margin-top: var(--space-6); }
   .city-copy { margin-top: var(--space-3); }
   .city-cmd, .city-copy-btn { font-size: var(--text-sm); }
-  .city-captions { width: min(30rem, 46vw); }
-  .city-hud { max-width: min(24rem, 44vw); }
+  .city-terminal { width: min(46vw, 560px); }
 }
 
-/* Narrow and portrait: the title block takes the top band the camera leaves clear (FRAME_PAD.portrait.top), over a
-   top-down scrim, with the tagline on two lines and the controls in one row each. */
+/* Narrow and portrait: the title block takes the top band the camera keeps clear, over a top-down scrim. */
 @media (max-width: 900px) {
   .city-hero { right: 0; width: auto; padding: var(--space-4) var(--space-4) var(--space-6); }
   .city-hero::before {
-    background: linear-gradient(180deg, var(--sky) 0%, color-mix(in srgb, var(--sky) 88%, transparent) 70%, transparent 100%);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--paper) 94%, transparent) 0%, color-mix(in srgb, var(--paper) 70%, transparent) 70%, transparent 100%);
     -webkit-mask-image: none;
     mask-image: none;
   }
@@ -269,26 +313,33 @@
   .city-copy { flex-wrap: nowrap; margin-top: var(--space-3); }
   .city-cmd, .city-copy-btn { font-size: var(--text-sm); }
   .city-cmd { min-width: 0; padding-inline: var(--space-2); }
-  .city-hud { max-width: min(24rem, 46vw); }
-  .city-counter dt { letter-spacing: 0.02em; }
-  .city-counters { column-gap: var(--space-2); }
+  /* Terminal becomes a bottom sheet (~42% of the pin): smaller chapter header, compact single-row legend, the body
+     keeps the newest rows in view. Full width, rows wrap, so nothing overflows at 390px. */
+  .city-terminal {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    height: 42%;
+    padding: var(--space-3) var(--space-3) var(--space-2);
+    border-right: 0;
+    border-top: 1px solid var(--hairline);
+  }
+  .term-chapter { font-size: clamp(1.25rem, 5.5vw, 1.5rem); }
+  .term-line { font-size: var(--text-xs); }
+  .term-legend { flex-wrap: nowrap; gap: var(--space-2) var(--space-3); overflow-x: hidden; }
+  .term-legend-sub { display: none; }
+  .term-body { font-size: var(--text-xs); }
+  .term-stat dd { font-size: var(--text-xs); }
+  .term-stat dd[data-clock] { min-width: 0; }
+  .term-note { display: none; }
+  /* While the hero shows, the sheet under it would collide with the title and buttons: hide it until the run starts. */
+  .city-stage[data-beat='hero'] .city-terminal { opacity: 0; }
 }
 
-/* Phone: captions at the top (the band the hero vacates once it fades), HUD at the
-   bottom, both full width; the camera fits the city between them. The HUD stays
-   bottom-anchored at every width <= 900px so it can never sit over the hero's
-   title, buttons or copy row, and it is display-only (pointer-events: none). */
 @media (max-width: 700px) {
-  .city-captions { left: var(--space-3); right: var(--space-3); top: var(--space-3); bottom: auto; width: auto; }
-  .city-caption { padding: var(--space-2) var(--space-3); font-size: var(--text-sm); }
-  .city-hud { top: auto; bottom: var(--space-3); left: var(--space-3); right: var(--space-3); max-width: none; padding: var(--space-2) var(--space-3); }
-  .city-hud .city-replay { font-size: var(--text-xs); }
-  .city-counters { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-1) var(--space-3); margin-top: var(--space-2); }
-  .city-counter dd { font-size: var(--text-lg); line-height: 1.2; }
-  .city-counter dd[data-clock] { font-size: var(--text-base); line-height: 1.4; }
   .lot-label { font-size: var(--text-xs); padding: 0 var(--space-1); border-left-width: 2px; }
-  /* While the hero shows, the HUD would sit under it: hide it until the run starts. */
-  .city-stage[data-beat='hero'] .city-hud { opacity: 0; }
 }
 
 /* ---------------------------------------------------------------------------------------------------------------
