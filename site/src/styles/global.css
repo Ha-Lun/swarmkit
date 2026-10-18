@@ -30,6 +30,7 @@
   html {
     background: var(--ink);
     color: var(--text);
+    color-scheme: dark;
     font-family: var(--font-display);
     font-size: var(--text-base);
     line-height: var(--leading-body);

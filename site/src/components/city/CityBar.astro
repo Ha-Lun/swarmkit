@@ -24,6 +24,18 @@ const links = [
   <a class="city-bar-repo" href={repoUrl}>GitHub</a>
 </header>
 
+<style>
+  /* Night palette: keep the bar a dark strip (city.css pairs these tokens the other way). */
+  .city-bar {
+    background: var(--paper);
+    color: var(--blueprint-ink);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .city-bar a {
+    color: var(--blueprint-ink);
+  }
+</style>
+
 <script>
   const bar = document.querySelector<HTMLElement>('[data-city-bar]');
   // The stage, or the "replay pending" panel that stands in for it.

@@ -1,7 +1,15 @@
 /* Design tokens for SwarmKit City (BRIEF section 8).
-   Paper and blueprint neutrals, warm golden-hour light, one accent per lane, a status pair.
-   The legacy names (--ink, --wax, --text) map onto the City palette for the base layer
-   and the skip link; prefer the new names in new code. */
+   DARK CINEMATIC PALETTE (night/dusk): the whole site sits on deep night navy.
+   --paper / --paper-2 are the dark page background and raised panels (the 3D scene
+   reads --paper as its ground/sky base, so the diorama renders at night too).
+   --blueprint-ink / --blueprint-ink-2 are primary / secondary text (light, on dark).
+   --sky is deep dusk blue for scrims and HUD panels. Lane accents are brightened
+   so they glow on dark; window light stays warm, sky fill turns to cool moonlight.
+   Every body-text pair clears WCAG AA (4.5:1); hairlines and decorative borders
+   clear 3:1 where they convey structure.
+   The legacy names (--ink, --wax, --text) keep the base layer dark: --ink follows
+   --paper (page background), --text follows --blueprint-ink (primary text).
+   Prefer the new names in new code. */
 
 @font-face {
   font-family: 'Space Grotesk';
@@ -26,30 +34,31 @@
 }
 
 :root {
-  /* City palette: new names */
-  --paper: #f3ebd9;          /* warm off-white drafting paper */
-  --paper-2: #e6dcc3;        /* paper in shade, panels on paper */
-  --blueprint-ink: #0b1b33;  /* deep blueprint navy: text on paper, dark ground */
-  --blueprint-ink-2: #14294d; /* raised navy surfaces, hairlines on navy */
-  --blueprint-line: #3d79c6; /* hairline blueprint blue: line work, readable on paper and navy */
-  --blueprint-line-soft: #8fb4e3; /* secondary text and lines on navy */
-  --blueprint-line-dim: #4f6d99;  /* disabled / quiet lines on navy */
-  --light-warm: #ffc77a;     /* golden-hour key light colour */
-  --light-cool: #9cc3ee;     /* sky fill */
-  --sky: #f5f4ee;            /* the City scene's sky as rendered: scrims and light panels on the stage match it */
+  /* City palette: new names (dark cinematic values) */
+  --paper: #070d1a;          /* deep night navy: page background, scene ground/sky base */
+  --paper-2: #0e1830;        /* raised panels on the night background */
+  --hairline: #1d2b4a;       /* hairline borders on dark surfaces (decorative) */
+  --blueprint-ink: #e9eef7;  /* off-white: primary text on dark */
+  --blueprint-ink-2: #9fb0cc; /* secondary text on dark (~8:1 on --paper) */
+  --blueprint-line: #6ea8ff; /* bright blueprint blue: line work, glows on dark */
+  --blueprint-line-soft: #8fb4e3; /* secondary text and lines on dark */
+  --blueprint-line-dim: #4f6d99;  /* disabled / quiet lines on dark */
+  --light-warm: #ffc77a;     /* warm window-light colour */
+  --light-cool: #7fa6ff;     /* cool moonlight fill */
+  --sky: #0b1428;            /* deep dusk blue: scrims and HUD panels on the stage */
 
-  /* one accent per lane (colour-vision safe: yellow-orange, blue-green) */
-  --lane-agy: #e69f00;       /* amber */
-  --lane-opencode: #1aa7a1;  /* teal */
+  /* one accent per lane (colour-vision safe), brightened to glow on dark */
+  --lane-agy: #ff9b3d;       /* amber */
+  --lane-opencode: #2fd6c3;  /* teal */
 
   /* status: always paired with a shape (tick, cross, flag), never colour alone */
-  --status-ok: #4f9d2f;
-  --status-fail: #d6443b;
+  --status-ok: #6fbf5f;
+  --status-fail: #e0655a;
 
   /* legacy names, mapped onto the City palette for the base layer and the skip link */
-  --ink: var(--blueprint-ink);
+  --ink: var(--paper);
   --wax: var(--blueprint-line-soft);
-  --text: var(--paper);
+  --text: var(--blueprint-ink);
 
   /* type */
   --font-display: 'Space Grotesk', system-ui, sans-serif;
