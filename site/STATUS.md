@@ -42,11 +42,9 @@ The showcase site is being rebuilt as "SwarmKit City": a scroll-scrubbed miniatu
 - The replay shows one real run, not a median. Worker tokens are quota, never converted to USD.
 - Early bench costs were undercounted (first result segment only); corrected in `bench/FINDINGS.md` on `main`.
 
-## Related branches (all local, unmerged, unpushed)
-- `bench/showcase`: `--showcase` flag in `bench/compare.py` and `bench/plan_approver.py` (how the plan-first run was recorded).
-- `swarm/cut-lead-dev-codex-task`: removes the `lead-dev` agent and the whole Codex target; `lead-dev-hybrid` becomes the single orchestrator. Recovery tag: `archive/lead-dev-and-codex-task`; restore steps in `CHANGELOG.md` on that branch.
-- Local `main` is 7 commits ahead of `origin/main`, none pushed: the 4 bench cost / `agy-task` worktree fixes from this session plus 3 earlier commits (hybrid-build workflow, scaffold bench case, steer fix for lead-dev-hybrid).
-- The site on `main` is the old globe site; it still lists `lead-dev` and will go stale once the cut merges.
+## Related branches (merged into `main` on 2026-10-17, then deleted)
+- `site/city`, `release/city`, `swarm/cut-lead-dev-codex-task`, `swarm/worker-guard`, `bench/showcase`, `bench/worker-models`, `fix/bench-cost`.
+- Recovery tags kept: `city-started-2026-10-16` and `archive/lead-dev-and-codex-task` (restore steps in `CHANGELOG.md` on that tag).
 
-## Merging to production later
-Merging to `main` deploys to production (Vercel). The Vercel setup and the merge checklist are in `docs/archive/HANDOFF.md` (they were in `site/HANDOFF.md` before this branch moved it); the Vercel project is swarmkit-site with root directory `site`. Before merging site/city, also decide what to do about the unmerged branches above and push them in a deliberate order; the owner must say when.
+## Deploying
+Every push to `main` deploys production via Vercel (project swarmkit-site, root directory `site`). Push only on the owner's word.

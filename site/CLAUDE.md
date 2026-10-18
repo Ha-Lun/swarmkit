@@ -1,7 +1,7 @@
 # SwarmKit site: rules for Claude Code
 
 - Read BRIEF.md before each phase; the approved plan is `~/.claude/plans/i-believe-the-showcase-peppy-hartmanis.md`. Work one phase at a time and stop at gates. `docs/archive/` is history of the old globe site.
-- Branch: work happens on `site/city` (worktree `.worktrees/site-city`). Merging to `main` deploys to production. Never merge, and never push to `main`, without the human saying so.
+- Branch: Work happens on `main` or a short-lived branch from it; the site is in `site/`. Every push to `main` deploys production (Vercel). Never push to `main` without the human saying so.
 - Static Astro site. No backend, no React. Three.js is vanilla, in one fixed-canvas island.
 - All text lives in the DOM. Never render copy in WebGL; labels pinned to 3D are DOM elements.
 - One scroll source of truth: GSAP ScrollTrigger writes the shared progress; the scene only reads it. Native scroll, scrubbed. No autoplay, no scroll lock.
