@@ -1,6 +1,6 @@
 # SwarmKit City showcase: status (started 2026-10-16)
 
-The showcase site is being rebuilt as "SwarmKit City": a scroll-scrubbed miniature-city 3D scene that replays one real `lead-dev-hybrid` run (the city is the codebase). The old honeycomb-globe site is archived in `docs/archive/`. Everything lives on branch `site/city` (worktree `.worktrees/site-city`). It is released: merged to `main` and deployed to production (main bc0170f, https://swarmkit-site.vercel.app).
+The showcase site is being rebuilt as "SwarmKit City": a scroll-scrubbed miniature-city 3D scene that replays one real `lead-dev-hybrid` run (the city is the codebase). The old honeycomb-globe site is archived in `docs/archive/`. Everything lives in `site/` on `main`; the feature branch and worktree were merged and deleted. It is released: deployed to production (main bc0170f, https://swarmkit-site.vercel.app).
 
 ## 2026-10-17 (released)
 - City is live on production as the homepage (main bc0170f). The globe is retired.
@@ -10,12 +10,16 @@ The showcase site is being rebuilt as "SwarmKit City": a scroll-scrubbed miniatu
 - Blender asset kit approved at gate G2 (c13e3cd) and integrated.
 - Art rounds 3-5 done (latest 38a1ffd): drafting table, blueprint sheet, scaffold cage, drone pad, phone drones, warmer light.
 - Globe retired: the City is the homepage (428602b). The old globe code is gone.
-- Next: Phase 6 quality gate, a release branch, a Vercel preview, then merge to `main` on the owner's OK.
+- Done (released 2026-10-17): Phase 6 quality gate, release branch `release/city`, the Vercel preview, and the merge to `main` on the owner's OK.
 
 ## Where to start
 - Read `BRIEF.md` (approved at gate G1 on 2026-10-16, logged in `.buildlog/human.jsonl`) and `CLAUDE.md` (rules).
 - Plan: `/home/ha-lun/.claude/plans/i-believe-the-showcase-peppy-hartmanis.md` (outside the repo; the brief mirrors it).
-- Resume: `cd /home/ha-lun/opencode-config/.worktrees/site-city/site && npx astro dev --host 0.0.0.0` (node_modules is a symlink to the main checkout's `site/node_modules`; recreate it with `ln -s /home/ha-lun/opencode-config/site/node_modules node_modules` if missing and never commit it).
+- Work happens on `main` (or a short-lived branch from `main`). The site is in `site/`.
+- Every push to `main` deploys production via Vercel (project swarmkit-site, root directory `site`).
+- Dev: `cd site && npm install && npm run dev` (binds 0.0.0.0; report it at http://100.126.82.90:<port>, the Tailscale IP).
+- Checks: `npm test`, `npx astro check`, `npm run build`.
+- Rules: read `site/CLAUDE.md`.
 
 ## Done
 - Phase 0: brief, rules, City palette tokens (`src/styles/tokens.css`), old plan/handoff archived. Gate G1 approved.
@@ -29,7 +33,7 @@ The showcase site is being rebuilt as "SwarmKit City": a scroll-scrubbed miniatu
 - Phase 6: quality gate passed; release branch `release/city` merged to `main` (bc0170f).
 
 ## Follow-ups
-- No-WebGL path: 3 console errors, and the GLB models download before the still fallback. Load the kit only after a WebGL context succeeds.
+- No-WebGL path: 3 console errors, and the GLB models download before the still fallback. Load the kit only after a WebGL context succeeds. In progress (2026-10-18) on branch `fix/nogl-kit` (worktree `.worktrees/nogl`).
 - Frozen benchmark (Track C): more Numbers cells still pending.
 - Leftovers: Per-lane dispatch logging for the Build log section is not wired yet.
 
