@@ -90,9 +90,9 @@ function safeId(value: string): string {
     position: relative;
     display: flex;
     flex-direction: column;
-    background: var(--blueprint-ink);
-    color: var(--paper);
-    border: 1px solid var(--blueprint-ink-2);
+    background: var(--paper-2);
+    color: var(--blueprint-ink);
+    border: 1px solid var(--hairline);
     padding: var(--space-4);
   }
   .district-name {
@@ -137,8 +137,8 @@ function safeId(value: string): string {
     align-items: flex-end;
     width: 100%;
     padding: var(--space-1) var(--space-2);
-    background: var(--paper-2);
-    color: var(--blueprint-ink);
+    background: var(--blueprint-ink);
+    color: var(--paper);
     border: 1px solid var(--blueprint-line);
     font-family: var(--font-mono);
     font-size: var(--text-xs);
@@ -147,7 +147,7 @@ function safeId(value: string): string {
     cursor: pointer;
   }
   .block:hover {
-    background: var(--paper);
+    background: color-mix(in srgb, var(--blueprint-ink) 72%, white);
   }
   .district .block:focus-visible {
     outline: 3px solid var(--light-warm);
