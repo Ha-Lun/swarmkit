@@ -6,20 +6,27 @@ file, never committed) at this script. CONFIG: {"root": worktree, "log": file, "
 Allowed: the file tools below on paths inside root, the edit tools only if "edit", and run_command only if its
 command matches a "shell" glob (plain runs: the read-only part of the runner allowlist). Everything else is denied:
 other tools (MCP, browser, web), paths outside root, any path component named .git or one of agy's
-customization roots (.agents etc.: a written hooks.json would run commands), relative paths and URL schemes
-other than file:///. Every decision is appended to the log ("allow|deny|deny-quiet TOOL TARGET"): agy leaves
+customization roots (.agents etc.: a written hooks.json would run commands), relative paths, backslashes,
+any URL scheme (file: too: agy 1.4.2 never sends one, and a URL parser can read ?, # or % differently) and any
+argument key outside the tool's schema below. Every decision is appended to the log ("allow|deny|deny-quiet TOOL TARGET"): agy leaves
 hook denials out of its denied_actions, and an empty log after tool calls means the hook was not active.
 deny-quiet is a read-only tool on .git or .agents (agy's list_dir shows the overlay dir, models look once):
 denied, but agy-task does not count it as a denied action.
 """
 import fnmatch, json, os, re, stat, sys
-from urllib.parse import unquote
 
-# tool -> its path keys, all required (from live hook-input probes of agy 1.4.2)
-READ = {"view_file": ("AbsolutePath",), "list_dir": ("DirectoryPath",), "grep_search": ("SearchPath",),
-        "find_by_name": ("SearchDirectory",)}
-EDIT = {"write_to_file": ("TargetFile",), "edit_file": ("Path",), "replace_file_content": ("TargetFile",)}
-SHELL = {"run_command": ("Cwd",)}
+# tool -> (its path keys, all required; every other key it may have), from live probes of agy 1.4.2 (hook input
+# and transcripts). A key outside both is denied: an unknown one could name a path (run_command's BypassSandbox).
+COMMON = ("toolAction", "toolSummary")
+READ = {"view_file": (("AbsolutePath",), ("StartLine", "EndLine")),
+        "list_dir": (("DirectoryPath",), ()),
+        "grep_search": (("SearchPath",), ("Query", "IsRegex", "MatchPerLine")),
+        "find_by_name": (("SearchDirectory",), ("Pattern",))}
+EDIT = {"write_to_file": (("TargetFile",), ("CodeContent", "Description", "Overwrite")),
+        "edit_file": (("Path",), ("Target", "Replacement")),
+        "replace_file_content": (("TargetFile",), ("TargetContent", "ReplacementContent", "StartLine", "EndLine",
+                                                   "AllowMultiple", "Instruction", "Description"))}
+SHELL = {"run_command": (("Cwd",), ("CommandLine", "WaitMsBeforeAsync"))}
 GUARDED = {".git", ".agents", ".agent", "_agents", "_agent"}
 PATHY_KEY = re.compile(r"path|file|dir", re.I)
 SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:")
@@ -40,19 +47,15 @@ def read_nofollow(path):
 
 
 def resolve(v, root):
-    """The real path for an argument value, or raise ValueError: absolute paths and file:/// only."""
+    """The real path for an argument value, or raise ValueError: plain absolute paths only."""
     if not isinstance(v, str) or not v:
         raise ValueError("path is missing or not a string")
     if re.search(r"[\x00-\x1f\x7f]", v):
         raise ValueError("control characters in a path")
-    if v.lower().startswith("file:"):
-        if not v.startswith("file:///"):
-            raise ValueError("only file:/// URLs")
-        v = unquote(v[len("file://"):])
-        if re.search(r"[\x00-\x1f\x7f]", v):
-            raise ValueError("control characters in a path")
-    elif SCHEME.match(v):
-        raise ValueError("URL schemes other than file:/// are denied")
+    if SCHEME.match(v):
+        raise ValueError("URLs are denied (file: too): absolute paths only")
+    if "\\" in v:
+        raise ValueError("backslashes in a path")
     if not v.startswith("/"):
         raise ValueError("only absolute paths")
     return inside(v, root)
@@ -84,7 +87,10 @@ def check_command(cmd, cwd, root, globs):
     if not words or not any(fnmatch.fnmatchcase(" ".join(words), g) for g in globs):
         raise ValueError("only allowlisted test/build commands")
     for w in words[1:]:
-        for c in [w] + w.split("=", 1)[1:]:
+        if w.startswith("--") and len(w.split("=", 1)[0]) >= 3 and "--files0-from".startswith(w.split("=", 1)[0]):
+            raise ValueError("--files0-from reads a list of paths")
+        # the value after =, and after a short option (-O/etc/x)
+        for c in [w] + w.split("=", 1)[1:] + ([w[2:]] if re.match(r"-[^-].", w) else []):
             if "/" in c or c.startswith(".") or os.path.lexists(os.path.join(cwd, c)):  # e.g. a symlinked README.md
                 inside(os.path.join(cwd, c), root)
         if words[0] == "git" and any(len(o) >= 4 and (d.startswith(o) or o.startswith(d))
@@ -101,13 +107,13 @@ def decide(call, cfg):
     if name not in tools:
         raise ValueError("only file tools inside the worktree; no MCP, browser or web" +
                          ("" if cfg.get("shell") else ", no shell"))
-    keys = tools[name]
+    keys, other = tools[name]
     paths = [resolve(args.get(k), root) for k in keys]
     for k, v in args.items():
         if k in keys:
             continue
-        if PATHY_KEY.search(k) and isinstance(v, (str, list, dict)):
-            raise ValueError(f"unexpected path argument {k}")
+        if k not in other + COMMON:
+            raise ValueError(f"unexpected argument {k}")
         if isinstance(v, (list, dict)) and pathlike(v):
             raise ValueError(f"path-like value in {k}")
     if name in SHELL:

@@ -4,7 +4,7 @@
 set -euo pipefail
 TASK="$(cd "$(dirname "$0")" && pwd)/opencode-task"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
-export OPENCODE_TASK_DIR="$T/oc" AGY_TASK_DIR="$T/agy" PATH="$T/bin:$PATH" STUB_ARGS="$T/args"
+export OPENCODE_TASK_DIR="$T/oc" AGY_TASK_DIR="$T/agy" PATH="$T/bin:$PATH" STUB_ARGS="$T/args" SWARMKIT_AGY_BRAIN_DIR="$T/brain"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 mkdir -p "$T/bin"
 # STUB_MODE: ok (default) | deny (opencode: 12 permission errors, then hangs) | slow (opencode: sleeps STUB_SLEEP s first)
@@ -14,6 +14,7 @@ mkdir -p "$T/bin"
 #   | head (points this worktree's HEAD record at branch $STUB_HEAD) | fifo (sub/.git is a FIFO)
 #   | wtswap (moves the worktree aside, leaves a symlink to it and points its .git at $STUB_PLANT)
 #   | symref (turns this task's branch ref into a symref to $STUB_HEAD) | gconfig (writes $XDG_CONFIG_HOME/git/config)
+#   | homecfg (writes $HOME/.gitconfig) | cwt / gwt (writes config.worktree in the common dir / this worktree's gitdir)
 cat > "$T/bin/modes" <<'S'
 case "${STUB_MODE:-ok}" in
   tamper) printf 'gitdir: %s\n' "$STUB_PLANT" > .git ;;
@@ -29,6 +30,10 @@ case "${STUB_MODE:-ok}" in
   symref) g=$(sed 's/^gitdir: //' .git) && c=$(cd "$g" && cd "$(cat commondir)" && pwd) \
             && printf 'ref: refs/heads/%s\n' "$STUB_HEAD" > "$c/refs/heads/agy/$(basename "$(dirname "$PWD")")" ;;
   gconfig) mkdir -p "$XDG_CONFIG_HOME/git" && printf '[core]\n\tpager = touch planted\n' >> "$XDG_CONFIG_HOME/git/config" ;;
+  homecfg) printf '[core]\n\tpager = touch planted\n' >> "$HOME/.gitconfig" ;;
+  cwt) g=$(sed 's/^gitdir: //' .git) && c=$(cd "$g" && cd "$(cat commondir)" && pwd) \
+         && printf '[core]\n\tpager = touch planted\n' > "$c/config.worktree" ;;
+  gwt) printf '[core]\n\tpager = touch planted\n' > "$(sed 's/^gitdir: //' .git)/config.worktree" ;;
 esac
 S
 cat > "$T/bin/opencode" <<'S'
@@ -52,9 +57,11 @@ S
 chmod +x "$T/bin/opencode"
 # The agy stub records its args and, as agy does, asks the gate hook in .agents/hooks.json about one tool call
 # ($STUB_CALL, @WT@ = the worktree; default: write stub.txt), then writes stub.txt only if allowed. STUB_NOHOOK skips the hook (a hook
-# agy did not run); STUB_CONV names the conversation and writes a transcript with two tool calls for it.
+# agy did not run). Its transcript (in the --conversation, else a new one; STUB_CONV overrides) records that call
+# (named STUB_TNAME if set, plus a STUB_EXTRA call); STUB_NOTRANSCRIPT writes none. --version prints $STUB_VERSION (1.4.2).
 cat > "$T/bin/agy" <<'S'
 #!/bin/sh
+[ "$1" = --version ] && { echo "agy ${STUB_VERSION:-1.4.2}"; exit 0; }
 printf '%s\n' "$*" >> "$STUB_ARGS.agy"
 hook=$(jq -r '.[].PreToolUse[0].hooks[0].command' .agents/hooks.json 2>/dev/null)
 call=${STUB_CALL:-"{\"toolCall\":{\"name\":\"write_to_file\",\"args\":{\"TargetFile\":\"$PWD/stub.txt\",\"CodeContent\":\"x\"}}}"}
@@ -63,11 +70,15 @@ rm -f "$STUB_ARGS.gate"
 [ -n "$hook" ] && [ -z "$STUB_NOHOOK" ] && printf '%s' "$call" | (cd .agents && sh -c "$hook") > "$STUB_ARGS.gate"
 { [ -z "$hook" ] || [ -n "$STUB_NOHOOK" ] || grep -q '"allow"' "$STUB_ARGS.gate"; } && echo stub > stub.txt
 . "$(dirname "$0")/modes"
-if [ -n "$STUB_CONV" ]; then
-  l="$SWARMKIT_AGY_BRAIN_DIR/$STUB_CONV/.system_generated/logs"; mkdir -p "$l"
-  printf '{"type":"PLANNER_RESPONSE","tool_calls":[{"name":"view_file"},{"name":"write_to_file"}]}\n' >> "$l/transcript_full.jsonl"
+conv=$(printf '%s\n' "$@" | sed -n '/^--conversation$/{n;p;}')
+conv=${STUB_CONV:-${conv:-$(cat /proc/sys/kernel/random/uuid)}}
+if [ -z "$STUB_NOTRANSCRIPT" ]; then
+  l="$SWARMKIT_AGY_BRAIN_DIR/$conv/.system_generated/logs"; mkdir -p "$l"
+  extra=""; [ -n "$STUB_EXTRA" ] && extra=",{\"name\":\"$STUB_EXTRA\"}"
+  printf '{"type":"PLANNER_RESPONSE","tool_calls":[{"name":"%s"}%s]}\n' \
+    "${STUB_TNAME:-$(printf '%s' "$call" | jq -r .toolCall.name)}" "$extra" >> "$l/transcript_full.jsonl"
 fi
-printf '{"status":"SUCCESS","conversation_id":"%s","response":"done"}\n' "${STUB_CONV:-c1}"
+printf '{"status":"SUCCESS","conversation_id":"%s","response":"done"}\n' "$conv"
 S
 chmod +x "$T/bin/agy"
 fail() { echo "FAIL: $*"; exit 1; }
@@ -247,7 +258,7 @@ AGY_RES="$AGY_TASK_DIR"
 [ "$(jq -r '.permission.edit | to_entries | first | "\(.key)=\(.value)"' "$STUB_ARGS.cfg")" = "*=allow" ] \
   || fail "the edit allow-all must come first (opencode: last match wins)"
 # read-only git: --output, --no-index and --ext-diff are denied after the git allows (last match wins)
-for k in "git * --output*" "git * --no-index*" "git * --ext-diff*"; do
+for k in "git * --ou*" "git * --no-i*" "git * --ext*"; do
   jq -e --arg k "$k" '.permission.bash | to_entries | (map(.key) | index($k)) as $d | $d != null and .[$d].value == "deny"
         and ([to_entries[] | select(.value.value == "allow" and (.value.key | startswith("git "))) | .key] | max < $d)' \
     "$STUB_ARGS.cfg" >/dev/null || fail "$k is not a deny after every git allow: $(jq -c .permission.bash "$STUB_ARGS.cfg")"
@@ -393,14 +404,30 @@ mkdir -p "$T/xdg"
 XDG_CONFIG_HOME="$T/xdg" STUB_MODE=gconfig "$AGY_TASK" start gi17 "p" >/dev/null 2>&1 && fail "global-config run reported success"
 blocked agy "$AGY_RES" gi17 "^git metadata changed during the run"
 rm -rf "$T/xdg"
-for s in gi4 gi5 gi7 gi11 gi13 gi15 gi16 gi17; do "$AGY_TASK" clean $s --force; done
+# ... and so are ~/.gitconfig and both config.worktree files
+mkdir -p "$T/home"
+HOME="$T/home" STUB_MODE=homecfg "$AGY_TASK" start gi18 "p" >/dev/null 2>&1 && fail "home-config run reported success"
+blocked agy "$AGY_RES" gi18 "^git metadata changed during the run"
+STUB_MODE=cwt "$AGY_TASK" start gi19 "p" >/dev/null 2>&1 && fail "common config.worktree run reported success"
+blocked agy "$AGY_RES" gi19 "^git metadata changed during the run"
+rm -f "$(git rev-parse --git-common-dir)/config.worktree"
+STUB_MODE=gwt "$AGY_TASK" start gi20 "p" >/dev/null 2>&1 && fail "worktree config.worktree run reported success"
+blocked agy "$AGY_RES" gi20 "^git metadata changed during the run"
+# every git call the wrapper makes in a worktree takes attributes from the base commit (--attr-source)
+mkdir -p "$T/gitshim"
+printf '#!/bin/sh\n[ -n "$GIT_WORK_TREE" ] && printf "%%s\\n" "$*" >> "%s"\nexec "%s" "$@"\n' "$T/gitcalls" "$(command -v git)" > "$T/gitshim/git"
+chmod +x "$T/gitshim/git"
+PATH="$T/gitshim:$PATH" "$AGY_TASK" start gi21 "p" >/dev/null 2>&1 || fail "gi21 not ok: $(jq -c .warnings "$(ls -d "$AGY_RES"/r1-*/gi21)/result.json")"
+[ "$(wc -l < "$T/gitcalls")" -ge 5 ] && ! grep -v -- "^--no-pager --attr-source=$(cat "$AGY_RES"/r1-*/gi21/base) " "$T/gitcalls" \
+  || fail "a worktree git call without --attr-source: $(cat "$T/gitcalls")"
+for s in gi4 gi5 gi7 gi11 gi13 gi15 gi16 gi17 gi18 gi19 gi20 gi21; do "$AGY_TASK" clean $s --force; done
 [ "$(git worktree list | wc -l)" = 1 ] || fail "clean left worktrees: $(git worktree list)"
 [ -z "$(git branch --list 'opencode/gi*' 'agy/gi*')" ] || fail "clean left branches"
 nomark "clean"
 unset STUB_PLANT
 
 # --- agy gate: every sandboxed agy run (plain and --agent) gets the agy-gate.py PreToolUse hook, never committed
-export SWARMKIT_AGY_AGENTS_DIR="$T/agy-agents" SWARMKIT_AGY_BRAIN_DIR="$T/brain"
+export SWARMKIT_AGY_AGENTS_DIR="$T/agy-agents"
 mkdir -p "$SWARMKIT_AGY_AGENTS_DIR"
 printf -- '---\nname: frontend-specialist\ndescription: d\n---\nBODY\n' > "$SWARMKIT_AGY_AGENTS_DIR/frontend-specialist.md"
 adir() { ls -d "$AGY_TASK_DIR"/*/"$1"; }
@@ -419,12 +446,44 @@ mkdir -p "$T/sib"
 STUB_CALL=$(call write_to_file "{\"TargetFile\":\"$T/sib/x.txt\",\"CodeContent\":\"x\"}") "$AGY_TASK" start gp2 "p" >/dev/null 2>&1 \
   && fail "denied sibling write reported ok"
 [ "$(ares gp2 '.denied_actions[0]')" = "write_to_file $T/sib/x.txt" ] || fail "sibling denial not in denied_actions: $(ares gp2 .denied_actions)"
-# an agy that never ran the hook (empty gate log) while files changed is NOT ok
+# an agy that never ran the hook (empty gate log) while files changed is NOT ok, and its edits are not committed
+uncommitted() { [ "$(git -C "$(adir "$1")/worktree" rev-parse HEAD)" = "$(cat "$(adir "$1")/base")" ] || fail "$1: committed"; }
 STUB_NOHOOK=1 "$AGY_TASK" start gp3 "p" >/dev/null 2>&1 && fail "run with an inactive gate reported ok"
 ares gp3 '.warnings[]' | grep -q "^gate hook inactive" || fail "no inactive-gate warning: $(ares gp3 .warnings)"
-# ... and so is one whose transcript has more tool calls (2) than gate decisions (1)
-STUB_CONV=0a1b2c3d-0000-4000-8000-000000000001 "$AGY_TASK" start gp4 "p" >/dev/null 2>&1 && fail "run with unseen tool calls reported ok"
+uncommitted gp3; [ -f "$(adir gp3)/worktree/stub.txt" ] || fail "gp3: the stub did not write"
+# ... and so is one whose transcript has more tool calls (2) than gate decisions (1), or other names
+STUB_EXTRA=view_file "$AGY_TASK" start gp4 "p" >/dev/null 2>&1 && fail "run with unseen tool calls reported ok"
 ares gp4 '.warnings[]' | grep -q "^gate hook inactive: 1 gate decisions for 2 tool calls" || fail "transcript count: $(ares gp4 .warnings)"
+uncommitted gp4
+STUB_TNAME=run_command "$AGY_TASK" start gp8 "p" >/dev/null 2>&1 && fail "run with another tool in the transcript reported ok"
+ares gp8 '.warnings[]' | grep -q "^gate hook inactive: 1 gate decisions for 1 tool calls" || fail "name match: $(ares gp8 .warnings)"
+uncommitted gp8
+# a missing transcript is not ok either, and neither is a resume that answered for another conversation
+STUB_NOTRANSCRIPT=1 "$AGY_TASK" start gp9 "p" >/dev/null 2>&1 && fail "run without a transcript reported ok"
+ares gp9 '.warnings[]' | grep -q "^gate check unavailable" || fail "no unavailable warning: $(ares gp9 .warnings)"
+uncommitted gp9
+"$AGY_TASK" resume gp1 "again" >/dev/null 2>&1 || fail "plain resume not ok: $(ares gp1 .warnings)"
+h=$(git -C "$(adir gp1)/worktree" rev-parse HEAD)
+STUB_CONV=0a1b2c3d-0000-4000-8000-000000000002 "$AGY_TASK" resume gp1 "again" >/dev/null 2>&1 && fail "resume in another conversation reported ok"
+ares gp1 '.warnings[]' | grep -q "^gate check failed: agy answered for conversation 0a1b2c3d-0000-4000-8000-000000000002" \
+  || fail "conversation check: $(ares gp1 .warnings)"
+[ "$(git -C "$(adir gp1)/worktree" rev-parse HEAD)" = "$h" ] || fail "resume in another conversation was committed"
+# an agy version other than the probed one is refused unless overridden
+rc=0; out=$(STUB_VERSION=1.5.0 "$AGY_TASK" start gv1 "p" 2>&1) || rc=$?
+[ "$rc" = 2 ] && echo "$out" | grep -q "agy 1.5.0 is not the version the gate was probed on (1.4.2)" || fail "unprobed agy ($rc): $out"
+[ ! -e "$AGY_TASK_DIR"/*/gv1 ] || fail "unprobed agy left a task dir"
+STUB_VERSION=1.5.0 AGY_TASK_ALLOW_UNPROBED=1 "$AGY_TASK" start gv1 "p" >/dev/null 2>&1 || fail "override not honoured: $(ares gv1 .warnings)"
+# a launch is refused while the worktree has agy customization entries besides the overlay, or symlinks among them
+for s in 'mkdir -p sub/.agents && echo {} > sub/.agents/hooks.json' 'ln -s /tmp .agents' 'mkdir _agent' \
+         'mkdir .agents && ln -s /etc/hostname .agents/hooks.json' 'mkdir -p .agents && echo x > .agents/rules.md'; do
+  rc=0; out=$("$AGY_TASK" start gr1 --setup "$s" "p" 2>&1) || rc=$?
+  [ "$rc" = 2 ] && echo "$out" | grep -q "^agy-task: refusing to launch agy: " || fail "setup '$s' not refused ($rc): $out"
+  [ ! -e "$(adir gr1)/worktree/stub.txt" ] || fail "agy ran after setup '$s'"
+  "$AGY_TASK" clean gr1 --force
+done
+echo x > "$(adir gp1)/worktree/.agents/extra.json"
+rc=0; out=$("$AGY_TASK" resume gp1 "again" 2>&1) || rc=$?
+[ "$rc" = 2 ] && echo "$out" | grep -q "refusing to launch agy: .agents/extra.json" || fail "resume with a planted .agents file ($rc): $out"
 # a repo that gitignores .agents/ still gets its run committed (git add fails on an exclude naming an ignored path)
 echo '.agents/' > .gitignore && git add .gitignore && git commit -qm ignore
 "$AGY_TASK" start gp6 "p" >/dev/null 2>&1 || fail "run in a repo ignoring .agents not ok: $(ares gp6 .warnings)"
@@ -434,6 +493,7 @@ git reset -q --hard HEAD~1
 STUB_CALL=$(call list_dir '{"DirectoryPath":"@WT@/.agents"}') "$AGY_TASK" start gp7 "p" >/dev/null 2>&1 || true
 [ "$(ares gp7 '.denied_actions | length')" = 0 ] && grep -q "^deny-quiet list_dir " "$(adir gp7)/gate.log" \
   || fail "a quiet denial counted: $(ares gp7 .denied_actions) $(cat "$(adir gp7)/gate.log")"
+[ "$(ares gp7 .quiet_denials)" = 1 ] || fail "quiet_denials: $(ares gp7 .quiet_denials)"
 "$AGY_TASK" start gp5 --yolo "p" >/dev/null 2>&1 || fail "yolo agy run not ok: $(ares gp5 .warnings)"
 [ ! -e "$(adir gp5)/worktree/.agents/hooks.json" ] || fail "--yolo kept the gate"
 # --agent: the agent overlay (file tools only) next to the gate; no shell in the gate either
@@ -478,8 +538,13 @@ cfg true "$SH"
 gate() { printf '%s' "$2" | python3 -I "$G" "$T/gate.json" | jq -r .decision | grep -qx "$1" || fail "gate not $1: $2"; }
 gate allow "$(call view_file "{\"AbsolutePath\":\"$W/stub.txt\",\"toolAction\":\"Reading\"}")"
 gate allow "$(call edit_file "{\"Path\":\"$W/stub.txt\",\"Target\":\"a\",\"Replacement\":\"/etc/x\"}")"
-gate allow "$(call find_by_name "{\"SearchDirectory\":\"$W\",\"Pattern\":\"*.txt\",\"FullPath\":true}")"
-gate allow "$(call view_file "{\"AbsolutePath\":\"file://$W/st%75b.txt\"}")"
+gate allow "$(call find_by_name "{\"SearchDirectory\":\"$W\",\"Pattern\":\"*.txt\"}")"
+gate allow "$(call view_file "{\"AbsolutePath\":\"$W/stub.txt\",\"StartLine\":1,\"EndLine\":2,\"toolSummary\":\"s\"}")"
+# only each tool's own argument keys (M3)
+gate deny "$(call view_file "{\"AbsolutePath\":\"$W/stub.txt\",\"Foo\":\"x\"}")"
+gate deny "$(call find_by_name "{\"SearchDirectory\":\"$W\",\"Pattern\":\"*\",\"Root\":true}")"
+gate deny "$(call edit_file "{\"Path\":\"$W/stub.txt\",\"Target\":\"a\",\"Replacement\":\"b\",\"CodeContent\":\"c\"}")"
+gate deny "$(call run_command "{\"CommandLine\":\"ls\",\"Cwd\":\"$W\",\"BypassSandbox\":true}")"
 gate deny "$(call run_command '{"CommandLine":"ls"}')"                                        # no Cwd
 gate deny "$(call write_to_file "{\"TargetFile\":\"$W/.agents/hooks.json\",\"CodeContent\":\"{}\"}")"
 gate deny "$(call view_file "{\"AbsolutePath\":\"$W/out/hostname\"}")"                      # symlink out of the worktree
@@ -496,7 +561,9 @@ gate deny "$(call grep_search "{\"SearchPath\":\"$W\",\"Query\":\"q\",\"Includes
 gate deny "$(call grep_search "{\"SearchPath\":\"$W\",\"Query\":\"q\",\"Opts\":{\"x\":\"../..\"}}")"  # path in a dict
 gate deny "$(call view_file "{\"AbsolutePath\":\"$W/stub.txt\",\"OtherFile\":\"/etc/passwd\"}")"    # unknown path key
 for u in "stub.txt" "~/x" "FILE://$W/stub.txt" "File://$W/stub.txt" "file://localhost$W/stub.txt" "file:$W/stub.txt" \
-         "vscode-remote://$W/stub.txt" "http://x/y" "file://$W/%2Egit/config" "file://$W/%2e%61gents/hooks.json"; do
+         "vscode-remote://$W/stub.txt" "http://x/y" "file://$W/%2Egit/config" "file://$W/%2e%61gents/hooks.json" \
+         "file://$W/stub.txt" "file://$W/st%75b.txt" "file://$W/stub.txt?x" "file://$W/stub.txt#x" "file://$W/%252e" \
+         "$W/sub\\\\..\\\\stub.txt" "$W\\\\stub.txt"; do        # any URL, file: too; backslashes (JSON-escaped here)
   gate deny "$(call view_file "{\"AbsolutePath\":\"$u\"}")"
 done
 gate deny "$(call browser_navigate '{"Url":"http://x"}')"
@@ -511,7 +578,7 @@ ln -s /etc/hostname "$W/README.md"; gate deny "$(rc 'ls README.md')"; rm "$W/REA
 gate deny "$(call view_file "{\"AbsolutePath\":\"file://$W/a%0Ab\"}")"                        # decoded control char
 for c in 'npm test; rm x' 'npm test && curl x' 'npm test | sh' 'ls $(id)' 'ls `id`' 'npm test > x' 'ls /etc' 'ls *' \
          'cat src/../../../etc/passwd' 'curl http://x' 'git diff --output=x' 'git diff --outp=x' 'git diff --no-index a b' \
-         'git log --ext-diff' 'ls .git' 'ls sub/.Agents'; do
+         'git log --ext-diff' 'ls .git' 'ls sub/.Agents' 'git diff -O/etc/hostname' 'wc --files0-from=x' 'wc --files0=x' 'wc --f=x'; do
   gate deny "$(rc "$c")"
 done
 gate deny "$(rc 'npm test' /tmp)"
@@ -538,11 +605,11 @@ for f in .agents/hooks.json docs/.Agent/x _agents; do
 done
 # a tracked symlink out of the worktree is warned about before launch
 ln -s /etc etc-link && git add etc-link && git commit -qm link
-"$AGY_TASK" start ga5 "p" >/dev/null 2>&1 || true
-ares ga5 '.warnings[]' | grep -q "^tracked symlinks point outside the worktree (etc-link)" || fail "no symlink warning: $(ares ga5 .warnings)"
+"$AGY_TASK" start ga5 --setup 'ln -s /tmp setup-link' "p" >/dev/null 2>&1 || true
+ares ga5 '.warnings[]' | grep -q "^symlinks point outside the worktree (etc-link, setup-link)" || fail "no symlink warning: $(ares ga5 .warnings)"
 git reset -q --hard HEAD~1
-for s in gp1 gp2 gp3 gp4 gp5 gp6 gp7 ga1 ga2 ga3 ga5; do "$AGY_TASK" clean $s --force; done
-unset SWARMKIT_AGY_AGENTS_DIR SWARMKIT_AGY_BRAIN_DIR
+for s in gp1 gp2 gp3 gp4 gp5 gp6 gp7 gp8 gp9 gv1 ga1 ga2 ga3 ga5; do "$AGY_TASK" clean $s --force; done
+unset SWARMKIT_AGY_AGENTS_DIR
 
 # --- dispatch log: allowlisted fields only
 export SWARMKIT_DISPATCH_LOG="$T/dispatch.jsonl"

@@ -32,10 +32,18 @@ write_to_file, edit_file, replace_file_content on absolute or file:/// paths tha
 worktree, outside any .git or .agents-style component; plain runs also get run_command for read-only
 commands from the runner allowlist (git status/diff/log/show, ls, pwd, echo, wc, cat of source paths; no
 shell syntax, paths inside the worktree). No test runner: it would run worker-written code past the gate. Everything else is denied (MCP, browser, web),
-and every decision is logged into task/gate.log; denials land in denied_actions. agy runs a hook that
-crashes or prints nothing as an allow, so a run whose transcript has more tool calls than gate decisions
-(or that changed files with no decision logged) is NOT ok ("gate hook inactive"). A base that tracks
-anything under .agents/.agent/_agents/_agent is refused.
+and every decision is logged into task/gate.log; denials land in denied_actions (reads of .git or .agents are
+denied quietly: counted in quiet_denials, a warning above 3). agy runs a hook that crashes or prints nothing as
+an allow, so before the commit the tool names in agy's transcript of this run are matched one by one against
+the gate log: a mismatch ("gate hook inactive"), an unreadable transcript ("gate check unavailable") or a
+resume that answered for another conversation is NOT ok and not committed. A base that tracks anything under
+.agents/.agent/_agents/_agent is refused, and so is a launch (start after --setup, resume) while the worktree
+has any such entry besides the wrapper's own overlay, or a symlink among them.
+The gate's schema (tool names, argument keys, transcript format) was probed on agy 1.4.2 (AGY_PROBED): another
+agy version is refused unless AGY_TASK_ALLOW_UNPROBED=1. Re-probe before bumping it: in a scratch repo, run one
+plain and one --agent task that reads, edits and searches; compare the tool names and argument keys in
+~/.gemini/antigravity-cli/brain/<conversation>/.system_generated/logs/transcript_full.jsonl and the gate log
+with agy-gate.py's schema, and add only file tools whose path keys are known.
 
 Invoked as opencode-task (a symlink) it drives `opencode run`: branches opencode/<slug>, tasks under
 $OPENCODE_TASK_DIR (default ~/.opencode-tasks). A per-run config overlay (OPENCODE_CONFIG_CONTENT, this
@@ -156,7 +164,8 @@ OPENCODE_OVERLAY = {
                  **{g: "allow" for g in RUNNER_GLOBS},
                  # after the allows (last match wins): read-only git must not write files, read outside the
                  # worktree or run an external diff. `*` also matches `=`, so `--output=x` is covered.
-                 **{g: "deny" for g in ("git * --output*", "git * --no-index*", "git * --ext-diff*")}},
+                 # git takes any unique prefix of an option, 4 characters suffice: --ou(tput), --no-i(ndex), --ext(-diff)
+                 **{g: "deny" for g in ("git * --ou*", "git * --no-i*", "git * --ext*")}},
     },
 }
 
@@ -240,8 +249,49 @@ def agy_agent_problem(agent):
     return None
 
 
+AGY_PROBED = "1.4.2"  # the agy version the gate schema and transcript check were probed on
+
+
+def refuse(task, msg):
+    (task / "pid").unlink(missing_ok=True)
+    print(f"{PROG}: {msg}", file=sys.stderr)
+    sys.exit(2)
+
+
+def write_nofollow(path, text):
+    """Create or truncate a regular file, never through a symlink (or a FIFO: O_NONBLOCK fails instead of hanging)."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_NONBLOCK, 0o644)
+    with os.fdopen(fd, "w") as f:
+        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+            raise OSError(f"{path} is not a regular file")
+        f.write(text)
+
+
+def agy_roots_problem(wt, agent):
+    """Why agy must not launch in WT, or None: agy loads hooks, agents and rules from .agents-style dirs, so the
+    only entries allowed there are the overlay's own (real dirs and files, no symlinks)."""
+    own = {".agents": "d", ".agents/hooks.json": "f"}
+    if agent:
+        own.update({".agents/agents": "d", f".agents/agents/{agent}": "d", f".agents/agents/{agent}/agent.md": "f"})
+    for d, dirs, files in os.walk(wt):  # followlinks=False: a symlinked dir is listed, not entered
+        if d == str(wt):
+            dirs[:] = [n for n in dirs if n != ".git"]
+        for n in dirs + files:
+            f = os.path.join(d, n)
+            r = os.path.relpath(f, wt)
+            if not {c.lower() for c in r.split(os.sep)} & set(AGY_ROOTS):
+                continue
+            kind = "l" if os.path.islink(f) else "d" if os.path.isdir(f) else "f" if os.path.isfile(f) else "o"
+            if own.get(r) != kind:
+                return f"{r} is in an agy customization dir ({'a symlink' if kind == 'l' else 'not the overlay'})"
+    return None
+
+
 def agy_overlay(task, a, agent):
     wt = task / "worktree"
+    bad = agy_roots_problem(wt, agent)  # every launch: --setup or an earlier run could have planted one
+    if bad:
+        refuse(task, f"refusing to launch agy: {bad}; remove it from {wt} or clean the task")
     hooks, overlay = wt / ".agents" / "hooks.json", [".agents/hooks.json"]
     if agent:
         _, fm, body = (agy_agents_dir() / f"{agent}.md").read_text().split("---\n", 2)
@@ -249,7 +299,7 @@ def agy_overlay(task, a, agent):
         fm = fm.rstrip("\n") + "\ninheritMcp: false\ntools:\n" + "".join(f"  - {t}\n" for t in tools)
         d = wt / ".agents" / "agents" / agent
         d.mkdir(parents=True, exist_ok=True)
-        (d / "agent.md").write_text(f"---\n{fm}---\n{body}")
+        write_nofollow(d / "agent.md", f"---\n{fm}---\n{body}")
         overlay.append(f".agents/agents/{agent}")
     (task / "gate.log").unlink(missing_ok=True)  # this run's gate decisions (the gate creates it, O_NOFOLLOW)
     if a.yolo:  # unsandboxed: no gate
@@ -257,29 +307,34 @@ def agy_overlay(task, a, agent):
     else:
         hooks.parent.mkdir(exist_ok=True)
         shell = [] if agent else AGY_SHELL
-        (task / "gate.json").write_text(json.dumps({"root": str(wt), "log": str(task / "gate.log"),
-                                                    "edit": not a.review, "shell": shell}))
+        write_nofollow(task / "gate.json", json.dumps({"root": str(wt), "log": str(task / "gate.log"),
+                                                       "edit": not a.review, "shell": shell}))
         gate = ["python3", "-I", str(Path(__file__).resolve().parent / "agy-gate.py"), str(task / "gate.json")]
-        hooks.write_text(json.dumps({"swarmkit-worktree-gate": {"PreToolUse": [
+        write_nofollow(hooks, json.dumps({"swarmkit-worktree-gate": {"PreToolUse": [
             {"matcher": "*", "hooks": [{"type": "command", "command": shlex.join(gate), "timeout": 10}]}]}}, indent=1))
-    (task / "overlay").write_text("\n".join(overlay))
+    write_nofollow(task / "overlay", "\n".join(overlay))
+
+
+def gate_name(s):
+    """A tool name as agy-gate.py logs it."""
+    return re.sub(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]", "?", str(s))[:300]
 
 
 def agy_tool_calls(conv):
-    """How many tool calls agy's transcript of this conversation records, or None if it cannot be read."""
+    """The tool names agy's transcript of this conversation records, in order, or None if it cannot be read."""
     if not conv or not re.fullmatch(r"[0-9a-f-]{8,64}", str(conv)):
         return None
     brain = Path(os.environ.get("SWARMKIT_AGY_BRAIN_DIR", Path.home() / ".gemini" / "antigravity-cli" / "brain"))
-    n = 0
+    names = []
     try:
         for line in read_nofollow(brain / conv / ".system_generated" / "logs" / "transcript_full.jsonl").splitlines():
-            try:
-                n += len(json.loads(line).get("tool_calls") or [])
+            try:  # an unreadable line drops its calls: a shorter list never matches the gate log
+                names += [gate_name(c.get("name")) for c in json.loads(line).get("tool_calls") or []]
             except (ValueError, AttributeError, TypeError):
                 pass
     except OSError:
         return None
-    return n
+    return names
 
 
 def read_nofollow(path):
@@ -611,7 +666,7 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     nf = task / "nested-git"  # what --setup left (e.g. a submodule); anything else is the worker's
     nested_before = json.loads(nf.read_text()) if nf.exists() else {}
     gated = CLI == "agy" and not a.yolo
-    calls_before = (agy_tool_calls(resume_id) if resume_id else 0) if gated else None
+    calls_before = (agy_tool_calls(resume_id) if resume_id else []) if gated else None
     cmd = BACKEND["cmd"](task, prompt, a, resume_id)
     banner(task, o, resume_id)
     dispatch_log("start", task.name, o.get("model"), effort=o.get("effort") or None, agent=o.get("agent"))
@@ -728,6 +783,22 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
             head = wt_git(pinned, "symbolic-ref", "-q", "HEAD", check=False)
             if head != f"refs/heads/{CLI}/{task.name}":
                 blocked.append(f"worker moved HEAD to {head or 'a detached commit'}")
+    quiet = sum(x.startswith("deny-quiet ") for x in gate_log)
+    if gated:  # agy runs a hook that crashed or printed nothing as if it allowed (fails open): catch that before the commit
+        calls = agy_tool_calls(res["conversation_id"])
+        seen = [(x.split(" ") + [""])[1] for x in gate_log]  # every decision, deny-quiet too: the transcript has those calls
+        new = calls[len(calls_before):] if calls is not None and calls_before is not None else None
+        if resume_id and res["conversation_id"] != resume_id:
+            blocked.append(f"gate check failed: agy answered for conversation {res['conversation_id']}, not {resume_id}")
+        elif new is None:
+            blocked.append("gate check unavailable: agy's transcript of this run is missing or unreadable")
+        elif calls[:len(calls_before)] != calls_before or new != seen:
+            blocked.append(f"gate hook inactive: {len(seen)} gate decisions for {len(new)} tool calls"
+                           f" ({' '.join(seen[:8])} | {' '.join(new[:8])}); inspect anything the worker could reach")
+        elif not gate_log and not meta and wt_git(pinned, "status", "--porcelain", *spec(task), check=False):
+            blocked.append("gate hook inactive: files changed with no gate decision")
+        if quiet > 3:
+            warnings.append(f"{quiet} quiet denials (reads of .git or .agents): the worker may be probing the sandbox")
     warnings += [f"{b}; nothing was auto-committed, inspect the worktree" for b in blocked]
     base = pinned["base"]
     changed = "not inspected"
@@ -754,23 +825,17 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
             changed = "uncommitted changes"
     if not moved_wt and not dotgit_ok(pinned):  # a straggler rewrote it after the restore
         warnings.append("worker modified .git after the run; inspect the worktree")
-    if gated:  # agy runs a hook that crashed or printed nothing as if it allowed (fails open): catch that here
-        calls = agy_tool_calls(res["conversation_id"]) if calls_before is not None else None
-        if (calls is not None and calls - calls_before > len(gate_log)) or (not gate_log and changed != "no changes"):
-            warnings.append(f"gate hook inactive: {len(gate_log)} gate decisions for "
-                            f"{'?' if calls is None else calls - calls_before} tool calls ({changed}); inspect the worktree"
-                            " and anything the worker could reach")
     denied = res["denied"]
     stopped_by = stopped[0] if stopped else "timeout" if res["timed_out"] or "timeout" in interrupted else None
     review = a.review
     incomplete = any(w.startswith(("interrupted", "timed out", "stopped", "commit failed", "worker ", "git metadata",
-                                   "gate hook"))
+                                   "gate "))
                      for w in warnings)
     produced = bool(res["response"].strip()) if review else changed != "no changes"
     ok = res["done"] and not denied and code == 0 and not incomplete and produced
     wall = time.monotonic() - t0
     result = {"ok": ok, "slug": task.name, "model": o.get("model"), "agent": o.get("agent"), "wall_s": round(wall), "branch": f"{CLI}/{task.name}", "worktree": str(wt), "review": review,
-              "base": base, "changes": changed, "denied_actions": denied, "warnings": warnings,
+              "base": base, "changes": changed, "denied_actions": denied, "quiet_denials": quiet, "warnings": warnings,
               "conversation_id": res["conversation_id"], "stopped_by": stopped_by, "exit_code": code, "usage": res["usage"],
               "response": res["response"], "stderr": err.strip()[-500:]}
     (task / "result.json").write_text(json.dumps(result, indent=2))
@@ -863,6 +928,16 @@ def main():
     if not a.slug or not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,40}", a.slug):
         sys.exit(f"{PROG}: slug must be lowercase letters, digits, . _ - (max 41 chars)")
     task, branch = root / a.slug, f"{CLI}/{a.slug}"
+    if CLI == "agy" and a.cmd in ("start", "resume") and not a.yolo:
+        try:
+            v = re.search(r"\d+\.\d+\.\d+", subprocess.run(["agy", "--version"], capture_output=True, text=True).stdout)
+        except OSError:
+            v = None
+        if (v and v[0]) != AGY_PROBED and os.environ.get("AGY_TASK_ALLOW_UNPROBED") != "1":
+            print(f"{PROG}: agy {v[0] if v else '(version unknown)'} is not the version the gate was probed on"
+                  f" ({AGY_PROBED}); its tool names, argument keys or transcript may differ. Re-probe (see 'agy gate'"
+                  " in --help) and bump AGY_PROBED, or set AGY_TASK_ALLOW_UNPROBED=1", file=sys.stderr)
+            sys.exit(2)
 
     if a.cmd == "clean":
         wt = task / "worktree"
@@ -935,20 +1010,23 @@ def main():
         if git_version() < (2, 40):
             warn.append(f"git {'.'.join(map(str, git_version()))} is older than 2.40: no --attr-source, so a"
                         " worker-written .gitattributes can pick a filter from your git config")
-        out = [f for f in wt_git(p, "ls-files", "-s", "-z").split("\0") if f.startswith("120000 ")]
-        out = [f.split("\t", 1)[1] for f in out
-               if not Path(os.path.realpath(wt / f.split("\t", 1)[1])).is_relative_to(os.path.realpath(wt))]
-        if out:
-            warn.append(f"tracked symlinks point outside the worktree ({', '.join(out[:5])}); the gate resolves"
-                        f" them and denies {CLI} access through them, but your own test runs follow them")
-        for w in warn:
-            print(f"{PROG}: WARNING: {w}", file=sys.stderr)
         if a.setup:
             sh("sh", "-c", a.setup, cwd=wt)
             # Keep setup artifacts (e.g. a node_modules link) out of agy's commit. Not info/exclude:
             # that file is shared with the main checkout.
             (task / "setup-artifacts").write_text(
                 wt_git(p, "ls-files", "--others", "--exclude-standard", "--directory"))
+        out = []  # after --setup: tracked symlinks and the ones setup made
+        for d, dirs, files in os.walk(wt):
+            if d == str(wt):
+                dirs[:] = [n for n in dirs if n != ".git"]
+            out += [os.path.relpath(f, wt) for f in (os.path.join(d, n) for n in sorted(dirs + files))
+                    if os.path.islink(f) and not Path(os.path.realpath(f)).is_relative_to(os.path.realpath(wt))]
+        if out:
+            warn.append(f"symlinks point outside the worktree ({', '.join(out[:5])}); the gate resolves"
+                        f" them and denies {CLI} access through them, but your own test runs follow them")
+        for w in warn:
+            print(f"{PROG}: WARNING: {w}", file=sys.stderr)
         (task / "nested-git").write_text(json.dumps(nested_gits(wt)))  # setup's own repos are allowed
         return run_task(task, prompt, a, repo, warnings=warn)
     if alive(task / "pid"):
