@@ -1,7 +1,7 @@
 // SwarmKit particle-swarm shaders (GLSL ES 3.00, via THREE.ShaderMaterial with
 // glslVersion THREE.GLSL3). Three injects `#version 300 es`, the built-in
 // attributes (position) and matrices (modelViewMatrix, projectionMatrix), and
-// maps gl_FragColor to the declared out — so only custom attributes, uniforms
+// does NOT map gl_FragColor under GLSL3 (the fragment shader declares its own out) — so only custom attributes, uniforms
 // and varyings are declared here. GPU-only: every animated value is a uniform;
 // the vertex shader does the whole morph, so the CPU never loops over particles.
 
@@ -126,7 +126,7 @@ void main() {
   float band = 1.0 - smoothstep(0.0, 0.25, abs(pos.y - uScanY));
   col += vec3(1.0) * (band * 0.9);
   vColor = col;
-  vAlpha = 1.0 + band * 0.5;
+  vAlpha = (aRole < 0.5 ? 0.3 : 1.0) * mix(1.0, 0.42, uUnify) + band * 0.5;
 
   vec4 mv = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mv;
@@ -138,12 +138,15 @@ void main() {
 export const fragmentShader = /* glsl */ `
 in vec3 vColor;
 in float vAlpha;
+out vec4 fragColor;
 
 void main() {
   vec2 c = gl_PointCoord - 0.5;
   float d = length(c) * 2.0;
   if (d > 1.0) discard;
-  float a = exp(-d * d * 6.0) * 0.9 + exp(-d * 3.0) * 0.25;
-  gl_FragColor = vec4(vColor, a * vAlpha);
+  float a = exp(-d * d * 5.0) * 0.8 + exp(-d * 2.6) * 0.3;
+  // Tiny screen-space dither so the additive glow never bands in 8-bit.
+  float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+  fragColor = vec4(vColor * a * vAlpha * 0.55 + (n - 0.5) / 255.0, 1.0);
 }
 `;

@@ -60,7 +60,9 @@ const CLEAR = '#05060a';
 const FOV = 45;
 const CAM_Z = 11;
 const CAM_Z_MAX = 22;
-const POINT_SIZE = 0.09;
+const POINT_SIZE = 0.2;
+const HALF_FOV_TAN = Math.tan((FOV * Math.PI) / 360);
+const FORM_RADIUS = 6.5; // widest formation half-extent, local units
 /** Weight of hex/ring in the current from/to mix -> unify toward merged gold. */
 function unifyWeight(st: BeatState): number {
   const w = (f: FormationId): number => (f === 'hex' || f === 'ring' ? 1 : 0);
@@ -141,6 +143,7 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
   camera.position.set(0, 0, CAM_Z);
 
   let progress = 0;
+  let target = 0;
   let curFrom: FormationId = 'disk';
   let curTo: FormationId = 'disk';
   let pointerSeen = false;
@@ -151,6 +154,9 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
   let camX = 0;
   let camY = 0;
   let spin = 0;
+  let layoutX = 0;
+  let layoutY = 0;
+  let layoutS = 1;
   let raf = 0;
   let disposed = false;
   const t0 = performance.now();
@@ -161,6 +167,8 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
     const dt = Math.min(0.1, Math.max(0, (nowMs - lastMs) / 1000));
     lastMs = nowMs;
     const t = (nowMs - t0) / 1000;
+    // Critically damped follow: smooths scroll steps without lag you can feel.
+    progress = reduced ? target : progress + (target - progress) * (1 - Math.exp(-dt * 7));
     const st = beatAt(progress);
     if (st.from !== curFrom || st.to !== curTo) {
       curFrom = st.from;
@@ -182,6 +190,8 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
       if (tmp.z < -1e-4) {
         const s = -camera.position.z / tmp.z;
         pointerWorld.copy(camera.position).addScaledVector(tmp, s);
+        group.updateMatrixWorld();
+        group.worldToLocal(pointerWorld);
         (u.uPointer.value as Vector3).copy(pointerWorld);
       }
       pointerOn += (1 - pointerOn) * Math.min(1, dt * 4);
@@ -191,7 +201,7 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
     u.uPointerOn.value = pointerOn;
 
     // Cinematic motion: story rotation + slow sway; disk spins during hero/cta.
-    group.rotation.y = progress * 0.6 + (reduced ? 0 : 0.05 * Math.sin(t * 0.25));
+    group.rotation.y = (reduced ? 0 : 0.05 * Math.sin(t * 0.25)) + (reduced ? 0 : 0.9 * Math.sin(Math.PI * st.mix));
     if (!reduced) {
       const diskW = (st.from === 'disk' ? 1 - st.mix : 0) + (st.to === 'disk' ? st.mix : 0);
       spin += dt * 0.03 * diskW;
@@ -230,6 +240,23 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
     camera.aspect = aspect;
     camera.position.z = aspect < 1 ? Math.min(CAM_Z / Math.max(aspect, 0.01), CAM_Z_MAX) : CAM_Z;
     camera.updateProjectionMatrix();
+    // Layout: desktop pushes the formation right of the copy column; portrait
+    // phones shrink it and lift it above the bottom-anchored copy.
+    const hh = HALF_FOV_TAN * camera.position.z;
+    const hw = hh * aspect;
+    if (aspect >= 1.1) {
+      layoutX = hw * 0.34;
+      layoutY = 0;
+      layoutS = Math.min(1, (hw * 0.97 - layoutX) / FORM_RADIUS);
+    } else {
+      layoutX = 0;
+      layoutY = hh * 0.3;
+      layoutS = Math.min(1, hw / FORM_RADIUS);
+    }
+    // Portrait phones sit far back: boost the sprite so the swarm stays luminous.
+    material.uniforms.uSize.value = POINT_SIZE * (aspect < 1.1 ? 1.9 : 1) * (tier === 'low' ? 1.2 : 1);
+    group.position.set(layoutX, layoutY, 0);
+    group.scale.setScalar(layoutS);
     material.uniforms.uPixelRatio.value = pr;
     if (reduced) renderFrame(performance.now());
   }
@@ -246,7 +273,7 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
 
   return {
     setProgress(p: number): void {
-      progress = Math.min(1, Math.max(0, p));
+      target = Math.min(1, Math.max(0, p));
       if (reduced) renderFrame(performance.now());
     },
     setPointer(x: number, y: number): void {

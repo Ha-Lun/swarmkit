@@ -46,17 +46,41 @@ if (canvas) {
   }
 }
 
-const story = document.querySelector('[data-swarm-story]');
+const story = document.querySelector<HTMLElement>('[data-swarm-story]');
 if (story) {
+  // Beat i is centred when section i is centred in the viewport. Each formation
+  // holds around its section centre (+-0.2 of a section) and morphs in between,
+  // so copy and swarm always agree. Output feeds beatAt(): local < 0.5 holds.
+  const sections = Array.from(story.querySelectorAll<HTMLElement>(':scope > [data-beat]'));
+  let centers: number[] = [];
+  const measure = () => {
+    centers = sections.map((el) => el.offsetTop + el.offsetHeight / 2);
+  };
+  const progressAt = (y: number): number => {
+    const n = sections.length;
+    if (n === 0 || centers.length !== n) return 0;
+    const c = y + window.innerHeight / 2;
+    let i = 0;
+    while (i < n - 1 && centers[i + 1] <= c) i++;
+    const span = i < n - 1 ? centers[i + 1] - centers[i] : 1;
+    const s = c <= centers[0] || i === n - 1 ? i : i + (c - centers[i]) / span;
+    const t = s + 0.2;
+    const ii = Math.min(n - 1, Math.floor(t));
+    const f = t - ii;
+    const local = f < 0.4 ? (f / 0.4) * 0.5 : 0.5 + ((f - 0.4) / 0.6) * 0.5;
+    return (ii + Math.min(0.999, local)) / n;
+  };
+  measure();
   ScrollTrigger.create({
     trigger: story,
     start: 'top top',
     end: 'bottom bottom',
-    scrub: reducedMotion ? true : 0.6,
+    onRefresh: measure,
     onUpdate: (self) => {
-      swarm?.setProgress(self.progress);
+      swarm?.setProgress(progressAt(self.scroll()));
     },
   });
+  swarm?.setProgress(progressAt(window.scrollY));
 }
 
 if (!reducedMotion) {

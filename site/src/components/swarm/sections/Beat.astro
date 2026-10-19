@@ -14,7 +14,7 @@ const titleId = `swarm-${beat}-title`;
     <div class="swarm-copy-inner">
       <p class="swarm-kicker" data-swarm-fade>{num}</p>
       <h2 class="swarm-title swarm-title-beat" id={titleId}>{words.map((w, i) => (
-        <span class="w"><span>{w}</span>{i < words.length - 1 ? ' ' : ''}</span>
+        <>{i > 0 ? ' ' : ''}<span class="w"><span>{w}</span></span></>
       ))}</h2>
       <p class="swarm-body" data-swarm-fade>{body}</p>
       <slot />

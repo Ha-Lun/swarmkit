@@ -267,7 +267,7 @@ function bakeRing(arr: Float32Array, count: number, rng: () => number): void {
 // Three CLI spheres (r=1.2) at x=-4.2/0/4.2; particle i joins sphere i%3.
 function bakeTrio(arr: Float32Array, count: number, rng: () => number): void {
   const CX = [-4.2, 0, 4.2];
-  for (let i = 0; i < count; i++) setSphere(arr, i, CX[i % 3], -0.4, 0, 1.2, rng, 0.6);
+  for (let i = 0; i < count; i++) setSphere(arr, i, CX[i % 3], -0.4, 0, 1.2, rng, 0.42);
 }
 
 export function buildFormations(opts: { count: number; lanes: Lane[]; seed?: number }): FormationSet {

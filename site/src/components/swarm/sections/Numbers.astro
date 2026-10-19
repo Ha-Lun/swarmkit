@@ -43,7 +43,7 @@ const pendingWords = 'Numbers pending'.split(' ');
       ) : (
         <>
           <h2 class="swarm-pending" id="swarm-numbers-title">{pendingWords.map((w, i) => (
-            <span class="w"><span>{w}</span>{i < pendingWords.length - 1 ? ' ' : ''}</span>
+            <>{i > 0 ? ' ' : ''}<span class="w"><span>{w}</span></span></>
           ))}</h2>
           <p class="swarm-small" data-swarm-fade>No published hybrid/vanilla pair yet. <a class="swarm-link" href="/how-it-works#numbers">All numbers &rarr;</a></p>
         </>

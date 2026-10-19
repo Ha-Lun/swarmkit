@@ -21,6 +21,7 @@ for (let i = 0; i < 50; i++) {
 }
 
 // --- Array shapes.
+const F = buildFormations({ count: COUNT, lanes: LANES });
 assert.equal(F.count, COUNT);
 for (const id of FORMATIONS) assert.equal(F.positions[id].length, COUNT * 3, `${id} length`);
 assert.equal(F.colors.length, COUNT * 3);
@@ -33,7 +34,6 @@ for (const id of FORMATIONS) for (const v of F.positions[id]) assert.ok(Number.i
 for (const v of [...F.colors, ...F.roles, ...F.delays, ...F.scales]) assert.ok(Number.isFinite(v), 'attr finite');
 
 // --- Same seed identical, different seed differs, default seed is 7.
-const F = buildFormations({ count: COUNT, lanes: LANES });
 const again = buildFormations({ count: COUNT, lanes: LANES, seed: 7 });
 assert.deepEqual(again, F);
 const other = buildFormations({ count: COUNT, lanes: LANES, seed: 8 });

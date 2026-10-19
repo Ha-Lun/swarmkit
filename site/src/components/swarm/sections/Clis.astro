@@ -10,14 +10,16 @@ const line = `${facts.agents.length} specialists · ${facts.skills.length} skill
     <div class="swarm-copy-inner">
       <p class="swarm-kicker" data-swarm-fade>05</p>
       <h2 class="swarm-title swarm-title-beat" id="swarm-clis-title">{words.map((w, i) => (
-        <span class="w"><span>{w}</span>{i < words.length - 1 ? ' ' : ''}</span>
+        <>{i > 0 ? ' ' : ''}<span class="w"><span>{w}</span></span></>
       ))}</h2>
-      <ul class="swarm-clis" data-swarm-fade>
-        {facts.platforms.map((p) => (
-          <li>{p.name}</li>
-        ))}
-      </ul>
-      <p class="swarm-body" data-swarm-fade>{line}</p>
+      <div class="swarm-clis-wrap" data-swarm-fade>
+        <ul class="swarm-clis">
+          {facts.platforms.map((p) => (
+            <li>{p.name}</li>
+          ))}
+        </ul>
+        <p class="swarm-body">{line}</p>
+      </div>
     </div>
   </div>
 </section>

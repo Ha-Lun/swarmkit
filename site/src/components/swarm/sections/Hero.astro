@@ -1,12 +1,13 @@
 ---
-const title = 'One mind plans. A swarm builds.';
-const words = title.split(' ');
+const lines = ['One mind plans.', 'A swarm builds.'];
 ---
 <section data-beat="hero" aria-labelledby="swarm-hero-title">
   <div class="swarm-copy">
     <div class="swarm-copy-inner">
-      <h1 class="swarm-title swarm-title-hero" id="swarm-hero-title">{words.map((w, i) => (
-        <span class="w"><span>{w}</span>{i < words.length - 1 ? ' ' : ''}</span>
+      <h1 class="swarm-title swarm-title-hero" id="swarm-hero-title">{lines.map((line) => (
+        <span class="swarm-line">{line.split(' ').map((w, i) => (
+          <>{i > 0 ? ' ' : ''}<span class="w"><span>{w}</span></span></>
+        ))}</span>
       ))}</h1>
       <p class="swarm-sub" data-swarm-fade>SwarmKit turns Claude Code, OpenCode and Antigravity into one team. Opus plans, cheaper models build in parallel, and every branch is tested before it merges.</p>
       <div class="swarm-actions" data-swarm-fade>
