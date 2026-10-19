@@ -9,7 +9,7 @@
     "preview": "astro preview --host 0.0.0.0",
     "check": "astro check",
     "typecheck": "astro check",
-    "test": "node --test \"test/city/*.test.ts\""
+    "test": "node --test \"test/city/*.test.ts\" \"test/swarm/*.test.ts\""
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
