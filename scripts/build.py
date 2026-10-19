@@ -30,7 +30,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TIER_MODELS = {
     'claude': {'fast': 'haiku', 'standard': 'sonnet', 'deep': 'opus'},
     'opencode': {
-        'fast': 'opencode-go/muse-spark-1.3',
+        'fast': 'opencode-go/muse-spark-1.3-contributor',
         'standard': 'opencode-go/glm-5.3-flash',
         'deep': 'opencode-go/kimi-k2.7-code',
     },

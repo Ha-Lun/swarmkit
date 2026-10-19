@@ -11,7 +11,7 @@ permission:
     '*': allow
   task: deny
   question: deny
-model: opencode-go/muse-spark-1.3
+model: opencode-go/muse-spark-1.3-contributor
 ---
 You are the **seo-worker** specialist. Your mandate is the post-build SEO & sharing pass integration.
 

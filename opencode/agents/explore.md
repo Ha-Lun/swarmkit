@@ -16,7 +16,7 @@ permission:
     cat *: allow
   task: deny
   question: allow
-model: opencode-go/muse-spark-1.3
+model: opencode-go/muse-spark-1.3-contributor
 ---
 
 ## What you do
