@@ -64,12 +64,25 @@ async function boot(): Promise<void> {
       }
     }
     setOpacity(approved, live ? beatOpacity.approved(p) : planO);
-    labelEls.forEach((el, i) => {
+    // pills sit centred just below their node; each lane is spread vertically so neighbours never overlap
+    const GAP = 34;
+    const place = labelEls.map((el, i) => {
       const n = f.nodes[i];
-      if (!n) return;
+      const w = el.offsetWidth || 120;
+      const side = i === 0 ? 0 : el.classList.contains('gx-node-opencode') ? -1 : 1;
+      const x = n.x - w / 2;
+      const y = n.y + (i === 0 ? 20 : 17);
+      return { el, i, x, y, side };
+    });
+    for (const sd of [-1, 1]) {
+      const g = place.filter((q) => q.side === sd).sort((a, b) => a.y - b.y);
+      for (let k = 1; k < g.length; k++) if (g[k].y - g[k - 1].y < GAP) g[k].y = g[k - 1].y + GAP;
+    }
+    place.forEach((q) => {
+      const n = f.nodes[q.i];
       const vis = n.front ? Math.min(1, n.on * 1.4) * planO : 0;
-      el.style.transform = `translate3d(${n.x.toFixed(1)}px, ${n.y.toFixed(1)}px, 0)`;
-      el.style.opacity = vis.toFixed(3);
+      q.el.style.transform = `translate3d(${q.x.toFixed(1)}px, ${q.y.toFixed(1)}px, 0)`;
+      q.el.style.opacity = vis.toFixed(3);
     });
   };
 

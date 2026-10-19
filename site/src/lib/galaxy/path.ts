@@ -87,6 +87,7 @@ export interface SceneState {
   galaxyGain: number; // galaxy brightness multiplier
   coreGain: number; // bulge dimming once the camera is inside it
   bloom: number; // bloom strength multiplier
+  exposure: number; // tone-map exposure (pulled down through the dive so the core stays structured, never flat white)
   draw: number; // constellation draw 0..1
   pulse: number; // approved pulse 0..1 (0 = off)
   spin: number; // scroll-driven extra galaxy rotation (rad)
@@ -99,7 +100,7 @@ export function sceneState(p: number): SceneState {
   const cam = camRoute(w);
   const comet = cometAt(cu);
   const lookBlend = ss(0.10, 0.22, p);
-  const hero: V3 = [0, 2.1 * (1 - ss(0.0, 0.2, p)), 0];
+  const hero: V3 = [0, 3.0 * (1 - ss(0.0, 0.2, p)), 0];
   const target = lerp3(hero, comet, lookBlend * (1 - ss(0.5, 0.53, p)));
   const settle = ss(0.52, 0.6, p);
   const drift = clamp01((p - 0.55) / 0.45);
@@ -107,6 +108,7 @@ export function sceneState(p: number): SceneState {
   cam[1] += 0.12 * Math.sin(drift * 3.1) * settle;
   cam[2] += (-0.15 - 0.35 * drift) * settle;
   const push = ss(0.28, 0.42, p) - ss(0.42, 0.54, p);
+  const band = ss(0.30, 0.40, p) * (1 - ss(0.53, 0.60, p)); // the dive's bright stretch
   return {
     cam,
     target,
@@ -114,11 +116,12 @@ export function sceneState(p: number): SceneState {
     roll: 0.1 * push,
     cometU: cu,
     cometVis: ss(0.09, 0.13, p) * (1 - ss(0.5, 0.53, p)),
-    flash: Math.exp(-(((p - 0.515) / 0.025) ** 2)),
+    flash: 0.4 * Math.exp(-(((p - 0.515) / 0.025) ** 2)),
     diveEnv: ss(0.16, 0.30, p) * (1 - ss(0.5, 0.56, p)),
-    galaxyGain: 1 - 0.35 * ss(0.56, 0.66, p),
-    coreGain: 1 - 0.55 * ss(0.30, 0.52, p),
-    bloom: 1 - 0.18 * ss(0.52, 0.6, p),
+    galaxyGain: (1 - 0.78 * ss(0.56, 0.66, p)) * (1 - 0.3 * band),
+    coreGain: 1 - 0.8 * ss(0.30, 0.50, p),
+    bloom: (1 - 0.18 * ss(0.52, 0.6, p)) * (1 - 0.35 * band),
+    exposure: 1 - 0.25 * band,
     draw: clamp01((p - T.draw[0]) / (T.draw[1] - T.draw[0])),
     pulse: clamp01((p - T.pulse[0]) / (T.pulse[1] - T.pulse[0])),
     spin: p * 1.3,

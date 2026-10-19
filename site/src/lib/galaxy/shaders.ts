@@ -153,11 +153,57 @@ void main() {
   gl_Position = projectionMatrix * mv;
   float depth = max(-mv.z, 0.01);
   bool head = aT < 0.021;
-  float size = (head ? 0.5 : 0.11 * (1.0 - 0.6 * aT)) * uScale / depth * (1.0 + uFlash * (head ? 2.0 : 0.0));
+  float size = 0.34 * uScale / depth * (1.0 + uFlash * 2.0);
   vec3 tailCol = mix(vec3(0.35, 0.85, 1.0), vec3(0.62, 0.42, 1.0), smoothstep(0.1, 0.9, aT));
   vC = head ? vec3(2.2, 2.3, 2.6) : tailCol * 1.6;
   vA = uVis * (head ? 1.0 : 0.55 * pow(1.0 - aT, 1.5)) * smoothstep(0.1, 1.0, depth);
   gl_PointSize = clamp(size, 1.5, uMax);
+}
+`;
+
+/** Comet tail: one continuous ribbon from the head backwards, width tapering to nothing, additive falloff. */
+export const tailVert = /* glsl */ `
+uniform vec3 uHead;
+uniform vec3 uDir;
+uniform float uLen;
+uniform vec2 uRes;
+uniform float uScale;
+uniform float uPR;
+in vec2 aT; // t along the tail 0 head .. 1 end, side -1|1
+out float vT;
+out float vSide;
+vec3 at(float t) { return uHead - uDir * t * t * uLen * 0.6 - uDir * t * uLen * 0.4; }
+void main() {
+  float t = aT.x;
+  vec3 pa = at(t);
+  vec3 pb = at(min(1.0, t + 0.02));
+  vec4 ma = modelViewMatrix * vec4(pa, 1.0);
+  vec4 ca = projectionMatrix * ma;
+  vec4 cb = projectionMatrix * modelViewMatrix * vec4(pb, 1.0);
+  vec2 d = (cb.xy / max(cb.w, 1e-3) - ca.xy / max(ca.w, 1e-3)) * uRes * 0.5;
+  float l = length(d);
+  vec2 dir = l > 1e-4 ? d / l : vec2(1.0, 0.0);
+  vec2 perp = vec2(-dir.y, dir.x);
+  float depth = max(-ma.z, 0.05);
+  float w = clamp(0.13 * uScale / depth, 2.0 * uPR, 30.0 * uPR) * pow(1.0 - t, 0.85);
+  vec2 off = perp * aT.y * w / (uRes * 0.5);
+  gl_Position = ca + vec4(off * ca.w, 0.0, 0.0);
+  vT = t;
+  vSide = aT.y;
+}
+`;
+export const tailFrag = /* glsl */ `
+uniform float uVis;
+in float vT;
+in float vSide;
+out vec4 fragColor;
+void main() {
+  float across = exp(-vSide * vSide * 3.4);
+  float along = pow(1.0 - vT, 1.6);
+  vec3 col = mix(vec3(0.9, 0.97, 1.0), vec3(0.3, 0.82, 1.0), smoothstep(0.0, 0.3, vT));
+  col = mix(col, vec3(0.55, 0.4, 1.0), smoothstep(0.35, 1.0, vT));
+  float a = across * along * uVis * 1.5;
+  fragColor = vec4(col * a, 1.0);
 }
 `;
 
@@ -270,7 +316,7 @@ in vec2 vP;
 out vec4 fragColor;
 void main() {
   float d = length(vP);
-  float ring = exp(-pow((d - uR) / 0.07, 2.0)) * 1.4 + exp(-pow((d - uR) / 0.5, 2.0)) * 0.22;
+  float ring = exp(-pow((d - uR) / 0.07, 2.0)) * 1.4 + exp(-pow((d - uR) / 0.5, 2.0)) * 0.08;
   vec3 col = mix(vec3(0.72, 0.62, 1.0), vec3(1.0), 0.5);
   fragColor = vec4(col * ring * uAlpha, 1.0);
 }

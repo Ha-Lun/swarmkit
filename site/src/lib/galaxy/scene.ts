@@ -17,12 +17,12 @@ import { PALETTE } from '../swarm/formations.ts';
 import type { Tier } from '../swarm/scene.ts';
 import { layoutNodes, linkProgress, nodeOn, spokeProgress } from './constellation.ts';
 import type { Lane } from './constellation.ts';
-import { buildComet, buildDust, buildGalaxy, buildHaze, buildSky, buildStreaks } from './generator.ts';
+import { buildDust, buildGalaxy, buildHaze, buildSky, buildStreaks } from './generator.ts';
 import type { PointCloud } from './generator.ts';
 import { cometAt, clamp01, sceneState, ss } from './path.ts';
 import type { SceneState } from './path.ts';
 import {
-  cometVert, nodeFrag, nodeVert, ribbonFrag, ribbonVert, ringFrag, ringVert, spriteFrag, spriteVert, streakFrag, streakVert,
+  cometVert, nodeFrag, nodeVert, ribbonFrag, ribbonVert, ringFrag, ringVert, spriteFrag, spriteVert, streakFrag, streakVert, tailFrag, tailVert,
 } from './shaders.ts';
 
 const CLEAR = '#05060a';
@@ -88,7 +88,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
 
   // ---- shared uniforms -------------------------------------------------------------------------------------
   const shared = {
-    uTime: { value: 0 }, uSpin: { value: 0 }, uScale: { value: 800 }, uPR: { value: 1 }, uGain: { value: 1.15 },
+    uTime: { value: 0 }, uSpin: { value: 0 }, uScale: { value: 800 }, uPR: { value: 1 }, uGain: { value: 1.4 },
     uCoreDim: { value: 1 }, uMax: { value: pointMax },
   };
   const sprite = (blending: Blending, mode: number, o: { size?: number; rotate?: number; px?: number; big?: number; gain?: number }): ShaderMaterial => {
@@ -122,7 +122,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     points(cloudGeometry(buildSky(n, r[0], r[1], 100 + i)), m, 0);
   });
   // Galaxy: stars, haze (additive), dust (alpha)
-  const starMat = sprite(AdditiveBlending, 0, { size: opts.tier === 'low' ? 0.07 : 0.042, rotate: 1 });
+  const starMat = sprite(AdditiveBlending, 0, { size: opts.tier === 'low' ? 0.07 : 0.05, rotate: 1 });
   points(cloudGeometry(buildGalaxy(tcfg.stars)), starMat, 2);
   const hazeMat = sprite(AdditiveBlending, 1, { size: 1, rotate: 1, big: 1, gain: 0.8 });
   points(cloudGeometry(buildHaze(tcfg.haze)), hazeMat, 1);
@@ -147,12 +147,11 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   scene.add(streaks);
 
   // ---- comet ------------------------------------------------------------------------------------------------
-  const cm = buildComet(opts.tier === 'low' ? 260 : 640);
+  // head: one soft glowing sprite
   const cGeo = track(new BufferGeometry());
-  const cPos = new Float32Array(cm.t.length * 3);
-  cGeo.setAttribute('position', new BufferAttribute(cPos, 3));
-  cGeo.setAttribute('aT', new BufferAttribute(cm.t, 1));
-  cGeo.setAttribute('aRand', new BufferAttribute(cm.rand, 3));
+  cGeo.setAttribute('position', new BufferAttribute(new Float32Array(3), 3));
+  cGeo.setAttribute('aT', new BufferAttribute(new Float32Array(1), 1));
+  cGeo.setAttribute('aRand', new BufferAttribute(new Float32Array(3), 3));
   const cometMat = track(new ShaderMaterial({
     uniforms: {
       uHead: { value: new Vector3() }, uDir: { value: new Vector3(1, 0, 0) }, uLen: { value: 8 }, uVis: { value: 0 },
@@ -165,6 +164,25 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   comet.frustumCulled = false;
   comet.renderOrder = 5;
   scene.add(comet);
+  // tail: one continuous tapered ribbon, additive falloff, width in screen space
+  const TSEG = 48;
+  const tGeo = track(new BufferGeometry());
+  const tT = new Float32Array((TSEG + 1) * 2 * 2);
+  for (let s = 0; s <= TSEG; s++) for (let k = 0; k < 2; k++) tT.set([s / TSEG, k ? 1 : -1], (s * 2 + k) * 2);
+  const tIdx = new Uint16Array(TSEG * 6);
+  for (let s = 0; s < TSEG; s++) tIdx.set([s * 2, s * 2 + 1, s * 2 + 2, s * 2 + 1, s * 2 + 3, s * 2 + 2], s * 6);
+  tGeo.setAttribute('position', new BufferAttribute(new Float32Array((TSEG + 1) * 2 * 3), 3));
+  tGeo.setAttribute('aT', new BufferAttribute(tT, 2));
+  tGeo.setIndex(new BufferAttribute(tIdx, 1));
+  const tailMat = track(new ShaderMaterial({
+    uniforms: { uHead: cometMat.uniforms.uHead, uDir: cometMat.uniforms.uDir, uLen: cometMat.uniforms.uLen, uVis: cometMat.uniforms.uVis, uRes: { value: new Vector2(1, 1) }, uScale: shared.uScale, uPR: shared.uPR },
+    vertexShader: tailVert, fragmentShader: tailFrag, glslVersion: GLSL3,
+    blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, side: 2,
+  }));
+  const tail = new Mesh(tGeo, tailMat);
+  tail.frustumCulled = false;
+  tail.renderOrder = 5;
+  scene.add(tail);
 
   // ---- constellation (static world positions around the core) -----------------------------------------------
   const nWork = opts.workers.length;
@@ -305,7 +323,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       const dither = new ShaderPass({
         uniforms: { tDiffuse: { value: null } },
         vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-        fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main() { vec4 c = texture2D(tDiffuse, vUv); float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453); vec3 bg = vec3(5.0, 6.0, 10.0) / 255.0; vec3 rgb = c.rgb + bg * (1.0 - clamp(max(c.r, max(c.g, c.b)) * 4.0, 0.0, 1.0)); gl_FragColor = vec4(rgb + (n - 0.5) * 1.5 / 255.0, 1.0); }',
+        fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main() { vec4 c = texture2D(tDiffuse, vUv); float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453); vec3 bg = vec3(5.0, 6.0, 10.0) / 255.0; vec3 rgb = c.rgb + bg * (1.0 - clamp(max(c.r, max(c.g, c.b)) * 4.0, 0.0, 1.0)); vec3 hi = max(rgb - 0.62, 0.0); rgb = min(rgb, vec3(0.62)) + 0.22 * (1.0 - exp(-hi / 0.22)); gl_FragColor = vec4(rgb + (n - 0.5) * 1.5 / 255.0, 1.0); }',
       });
       composer.addPass(renderPass);
       composer.addPass(bloom);
@@ -350,22 +368,26 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     const t = reduced ? 0 : (nowMs - t0) / 1000;
     shared.uTime.value = t;
     shared.uSpin.value = st.spin;
-    shared.uGain.value = 1.15 * st.galaxyGain;
+    shared.uGain.value = 1.4 * st.galaxyGain;
     shared.uCoreDim.value = st.coreGain;
+    hazeMat.uniforms.uGain.value = 0.8 * st.galaxyGain * (1 - 0.8 * ss(0.5, 0.62, progress));
+    dustMat.uniforms.uGain.value = (1 + 0.4 * ss(0.5, 0.6, progress)) * (1 - 0.85 * ss(0.3, 0.38, progress) * (1 - ss(0.56, 0.64, progress)));
 
     // camera: aspect pull-back so portrait phones still see the whole galaxy, then pointer parallax
     const aspect = camera.aspect;
     const fAsp = aspect < 1.1 ? 1 + (1.1 / aspect - 1) * 0.55 : 1;
-    const f = fAsp + (1 + (fAsp - 1) * 0.6 - fAsp) * ss(0.2, 0.5, progress);
+    const f = (fAsp + (1 + (fAsp - 1) * 0.6 - fAsp) * ss(0.2, 0.5, progress)) * (1 + 0.2 * (1 - ss(0.04, 0.2, progress)));
     ptr.sx += (ptr.x - ptr.sx) * Math.min(1, dt * 3);
     ptr.sy += (ptr.y - ptr.sy) * Math.min(1, dt * 3);
     const par = reduced ? 0 : 1 - st.diveEnv;
     // desktop: the constellation sits right of centre so the copy column keeps the left
     const shiftX = aspect > 1.2 ? -0.5 * ss(0.52, 0.62, progress) : 0;
-    const tg: [number, number, number] = [st.target[0] + shiftX, st.target[1], st.target[2]];
+    // portrait: the constellation drops below the copy block at the top
+    const shiftY = aspect <= 1.2 ? 0.62 * ss(0.52, 0.62, progress) : 0;
+    const tg: [number, number, number] = [st.target[0] + shiftX, st.target[1] + shiftY, st.target[2]];
     camera.position.set(
       tg[0] + (st.cam[0] + shiftX - tg[0]) * f + ptr.sx * 0.5 * par,
-      tg[1] + (st.cam[1] - tg[1]) * f + ptr.sy * 0.3 * par,
+      tg[1] + (st.cam[1] + shiftY - tg[1]) * f + ptr.sy * 0.3 * par,
       tg[2] + (st.cam[2] - tg[2]) * f,
     );
     camera.up.set(Math.sin(st.roll), Math.cos(st.roll), 0);
@@ -380,7 +402,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     // streaks
     streakMat.uniforms.uFwd.value.copy(fwd);
     streakMat.uniforms.uVis.value = st.diveEnv * (reduced ? 0 : 1);
-    streakMat.uniforms.uStretch.value = st.diveEnv * (1.6 + 5.5 * vel);
+    streakMat.uniforms.uStretch.value = st.diveEnv * (3.2 + 5.5 * vel);
 
     // comet
     const cu = st.cometU;
@@ -394,6 +416,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     cometMat.uniforms.uVis.value = st.cometVis;
     cometMat.uniforms.uFlash.value = st.flash;
     comet.visible = st.cometVis > 0.002;
+    tail.visible = comet.visible;
 
     // core flash as the comet lands: a brief gain bump on the bulge
     shared.uGain.value *= 1 + 0.9 * st.flash;
@@ -414,6 +437,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     ring.lookAt(camera.position);
     ring.scale.setScalar(1);
 
+    if (composer) renderer.toneMappingExposure = st.exposure;
     if (bloom) bloom.strength = 0.55 * st.bloom * (opts.tier === 'medium' ? 0.9 : 1);
 
     // project nodes
@@ -467,6 +491,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     shared.uPR.value = pr;
     shared.uMax.value = pointMax;
     streakMat.uniforms.uRes.value.set(cssW * pr, cssH * pr);
+    tailMat.uniforms.uRes.value.set(cssW * pr, cssH * pr);
     bakeConstellation();
     if (reduced || !active) renderFrame(performance.now());
   }

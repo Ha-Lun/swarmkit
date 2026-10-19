@@ -20,13 +20,13 @@ export function layoutNodes(workers: { slug: string; lane: Lane }[], aspect: num
       let z: number;
       if (wide) {
         const ang = ((li === 0 ? 180 : 0) + (f - 0.5) * 118) * (Math.PI / 180);
-        x = Math.cos(ang) * 1.6;
-        y = Math.sin(ang) * 1.0;
+        x = Math.cos(ang) * (li === 0 ? 0.9 : 0.72);
+        y = Math.sin(ang) * 0.8;
         z = ((k % 2) - 0.5) * 0.7 + (li ? 0.15 : -0.1);
       } else {
         const ang = ((li === 0 ? 90 : 270) + (f - 0.5) * 104) * (Math.PI / 180);
-        x = Math.cos(ang) * 0.95;
-        y = Math.sin(ang) * 1.0;
+        x = Math.cos(ang) * 0.55;
+        y = Math.sin(ang) * 0.84;
         z = ((k % 2) - 0.5) * 0.5;
       }
       out.push({ slug: w.slug, lane: lanes[li], pos: [x, y, z] });
