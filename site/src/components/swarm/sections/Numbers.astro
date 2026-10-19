@@ -1,0 +1,53 @@
+---
+import { loadBenchmarks } from '../../../lib/benchmarks.ts';
+
+const bench = loadBenchmarks();
+type Cell = NonNullable<ReturnType<typeof loadBenchmarks>>['cells'][number];
+let hybrid: Cell | null = null;
+let vanilla: Cell | null = null;
+if (bench) {
+  for (const h of bench.cells.filter((c) => c.variant === 'hybrid')) {
+    const v = bench.cells.find((c) => c.variant === 'vanilla' && c.case === h.case && c.model === h.model);
+    if (v) {
+      hybrid = h;
+      vanilla = v;
+      break;
+    }
+  }
+}
+const pair = hybrid && vanilla ? { hybrid, vanilla } : null;
+const costRatio = pair ? pair.hybrid.cost_usd.median / pair.vanilla.cost_usd.median : null;
+const wallRatio = pair ? pair.hybrid.wall_s.median / pair.vanilla.wall_s.median : null;
+const runsEach = pair ? Math.min(pair.hybrid.n, pair.vanilla.n) : null;
+const pendingWords = 'Numbers pending'.split(' ');
+---
+<section data-beat="numbers" aria-labelledby="swarm-numbers-title">
+  <div class="swarm-copy">
+    <div class="swarm-copy-inner">
+      <p class="swarm-kicker" data-swarm-fade>vs. vanilla Claude Code</p>
+      {pair && costRatio !== null && wallRatio !== null ? (
+        <>
+          <h2 class="swarm-stats" id="swarm-numbers-title">
+            <span class="swarm-stat">
+              <span class="w"><span class="swarm-stat-num">{costRatio.toFixed(2)}&times;</span></span>
+              <span class="swarm-stat-label">Claude cost</span>
+            </span>
+            <span class="swarm-stat">
+              <span class="w"><span class="swarm-stat-num">{wallRatio.toFixed(2)}&times;</span></span>
+              <span class="swarm-stat-label">wall time: the trade</span>
+            </span>
+          </h2>
+          <p class="swarm-small" data-swarm-fade>{pair.hybrid.case} task &middot; {pair.hybrid.model} &middot; median of {runsEach} runs each &middot; worker tokens are quota, not dollars</p>
+          <p class="swarm-small" data-swarm-fade><a class="swarm-link" href="/how-it-works#numbers">All numbers &rarr;</a></p>
+        </>
+      ) : (
+        <>
+          <h2 class="swarm-pending" id="swarm-numbers-title">{pendingWords.map((w, i) => (
+            <span class="w"><span>{w}</span>{i < pendingWords.length - 1 ? ' ' : ''}</span>
+          ))}</h2>
+          <p class="swarm-small" data-swarm-fade>No published hybrid/vanilla pair yet. <a class="swarm-link" href="/how-it-works#numbers">All numbers &rarr;</a></p>
+        </>
+      )}
+    </div>
+  </div>
+</section>

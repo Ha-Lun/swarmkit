@@ -1,0 +1,23 @@
+---
+import { facts } from '../../../lib/facts.ts';
+
+const title = 'One config. Three CLIs.';
+const words = title.split(' ');
+const line = `${facts.agents.length} specialists · ${facts.skills.length} skills · built from one core/ folder`;
+---
+<section data-beat="clis" aria-labelledby="swarm-clis-title">
+  <div class="swarm-copy">
+    <div class="swarm-copy-inner">
+      <p class="swarm-kicker" data-swarm-fade>05</p>
+      <h2 class="swarm-title swarm-title-beat" id="swarm-clis-title">{words.map((w, i) => (
+        <span class="w"><span>{w}</span>{i < words.length - 1 ? ' ' : ''}</span>
+      ))}</h2>
+      <ul class="swarm-clis" data-swarm-fade>
+        {facts.platforms.map((p) => (
+          <li>{p.name}</li>
+        ))}
+      </ul>
+      <p class="swarm-body" data-swarm-fade>{line}</p>
+    </div>
+  </div>
+</section>

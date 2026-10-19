@@ -1,0 +1,23 @@
+---
+interface Props {
+  beat: string;
+  num: string;
+  headline: string;
+  body: string;
+}
+const { beat, num, headline, body } = Astro.props;
+const words = headline.split(' ');
+const titleId = `swarm-${beat}-title`;
+---
+<section data-beat={beat} aria-labelledby={titleId}>
+  <div class="swarm-copy">
+    <div class="swarm-copy-inner">
+      <p class="swarm-kicker" data-swarm-fade>{num}</p>
+      <h2 class="swarm-title swarm-title-beat" id={titleId}>{words.map((w, i) => (
+        <span class="w"><span>{w}</span>{i < words.length - 1 ? ' ' : ''}</span>
+      ))}</h2>
+      <p class="swarm-body" data-swarm-fade>{body}</p>
+      <slot />
+    </div>
+  </div>
+</section>
