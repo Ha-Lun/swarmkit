@@ -108,7 +108,7 @@ export function sceneState(p: number): SceneState {
   cam[1] += 0.12 * Math.sin(drift * 3.1) * settle;
   cam[2] += (-0.15 - 0.35 * drift) * settle;
   const push = ss(0.28, 0.42, p) - ss(0.42, 0.54, p);
-  const band = ss(0.30, 0.40, p) * (1 - ss(0.53, 0.60, p)); // the dive's bright stretch
+  const band = ss(0.27, 0.36, p) * (1 - ss(0.53, 0.60, p)); // the dive's bright stretch
   return {
     cam,
     target,
@@ -117,10 +117,10 @@ export function sceneState(p: number): SceneState {
     cometU: cu,
     cometVis: ss(0.09, 0.13, p) * (1 - ss(0.5, 0.53, p)),
     flash: 0.4 * Math.exp(-(((p - 0.515) / 0.025) ** 2)),
-    diveEnv: ss(0.16, 0.30, p) * (1 - ss(0.5, 0.56, p)),
-    galaxyGain: (1 - 0.78 * ss(0.56, 0.66, p)) * (1 - 0.3 * band),
-    coreGain: 1 - 0.8 * ss(0.30, 0.50, p),
-    bloom: (1 - 0.18 * ss(0.52, 0.6, p)) * (1 - 0.35 * band),
+    diveEnv: ss(0.16, 0.30, p) * (1 - ss(0.52, 0.60, p)),
+    galaxyGain: (1 - 0.78 * ss(0.52, 0.64, p)) * (1 - 0.7 * band),
+    coreGain: 1 - 0.85 * ss(0.28, 0.40, p),
+    bloom: (1 - 0.18 * ss(0.52, 0.6, p)) * (1 - 0.6 * band),
     exposure: 1 - 0.25 * band,
     draw: clamp01((p - T.draw[0]) / (T.draw[1] - T.draw[0])),
     pulse: clamp01((p - T.pulse[0]) / (T.pulse[1] - T.pulse[0])),
@@ -140,5 +140,131 @@ export function typedChars(p: number, len: number): number {
   return Math.round(len * clamp01((p - 0.16) / 0.22));
 }
 
-/** Poses used by the reduced-motion static compositions. */
-export const STATIC_POSE = { galaxy: 0.02, core: 0.55, constellation: 0.92 } as const;
+// ---- late flight: beats 3-5 (fan-out, build, verify) ---------------------------------------------------------------
+// The page's scroll progress P (0..1) is split: P in 0..SPLIT drives the legacy beats 0-2 (sceneState takes p = P / SPLIT),
+// P in SPLIT..1 drives u = 0..1 below. Everything is a pure function of (u, worker index), so it scrubs and rewinds.
+export const SPLIT = 0.46;
+export const legacyP = (P: number): number => clamp01(P / SPLIT);
+export const lateU = (P: number): number => clamp01((P - SPLIT) / (1 - SPLIT));
+
+export const L = {
+  fan: [0.03, 0.27], // star launches, staggered by launchIndex (stagger share 0.4 of the window)
+  bubble: [0.34, 0.41],
+  build: [0.38, 0.61], // planet accretion, staggered by buildIndex
+  sweep: [0.665, 0.80], // the scan beam crosses every planet once
+  fix: [0.83, 0.925], // fixer stars fly out
+} as const;
+
+const stag = (win: readonly [number, number], idx: number, n: number, share = 0.45): [number, number] => {
+  const len = win[1] - win[0];
+  const dur = len * (1 - share);
+  const start = win[0] + len * share * (n > 1 ? idx / (n - 1) : 0);
+  return [start, start + dur];
+};
+const easeInOut = (t: number): number => t * t * (3 - 2 * t);
+const easeOut = (t: number): number => 1 - (1 - t) ** 2.4;
+
+/** Unwrapped disc angle of star j's rest point (ascending with j, so the scan beam meets the stars in launch order). */
+export const destTheta = (j: number, n: number): number => (212 + (n > 1 ? j / (n - 1) : 0.5) * 292) * (Math.PI / 180);
+/** Where star j (in launch order of n) comes to rest in the galaxy disc. aspect < 1.2 packs the ring taller than wide. */
+export function starDest(j: number, n: number, aspect: number): V3 {
+  const wide = aspect >= 1.2;
+  const ang = destTheta(j, n);
+  const r = [3.4, 5.4, 3.9, 6.0, 3.5, 5.6, 4.2, 6.1][j % 8] * (wide ? 1 : 0.92);
+  const xs = wide ? 1 : 0.64;
+  const zs = wide ? 1 : 1.3;
+  return [Math.cos(ang) * r * xs, 0.12 * Math.sin(j * 2.1), Math.sin(ang) * r * zs];
+}
+
+/** Launch progress 0..1 of star j. */
+export function launchK(u: number, j: number, n: number): number {
+  const [a, b] = stag(L.fan, j, n, 0.4);
+  return easeOut(clamp01((u - a) / (b - a)));
+}
+/** Position on the launch arc from the constellation slot s to the rest point d, k in 0..1. Writes into out. */
+export function starAt(out: V3, s: V3, d: V3, j: number, k: number): V3 {
+  // quadratic bezier, control lifted over the disc and swung sideways so every launch is a curve, not a line
+  const side = j % 2 ? 1 : -1;
+  const cx = (s[0] + d[0]) * 0.5 - (d[2] - s[2]) * 0.18 * side;
+  const cy = Math.max(s[1], d[1]) + 1.6 + 0.4 * (j % 3);
+  const cz = (s[2] + d[2]) * 0.5 + (d[0] - s[0]) * 0.18 * side;
+  const m = 1 - k;
+  out[0] = m * m * s[0] + 2 * m * k * cx + k * k * d[0];
+  out[1] = m * m * s[1] + 2 * m * k * cy + k * k * d[1];
+  out[2] = m * m * s[2] + 2 * m * k * cz + k * k * d[2];
+  return out;
+}
+export const bubbleAmt = (u: number, j: number, n: number): number => {
+  const [a, b] = stag(L.bubble, j, n, 0.5);
+  return easeInOut(clamp01((u - a) / (b - a)));
+};
+/** Planet accretion 0..1 for the worker with build order bi. */
+export const growAmt = (u: number, bi: number, n: number): number => {
+  const [a, b] = stag(L.build, bi, n, 0.5);
+  return clamp01((u - a) / (b - a));
+};
+/** Sweep: angle range and the time the beam crosses angle theta. */
+export function sweepRange(angles: number[]): [number, number] {
+  return [Math.min(...angles) - 0.32, Math.max(...angles) + 0.32];
+}
+export const sweepAngle = (u: number, a0: number, a1: number): number => a0 + (a1 - a0) * clamp01((u - L.sweep[0]) / (L.sweep[1] - L.sweep[0]));
+export const sweepTime = (theta: number, a0: number, a1: number): number => L.sweep[0] + (L.sweep[1] - L.sweep[0]) * clamp01((theta - a0) / (a1 - a0));
+/** Fixer flight window for the k-th fixer of nf. */
+export function fixWindow(k: number, nf: number): [number, number] {
+  return stag(L.fix, k, nf, 0.35);
+}
+export function fixerAt(out: V3, d: V3, k: number, kk: number): V3 {
+  const side = kk % 2 ? -1 : 1;
+  const cx = d[0] * 0.5 + d[2] * 0.25 * side;
+  const cy = 2.4 + 0.3 * kk;
+  const cz = d[2] * 0.5 - d[0] * 0.25 * side;
+  const m = 1 - k;
+  out[0] = 2 * m * k * cx + k * k * d[0];
+  out[1] = 2 * m * k * cy + k * k * d[1];
+  out[2] = 2 * m * k * cz + k * k * d[2];
+  return out;
+}
+
+export interface LateCam { cam: V3; target: V3; fov: number }
+const KEYS = (wide: boolean): { u: number; cam: V3; tg: V3; fov: number }[] => wide
+  ? [
+    { u: 0.0, cam: [0.4, 9.6, 14.2], tg: [-2.7, -0.7, 0.4], fov: 50 },
+    { u: 0.27, cam: [0.4, 9.6, 14.2], tg: [-2.7, -0.7, 0.4], fov: 50 },
+    { u: 0.6, cam: [-0.6, 7.4, 11.4], tg: [-2.5, -0.6, 0.3], fov: 50 },
+    { u: 1.0, cam: [2.0, 7.9, 11.8], tg: [-2.6, -0.6, 0.2], fov: 50 },
+  ]
+  : [
+    { u: 0.0, cam: [0, 16, 19.5], tg: [0, 3.1, 0.2], fov: 50 },
+    { u: 0.27, cam: [0, 16, 19.5], tg: [0, 3.1, 0.2], fov: 50 },
+    { u: 0.6, cam: [0, 14.2, 17.6], tg: [0, 2.9, 0.2], fov: 50 },
+    { u: 1.0, cam: [1.2, 14.4, 17.8], tg: [0, 3.0, 0.2], fov: 50 },
+  ];
+/** Late camera key pose at u (the caller blends it from the legacy final pose over the first part of the fan-out). */
+export function lateCam(u: number, aspect: number): LateCam {
+  const k = KEYS(aspect >= 1.2);
+  let i = 0;
+  while (i < k.length - 2 && u > k[i + 1].u) i++;
+  const t = easeInOut(clamp01((u - k[i].u) / (k[i + 1].u - k[i].u)));
+  const a = k[i];
+  const b = k[i + 1];
+  const mix = (x: V3, y: V3): V3 => [lerp(x[0], y[0], t), lerp(x[1], y[1], t), lerp(x[2], y[2], t)];
+  return { cam: mix(a.cam, b.cam), target: mix(a.tg, b.tg), fov: lerp(a.fov, b.fov, t) };
+}
+
+/** Copy envelopes for beats 3-5 (u) and the fade-out of the plan copy. */
+export const lateOpacity = {
+  planOut: (u: number): number => 1 - ss(0.0, 0.05, u),
+  fan: (u: number): number => ss(0.045, 0.09, u) * (1 - ss(0.315, 0.355, u)),
+  build: (u: number): number => ss(0.355, 0.40, u) * (1 - ss(0.635, 0.675, u)),
+  verify: (u: number): number => ss(0.675, 0.72, u),
+};
+
+/** Poses used by the reduced-motion static compositions (page progress P). */
+export const STATIC_POSE = {
+  galaxy: 0.02 * SPLIT,
+  core: 0.55 * SPLIT,
+  constellation: 0.92 * SPLIT,
+  fan: SPLIT + 0.3 * (1 - SPLIT),
+  build: SPLIT + 0.62 * (1 - SPLIT),
+  verify: 1,
+} as const;

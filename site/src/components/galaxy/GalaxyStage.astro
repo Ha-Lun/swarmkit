@@ -1,15 +1,23 @@
 ---
-// Into the galaxy (prototype, beats 0-2). One fixed canvas, one sticky pin holding all copy as DOM. The copy and the
+// Into the galaxy (prototype, beats 0-5). One fixed canvas, one sticky pin holding all copy as DOM. The copy and the
 // worker labels are real elements; the client pins the labels to the projected 3D positions of the constellation
 // nodes. Without scripting, WebGL or with reduced motion the sections stack as plain full-height compositions.
 import '../../styles/galaxy.css';
 import { loadFeaturedRun } from '../../lib/run.ts';
+import { buildStory } from '../../lib/galaxy/story.ts';
 
 const run = loadFeaturedRun();
-const workers = (run?.workers ?? []).map((w) => ({ slug: w.slug, lane: w.lane }));
+const story = run ? buildStory(run) : null;
+const workers = story?.workers ?? [];
+const fixers = workers.filter((w) => w.failed && w.fixer);
 const task = run?.task ?? '';
 const approval = run?.plan_approval;
-const json = JSON.stringify({ workers, task }).replace(/</g, '\\u003c');
+const json = JSON.stringify({
+  task,
+  workers: workers.map((w) => ({
+    slug: w.slug, lane: w.lane, launchIndex: w.launchIndex, buildIndex: w.buildIndex, failed: w.failed, fixer: w.fixer, reviewed: w.reviewed,
+  })),
+}).replace(/</g, '\\u003c');
 ---
 <div class="gx" data-gx>
   <div class="gx-fallback" aria-hidden="true"></div>
@@ -48,18 +56,59 @@ const json = JSON.stringify({ workers, task }).replace(/</g, '\\u003c');
           <p class="gx-body">Plan mode on the strongest model. You approve before a single file changes.</p>
           <p class="gx-approved" data-approved>approved{approval ? ` (${approval})` : ''}</p>
         </div>
-        <ul class="gx-nodes" data-nodes aria-label="Workers in this run">
-          <li class="gx-node gx-node-opus" data-node><span class="gx-node-slug">Opus</span><span class="gx-node-lane">planner</span></li>
-          {workers.map((w) => (
-            <li class={`gx-node gx-node-${w.lane}`} data-node><span class="gx-node-slug">{w.slug}</span><span class="gx-node-lane">{w.lane}</span></li>
-          ))}
-        </ul>
       </section>
+
+      {story && (
+        <>
+          <section class="gx-beat gx-plan gx-late" data-beat="fan" aria-labelledby="gx-fan-title">
+            <div class="gx-plan-inner" data-inner>
+              <p class="gx-kicker gx-num">02</p>
+              <h2 id="gx-fan-title" class="gx-h2">{story.counts.workers} workers. At once.</h2>
+              <p class="gx-body">Cheaper models on OpenCode and Antigravity build in parallel.</p>
+            </div>
+          </section>
+          <section class="gx-beat gx-plan gx-late" data-beat="build" aria-labelledby="gx-build-title">
+            <div class="gx-plan-inner" data-inner>
+              <p class="gx-kicker gx-num">03</p>
+              <h2 id="gx-build-title" class="gx-h2">Each in its own worktree.</h2>
+              <p class="gx-body">Isolated branches. Nothing touches main until it passes.</p>
+            </div>
+          </section>
+          <section class="gx-beat gx-plan gx-late" data-beat="verify" aria-labelledby="gx-verify-title">
+            <div class="gx-plan-inner" data-inner>
+              <p class="gx-kicker gx-num">04</p>
+              <h2 id="gx-verify-title" class="gx-h2">Tested. Reviewed. Fixed.</h2>
+              <p class="gx-body">Every branch re-tested, reviewed by a different model. What failed got fixed.</p>
+              <p class="gx-cap gx-cap-run">{story.label}</p>
+            </div>
+          </section>
+        </>
+      )}
+
+      <ul class="gx-nodes" data-nodes aria-label="Workers in this run">
+        <li class="gx-node gx-node-opus" data-node><span class="gx-node-row"><span class="gx-node-slug">Opus</span><span class="gx-node-lane">planner</span></span></li>
+        {workers.map((w) => (
+          <li class={`gx-node gx-node-${w.lane}`} data-node>
+            <span class="gx-node-row"><span class="gx-node-slug">{w.slug}</span><span class="gx-node-lane">{w.lane}</span></span>
+            <span class="gx-node-tags">
+              {w.failed && <span class="gx-tag gx-tag-fail" data-tag="fail">tests failed ×{w.failedVerifies}</span>}
+              {w.failed && w.fixer && <span class="gx-tag gx-tag-fixed" data-tag="fixed">fixed by {w.fixer.slug}</span>}
+              {w.reviewed && <span class="gx-tag gx-tag-rev" data-tag="rev">{w.reviewedBy === 'cross-model' ? 'cross-model review' : 'reviewed'}</span>}
+            </span>
+          </li>
+        ))}
+        {fixers.map((w) => (
+          <li class={`gx-node gx-node-${w.fixer!.lane} gx-node-fixer`} data-node>
+            <span class="gx-node-row"><span class="gx-node-slug">{w.fixer!.slug}</span><span class="gx-node-lane">{w.fixer!.lane}</span></span>
+            <span class="gx-node-tags"><span class="gx-tag gx-tag-fix" data-tag="fixer">fixer for {w.slug}</span></span>
+          </li>
+        ))}
+      </ul>
     </div>
   </div>
 
   <section class="gx-end" aria-label="Prototype note">
-    <p class="gx-end-note">Prototype: beats 3-7 to come</p>
+    <p class="gx-end-note">Prototype: beats 6-7 to come (merge, close)</p>
     <p><a class="gx-btn gx-btn-secondary" href="/">Back to the homepage</a></p>
   </section>
   <script type="application/json" id="gx-data" set:html={json} />

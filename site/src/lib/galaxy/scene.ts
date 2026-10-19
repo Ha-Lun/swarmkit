@@ -5,7 +5,7 @@
 import {
   ACESFilmicToneMapping, AdditiveBlending, BufferAttribute, BufferGeometry, Color, GLSL3, Group, Mesh,
   NoBlending, NormalBlending, NoToneMapping, PerspectiveCamera, PlaneGeometry, Points, Scene, ShaderMaterial,
-  SRGBColorSpace, Vector2, Vector3, WebGLRenderer,
+  SRGBColorSpace, Vector2, Vector3, Vector4, WebGLRenderer,
 } from 'three';
 import type { Blending } from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -19,25 +19,43 @@ import { layoutNodes, linkProgress, nodeOn, spokeProgress } from './constellatio
 import type { Lane } from './constellation.ts';
 import { buildDust, buildGalaxy, buildHaze, buildSky, buildStreaks } from './generator.ts';
 import type { PointCloud } from './generator.ts';
-import { cometAt, clamp01, sceneState, ss } from './path.ts';
-import type { SceneState } from './path.ts';
 import {
-  cometVert, nodeFrag, nodeVert, ribbonFrag, ribbonVert, ringFrag, ringVert, spriteFrag, spriteVert, streakFrag, streakVert, tailFrag, tailVert,
+  bubbleAmt, cometAt, clamp01, destTheta, fixerAt, fixWindow, growAmt, L, lateCam, lateU, launchK, legacyP, lerp, sceneState,
+  ss, starAt, starDest, sweepAngle, sweepRange, sweepTime,
+} from './path.ts';
+import type { SceneState, V3 } from './path.ts';
+import {
+  accFrag, accVert, cometVert, nodeFrag, nodeVert, orbFrag, orbVert, ribbonFrag, ribbonVert, ringFrag, ringVert, scanFrag, scanVert,
+  spriteFrag, spriteVert, streakFrag, streakVert, tailFrag, tailVert, trailFrag,
 } from './shaders.ts';
 
 const CLEAR = '#05060a';
 const TIER = {
-  high: { stars: 110000, haze: 44, dust: 280, sky: [5200, 2600, 1100], streaks: 2600, pr: 1.75, bloom: true },
-  medium: { stars: 55000, haze: 36, dust: 200, sky: [2600, 1300, 600], streaks: 1500, pr: 1.25, bloom: true },
-  low: { stars: 15000, haze: 22, dust: 120, sky: [900, 500, 250], streaks: 700, pr: 1, bloom: false },
+  high: { stars: 110000, haze: 44, dust: 280, sky: [5200, 2600, 1100], streaks: 3200, acc: 150, pr: 1.75, bloom: true },
+  medium: { stars: 55000, haze: 36, dust: 200, sky: [2600, 1300, 600], streaks: 2000, acc: 100, pr: 1.25, bloom: true },
+  low: { stars: 15000, haze: 22, dust: 120, sky: [900, 500, 250], streaks: 1000, acc: 60, pr: 1, bloom: false },
 } as const;
 
-export interface NodeInfo { slug: string; lane: Lane }
+export interface NodeInfo {
+  slug: string;
+  lane: Lane;
+  launchIndex: number;
+  buildIndex: number;
+  failed: boolean;
+  fixer: { slug: string; lane: Lane } | null;
+  reviewed: boolean;
+}
 export interface GalaxyFrame {
+  /** legacy progress for beats 0-2 (0..1 over the first SPLIT of the page) */
   p: number;
+  /** late progress for beats 3-5 */
+  u: number;
   state: SceneState;
-  /** CSS px relative to the canvas: x, y, in-front flag (1/0), node brightness 0..1. Index 0 is the Opus core. */
-  nodes: { x: number; y: number; front: boolean; on: number }[];
+  /**
+   * CSS px relative to the canvas: x, y, in-front flag, node brightness 0..1, bubble radius in px, status 0..1
+   * (ok green, bad red, rev = reviewed tick). Index 0 is the Opus core, 1..n the workers (launch order), then fixers.
+   */
+  nodes: { x: number; y: number; front: boolean; on: number; rad: number; ok: number; bad: number; rev: number }[];
   pulseOn: number;
 }
 export interface GalaxyOptions {
@@ -48,6 +66,8 @@ export interface GalaxyOptions {
 }
 export interface GalaxyScene {
   setProgress(p: number): void;
+  /** raw scroll velocity in px/s (ScrollTrigger getVelocity); smoothed inside */
+  setScrollVelocity(v: number): void;
   setPointer(x: number, y: number): void;
   setActive(on: boolean): void;
   resize(): void;
@@ -137,9 +157,13 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   skGeo.setAttribute('aData', new BufferAttribute(sk.data, 3));
   skGeo.setIndex(new BufferAttribute(sk.index, 1));
   const streakMat = track(new ShaderMaterial({
-    uniforms: { uRes: { value: new Vector2(1, 1) }, uFwd: { value: new Vector3(0, 0, -1) }, uStretch: { value: 0 }, uVis: { value: 0 }, uWidth: { value: 1.3 }, uPR: shared.uPR },
+    uniforms: {
+      uRes: { value: new Vector2(1, 1) }, uFwd: { value: new Vector3(0, 0, -1) }, uRight: { value: new Vector3(1, 0, 0) },
+      uUp: { value: new Vector3(0, 1, 0) }, uCam: { value: new Vector3() }, uTravel: { value: 0 }, uDepth: { value: 26 },
+      uStretch: { value: 0 }, uVis: { value: 0 }, uWidth: { value: 1.4 }, uPR: shared.uPR,
+    },
     vertexShader: streakVert, fragmentShader: streakFrag, glslVersion: GLSL3,
-    blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true,
+    blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, side: 2,
   }));
   const streaks = new Mesh(skGeo, streakMat);
   streaks.frustumCulled = false;
@@ -188,7 +212,10 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   const nWork = opts.workers.length;
   const group = new Group();
   scene.add(group);
-  const nodeCount = nWork + 1;
+  const fixers: { w: number; slug: string; lane: Lane }[] = [];
+  opts.workers.forEach((w, i) => { if (w.failed && w.fixer) fixers.push({ w: i, slug: w.fixer.slug, lane: w.fixer.lane }); });
+  const nFix = fixers.length;
+  const nodeCount = nWork + 1 + nFix;
   const nodeGeo = track(new BufferGeometry());
   const nodePos = new Float32Array(nodeCount * 3);
   const nodeCol = new Float32Array(nodeCount * 3);
@@ -201,12 +228,17 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     nodeCol.set([c[0], c[1], c[2]], (i + 1) * 3);
     nodeData.set([0.34, i + 1, i * 1.7, 0], (i + 1) * 4);
   });
+  fixers.forEach((f, k) => {
+    const c = NODE_COL[f.lane];
+    nodeCol.set([c[0], c[1], c[2]], (nWork + 1 + k) * 3);
+    nodeData.set([0.3, nWork + 1 + k, 4.1 + k, 0], (nWork + 1 + k) * 4);
+  });
   nodeGeo.setAttribute('position', new BufferAttribute(nodePos, 3));
   nodeGeo.setAttribute('aColor', new BufferAttribute(nodeCol, 3));
   nodeGeo.setAttribute('aData', new BufferAttribute(nodeData, 4));
   const pulseU = { uPulseR: { value: 0 }, uPulseOn: { value: 0 } };
   const nodeMat = track(new ShaderMaterial({
-    uniforms: { uOn: { value: new Array(nodeCount).fill(0) }, uScale: shared.uScale, uTime: shared.uTime, uMax: shared.uMax, ...pulseU },
+    uniforms: { uOn: { value: new Array(nodeCount).fill(0) }, uComp: { value: 0 }, uRef: { value: 4.4 }, uScale: shared.uScale, uTime: shared.uTime, uMax: shared.uMax, ...pulseU },
     vertexShader: nodeVert.replace('uOn[9]', `uOn[${nodeCount}]`), fragmentShader: nodeFrag, glslVersion: GLSL3,
     blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true,
   }));
@@ -259,9 +291,131 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   ring.visible = false;
   group.add(ring);
 
+  // ---- late beats: worktree bubbles + planets (one sprite each), accretion dust, launch trails, scan sweep -------------
+  const ORB_R = 1.1; // sprite radius in world units; the bubble is half of it
+  const uA = Array.from({ length: Math.max(1, nWork) }, () => new Vector4());
+  const uB = Array.from({ length: Math.max(1, nWork) }, () => new Vector4());
+  const uC = Array.from({ length: Math.max(1, nWork) }, () => new Vector3());
+  const orbGeo = track(new BufferGeometry());
+  const orbPos = new Float32Array(nWork * 3);
+  const orbCol = new Float32Array(nWork * 3);
+  const orbData = new Float32Array(nWork * 4);
+  opts.workers.forEach((w, i) => { orbCol.set(NODE_COL[w.lane], i * 3); orbData.set([i, ORB_R, 0, 0], i * 4); });
+  orbGeo.setAttribute('position', new BufferAttribute(orbPos, 3));
+  orbGeo.setAttribute('aColor', new BufferAttribute(orbCol, 3));
+  orbGeo.setAttribute('aData', new BufferAttribute(orbData, 4));
+  const orbMat = track(new ShaderMaterial({
+    uniforms: { uScale: shared.uScale, uMax: shared.uMax, uComp: nodeMat.uniforms.uComp, uRef: { value: 11 }, uTime: shared.uTime, uA: { value: uA }, uB: { value: uB } },
+    vertexShader: orbVert.replace('uA[8]', `uA[${Math.max(1, nWork)}]`).replace('uB[8]', `uB[${Math.max(1, nWork)}]`), fragmentShader: orbFrag, glslVersion: GLSL3,
+    blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true,
+  }));
+  const orbs = new Points(orbGeo, orbMat);
+  orbs.frustumCulled = false;
+  orbs.renderOrder = 6;
+  orbs.visible = false;
+  group.add(orbs);
+
+  const per = tcfg.acc;
+  const accN = nWork * per;
+  const accGeo = track(new BufferGeometry());
+  const accPos = new Float32Array(accN * 3);
+  const accCol = new Float32Array(accN * 3);
+  const accData = new Float32Array(accN * 4);
+  {
+    let seed = 7;
+    const rnd = (): number => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+    for (let i = 0; i < accN; i++) {
+      const w = Math.floor(i / per);
+      const z = rnd() * 2 - 1;
+      const a = rnd() * Math.PI * 2;
+      const rr = Math.sqrt(1 - z * z);
+      accPos.set([rr * Math.cos(a), z, rr * Math.sin(a)], i * 3);
+      accCol.set(NODE_COL[opts.workers[w].lane], i * 3);
+      accData.set([w, rnd(), rnd(), rnd()], i * 4);
+    }
+  }
+  accGeo.setAttribute('position', new BufferAttribute(accPos, 3));
+  accGeo.setAttribute('aColor', new BufferAttribute(accCol, 3));
+  accGeo.setAttribute('aData', new BufferAttribute(accData, 4));
+  const accMat = track(new ShaderMaterial({
+    uniforms: { uTime: shared.uTime, uPR: shared.uPR, uC: { value: uC }, uA: { value: uA } },
+    vertexShader: accVert.replace('uC[8]', `uC[${Math.max(1, nWork)}]`).replace('uA[8]', `uA[${Math.max(1, nWork)}]`), fragmentShader: accFrag, glslVersion: GLSL3,
+    blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true,
+  }));
+  const acc = new Points(accGeo, accMat);
+  acc.frustumCulled = false;
+  acc.renderOrder = 6;
+  acc.visible = false;
+  group.add(acc);
+
+  // trails: one ribbon per worker launch and per fixer flight, rewritten from the star paths each frame
+  const TSEGS = 22;
+  const nTrails = nWork + nFix;
+  const tV = nTrails * (TSEGS + 1) * 2;
+  const trPos = new Float32Array(tV * 3);
+  const trNext = new Float32Array(tV * 3);
+  const trCol = new Float32Array(tV * 3);
+  const trData = new Float32Array(tV * 4);
+  const trIdx = new Uint32Array(nTrails * TSEGS * 6);
+  for (let li = 0; li < nTrails; li++) {
+    const col = NODE_COL[li < nWork ? opts.workers[li].lane : fixers[li - nWork].lane];
+    for (let sg = 0; sg <= TSEGS; sg++) for (let sd = 0; sd < 2; sd++) {
+      const v = (li * (TSEGS + 1) + sg) * 2 + sd;
+      trCol.set(col, v * 3);
+      trData.set([sg / TSEGS, sd ? 1 : -1, li, 1], v * 4);
+    }
+    for (let sg = 0; sg < TSEGS; sg++) {
+      const a = (li * (TSEGS + 1) + sg) * 2;
+      trIdx.set([a, a + 1, a + 2, a + 1, a + 3, a + 2], (li * TSEGS + sg) * 6);
+    }
+  }
+  const trGeo = track(new BufferGeometry());
+  trGeo.setAttribute('position', new BufferAttribute(trPos, 3));
+  trGeo.setAttribute('aNext', new BufferAttribute(trNext, 3));
+  trGeo.setAttribute('aColor', new BufferAttribute(trCol, 3));
+  trGeo.setAttribute('aData', new BufferAttribute(trData, 4));
+  trGeo.setIndex(new BufferAttribute(trIdx, 1));
+  const trProg = new Array(Math.max(1, nTrails)).fill(0) as number[];
+  const trailMat = track(new ShaderMaterial({
+    uniforms: { uRes: streakMat.uniforms.uRes, uWidth: { value: 3 }, uPR: shared.uPR, uProg: { value: trProg } },
+    vertexShader: ribbonVert.replace('uProg[24]', `uProg[${Math.max(1, nTrails)}]`), fragmentShader: trailFrag, glslVersion: GLSL3,
+    blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, side: 2,
+  }));
+  const trails = new Mesh(trGeo, trailMat);
+  trails.frustumCulled = false;
+  trails.renderOrder = 6;
+  trails.visible = false;
+  group.add(trails);
+
+  const SCAN_R = 8;
+  const scanMat = track(new ShaderMaterial({
+    uniforms: { uAng: { value: 0 }, uVis: { value: 0 }, uR: { value: SCAN_R } },
+    vertexShader: scanVert, fragmentShader: scanFrag, glslVersion: GLSL3,
+    blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true,
+  }));
+  const scan = new Mesh(track(new PlaneGeometry(SCAN_R * 2, SCAN_R * 2)), scanMat);
+  scan.rotation.x = -Math.PI / 2;
+  scan.frustumCulled = false;
+  scan.renderOrder = 5;
+  scan.visible = false;
+  group.add(scan);
+
   let layout = layoutNodes(opts.workers, 1.6);
+  const dest: V3[] = opts.workers.map(() => [0, 0, 0]);
+  const destAng: number[] = [];
+  let sweepA0 = 0;
+  let sweepA1 = 1;
   function bakeConstellation(): void {
     layout = layoutNodes(opts.workers, camera.aspect);
+    opts.workers.forEach((w, i) => { dest[i] = starDest(w.launchIndex, nWork, camera.aspect); {
+      const th = destTheta(w.launchIndex, nWork);
+      let a = Math.atan2(dest[i][2], dest[i][0]);
+      while (a < th - Math.PI) a += Math.PI * 2;
+      while (a > th + Math.PI) a -= Math.PI * 2;
+      destAng[i] = a;
+    } });
+    [sweepA0, sweepA1] = sweepRange(destAng);
+    fixers.forEach((fx, k) => { const d = dest[fx.w]; fixDest[k] = camera.aspect >= 1.2 ? [d[0] - 0.2, d[1] + 1.5, d[2] - 0.5] : [d[0] + 1.5, d[1] + 0.3, d[2] + 0.4]; });
     nodePos.set([0, 0, 0], 0);
     layout.forEach((n, i) => nodePos.set(n.pos, (i + 1) * 3));
     nodeGeo.attributes.position.needsUpdate = true;
@@ -343,6 +497,8 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   let target = 0;
   let progress = 0;
   let vel = 0;
+  let scrollVel = 0;
+  let scrollVelAt = 0;
   let raf = 0;
   let disposed = false;
   let active = true;
@@ -351,10 +507,36 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   const ptr = { x: 0, y: 0, sx: 0, sy: 0 };
   const tmpV = new Vector3();
   const fwd = new Vector3();
-  const frameOut: GalaxyFrame = { p: 0, state: sceneState(0), nodes: [], pulseOn: 0 };
-  for (let i = 0; i < nodeCount; i++) frameOut.nodes.push({ x: 0, y: 0, front: false, on: 0 });
+  const frameOut: GalaxyFrame = { p: 0, u: 0, state: sceneState(0), nodes: [], pulseOn: 0 };
+  for (let i = 0; i < nodeCount; i++) frameOut.nodes.push({ x: 0, y: 0, front: false, on: 0, rad: 0, ok: 0, bad: 0, rev: 0 });
+  const right = new Vector3();
+  const upV = new Vector3();
+  const back = new Vector3();
+  const sp: V3 = [0, 0, 0];
+  const sq: V3 = [0, 0, 0];
+  let lastLate = false;
+  let refOrb = 11;
+  let refStar = 4.4;
+  const retestRank: number[] = [];
+  { let r = 0; opts.workers.forEach((w, i) => { retestRank[i] = w.failed && !w.fixer ? r++ : 0; }); }
+  const ptsTmp = new Float32Array((TSEGS + 1) * 3);
+  const fixDest: V3[] = fixers.map(() => [0, 0, 0]);
   let cssW = 1;
   let cssH = 1;
+
+  function writeTrail(li: number): void {
+    for (let sg = 0; sg <= TSEGS; sg++) {
+      const o = sg < TSEGS ? (sg + 1) * 3 : sg * 3;
+      for (let sd = 0; sd < 2; sd++) {
+        const v = (li * (TSEGS + 1) + sg) * 2 + sd;
+        for (let c = 0; c < 3; c++) {
+          const here = ptsTmp[sg * 3 + c];
+          trPos[v * 3 + c] = here;
+          trNext[v * 3 + c] = sg < TSEGS ? ptsTmp[o + c] : here + (here - ptsTmp[(sg - 1) * 3 + c]);
+        }
+      }
+    }
+  }
 
   function renderFrame(nowMs: number): void {
     const dtRaw = Math.max(0, (nowMs - lastMs) / 1000);
@@ -363,46 +545,79 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     const prev = progress;
     progress = reduced ? target : progress + (target - progress) * (1 - Math.exp(-Math.min(dtRaw, 1) * 6));
     const inst = dtRaw > 0 ? Math.abs(progress - prev) / Math.max(dtRaw, 1e-3) : 0;
-    vel += (Math.min(1, inst * 6) - vel) * (1 - Math.exp(-dt * 5));
-    const st = sceneState(progress);
+    // scroll velocity: ScrollTrigger's px/s (zero if stale) combined with the eased-progress rate, then smoothed
+    const sv = nowMs - scrollVelAt < Math.max(140, dtRaw * 2500) ? Math.min(1, Math.abs(scrollVel) / (cssH * 3.2)) : 0;
+    vel += (Math.max(sv, Math.min(1, inst * 14)) - vel) * (1 - Math.exp(-dt * 6));
+    const u = lateU(progress);
+    const pp = legacyP(progress);
+    const st = sceneState(pp);
     const t = reduced ? 0 : (nowMs - t0) / 1000;
     shared.uTime.value = t;
     shared.uSpin.value = st.spin;
-    shared.uGain.value = 1.4 * st.galaxyGain;
-    shared.uCoreDim.value = st.coreGain;
-    hazeMat.uniforms.uGain.value = 0.8 * st.galaxyGain * (1 - 0.8 * ss(0.5, 0.62, progress));
-    dustMat.uniforms.uGain.value = (1 + 0.4 * ss(0.5, 0.6, progress)) * (1 - 0.85 * ss(0.3, 0.38, progress) * (1 - ss(0.56, 0.64, progress)));
+    const band = ss(0.27, 0.36, pp) * (1 - ss(0.53, 0.6, pp)); // the dive's bright stretch: thin the bulge so the tunnel reads
+    const lg = ss(0, 0.22, u); // the galaxy comes back up behind the late beats
+    shared.uGain.value = 1.4 * st.galaxyGain * (1 + 1.5 * lg);
+    shared.uCoreDim.value = st.coreGain + (0.8 - st.coreGain) * lg;
+    hazeMat.uniforms.uGain.value = 0.8 * st.galaxyGain * (1 - 0.8 * ss(0.5, 0.62, pp)) * (1 + 2.4 * lg) * (1 - 0.8 * band);
+    dustMat.uniforms.uGain.value = (1 + 0.4 * ss(0.5, 0.6, pp)) * (1 - 0.85 * ss(0.3, 0.38, pp) * (1 - ss(0.56, 0.64, pp)));
 
     // camera: aspect pull-back so portrait phones still see the whole galaxy, then pointer parallax
     const aspect = camera.aspect;
     const fAsp = aspect < 1.1 ? 1 + (1.1 / aspect - 1) * 0.55 : 1;
-    const f = (fAsp + (1 + (fAsp - 1) * 0.6 - fAsp) * ss(0.2, 0.5, progress)) * (1 + 0.2 * (1 - ss(0.04, 0.2, progress)));
+    const f = (fAsp + (1 + (fAsp - 1) * 0.6 - fAsp) * ss(0.2, 0.5, pp)) * (1 + 0.2 * (1 - ss(0.04, 0.2, pp)));
     ptr.sx += (ptr.x - ptr.sx) * Math.min(1, dt * 3);
     ptr.sy += (ptr.y - ptr.sy) * Math.min(1, dt * 3);
     const par = reduced ? 0 : 1 - st.diveEnv;
     // desktop: the constellation sits right of centre so the copy column keeps the left
-    const shiftX = aspect > 1.2 ? -0.5 * ss(0.52, 0.62, progress) : 0;
+    const shiftX = aspect > 1.2 ? -0.5 * ss(0.52, 0.62, pp) : 0;
     // portrait: the constellation drops below the copy block at the top
-    const shiftY = aspect <= 1.2 ? 0.62 * ss(0.52, 0.62, progress) : 0;
+    const shiftY = aspect <= 1.2 ? 0.62 * ss(0.52, 0.62, pp) : 0;
     const tg: [number, number, number] = [st.target[0] + shiftX, st.target[1] + shiftY, st.target[2]];
-    camera.position.set(
-      tg[0] + (st.cam[0] + shiftX - tg[0]) * f + ptr.sx * 0.5 * par,
-      tg[1] + (st.cam[1] + shiftY - tg[1]) * f + ptr.sy * 0.3 * par,
-      tg[2] + (st.cam[2] - tg[2]) * f,
-    );
+    let cx = tg[0] + (st.cam[0] + shiftX - tg[0]) * f;
+    let cy = tg[1] + (st.cam[1] + shiftY - tg[1]) * f;
+    let cz = tg[2] + (st.cam[2] - tg[2]) * f;
+    // portrait hero: closer and more face-on so the galaxy fills the width under the copy
+    const pw = clamp01((1.0 - aspect) / 0.35);
+    const hw = pw * (1 - ss(0.04, 0.22, pp));
+    if (hw > 0) {
+      cx = lerp(cx, 0, hw);
+      cy = lerp(cy, 16, hw);
+      cz = lerp(cz, 10.5, hw);
+      tg[1] = lerp(tg[1], 1.2, hw);
+    }
+    let fov = st.fov;
+    if (u > 0) {
+      const lc = lateCam(u, aspect);
+      const w = ss(0, 0.22, u);
+      cx = lerp(cx, lc.cam[0], w);
+      cy = lerp(cy, lc.cam[1], w);
+      cz = lerp(cz, lc.cam[2], w);
+      tg[0] = lerp(tg[0], lc.target[0], w);
+      tg[1] = lerp(tg[1], lc.target[1], w);
+      tg[2] = lerp(tg[2], lc.target[2], w);
+      fov = lerp(fov, lc.fov, w);
+    }
+    camera.position.set(cx + ptr.sx * 0.5 * par, cy + ptr.sy * 0.3 * par, cz);
     camera.up.set(Math.sin(st.roll), Math.cos(st.roll), 0);
     camera.lookAt(tg[0], tg[1], tg[2]);
-    if (Math.abs(camera.fov - st.fov) > 1e-3) {
-      camera.fov = st.fov;
+    if (Math.abs(camera.fov - fov) > 1e-3) {
+      camera.fov = fov;
       camera.updateProjectionMatrix();
     }
     shared.uScale.value = renderer.domElement.height / (2 * Math.tan((camera.fov * Math.PI) / 360));
-    camera.getWorldDirection(fwd);
+    camera.updateMatrixWorld();
+    camera.matrixWorld.extractBasis(right, upV, back);
+    fwd.copy(back).negate();
+    starMat.uniforms.uSize.value = (opts.tier === 'low' ? 0.07 : 0.05) * (1 + 0.3 * hw) * (1 - 0.6 * band);
 
-    // streaks
+    // dive tunnel: stars stream past with the scroll (uTravel), stretched by a base amount plus the scroll velocity
     streakMat.uniforms.uFwd.value.copy(fwd);
+    streakMat.uniforms.uRight.value.copy(right);
+    streakMat.uniforms.uUp.value.copy(upV);
+    streakMat.uniforms.uCam.value.copy(camera.position);
+    streakMat.uniforms.uTravel.value = pp * 12;
     streakMat.uniforms.uVis.value = st.diveEnv * (reduced ? 0 : 1);
-    streakMat.uniforms.uStretch.value = st.diveEnv * (3.2 + 5.5 * vel);
+    streakMat.uniforms.uStretch.value = st.diveEnv * (2.0 + 7 * vel);
 
     // comet
     const cu = st.cometU;
@@ -412,7 +627,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     tmpV.set(ahead[0] - behind[0], ahead[1] - behind[1], ahead[2] - behind[2]).normalize();
     cometMat.uniforms.uHead.value.set(head[0], head[1], head[2]);
     cometMat.uniforms.uDir.value.copy(tmpV);
-    cometMat.uniforms.uLen.value = 5 + 11 * (1 - ss(0.3, 0.52, progress));
+    cometMat.uniforms.uLen.value = 5 + 11 * (1 - ss(0.3, 0.52, pp));
     cometMat.uniforms.uVis.value = st.cometVis;
     cometMat.uniforms.uFlash.value = st.flash;
     comet.visible = st.cometVis > 0.002;
@@ -423,7 +638,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
 
     // constellation
     const on = nodeMat.uniforms.uOn.value as number[];
-    on[0] = ss(0.5, 0.6, progress);
+    on[0] = ss(0.5, 0.6, pp);
     for (let i = 0; i < nWork; i++) on[i + 1] = nodeOn(st.draw, i, nWork) * (st.draw > 0 ? 1 : 0);
     const prog = rMat.uniforms.uProg.value as number[];
     for (let i = 0; i < nWork; i++) prog[i] = spokeProgress(st.draw, i, nWork);
@@ -437,20 +652,124 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     ring.lookAt(camera.position);
     ring.scale.setScalar(1);
 
+    // ---- late beats 3-5 ----
+    const lateOnNow = u > 0;
+    nodeMat.uniforms.uComp.value = lg;
+    const narrow = clamp01((1.2 - aspect) / 0.74);
+    refOrb = 11 * (1 + narrow);
+    refStar = 4.4 * (1 + 0.8 * narrow);
+    orbMat.uniforms.uRef.value = refOrb;
+    nodeMat.uniforms.uRef.value = refStar;
+    for (let i = 0; i < nWork; i++) {
+      const w = opts.workers[i];
+      const slot = layout[i].pos as V3;
+      const k = lateOnNow ? launchK(u, w.launchIndex, nWork) : 0;
+      const grow = growAmt(u, w.buildIndex, nWork);
+      starAt(sp, slot, dest[i], w.launchIndex, k);
+      nodePos[(i + 1) * 3] = sp[0];
+      nodePos[(i + 1) * 3 + 1] = sp[1];
+      nodePos[(i + 1) * 3 + 2] = sp[2];
+      orbPos[i * 3] = sp[0];
+      orbPos[i * 3 + 1] = sp[1];
+      orbPos[i * 3 + 2] = sp[2];
+      uC[i].set(sp[0], sp[1], sp[2]);
+      if (lateOnNow) on[i + 1] = (1 + 0.7 * Math.sin(Math.PI * k) ** 2) * (1 - 0.5 * grow);
+      prog[i] *= 1 - k;
+      // verify
+      const vt = sweepTime(destAng[i], sweepA0, sweepA1);
+      const kk = w.failed ? fixers.findIndex((fx) => fx.w === i) : -1;
+      let okA = 0;
+      let badA = 0;
+      let ph = 0;
+      let kind = 0;
+      let revT = vt + 0.035;
+      if (kk < 0 && !w.failed) {
+        ph = clamp01((u - vt) / 0.05);
+        okA = ss(vt, vt + 0.03, u);
+      } else {
+        // failed: red at its sweep slot. With a fixer it turns green when the fixer lands; without one its re-test
+        // (a later passing verify in the data) lands right after the sweep.
+        const fb = kk >= 0 ? fixWindow(kk, nFix)[1] : L.sweep[1] + 0.014 + 0.008 * retestRank[i];
+        badA = ss(vt, vt + 0.02, u) * (1 - ss(fb, fb + 0.03, u));
+        okA = ss(fb, fb + 0.03, u);
+        ph = u < fb ? clamp01((u - vt) / 0.05) : clamp01((u - fb) / 0.05);
+        kind = u < fb ? 1 : 0;
+        revT = fb + 0.035;
+      }
+      uA[i].set(bubbleAmt(u, w.launchIndex, nWork), grow, okA, badA);
+      uB[i].set(ph, kind, 0, 0);
+      const fo = frameOut.nodes[i + 1];
+      fo.ok = okA;
+      fo.bad = badA;
+      fo.rev = w.reviewed ? ss(revT, revT + 0.02, u) : 0;
+      // launch trail
+      const tl = trProg;
+      tl[i] = lateOnNow && k > 0.001 ? 1 - ss(0.88, 1, k) : 0;
+      if (tl[i] > 0) {
+        const t0k = Math.max(0, k - 0.5);
+        for (let sg = 0; sg <= TSEGS; sg++) {
+          starAt(sq, slot, dest[i], w.launchIndex, lerp(t0k, k, sg / TSEGS));
+          ptsTmp.set(sq, sg * 3);
+        }
+        writeTrail(i);
+      }
+    }
+    for (let kk = 0; kk < nFix; kk++) {
+      const fx = fixers[kk];
+      const [fa, fb] = fixWindow(kk, nFix);
+      const kf = ss(fa, fb, u);
+      const d = fixDest[kk];
+      fixerAt(sp, d, kf, kk);
+      const ni = nWork + 1 + kk;
+      nodePos[ni * 3] = sp[0];
+      nodePos[ni * 3 + 1] = sp[1];
+      nodePos[ni * 3 + 2] = sp[2];
+      on[ni] = ss(fa - 0.005, fa + 0.01, u) * (1 + 0.5 * Math.sin(Math.PI * kf) ** 2);
+      trProg[nWork + kk] = kf > 0.001 ? 1 - ss(0.86, 1, kf) : 0;
+      if (trProg[nWork + kk] > 0) {
+        for (let sg = 0; sg <= TSEGS; sg++) {
+          fixerAt(sq, d, lerp(Math.max(0, kf - 0.5), kf, sg / TSEGS), kk);
+          ptsTmp.set(sq, sg * 3);
+        }
+        writeTrail(nWork + kk);
+      }
+      void fx;
+    }
+    for (let i = 0; i < links.length; i++) prog[nWork + i] *= 1 - ss(0.03, 0.1, u);
+    if (lateOnNow || lastLate) {
+      nodeGeo.attributes.position.needsUpdate = true;
+      orbGeo.attributes.position.needsUpdate = true;
+      trGeo.attributes.position.needsUpdate = true;
+      trGeo.attributes.aNext.needsUpdate = true;
+    }
+    lastLate = lateOnNow;
+    orbs.visible = u > L.bubble[0] - 0.01;
+    acc.visible = orbs.visible;
+    trails.visible = u > 0.01;
+    const scanVis = ss(L.sweep[0] - 0.025, L.sweep[0], u) * (1 - ss(L.sweep[1], L.sweep[1] + 0.03, u));
+    scan.visible = nWork > 0 && scanVis > 0.002;
+    scanMat.uniforms.uVis.value = scanVis;
+    scanMat.uniforms.uAng.value = sweepAngle(u, sweepA0, sweepA1);
+
     if (composer) renderer.toneMappingExposure = st.exposure;
     if (bloom) bloom.strength = 0.55 * st.bloom * (opts.tier === 'medium' ? 0.9 : 1);
 
     // project nodes
     camera.updateMatrixWorld();
     for (let i = 0; i < nodeCount; i++) {
-      tmpV.set(nodePos[i * 3], nodePos[i * 3 + 1], nodePos[i * 3 + 2]).project(camera);
+      tmpV.set(nodePos[i * 3], nodePos[i * 3 + 1], nodePos[i * 3 + 2]);
+      const depth = Math.max(0.1, (tmpV.x - camera.position.x) * fwd.x + (tmpV.y - camera.position.y) * fwd.y + (tmpV.z - camera.position.z) * fwd.z);
+      tmpV.project(camera);
       const fo = frameOut.nodes[i];
+      const bubA = i >= 1 && i <= nWork ? uA[i - 1].x : 0;
+      fo.rad = (bubA > 0.02 ? 0.5 * ORB_R : 0.1) * shared.uScale.value / lerp(depth, bubA > 0.02 ? refOrb : refStar, lg) / shared.uPR.value;
       fo.x = (tmpV.x * 0.5 + 0.5) * cssW;
       fo.y = (-tmpV.y * 0.5 + 0.5) * cssH;
       fo.front = tmpV.z > -1 && tmpV.z < 1;
       fo.on = on[i];
     }
-    frameOut.p = progress;
+    frameOut.p = pp;
+    frameOut.u = u;
     frameOut.state = st;
     frameOut.pulseOn = pulseU.uPulseOn.value;
 
@@ -504,6 +823,10 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     setProgress(p: number): void {
       target = clamp01(p);
       if (reduced) renderFrame(performance.now());
+    },
+    setScrollVelocity(v: number): void {
+      scrollVel = v;
+      scrollVelAt = performance.now();
     },
     setPointer(x: number, y: number): void {
       ptr.x = x;

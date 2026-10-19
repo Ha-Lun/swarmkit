@@ -1,7 +1,6 @@
 // Procedural galaxy and sky bakers. Deterministic (seeded), allocation-light, no three.js import, so they are testable.
 // World units: the galaxy disc is radius GALAXY_R in the XZ plane, y up. Colours are LINEAR (same as swarm PALETTE).
 import { mulberry32, PALETTE } from '../swarm/formations.ts';
-import { camRoute } from './path.ts';
 
 export const GALAXY_R = 10;
 type RGB = [number, number, number];
@@ -219,7 +218,9 @@ export interface StreakMesh {
   data: Float32Array; // per vertex: [lengthFactor, brightness, seed]
   index: Uint32Array;
 }
-/** Stars strewn in a tube around the camera route, drawn as velocity-stretched quads during the dive. */
+/** Stars in a tunnel around the camera axis, in three depth layers (far dim and many, near bright and few). position is
+ *  [right offset, up offset, depth phase 0..1]; the vertex shader places it relative to the camera. data is
+ *  [length factor, brightness, layer 0 far .. 1 near]. */
 export function buildStreaks(count: number, seed = 21): StreakMesh {
   const rnd = mulberry32(seed);
   const position = new Float32Array(count * 4 * 3);
@@ -227,21 +228,19 @@ export function buildStreaks(count: number, seed = 21): StreakMesh {
   const data = new Float32Array(count * 4 * 3);
   const index = new Uint32Array(count * 6);
   for (let i = 0; i < count; i++) {
-    const u = 0.12 + rnd() * 0.88;
-    const c0 = camRoute(u);
-    const r = 0.5 + 6.5 * rnd() ** 1.4;
-    const th = Math.acos(2 * rnd() - 1);
-    const ph = rnd() * Math.PI * 2;
-    const px = c0[0] + r * Math.sin(th) * Math.cos(ph);
-    const py = c0[1] + r * Math.cos(th);
-    const pz = c0[2] + r * Math.sin(th) * Math.sin(ph);
-    const lf = 0.5 + rnd();
-    const br = 0.35 + rnd() * 0.65;
-    for (let k = 0; k < 4; k++) {
-      const v = i * 4 + k;
-      position.set([px, py, pz], v * 3);
-      corner.set([k >> 1, k & 1 ? 1 : -1], v * 2);
-      data.set([lf, br, rnd()], v * 3);
+    const k = rnd();
+    const layer = k < 0.5 ? rnd() * 0.3 : k < 0.82 ? 0.4 + rnd() * 0.25 : 0.8 + rnd() * 0.2;
+    const [r0, r1] = layer < 0.35 ? [1.8, 9] : layer < 0.7 ? [1.3, 4.4] : [1.0, 2.6];
+    const r = r0 + (r1 - r0) * rnd() ** 0.8;
+    const th = rnd() * Math.PI * 2;
+    const ph = rnd();
+    const lf = 0.6 + rnd() * 0.9;
+    const br = 0.4 + rnd() * 0.6;
+    for (let v4 = 0; v4 < 4; v4++) {
+      const v = i * 4 + v4;
+      position.set([Math.cos(th) * r, Math.sin(th) * r, ph], v * 3);
+      corner.set([v4 >> 1, v4 & 1 ? 1 : -1], v * 2);
+      data.set([lf, br, layer], v * 3);
     }
     const b = i * 4;
     index.set([b, b + 1, b + 2, b + 1, b + 3, b + 2], i * 6);

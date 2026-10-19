@@ -3,8 +3,8 @@
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { detectTier } from '../../lib/swarm/scene.ts';
-import { beatOpacity, STATIC_POSE, typedChars } from '../../lib/galaxy/path.ts';
-import type { GalaxyFrame, GalaxyScene } from '../../lib/galaxy/scene.ts';
+import { beatOpacity, lateOpacity, STATIC_POSE, typedChars } from '../../lib/galaxy/path.ts';
+import type { GalaxyFrame, GalaxyScene, NodeInfo } from '../../lib/galaxy/scene.ts';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -17,7 +17,7 @@ async function boot(): Promise<void> {
   const track = root.querySelector<HTMLElement>('[data-gx-track]');
   const dataEl = document.getElementById('gx-data');
   if (!canvas || !track || !dataEl) return;
-  const data = JSON.parse(dataEl.textContent || '{}') as { workers: { slug: string; lane: 'opencode' | 'agy' }[]; task: string };
+  const data = JSON.parse(dataEl.textContent || '{}') as { workers: NodeInfo[]; task: string };
 
   const tier = detectTier();
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -30,13 +30,31 @@ async function boot(): Promise<void> {
   const hero = sec('hero');
   const task = sec('task');
   const plan = sec('plan');
+  const fan = sec('fan');
+  const build = sec('build');
+  const verify = sec('verify');
   const typed = root.querySelector<HTMLElement>('[data-typed]');
   const rest = root.querySelector<HTMLElement>('[data-rest]');
   const approved = root.querySelector<HTMLElement>('[data-approved]');
   const nodesEl = root.querySelector<HTMLElement>('[data-nodes]');
   const labelEls = nodesEl ? [...nodesEl.querySelectorAll<HTMLElement>('[data-node]')] : [];
   let lastChars = -1;
+  const tagsOf = labelEls.map((el) => ({
+    fail: el.querySelector<HTMLElement>('[data-tag="fail"]'),
+    fixed: el.querySelector<HTMLElement>('[data-tag="fixed"]'),
+    rev: el.querySelector<HTMLElement>('[data-tag="rev"]'),
+    fixer: el.querySelector<HTMLElement>('[data-tag="fixer"]'),
+  }));
+  const POSE_ORDER = ['galaxy', 'core', 'constellation', 'fan', 'build', 'verify'] as const;
   let pose: keyof typeof STATIC_POSE = 'galaxy';
+  const setTag = (el: HTMLElement | null, v: number): boolean => {
+    if (!el) return false;
+    const on = v > 0.04;
+    const d = on ? 'inline-block' : 'none';
+    if (el.style.display !== d) el.style.display = d;
+    if (on) el.style.opacity = Math.min(1, v).toFixed(3);
+    return on;
+  };
 
   const setOpacity = (el: HTMLElement | null, o: number): void => {
     if (!el) return;
@@ -47,11 +65,16 @@ async function boot(): Promise<void> {
   const onFrame = (f: GalaxyFrame): void => {
     const p = f.p;
     const live = html.classList.contains('gx-live');
-    const planO = live ? beatOpacity.plan(p) : pose === 'constellation' ? 1 : 0;
+    const u = f.u;
+    const pillO = live ? beatOpacity.plan(p) : POSE_ORDER.indexOf(pose) >= 2 ? 1 : 0;
+    const planO = live ? beatOpacity.plan(p) * lateOpacity.planOut(u) : pose === 'constellation' ? 1 : 0;
     if (live) {
       setOpacity(hero, beatOpacity.hero(p));
       setOpacity(task, beatOpacity.task(p));
       setOpacity(plan, planO);
+      setOpacity(fan, lateOpacity.fan(u));
+      setOpacity(build, lateOpacity.build(u));
+      setOpacity(verify, lateOpacity.verify(u));
       const h = hero?.firstElementChild as HTMLElement | null;
       if (h) h.style.transform = `translate3d(0, ${(-24 * (1 - beatOpacity.hero(p))).toFixed(1)}px, 0)`;
       if (typed && rest && data.task) {
@@ -64,23 +87,39 @@ async function boot(): Promise<void> {
       }
     }
     setOpacity(approved, live ? beatOpacity.approved(p) : planO);
-    // pills sit centred just below their node; each lane is spread vertically so neighbours never overlap
-    const GAP = 34;
+    // pills sit centred just below their node (and bubble); neighbours that would overlap are pushed apart vertically
+    const live2 = live;
+    const wide = canvas.clientWidth >= canvas.clientHeight * 1.2;
     const place = labelEls.map((el, i) => {
       const n = f.nodes[i];
+      const t = tagsOf[i];
       const w = el.offsetWidth || 120;
-      const side = i === 0 ? 0 : el.classList.contains('gx-node-opencode') ? -1 : 1;
+      let tags = 0;
+      if (live2 || pose !== 'galaxy') {
+        if (setTag(t.fail, live2 ? n.bad : n.ok + n.bad)) tags++;
+        if (setTag(t.fixed, n.ok)) tags++;
+        if (setTag(t.rev, n.rev)) tags++;
+        if (setTag(t.fixer, u >= 0.6 ? n.on : 0)) tags++;
+        el.classList.toggle('is-bad', n.bad > 0.5);
+        el.classList.toggle('is-ok', n.ok > 0.5);
+      }
       const x = n.x - w / 2;
-      const y = n.y + (i === 0 ? 20 : 17);
-      return { el, i, x, y, side };
+      const h = 32 + tags * 19;
+      const fixer = wide && el.classList.contains('gx-node-fixer');
+      const y = fixer ? n.y - 16 - h : n.y + (n.rad || 14) + 8;
+      return { el, i, x, y, w, h };
     });
-    for (const sd of [-1, 1]) {
-      const g = place.filter((q) => q.side === sd).sort((a, b) => a.y - b.y);
-      for (let k = 1; k < g.length; k++) if (g[k].y - g[k - 1].y < GAP) g[k].y = g[k - 1].y + GAP;
+    place.sort((a, b) => a.y - b.y);
+    for (let k = 1; k < place.length; k++) {
+      for (let m = k - 1; m >= 0; m--) {
+        const a = place[m];
+        const b = place[k];
+        if (Math.abs(a.x + a.w / 2 - (b.x + b.w / 2)) < (a.w + b.w) / 2 + 6 && b.y - a.y < a.h + 2) b.y = a.y + a.h + 2;
+      }
     }
     place.forEach((q) => {
       const n = f.nodes[q.i];
-      const vis = n.front ? Math.min(1, n.on * 1.4) * planO : 0;
+      const vis = n.front ? Math.min(1, n.on * 1.4) * pillO : 0;
       q.el.style.transform = `translate3d(${q.x.toFixed(1)}px, ${q.y.toFixed(1)}px, 0)`;
       q.el.style.opacity = vis.toFixed(3);
     });
@@ -98,7 +137,7 @@ async function boot(): Promise<void> {
 
   if (reduced) {
     html.classList.add('gx-still');
-    const sections: [HTMLElement | null, keyof typeof STATIC_POSE][] = [[hero, 'galaxy'], [task, 'core'], [plan, 'constellation']];
+    const sections: [HTMLElement | null, keyof typeof STATIC_POSE][] = [[hero, 'galaxy'], [task, 'core'], [plan, 'constellation'], [fan, 'fan'], [build, 'build'], [verify, 'verify']];
     const io = new IntersectionObserver((entries) => {
       for (const e of entries) {
         if (!e.isIntersecting) continue;
@@ -120,7 +159,10 @@ async function boot(): Promise<void> {
     trigger: track,
     start: 'top top',
     end: 'bottom bottom',
-    onUpdate: (self) => scene.setProgress(self.progress),
+    onUpdate: (self) => {
+      scene.setProgress(self.progress);
+      scene.setScrollVelocity(self.getVelocity());
+    },
     onRefresh: (self) => scene.setProgress(self.progress),
   });
   scene.setProgress(st.progress);
