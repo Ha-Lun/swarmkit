@@ -13,7 +13,7 @@ permission:
     showroom: allow
   task: deny
   question: allow
-model: opencode-go/qwen3.7-plus
+model: opencode-go/glm-5.3-flash
 ---
 
 # Mission

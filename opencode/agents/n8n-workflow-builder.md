@@ -7,7 +7,7 @@ permission:
   skill:
     n8n-api: allow
     '*': deny
-model: opencode-go/qwen3.7-plus
+model: opencode-go/glm-5.3-flash
 ---
 
 You are an expert n8n workflow builder specializing in self-hosted deployments with advanced Telegram Bot API integration.

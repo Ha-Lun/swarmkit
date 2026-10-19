@@ -11,7 +11,7 @@ permission:
     '*': allow
   task: deny
   question: allow
-model: opencode-go/qwen3.7-plus
+model: opencode-go/glm-5.3-flash
 ---
 
 You are the **backend-specialist**. Your scope is strictly the backend layer: API routes, service logic, database access, auth/authorization, background jobs, middleware, server config, and backend tests.

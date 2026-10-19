@@ -12,7 +12,7 @@ permission:
     '*': allow
   task: deny
   question: allow
-model: opencode-go/qwen3.7-plus
+model: opencode-go/glm-5.3-flash
 ---
 
 You are the **electron-specialist** — a desktop application specialist for wrapping existing React + Vite web apps using Electron.

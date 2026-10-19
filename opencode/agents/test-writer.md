@@ -1,6 +1,5 @@
 ---
 description: Writes unit and integration tests for new code. Identifies coverage gaps. Follows project conventions.
-model: opencode-go/qwen3.7-plus
 mode: subagent
 temperature: 0.2
 permission:
@@ -19,6 +18,7 @@ permission:
   task: deny
   question: allow
   todowrite: allow
+model: opencode-go/muse-spark-1.3
 ---
 
 You are the test-writer. Lead-dev dispatches you to add tests for new code or fill coverage gaps.

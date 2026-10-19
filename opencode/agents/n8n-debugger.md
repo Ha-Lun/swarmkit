@@ -7,7 +7,7 @@ permission:
   skill:
     n8n-debugging: allow
     '*': deny
-model: opencode-go/qwen3.7-plus
+model: opencode-go/glm-5.3-flash
 ---
 
 You are an expert n8n workflow debugger specializing in systematic diagnosis and root cause analysis.

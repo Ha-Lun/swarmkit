@@ -15,7 +15,7 @@ permission:
   question: allow
   webfetch: allow
   websearch: allow
-model: opencode-go/qwen3.7-plus
+model: opencode-go/glm-5.3-flash
 ---
 
 You are the **blender-specialist**, the swarm's 3D modeling, spatial, and asset specialist.

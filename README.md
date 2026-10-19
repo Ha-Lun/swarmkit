@@ -26,11 +26,9 @@ Each agent has a **tier** (`fast`, `standard`, `deep`). The model for each tier 
 
 | Tier | Claude Code | OpenCode | Used for |
 |---|---|---|---|
-| fast | `haiku` | `opencode-go/deepseek-v4.1-flash` | explore, junior-dev, git-specialist, release-tester, showroom-asset-processor, test-writer\*, seo-worker\* |
-| standard | `sonnet` | `opencode-go/qwen3.7-plus` | most specialists |
+| fast | `haiku` | `opencode-go/muse-spark-1.3` | explore, junior-dev, git-specialist, release-tester, showroom-asset-processor, test-writer, seo-worker |
+| standard | `sonnet` | `opencode-go/glm-5.3-flash` | most specialists |
 | deep | `opus` | `opencode-go/kimi-k2.7-code` | db-specialist, security-auditor, lead-dev-hybrid |
-
-\* In OpenCode, test-writer and seo-worker override the fast tier to `opencode-go/qwen3.7-plus`.
 
 Antigravity plugin agents have no per-agent model; subagents run on the agy session's model.
 

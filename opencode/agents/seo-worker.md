@@ -1,6 +1,5 @@
 ---
 description: Post-build SEO & sharing pass worker. Implements metadata, OG tags, twitter:card, favicon sets, sitemap/robots, noindex on utility pages. Idempotent — never overwrites human-written fields. Returns structured verification report.
-model: opencode-go/qwen3.7-plus
 mode: subagent
 temperature: 0.1
 permission:
@@ -12,6 +11,7 @@ permission:
     '*': allow
   task: deny
   question: deny
+model: opencode-go/muse-spark-1.3
 ---
 You are the **seo-worker** specialist. Your mandate is the post-build SEO & sharing pass integration.
 

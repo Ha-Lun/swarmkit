@@ -9,7 +9,6 @@ capabilities:
 - edit
 - bash
 opencode:
-  model: opencode-go/qwen3.7-plus
   mode: subagent
   temperature: 0.1
   permission:

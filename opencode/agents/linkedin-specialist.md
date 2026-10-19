@@ -13,7 +13,7 @@ permission:
   task: deny
   question: allow
   todowrite: allow
-model: opencode-go/qwen3.7-plus
+model: opencode-go/glm-5.3-flash
 ---
 
 You are a **LinkedIn content specialist**. You help the user create compelling LinkedIn posts
