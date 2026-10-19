@@ -174,14 +174,17 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
   const passes: { dispose?: () => void }[] = [];
   if (bloomTier) {
     try {
+      // ACES in OutputPass lifts a non-black clear to murky slate, so the composer
+      // renders on black and the dither pass adds the page background after tone mapping.
+      renderer.setClearColor(new Color(0, 0, 0), 1);
       composer = new EffectComposer(renderer);
       const renderPass = new RenderPass(scene, camera);
-      bloom = new UnrealBloomPass(new Vector2(256, 256), 0.55, 0.4, 0.25); // half-res internally
+      bloom = new UnrealBloomPass(new Vector2(256, 256), 0.4, 0.2, 0.7); // half-res internally; tight, bright cores/tips only
       const output = new OutputPass();
       const dither = new ShaderPass({
         uniforms: { tDiffuse: { value: null } },
         vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-        fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main() { vec4 c = texture2D(tDiffuse, vUv); float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453); gl_FragColor = vec4(c.rgb + (n - 0.5) * 1.5 / 255.0, 1.0); }',
+        fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main() { vec4 c = texture2D(tDiffuse, vUv); float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453); vec3 bg = vec3(5.0, 6.0, 10.0) / 255.0; vec3 rgb = c.rgb + bg * (1.0 - clamp(max(c.r, max(c.g, c.b)) * 4.0, 0.0, 1.0)); gl_FragColor = vec4(rgb + (n - 0.5) * 1.5 / 255.0, 1.0); }',
       });
       composer.addPass(renderPass);
       composer.addPass(bloom);
@@ -191,6 +194,7 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
     } catch {
       composer = null;
       bloom = null;
+      renderer.setClearColor(new Color(CLEAR), 1);
       material.uniforms.uDirect.value = 1;
       renderer.toneMapping = NoToneMapping;
     }
@@ -272,6 +276,7 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
         return;
       } catch {
         composer = null; // fall back to the direct path from the next frame on
+        renderer.setClearColor(new Color(CLEAR), 1);
         u.uDirect.value = 1;
         renderer.toneMapping = NoToneMapping;
       }

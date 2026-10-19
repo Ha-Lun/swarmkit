@@ -91,7 +91,7 @@ html.no-webgl .swarm-fallback {
 /* Hero legibility: soft left scrim between canvas (z0) and copy (z1). */
 [data-swarm-story] [data-beat='hero']::before {
   content: '';
-  position: fixed;
+  position: absolute; /* scrolls away with the hero; never dims later beats */
   inset: 0;
   z-index: 0;
   pointer-events: none;

@@ -33,7 +33,7 @@ in vec3 aColor;
 in float aRole;
 in float aDelay;
 in float aScale;
-in float aKind; // 0 worker, 1 Opus core, 2 Opus halo, 3 bokeh
+in float aKind; // 0 worker, 1 Opus core, 2 Opus halo
 
 out vec3 vColor;
 out float vAlpha;
@@ -214,16 +214,18 @@ void main() {
   // a bright tip on comets / tower tops; then unify toward gold, scan mint.
   float tm = mix(aFromT, aToT, te);
   bool opus = aKind > 0.5 && aKind < 2.5;
-  vec3 col = opus ? uCore : mix(uCore, aColor, 0.12 + 0.88 * smoothstep(0.0, 0.5, tm));
+  // Towers keep the lane colour on their bodies (little white-violet at the base).
+  float towerW = mix(step(2.5, uFromId) * step(uFromId, 3.5), step(2.5, uToId) * step(uToId, 3.5), te);
+  vec3 col = opus ? uCore : mix(uCore, aColor, mix(0.12, 0.8, towerW) + (0.88 - 0.8 * towerW) * smoothstep(0.0, 0.5, tm));
   float tipW = mix(step(1.5, uFromId) * step(uFromId, 3.5), step(1.5, uToId) * step(uToId, 3.5), te);
-  col = mix(col, vec3(1.0), 0.5 * tipW * smoothstep(0.82, 1.0, tm));
-  col *= 1.0 + 0.5 * (1.0 - smoothstep(0.0, 0.35, tm));
-  col *= 1.0 + glow * 0.9;
+  col = mix(col, vec3(1.0), 0.3 * tipW * smoothstep(0.88, 1.0, tm));
+  if (!opus) col *= 1.0 + 0.5 * (1.0 - smoothstep(0.0, 0.35, tm)) * (1.0 - towerW);
+  col *= 1.0 + glow * mix(0.9, 0.5, towerW);
   col = mix(col, uMerged, uUnify);
   float below = 1.0 - smoothstep(uScanY - 0.001, uScanY, pos.y);
   col = mix(col, uVerified, below * 0.6);
   float band = 1.0 - smoothstep(0.0, 0.25, abs(pos.y - uScanY));
-  col += vec3(1.0) * (band * 0.9);
+  col += mix(vec3(1.0), col, 0.5) * (band * 0.45);
   vColor = col;
   vKind = aKind;
 
@@ -231,19 +233,18 @@ void main() {
   gl_Position = projectionMatrix * mv;
   float depth = max(-mv.z, 0.1);
 
-  // Kind: core sprites are plain, the halo is a few huge faint breathing sprites,
-  // bokeh is a faint out-of-focus disc.
+  // Kind: core sprites are small and intense, the halo is a few modest faint
+  // breathing sprites.
   float breathe = 1.0 + 0.2 * sin(uTime * 0.8 + aDelay * 6.0) * uAmb;
   float kindSize = 1.0;
   float kindAlpha = 0.3;
-  if (aKind > 2.5) { kindSize = 4.5; kindAlpha = 0.06; }
-  else if (aKind > 1.5) { kindSize = 8.0 * breathe; kindAlpha = 0.02 * breathe; }
-  else if (aKind > 0.5) { kindSize = 1.1; kindAlpha = 0.16; }
+  if (aKind > 1.5) { kindSize = 2.6 * breathe; kindAlpha = 0.012 * breathe; }
+  else if (aKind > 0.5) { kindSize = 0.5; kindAlpha = 0.14; }
 
-  // Depth of field: defocus grows the sprite and thins it out.
-  float coc = clamp(abs(depth - uFocus) / uFocus, 0.0, 1.0);
-  vAlpha = kindAlpha * mix(1.0, 0.42, uUnify) / (1.0 + 2.5 * coc) + band * 0.5;
-  gl_PointSize = uSize * aScale * kindSize * (1.0 + 2.2 * coc) * uPixelRatio * (300.0 / depth);
+  // Depth of field: only genuinely off-plane particles defocus, and mildly.
+  float coc = clamp((abs(depth - uFocus) / uFocus - 0.18) / 0.5, 0.0, 1.0);
+  vAlpha = kindAlpha * mix(1.0, 0.42, uUnify) / (1.0 + 1.0 * coc) + band * 0.3;
+  gl_PointSize = uSize * aScale * kindSize * (1.0 + 0.9 * coc) * uPixelRatio * (300.0 / depth);
 }
 `;
 
@@ -260,9 +261,7 @@ void main() {
   if (d > 1.0) discard;
   float edge = 1.0 - smoothstep(0.55, 1.0, d);
   float a;
-  if (vKind > 2.5) {
-    a = smoothstep(1.0, 0.8, d) * 0.5 + smoothstep(0.6, 0.92, d) * (1.0 - smoothstep(0.92, 1.0, d)) * 0.5;
-  } else if (vKind > 1.5) {
+  if (vKind > 1.5) {
     a = exp(-d * d * 2.4) * edge;
   } else {
     // soft gaussian core + wide halo, no hard disc

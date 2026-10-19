@@ -30,7 +30,7 @@ export interface FormationSet {
   roles: Float32Array; // count; 0 = Opus core, k>=1 = worker stream k-1 (index into lanes)
   delays: Float32Array; // count; uniform random 0..1 (per-particle morph stagger)
   scales: Float32Array; // count; size multiplier 0.5..1.6
-  /** count; 0 worker, 1 Opus core, 2 Opus halo (huge faint sprite), 3 bokeh. */
+  /** count; 0 worker, 1 Opus core, 2 Opus halo (faint sprite). */
   kinds: Float32Array;
   /** count; along-stream rank u in (0,1), stratified within the particle's group. */
   ranks: Float32Array;
@@ -303,7 +303,8 @@ export function buildFormations(opts: { count: number; lanes: Lane[]; seed?: num
       const k = role - 1;
       groups[i] = k;
       ranks[i] = (seen[k]++ + rng()) / gsize[k]; // stratified within the stream
-      kinds[i] = rng() < 0.012 ? 3 : 0; // rare bokeh discs
+      rng(); // (kept so the seeded stream is unchanged; no bokeh sprites)
+      kinds[i] = 0;
       scales[i] = 0.5 + 1.1 * Math.pow(rng(), 4);
     }
   }

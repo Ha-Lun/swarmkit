@@ -91,7 +91,6 @@ for (let i = 0; i < COUNT; i++) {
 // --- Delays uniform 0..1; worker scales 0.5..1.6 (0.5 + 1.1 rand^4: mostly small).
 let bright = 0;
 let halo = 0;
-let bokeh = 0;
 for (let i = 0; i < COUNT; i++) {
   assert.ok(F.delays[i] >= 0 && F.delays[i] < 1, 'delay in [0,1)');
   assert.ok(F.scales[i] >= 0.5 && F.scales[i] <= 1.6, 'scale in range');
@@ -99,14 +98,12 @@ for (let i = 0; i < COUNT; i++) {
     assert.ok(F.kinds[i] === 1 || F.kinds[i] === 2, 'Opus is core or halo');
     if (F.kinds[i] === 2) halo++;
   } else {
-    assert.ok(F.kinds[i] === 0 || F.kinds[i] === 3, 'worker is plain or bokeh');
-    if (F.kinds[i] === 3) bokeh++;
+    assert.ok(F.kinds[i] === 0, 'worker is plain');
     if (F.scales[i] > 1.1) bright++;
   }
 }
 assert.ok(bright / (COUNT - OPUS) < 0.15, 'only a few bright workers');
 assert.ok(halo >= 1 && halo <= OPUS / 8, 'a few halo sprites');
-assert.ok(bokeh < (COUNT - OPUS) * 0.05, 'bokeh is rare');
 
 // --- Ranks: stratified u in (0,1), strictly increasing within each group.
 {
