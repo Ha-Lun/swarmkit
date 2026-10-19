@@ -1,0 +1,242 @@
+// Procedural galaxy and sky bakers. Deterministic (seeded), allocation-light, no three.js import, so they are testable.
+// World units: the galaxy disc is radius GALAXY_R in the XZ plane, y up. Colours are LINEAR (same as swarm PALETTE).
+import { mulberry32, PALETTE } from '../swarm/formations.ts';
+import { camRoute } from './path.ts';
+
+export const GALAXY_R = 10;
+type RGB = [number, number, number];
+
+export interface PointCloud {
+  count: number;
+  position: Float32Array; // count*3
+  color: Float32Array; // count*3 (linear, magnitude = brightness)
+  data: Float32Array; // count*4: size factor, phase, twinkle speed, aux
+}
+const cloud = (count: number): PointCloud => ({
+  count,
+  position: new Float32Array(count * 3),
+  color: new Float32Array(count * 3),
+  data: new Float32Array(count * 4),
+});
+const mix3 = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+const sstep = (a: number, b: number, x: number): number => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+const CORE: RGB = mix3(PALETTE.opus as RGB, [1, 1, 1], 0.55); // white-violet
+const WARM: RGB = [1, 0.74, 0.5];
+const DEEP: RGB = [0.30, 0.34, 0.85];
+
+/** Twist of the arm centreline: angle offset at normalised radius t (0..1). */
+export function armTwist(t: number): number {
+  return 4.1 * Math.log(1 + t * 5.5) / Math.log(6.5);
+}
+
+export function buildGalaxy(count: number, seed = 11): PointCloud {
+  const rnd = mulberry32(seed);
+  const gauss = (): number => {
+    const u = Math.max(1e-6, rnd());
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd());
+  };
+  const c = cloud(count);
+  const lane: RGB[] = [PALETTE.opencode as RGB, PALETTE.agy as RGB];
+  const nArms = Math.round(count * 0.56);
+  const knots = Array.from({ length: 72 }, () => ({ t: 0.08 + rnd() ** 1.3 * 0.9, a: rnd() * 0.5 }));
+  const nBulge = Math.round(count * 0.2);
+  const nDisc = Math.round(count * 0.2);
+  const nHalo = Math.round(count * 0.03);
+  for (let i = 0; i < count; i++) {
+    let x = 0;
+    let y = 0;
+    let z = 0;
+    let col: RGB = CORE;
+    let bright = 1;
+    let size = 1;
+    if (i < nArms) {
+      const arm = i & 1;
+      const clumped = rnd() < 0.3;
+      const kn = knots[Math.floor(rnd() * knots.length)];
+      const u = rnd();
+      const t0 = Math.min(1, -Math.log(1 - u * (1 - Math.exp(-3.4))) / 3.4 * 1.05 + 0.02);
+      const t = clumped ? Math.min(1, Math.max(0.03, kn.t + gauss() * 0.012)) : t0;
+      const ang = arm * Math.PI + armTwist(t);
+      const sigma = GALAXY_R * (0.012 + 0.046 * t);
+      const off = gauss() * sigma + (rnd() ** 4) * (rnd() < 0.5 ? -1 : 1) * sigma * 3;
+      const r = t * GALAXY_R + gauss() * 0.06;
+      const a2 = ang + off / Math.max(r, 0.5);
+      x = Math.cos(a2) * (r + gauss() * sigma * 0.5);
+      z = Math.sin(a2) * (r + gauss() * sigma * 0.5);
+      y = gauss() * (0.05 + 0.2 * Math.exp(-t * 2.4)) + 0.7 * t ** 2.4 * Math.sin(a2 - 0.6);
+      const tint = mix3(lane[arm], PALETTE.opus as RGB, rnd() * 0.35);
+      col = mix3(CORE, tint, sstep(0.05, 0.5, t));
+      col = mix3(col, [col[0] * 0.55, col[1] * 0.6, col[2] * 0.8], sstep(0.62, 1, t));
+      const young = rnd() < 0.045;
+      bright = (0.6 + rnd() * 0.7) * (1.1 - 0.5 * t) * (clumped ? 1.25 : 1);
+      if (young) {
+        col = mix3(col, [1, 1, 1], 0.55);
+        bright *= 2.2;
+        size = 1.5 + rnd() * 0.6;
+      } else size = 0.55 + rnd() * 0.7;
+    } else if (i < nArms + nBulge) {
+      const rr = Math.abs(gauss()) * 0.95 + 0.03;
+      const th = Math.acos(2 * rnd() - 1);
+      const ph = rnd() * Math.PI * 2;
+      x = rr * Math.sin(th) * Math.cos(ph);
+      z = rr * Math.sin(th) * Math.sin(ph);
+      y = rr * Math.cos(th) * 0.62;
+      const k = rnd();
+      col = mix3(CORE, WARM, k < 0.25 ? k * 1.1 : 0);
+      bright = (0.16 + rnd() * 0.3) * (1.0 - 0.35 * Math.min(1, rr / 1.8));
+      size = 0.5 + rnd() * 0.6;
+    } else if (i < nArms + nBulge + nDisc) {
+      const t = Math.min(1, -Math.log(1 - rnd() * 0.97) * 0.3);
+      const ang = rnd() * Math.PI * 2;
+      x = Math.cos(ang) * t * GALAXY_R;
+      z = Math.sin(ang) * t * GALAXY_R;
+      y = gauss() * (0.04 + 0.16 * Math.exp(-t * 2.2));
+      col = mix3(CORE, DEEP, sstep(0.05, 0.6, t));
+      bright = (0.1 + rnd() * 0.2) * (1 - 0.5 * t);
+      size = 0.5 + rnd() * 0.5;
+    } else if (i < nArms + nBulge + nDisc + nHalo) {
+      const rr = GALAXY_R * (0.2 + rnd() * 0.9);
+      const th = Math.acos(2 * rnd() - 1);
+      const ph = rnd() * Math.PI * 2;
+      x = rr * Math.sin(th) * Math.cos(ph);
+      z = rr * Math.sin(th) * Math.sin(ph);
+      y = rr * Math.cos(th) * 0.7;
+      col = mix3([0.9, 0.85, 1], WARM, rnd() * 0.6);
+      bright = 0.18 + rnd() * 0.3;
+      size = 0.5 + rnd() * 0.5;
+    } else {
+      // field stars sprinkled through the disc plane
+      const t = Math.sqrt(rnd());
+      const ang = rnd() * Math.PI * 2;
+      x = Math.cos(ang) * t * GALAXY_R * 1.1;
+      z = Math.sin(ang) * t * GALAXY_R * 1.1;
+      y = gauss() * 0.3;
+      col = mix3([0.85, 0.9, 1], WARM, rnd());
+      bright = 0.3 + rnd() * 0.5;
+      size = 0.5 + rnd() * 0.6;
+    }
+    c.position[i * 3] = x;
+    c.position[i * 3 + 1] = y;
+    c.position[i * 3 + 2] = z;
+    c.color[i * 3] = col[0] * bright;
+    c.color[i * 3 + 1] = col[1] * bright;
+    c.color[i * 3 + 2] = col[2] * bright;
+    c.data[i * 4] = size;
+    c.data[i * 4 + 1] = rnd();
+    c.data[i * 4 + 2] = rnd();
+    c.data[i * 4 + 3] = 0;
+  }
+  return c;
+}
+
+/** Large, faint, coloured sprites over the arms and around the bulge. Used sparingly. */
+export function buildHaze(count: number, seed = 5): PointCloud {
+  const rnd = mulberry32(seed);
+  const c = cloud(count);
+  const lane: RGB[] = [PALETTE.opencode as RGB, PALETTE.agy as RGB];
+  for (let i = 0; i < count; i++) {
+    const arm = i & 1;
+    const nearCore = i < 6;
+    const t = nearCore ? 0.04 + rnd() * 0.1 : 0.14 + rnd() * 0.78;
+    const ang = arm * Math.PI + armTwist(t) + (rnd() - 0.5) * 0.25;
+    const r = t * GALAXY_R;
+    c.position[i * 3] = Math.cos(ang) * r;
+    c.position[i * 3 + 1] = (rnd() - 0.5) * 0.4;
+    c.position[i * 3 + 2] = Math.sin(ang) * r;
+    const col = nearCore ? (PALETTE.opus as RGB) : mix3(lane[arm], PALETTE.opus as RGB, 0.25);
+    const b = nearCore ? 0.035 : 0.035 + rnd() * 0.03;
+    c.color.set([col[0] * b, col[1] * b, col[2] * b], i * 3);
+    c.data.set([nearCore ? 4.5 + rnd() * 2 : 3 + rnd() * 4, rnd(), rnd(), 0], i * 4);
+  }
+  return c;
+}
+
+/** Dark dust: alpha-blended near-black sprites on the trailing edge of each arm and across the bulge. */
+export function buildDust(count: number, seed = 9): PointCloud {
+  const rnd = mulberry32(seed);
+  const c = cloud(count);
+  for (let i = 0; i < count; i++) {
+    const arm = i & 1;
+    const t = 0.24 + rnd() * 0.62;
+    const ang = arm * Math.PI + armTwist(t) - (0.1 + 0.08 * rnd()) * (1.4 - t);
+    const r = t * GALAXY_R;
+    c.position[i * 3] = Math.cos(ang) * r;
+    c.position[i * 3 + 1] = (rnd() - 0.5) * 0.12;
+    c.position[i * 3 + 2] = Math.sin(ang) * r;
+    const a = 0.12 + rnd() * 0.2; // stored in colour.x as the alpha
+    c.color.set([a, 0, 0], i * 3);
+    c.data.set([0.8 + rnd() * 1.6 + (1 - t) * 0.8, rnd(), rnd(), 0], i * 4);
+  }
+  return c;
+}
+
+/** Deep field on a sphere shell. data.x = pixel size, colour carries brightness. */
+export function buildSky(count: number, rMin: number, rMax: number, seed: number): PointCloud {
+  const rnd = mulberry32(seed);
+  const c = cloud(count);
+  const temps: RGB[] = [[0.62, 0.74, 1], [1, 1, 1], [1, 0.88, 0.7], [0.85, 0.8, 1]];
+  for (let i = 0; i < count; i++) {
+    const r = rMin + (rMax - rMin) * rnd();
+    const th = Math.acos(2 * rnd() - 1);
+    const ph = rnd() * Math.PI * 2;
+    c.position.set([r * Math.sin(th) * Math.cos(ph), r * Math.cos(th), r * Math.sin(th) * Math.sin(ph)], i * 3);
+    const t = temps[Math.floor(rnd() * temps.length)];
+    const b = 0.12 + rnd() ** 3 * 0.9;
+    c.color.set([t[0] * b, t[1] * b, t[2] * b], i * 3);
+    c.data.set([0.8 + rnd() ** 2 * 1.6, rnd(), rnd(), 0], i * 4);
+  }
+  return c;
+}
+
+export interface StreakMesh {
+  count: number;
+  position: Float32Array; // per vertex (4 per star): star centre
+  corner: Float32Array; // per vertex: [end 0|1, side -1|1]
+  data: Float32Array; // per vertex: [lengthFactor, brightness, seed]
+  index: Uint32Array;
+}
+/** Stars strewn in a tube around the camera route, drawn as velocity-stretched quads during the dive. */
+export function buildStreaks(count: number, seed = 21): StreakMesh {
+  const rnd = mulberry32(seed);
+  const position = new Float32Array(count * 4 * 3);
+  const corner = new Float32Array(count * 4 * 2);
+  const data = new Float32Array(count * 4 * 3);
+  const index = new Uint32Array(count * 6);
+  for (let i = 0; i < count; i++) {
+    const u = 0.12 + rnd() * 0.88;
+    const c0 = camRoute(u);
+    const r = 0.5 + 6.5 * rnd() ** 1.4;
+    const th = Math.acos(2 * rnd() - 1);
+    const ph = rnd() * Math.PI * 2;
+    const px = c0[0] + r * Math.sin(th) * Math.cos(ph);
+    const py = c0[1] + r * Math.cos(th);
+    const pz = c0[2] + r * Math.sin(th) * Math.sin(ph);
+    const lf = 0.5 + rnd();
+    const br = 0.35 + rnd() * 0.65;
+    for (let k = 0; k < 4; k++) {
+      const v = i * 4 + k;
+      position.set([px, py, pz], v * 3);
+      corner.set([k >> 1, k & 1 ? 1 : -1], v * 2);
+      data.set([lf, br, rnd()], v * 3);
+    }
+    const b = i * 4;
+    index.set([b, b + 1, b + 2, b + 1, b + 3, b + 2], i * 6);
+  }
+  return { count, position, corner, data, index };
+}
+
+/** Comet tail particles: aT along the tail (0 head .. 1 end), random scatter. */
+export function buildComet(count: number, seed = 3): { t: Float32Array; rand: Float32Array } {
+  const rnd = mulberry32(seed);
+  const t = new Float32Array(count);
+  const rand = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    t[i] = i < 40 ? rnd() * 0.02 : rnd() ** 1.6;
+    rand.set([rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1], i * 3);
+  }
+  return { t, rand };
+}

@@ -1,0 +1,70 @@
+---
+// Into the galaxy (prototype, beats 0-2). One fixed canvas, one sticky pin holding all copy as DOM. The copy and the
+// worker labels are real elements; the client pins the labels to the projected 3D positions of the constellation
+// nodes. Without scripting, WebGL or with reduced motion the sections stack as plain full-height compositions.
+import '../../styles/galaxy.css';
+import { loadFeaturedRun } from '../../lib/run.ts';
+
+const run = loadFeaturedRun();
+const workers = (run?.workers ?? []).map((w) => ({ slug: w.slug, lane: w.lane }));
+const task = run?.task ?? '';
+const approval = run?.plan_approval;
+const json = JSON.stringify({ workers, task }).replace(/</g, '\\u003c');
+---
+<div class="gx" data-gx>
+  <div class="gx-fallback" aria-hidden="true"></div>
+  <canvas class="gx-canvas" data-gx-canvas aria-hidden="true"></canvas>
+
+  <div class="gx-track" data-gx-track>
+    <div class="gx-pin">
+      <section class="gx-beat gx-hero" data-beat="hero" aria-labelledby="gx-title">
+        <div class="gx-hero-inner" data-inner>
+          <h1 id="gx-title" class="gx-title">One mind plans.<br />A swarm builds.</h1>
+          <p class="gx-sub">Opus plans. Cheaper models build, in parallel. One config, three CLIs.</p>
+          <p class="gx-actions">
+            <a class="gx-btn gx-btn-primary" href="/#install">Install</a>
+            <a class="gx-btn gx-btn-secondary" href="/how-it-works">How it works</a>
+          </p>
+        </div>
+      </section>
+
+      {task && (
+        <section class="gx-beat gx-task" data-beat="task" aria-label="The task">
+          <div class="gx-task-inner" data-inner>
+            <p class="gx-kicker">Task</p>
+            <p class="gx-task-line">
+              <span class="gx-sr">{task}</span>
+              <span aria-hidden="true"><span data-typed>{task}</span><span class="gx-rest" data-rest></span><span class="gx-caret"></span></span>
+            </p>
+            <p class="gx-cap">{run?.label}</p>
+          </div>
+        </section>
+      )}
+
+      <section class="gx-beat gx-plan" data-beat="plan" aria-labelledby="gx-plan-title">
+        <div class="gx-plan-inner" data-inner>
+          <p class="gx-kicker gx-num">01</p>
+          <h2 id="gx-plan-title" class="gx-h2">Opus plans. You approve.</h2>
+          <p class="gx-body">Plan mode on the strongest model. You approve before a single file changes.</p>
+          <p class="gx-approved" data-approved>approved{approval ? ` (${approval})` : ''}</p>
+        </div>
+        <ul class="gx-nodes" data-nodes aria-label="Workers in this run">
+          <li class="gx-node gx-node-opus" data-node><span class="gx-node-slug">Opus</span><span class="gx-node-lane">planner</span></li>
+          {workers.map((w) => (
+            <li class={`gx-node gx-node-${w.lane}`} data-node><span class="gx-node-slug">{w.slug}</span><span class="gx-node-lane">{w.lane}</span></li>
+          ))}
+        </ul>
+      </section>
+    </div>
+  </div>
+
+  <section class="gx-end" aria-label="Prototype note">
+    <p class="gx-end-note">Prototype: beats 3-7 to come</p>
+    <p><a class="gx-btn gx-btn-secondary" href="/">Back to the homepage</a></p>
+  </section>
+  <script type="application/json" id="gx-data" set:html={json} />
+</div>
+
+<script>
+  import '../../components/galaxy/galaxy-client.ts';
+</script>
