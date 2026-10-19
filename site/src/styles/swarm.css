@@ -89,6 +89,19 @@ html.no-webgl .swarm-fallback {
   padding-right: 24px;
 }
 
+/* Hero legibility: soft left scrim between canvas (z0) and copy (z1). */
+[data-swarm-story] [data-beat='hero']::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(48% 62% at 32% 50%, rgba(5, 6, 10, 0.82), rgba(5, 6, 10, 0.6) 50%, transparent 100%);
+}
+@media (max-width: 768px) {
+  [data-swarm-story] [data-beat='hero']::before { display: none; }
+}
+
 /* ---------- type ---------- */
 .swarm-kicker {
   font-family: var(--swarm-font-mono);
@@ -121,12 +134,17 @@ html.no-webgl .swarm-fallback {
 .swarm-title-beat {
   font-size: clamp(48px, 8vw, 128px);
 }
+[data-beat='cta'] .swarm-title-beat {
+  font-size: clamp(36px, 4.6vw, 80px);
+  line-height: 1;
+  text-wrap: nowrap;
+}
 [data-swarm-story] .w {
   display: inline-block;
   overflow: hidden;
   vertical-align: top;
-  padding-bottom: 0.08em;
-  margin-bottom: -0.08em;
+  padding: 0.06em 0.04em 0.22em;
+  margin: -0.06em -0.04em -0.22em;
 }
 [data-swarm-story] .w > span {
   display: inline-block;
@@ -268,6 +286,9 @@ html.no-webgl .swarm-fallback {
   color: var(--swarm-muted);
   max-width: 38rem;
 }
+[data-beat='numbers'] .swarm-copy-inner {
+  max-width: 34rem;
+}
 .swarm-pending {
   font-size: clamp(48px, 8vw, 128px);
   font-weight: 700;
@@ -332,10 +353,11 @@ html.no-webgl .swarm-fallback {
   gap: 12px;
   margin-top: 32px;
   padding: 16px;
-  max-width: 36rem;
-  background: rgba(243, 241, 255, 0.05);
-  border: 1px solid var(--swarm-faint);
+  max-width: 30rem;
+  background: #11131c;
+  border: 1px solid rgba(243, 241, 255, 0.22);
   border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
 }
 .swarm-install pre {
   flex: 1 1 16rem;
@@ -352,16 +374,17 @@ html.no-webgl .swarm-fallback {
 .swarm-install-copy {
   padding: 8px 16px;
   min-height: 40px;
-  background: transparent;
-  border: 1px solid var(--swarm-line);
+  background: var(--swarm-ink);
+  border: 1px solid var(--swarm-ink);
   border-radius: 999px;
-  color: var(--swarm-ink);
+  color: var(--swarm-bg);
+  font-weight: 600;
   font-family: var(--swarm-font-mono);
   font-size: 14px;
   cursor: pointer;
 }
 .swarm-install-copy:hover {
-  border-color: var(--swarm-ink);
+  background: #fff;
 }
 .swarm-status {
   position: absolute;
@@ -458,6 +481,12 @@ html.no-webgl .swarm-fallback {
   }
   .swarm-title-hero {
     font-size: 10.6vw;
+  }
+  [data-beat='cta'] .swarm-title-beat {
+    font-size: 9vw;
+  }
+  [data-beat='numbers'] .swarm-copy-inner {
+    max-width: none;
   }
 }
 

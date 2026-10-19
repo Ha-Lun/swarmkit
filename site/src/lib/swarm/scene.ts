@@ -245,7 +245,7 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
     const hh = HALF_FOV_TAN * camera.position.z;
     const hw = hh * aspect;
     if (aspect >= 1.1) {
-      layoutX = hw * 0.34;
+      layoutX = hw * 0.37;
       layoutY = 0;
       layoutS = Math.min(1, (hw * 0.97 - layoutX) / FORM_RADIUS);
     } else {

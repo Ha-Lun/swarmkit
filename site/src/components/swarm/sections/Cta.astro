@@ -1,8 +1,7 @@
 ---
 import { repoUrl } from '../../../lib/facts.ts';
 
-const title = 'Put a swarm on your next task.';
-const words = title.split(' ');
+const lines2 = ['Put a swarm', 'on your next task.'];
 const dir = repoUrl.split('/').pop();
 const lines = [`git clone ${repoUrl}.git`, `cd ${dir}`, './install.sh --all'];
 ---
@@ -10,8 +9,10 @@ const lines = [`git clone ${repoUrl}.git`, `cd ${dir}`, './install.sh --all'];
   <div class="swarm-copy">
     <div class="swarm-copy-inner">
       <p class="swarm-kicker" data-swarm-fade>06</p>
-      <h2 class="swarm-title swarm-title-beat" id="swarm-cta-title">{words.map((w, i) => (
-        <>{i > 0 ? ' ' : ''}<span class="w"><span>{w}</span></span></>
+      <h2 class="swarm-title swarm-title-beat" id="swarm-cta-title">{lines2.map((line) => (
+        <span class="swarm-line">{line.split(' ').map((w, i) => (
+          <>{i > 0 ? ' ' : ''}<span class="w"><span>{w}</span></span></>
+        ))}</span>
       ))}</h2>
       <div class="swarm-install" data-swarm-fade>
         <pre><code id="swarm-install-code">{lines.join('\n')}</code></pre>
