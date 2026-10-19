@@ -1,29 +1,63 @@
 ---
-// The SwarmKit homepage: the scroll-scrubbed City replay of one real run, then the content sections.
 import Base from '../layouts/Base.astro';
-import CityStage from '../components/city/CityStage.astro';
-import RunResult from '../components/city/sections/RunResult.astro';
-import CityBar from '../components/city/CityBar.astro';
-import CityFooter from '../components/city/CityFooter.astro';
-import WhichMode from '../components/city/sections/WhichMode.astro';
-import Numbers from '../components/city/sections/Numbers.astro';
-import ThreeClis from '../components/city/sections/ThreeClis.astro';
-import RosterMap from '../components/city/sections/RosterMap.astro';
-import Safety from '../components/city/sections/Safety.astro';
-import Install from '../components/city/sections/Install.astro';
-import BuildLog from '../components/city/sections/BuildLog.astro';
+import SwarmBar from '../components/swarm/SwarmBar.astro';
+import SwarmStage from '../components/swarm/SwarmStage.astro';
+import Hero from '../components/swarm/sections/Hero.astro';
+import Beat from '../components/swarm/sections/Beat.astro';
+import Numbers from '../components/swarm/sections/Numbers.astro';
+import Clis from '../components/swarm/sections/Clis.astro';
+import Cta from '../components/swarm/sections/Cta.astro';
+import '../styles/swarm.css';
+import { loadFeaturedRun } from '../lib/run.ts';
+
+const run = loadFeaturedRun();
+const workers = run?.workers ?? [];
+const fanoutHeadline = workers.length > 0 ? `${workers.length} workers. At once.` : 'Workers. At once.';
+const fanoutLanes = [...new Set(workers.map((w) => w.lane))];
+const laneLabel = (lane: string) => (lane === 'agy' ? 'agy' : 'opencode');
 ---
-<Base title="SwarmKit: Opus plans, cheaper models build" description="One real lead-dev-hybrid run, replayed as a miniature city: Opus plans, cheaper models build in parallel.">
-  <CityBar slot="top" />
-  <span id="top"></span>
-  <CityStage />
-  <RunResult />
-  <WhichMode />
-  <Numbers />
-  <ThreeClis />
-  <RosterMap />
-  <Safety />
-  <Install />
-  <BuildLog />
-  <CityFooter slot="bottom" />
+<Base
+  title="SwarmKit: one mind plans, a swarm builds"
+  description="Opus plans. Cheaper models build in parallel, each branch tested and reviewed before it merges. One config for Claude Code, OpenCode and Antigravity."
+>
+  <SwarmBar slot="top" />
+  <SwarmStage />
+  <div class="swarm" data-swarm-story>
+    <Hero />
+    <Beat
+      beat="plan"
+      num="01"
+      headline="Opus plans."
+      body="Plan mode on the strongest model. You approve before a single file changes."
+    />
+    <Beat
+      beat="fanout"
+      num="02"
+      headline={fanoutHeadline}
+      body="Cheaper models on OpenCode and Antigravity build in parallel, each in its own git worktree."
+    >
+      {fanoutLanes.length > 0 && (
+        <ul class="swarm-legend" data-swarm-fade aria-label={`Lanes used: ${fanoutLanes.map(laneLabel).join(', ')}`}>
+          {fanoutLanes.map((lane) => (
+            <li><span class={`swarm-dot swarm-dot-${lane}`} aria-hidden="true"></span>{laneLabel(lane)}</li>
+          ))}
+        </ul>
+      )}
+    </Beat>
+    <Beat
+      beat="build"
+      num="03"
+      headline="Checked twice."
+      body="Every branch is re-tested, then reviewed by a different model family."
+    />
+    <Beat
+      beat="merge"
+      num="04"
+      headline="Merged. Green."
+      body="Opus merges what passed. You get one clean branch."
+    />
+    <Numbers />
+    <Clis />
+    <Cta />
+  </div>
 </Base>
