@@ -11,6 +11,8 @@ const {
   imageAlt = 'A miniature paper city: new buildings going up on a blueprint plot beside an old town, with drones flying in from two depots.',
 } = Astro.props;
 const imageUrl = Astro.site ? new URL(image, Astro.site).href : image;
+// canonical: absolute URL of this page on the production origin (set by astro.config.mjs `site`).
+const canonicalUrl = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : Astro.url.pathname;
 
 const favicon =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2l12 7v14l-12 7-12-7V9z' fill='%239aa6b4'/%3E%3C/svg%3E";
@@ -23,9 +25,14 @@ const fonts = ['space-grotesk-latin-500-normal', 'space-grotesk-latin-700-normal
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalUrl} />
     <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#070d1a" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content={title} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:site_name" content="SwarmKit" />
+    <meta property="og:locale" content="en_US" />
     <meta property="og:description" content={description} />
     <meta property="og:image" content={imageUrl} />
     <meta property="og:image:width" content="1200" />
