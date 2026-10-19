@@ -1,21 +1,30 @@
 // SwarmKit particle-swarm hero: one THREE.Points draw call morphing through the
 // story formations. Scroll progress (via beatAt) drives from/to morphs entirely
 // on the GPU; the CPU only swaps two attribute bindings when the beat changes,
-// plus a group rotation, camera parallax and uniforms. No postprocessing.
+// plus a gentle group sway, camera parallax and uniforms. High/medium tiers
+// render through bloom (EffectComposer); low renders directly.
 import {
-  AdditiveBlending, BufferAttribute, BufferGeometry, Color, GLSL3, Group,
+  ACESFilmicToneMapping, AdditiveBlending, BufferAttribute, BufferGeometry, Color, GLSL3, Group,
   NoToneMapping, PerspectiveCamera, Points, Scene, ShaderMaterial, SRGBColorSpace,
-  Vector3, WebGLRenderer,
+  Vector2, Vector3, WebGLRenderer,
 } from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { beatAt } from './beats.ts';
 import type { BeatState, FormationId } from './beats.ts';
-import { buildFormations, PALETTE } from './formations.ts';
+import { buildFormations, DISK_AXIS, PALETTE, RING_AXIS } from './formations.ts';
 import type { Lane } from './formations.ts';
 import { fragmentShader, vertexShader } from './shaders.ts';
 
 export type Tier = 'high' | 'medium' | 'low';
 
-export const PARTICLES: Record<Tier, number> = { high: 24000, medium: 12000, low: 5000 };
+export const PARTICLES: Record<Tier, number> = { high: 18000, medium: 10000, low: 5000 };
+const FORMATION_ID: Record<FormationId, number> = {
+  disk: 0, lattice: 1, streams: 2, towers: 3, hex: 4, ring: 5, trio: 6,
+};
 
 /** '?tier=high|medium|low|fallback' URL override first; 'fallback' if WebGL2 is
  *  unavailable; 'low' if innerWidth < 768 or hardwareConcurrency <= 4; 'medium'
@@ -60,7 +69,7 @@ const CLEAR = '#05060a';
 const FOV = 45;
 const CAM_Z = 11;
 const CAM_Z_MAX = 22;
-const POINT_SIZE = 0.2;
+const POINT_SIZE = 0.34;
 const HALF_FOV_TAN = Math.tan((FOV * Math.PI) / 360);
 const FORM_RADIUS = 6.5; // widest formation half-extent, local units
 /** Weight of hex/ring in the current from/to mix -> unify toward merged gold. */
@@ -92,30 +101,46 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
     throw new Error('swarm: WebGL2 unavailable');
   }
   renderer.setClearColor(new Color(CLEAR), 1);
-  renderer.toneMapping = NoToneMapping;
+  const bloomTier = tier !== 'low';
+  renderer.toneMapping = bloomTier ? ACESFilmicToneMapping : NoToneMapping; // applied by OutputPass
+  renderer.toneMappingExposure = 1;
   renderer.outputColorSpace = SRGBColorSpace;
 
-  // One BufferAttribute per formation; aFrom/aTo are rebound on beat changes.
-  // 'position' shares the from-attribute so three has a draw count.
+  // One BufferAttribute pair (positions, path params) per formation; aFrom/aTo and
+  // aFromT/aToT are rebound on beat changes. 'position' shares the from-attribute
+  // so three has a draw count.
   const set = buildFormations({ count: PARTICLES[tier], lanes: opts.lanes, seed: opts.seed ?? 7 });
   const posAttrs = {} as Record<FormationId, BufferAttribute>;
+  const parAttrs = {} as Record<FormationId, BufferAttribute>;
   for (const id of Object.keys(set.positions) as FormationId[]) {
     posAttrs[id] = new BufferAttribute(set.positions[id], 3);
+    parAttrs[id] = new BufferAttribute(set.params[id], 1);
   }
   const geometry = new BufferGeometry();
   geometry.setAttribute('position', posAttrs.disk);
   geometry.setAttribute('aFrom', posAttrs.disk);
   geometry.setAttribute('aTo', posAttrs.disk);
+  geometry.setAttribute('aFromT', parAttrs.disk);
+  geometry.setAttribute('aToT', parAttrs.disk);
   geometry.setAttribute('aColor', new BufferAttribute(set.colors, 3));
   geometry.setAttribute('aRole', new BufferAttribute(set.roles, 1));
   geometry.setAttribute('aDelay', new BufferAttribute(set.delays, 1));
   geometry.setAttribute('aScale', new BufferAttribute(set.scales, 1));
+  geometry.setAttribute('aKind', new BufferAttribute(set.kinds, 1));
 
   const material = new ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
       uMix: { value: 0 },
       uDrift: { value: reduced ? 0 : 1 },
+      uAmb: { value: reduced ? 0 : 1 },
+      uFromId: { value: 0 },
+      uToId: { value: 0 },
+      uFocus: { value: CAM_Z },
+      uDirect: { value: bloomTier ? 0 : 1 },
+      uDiskAxis: { value: new Vector3(...DISK_AXIS) },
+      uRingAxis: { value: new Vector3(...RING_AXIS) },
+      uCore: { value: new Vector3(...PALETTE.opus) },
       uSize: { value: POINT_SIZE },
       uPixelRatio: { value: 1 },
       uPointer: { value: new Vector3(0, 0, 0) },
@@ -142,6 +167,35 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
   const camera = new PerspectiveCamera(FOV, 1, 0.1, 100);
   camera.position.set(0, 0, CAM_Z);
 
+  // Bloom chain (high/medium): scene -> half-res bloom -> tone map + sRGB -> dither.
+  // Any failure drops to the direct path (uDirect = 1 then applies a manual curve).
+  let composer: EffectComposer | null = null;
+  let bloom: UnrealBloomPass | null = null;
+  const passes: { dispose?: () => void }[] = [];
+  if (bloomTier) {
+    try {
+      composer = new EffectComposer(renderer);
+      const renderPass = new RenderPass(scene, camera);
+      bloom = new UnrealBloomPass(new Vector2(256, 256), 0.55, 0.4, 0.25); // half-res internally
+      const output = new OutputPass();
+      const dither = new ShaderPass({
+        uniforms: { tDiffuse: { value: null } },
+        vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main() { vec4 c = texture2D(tDiffuse, vUv); float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453); gl_FragColor = vec4(c.rgb + (n - 0.5) * 1.5 / 255.0, 1.0); }',
+      });
+      composer.addPass(renderPass);
+      composer.addPass(bloom);
+      composer.addPass(output);
+      composer.addPass(dither);
+      passes.push(renderPass, bloom, output, dither);
+    } catch {
+      composer = null;
+      bloom = null;
+      material.uniforms.uDirect.value = 1;
+      renderer.toneMapping = NoToneMapping;
+    }
+  }
+
   let progress = 0;
   let target = 0;
   let curFrom: FormationId = 'disk';
@@ -153,7 +207,6 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
   const tmp = new Vector3();
   let camX = 0;
   let camY = 0;
-  let spin = 0;
   let raf = 0;
   let disposed = false;
   const t0 = performance.now();
@@ -172,9 +225,13 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
       curTo = st.to;
       geometry.setAttribute('aFrom', posAttrs[curFrom]);
       geometry.setAttribute('aTo', posAttrs[curTo]);
+      geometry.setAttribute('aFromT', parAttrs[curFrom]);
+      geometry.setAttribute('aToT', parAttrs[curTo]);
       geometry.setAttribute('position', posAttrs[curFrom]);
     }
     const u = material.uniforms;
+    u.uFromId.value = FORMATION_ID[curFrom];
+    u.uToId.value = FORMATION_ID[curTo];
     u.uTime.value = t;
     u.uMix.value = st.mix;
     u.uUnify.value = unifyWeight(st);
@@ -197,13 +254,9 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
     }
     u.uPointerOn.value = pointerOn;
 
-    // Cinematic motion: story rotation + slow sway; disk spins during hero/cta.
-    group.rotation.y = (reduced ? 0 : 0.05 * Math.sin(t * 0.25)) + (reduced ? 0 : 0.9 * Math.sin(Math.PI * st.mix));
-    if (!reduced) {
-      const diskW = (st.from === 'disk' ? 1 - st.mix : 0) + (st.to === 'disk' ? st.mix : 0);
-      spin += dt * 0.03 * diskW;
-    }
-    group.rotation.z = spin;
+    // Gentle sway for parallax (no tumble: transitions read edge-on otherwise).
+    group.rotation.y = reduced ? 0 : 0.12 * Math.sin(t * 0.21);
+    group.rotation.x = reduced ? 0 : 0.05 * Math.sin(t * 0.17 + 1.3);
 
     // Camera eases toward a small pointer parallax offset (0.4 units).
     if (!reduced) {
@@ -213,6 +266,16 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
     camera.position.x = camX;
     camera.position.y = camY;
     camera.lookAt(0, 0, 0);
+    if (composer) {
+      try {
+        composer.render(dt);
+        return;
+      } catch {
+        composer = null; // fall back to the direct path from the next frame on
+        u.uDirect.value = 1;
+        renderer.toneMapping = NoToneMapping;
+      }
+    }
     renderer.render(scene, camera);
   }
 
@@ -233,6 +296,10 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
     const pr = Math.min(window.devicePixelRatio || 1, tier === 'high' ? 2 : 1.5);
     renderer.setPixelRatio(pr);
     renderer.setSize(w, h, false);
+    if (composer) {
+      composer.setPixelRatio(pr);
+      composer.setSize(w, h);
+    }
     const aspect = w / h;
     camera.aspect = aspect;
     camera.position.z = aspect < 1 ? Math.min(CAM_Z / Math.max(aspect, 0.01), CAM_Z_MAX) : CAM_Z;
@@ -248,7 +315,8 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
       ? Math.min(1, (hw * 0.97 - hw * 0.37) / FORM_RADIUS)
       : Math.min(1, hw / FORM_RADIUS);
     // Portrait phones sit far back: boost the sprite so the swarm stays luminous.
-    material.uniforms.uSize.value = POINT_SIZE * (aspect < 1.1 ? 1.9 : 1) * (tier === 'low' ? 1.2 : 1);
+    material.uniforms.uSize.value = POINT_SIZE * (aspect < 1.1 ? 1.9 : 1) * (tier === 'low' ? 1.5 : 1);
+    material.uniforms.uFocus.value = camera.position.z;
     group.position.set(layoutX, layoutY, 0);
     group.scale.setScalar(layoutS);
     material.uniforms.uPixelRatio.value = pr;
@@ -280,6 +348,8 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
       raf = 0;
       window.removeEventListener('resize', onResize);
       scene.remove(group);
+      for (const p of passes) p.dispose?.();
+      composer?.dispose();
       geometry.dispose();
       material.dispose();
       renderer.dispose();

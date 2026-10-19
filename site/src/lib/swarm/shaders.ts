@@ -17,16 +17,27 @@ uniform vec3 uMerged;
 uniform vec3 uVerified;
 uniform float uUnify;
 uniform float uScanY;
+uniform float uFromId; // formation ids: 0 disk 1 lattice 2 streams 3 towers 4 hex 5 ring 6 trio
+uniform float uToId;
+uniform float uAmb; // ambient motion strength (0 = static, reduced motion)
+uniform float uFocus; // camera distance that is in focus
+uniform vec3 uDiskAxis;
+uniform vec3 uRingAxis;
+uniform vec3 uCore;
 
 in vec3 aFrom;
 in vec3 aTo;
+in float aFromT;
+in float aToT;
 in vec3 aColor;
 in float aRole;
 in float aDelay;
 in float aScale;
+in float aKind; // 0 worker, 1 Opus core, 2 Opus halo, 3 bokeh
 
 out vec3 vColor;
 out float vAlpha;
+out float vKind;
 
 // Ashima / Ian McEwan 3D simplex noise (MIT): compact curl-ish drift field.
 vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -94,24 +105,104 @@ float snoise(vec3 v) {
   return 42.0 * dot(m * m, vec4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
 }
 
-float easeInOutCubic(float x) {
-  return x < 0.5 ? 4.0 * x * x * x : 1.0 - pow(-2.0 * x + 2.0, 3.0) / 2.0;
+const float PI = 3.14159265;
+const float TAU = 6.2831853;
+
+vec3 rotAxis(vec3 v, vec3 a, float ang) {
+  float c = cos(ang);
+  float s = sin(ang);
+  return v * c + cross(a, v) * s + a * dot(a, v) * (1.0 - c);
+}
+
+// Ambient life of a formation (applied to both morph endpoints, so holds move and
+// the morph never starts from a frozen frame). pt = path parameter, glow = pulse.
+vec3 ambient(float id, vec3 p0, float pt, float rnd, out float glow) {
+  vec3 p = p0;
+  float T = uTime;
+  glow = 0.0;
+  if (id < 0.5) {
+    // disk: slow rotation about its axis; the core breathes a little faster (bounded)
+    vec3 rel = p - uDiskAxis * dot(p, uDiskAxis);
+    float r = length(rel);
+    float ang = T * 0.07 + 0.22 * sin(T * 0.21) * exp(-r * 0.4);
+    p = rotAxis(p, uDiskAxis, ang);
+    glow = 0.35 * (0.5 + 0.5 * sin(TAU * (pt * 1.5 - T * 0.07)));
+  } else if (id < 1.5) {
+    // lattice: pulses travel outward along every ray
+    float w = TAU * (pt * 2.0 - T * 0.2);
+    p.xy += p.xy / max(length(p.xy), 0.001) * 0.16 * sin(w);
+    glow = pow(0.5 + 0.5 * sin(w), 3.0);
+  } else if (id < 2.5) {
+    // streams: flow runs head-ward along each comet
+    float w = TAU * (pt * 1.5 - T * 0.3);
+    p.xy += p.xy / max(length(p.xy), 0.001) * 0.2 * pt * sin(w);
+    glow = pow(0.5 + 0.5 * sin(w), 4.0);
+  } else if (id < 3.5) {
+    // towers: a scan band loops up the columns
+    float dd = abs(pt - fract(T * 0.11));
+    dd = min(dd, 1.0 - dd);
+    glow = 1.1 * exp(-dd * dd * 70.0);
+    p.x += 0.03 * sin(T * 1.3 + pt * 6.0);
+  } else if (id < 4.5) {
+    // hex: shimmer runs around the edge
+    glow = 1.1 * pow(0.5 + 0.5 * sin(TAU * (pt * 3.0 - T * 0.12)), 5.0);
+    p *= 1.0 + 0.012 * sin(T * 0.9);
+  } else if (id < 5.5) {
+    // ring: slow turn
+    p = rotAxis(p, uRingAxis, T * 0.1);
+    glow = 0.8 * pow(0.5 + 0.5 * sin(TAU * (pt * 2.0 - T * 0.1)), 4.0);
+  } else {
+    // trio: each cluster orbits and breathes
+    float cx = clamp(floor(p.x / 4.2 + 0.5), -1.0, 1.0) * 4.2;
+    vec3 c = vec3(cx, -0.4, 0.0);
+    vec3 rel = p - c;
+    rel = rotAxis(rel, normalize(vec3(0.3, 1.0, 0.2)), T * (0.3 + 0.08 * cx / 4.2));
+    rel *= 1.0 + 0.06 * sin(T * 1.1 + cx);
+    p = c + rel;
+    glow = 0.4 * (0.5 + 0.5 * sin(TAU * (pt * 1.0 - T * 0.12)));
+  }
+  glow *= uAmb;
+  return mix(p0, p, uAmb);
 }
 
 void main() {
-  // Per-particle staggered morph: each particle sweeps aDelay*0.35..+0.65 of uMix.
-  float t = clamp((uMix - aDelay * 0.35) / 0.65, 0.0, 1.0);
-  float te = easeInOutCubic(t);
-  vec3 pos = mix(aFrom, aTo, te);
+  // Per-particle lag by path position (+ a little randomness): streams peel off
+  // the core in order, so neighbours move together and read as ribbons.
+  float lag = 0.38 * 0.5 * (aFromT + aToT) + 0.18 * aDelay;
+  float t = clamp((uMix - lag) / (1.0 - 0.56), 0.0, 1.0);
+  float te = t * t * (3.0 - 2.0 * t);
+  float arc = sin(PI * te);
 
-  // Drift field: gentle shimmer at rest, dramatic swirl mid-morph.
-  float swirl = 0.06 + 0.35 * sin(3.14159265 * te);
-  vec3 drift = vec3(
-    snoise(pos * 0.45 + vec3(0.0, uTime * 0.22, uTime * 0.13)),
-    snoise(pos * 0.45 + vec3(uTime * 0.17, 0.0, uTime * 0.19)),
-    snoise(pos * 0.45 + vec3(uTime * 0.11, uTime * 0.21, 0.0))
+  float gA;
+  float gB;
+  vec3 a = ambient(uFromId, aFrom, aFromT, aDelay, gA);
+  vec3 b = ambient(uToId, aTo, aToT, aDelay, gB);
+
+  // Quadratic Bezier: control point = midpoint + perpendicular bow (consistent
+  // sign per travel direction -> rotational flow, not a straight collapse).
+  vec3 d = b - a;
+  float len = length(d);
+  vec3 mid = 0.5 * (a + b);
+  vec3 side = cross(d, vec3(0.0, 0.0, 1.0)) + 0.6 * cross(d, vec3(0.0, 1.0, 0.0));
+  side /= max(length(side), 1e-4);
+  vec3 ctrl = mid + side * (len * 0.42 * (0.75 + 0.5 * aDelay));
+  vec3 pos = mix(mix(a, ctrl, te), mix(ctrl, b, te), te);
+
+  // Swirl about the vertical axis, scaled by travel distance; zero at both ends.
+  float ang = 0.7 * arc * clamp(len / 7.0, 0.0, 1.0);
+  float cs = cos(ang);
+  float sn = sin(ang);
+  pos.xz = mat2(cs, sn, -sn, cs) * pos.xz;
+
+  // Low-frequency vector noise: neighbours share it, so ribbons stay coherent.
+  vec3 q = pos * 0.22;
+  vec3 curl = vec3(
+    snoise(q + vec3(0.0, uTime * 0.08, 3.1)),
+    snoise(q + vec3(7.3, 0.0, uTime * 0.08)),
+    snoise(q + vec3(uTime * 0.08, 5.1, 0.0))
   );
-  pos += drift * (uDrift * swirl);
+  pos += curl * (uDrift * 0.9 * arc);
+  float glow = mix(gA, gB, te);
 
   // Pointer repulsion: push particles within radius 1.6 away, smooth falloff.
   vec3 delta = pos - uPointer;
@@ -119,34 +210,71 @@ void main() {
   float fall = 1.0 - smoothstep(0.0, 1.6, dist);
   pos += (delta / max(dist, 0.001)) * (fall * fall * 0.6 * uPointerOn);
 
-  // Colour: unify toward merged gold-white, scan plane toward verified mint.
-  vec3 col = mix(aColor, uMerged, uUnify);
+  // Colour: white-violet at the core fading to the lane colour along the path,
+  // a bright tip on comets / tower tops; then unify toward gold, scan mint.
+  float tm = mix(aFromT, aToT, te);
+  bool opus = aKind > 0.5 && aKind < 2.5;
+  vec3 col = opus ? uCore : mix(uCore, aColor, 0.12 + 0.88 * smoothstep(0.0, 0.5, tm));
+  float tipW = mix(step(1.5, uFromId) * step(uFromId, 3.5), step(1.5, uToId) * step(uToId, 3.5), te);
+  col = mix(col, vec3(1.0), 0.5 * tipW * smoothstep(0.82, 1.0, tm));
+  col *= 1.0 + 0.5 * (1.0 - smoothstep(0.0, 0.35, tm));
+  col *= 1.0 + glow * 0.9;
+  col = mix(col, uMerged, uUnify);
   float below = 1.0 - smoothstep(uScanY - 0.001, uScanY, pos.y);
   col = mix(col, uVerified, below * 0.6);
   float band = 1.0 - smoothstep(0.0, 0.25, abs(pos.y - uScanY));
   col += vec3(1.0) * (band * 0.9);
   vColor = col;
-  vAlpha = (aRole < 0.5 ? 0.3 : 1.0) * mix(1.0, 0.42, uUnify) + band * 0.5;
+  vKind = aKind;
 
   vec4 mv = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mv;
-  float pulse = aRole < 0.5 ? 1.0 + 0.12 * sin(uTime * 2.0) : 1.0;
-  gl_PointSize = uSize * aScale * pulse * uPixelRatio * (300.0 / max(-mv.z, 0.1));
+  float depth = max(-mv.z, 0.1);
+
+  // Kind: core sprites are plain, the halo is a few huge faint breathing sprites,
+  // bokeh is a faint out-of-focus disc.
+  float breathe = 1.0 + 0.2 * sin(uTime * 0.8 + aDelay * 6.0) * uAmb;
+  float kindSize = 1.0;
+  float kindAlpha = 0.3;
+  if (aKind > 2.5) { kindSize = 4.5; kindAlpha = 0.06; }
+  else if (aKind > 1.5) { kindSize = 8.0 * breathe; kindAlpha = 0.02 * breathe; }
+  else if (aKind > 0.5) { kindSize = 1.1; kindAlpha = 0.16; }
+
+  // Depth of field: defocus grows the sprite and thins it out.
+  float coc = clamp(abs(depth - uFocus) / uFocus, 0.0, 1.0);
+  vAlpha = kindAlpha * mix(1.0, 0.42, uUnify) / (1.0 + 2.5 * coc) + band * 0.5;
+  gl_PointSize = uSize * aScale * kindSize * (1.0 + 2.2 * coc) * uPixelRatio * (300.0 / depth);
 }
 `;
 
 export const fragmentShader = /* glsl */ `
+uniform float uDirect; // 1 = no postprocessing: tone + gamma here
 in vec3 vColor;
 in float vAlpha;
+in float vKind;
 out vec4 fragColor;
 
 void main() {
   vec2 c = gl_PointCoord - 0.5;
   float d = length(c) * 2.0;
   if (d > 1.0) discard;
-  float a = exp(-d * d * 5.0) * 0.8 + exp(-d * 2.6) * 0.3;
+  float edge = 1.0 - smoothstep(0.55, 1.0, d);
+  float a;
+  if (vKind > 2.5) {
+    a = smoothstep(1.0, 0.8, d) * 0.5 + smoothstep(0.6, 0.92, d) * (1.0 - smoothstep(0.92, 1.0, d)) * 0.5;
+  } else if (vKind > 1.5) {
+    a = exp(-d * d * 2.4) * edge;
+  } else {
+    // soft gaussian core + wide halo, no hard disc
+    a = (exp(-d * d * 6.0) * 0.7 + exp(-d * 2.8) * 0.3) * edge;
+  }
+  vec3 rgb = vColor * a * vAlpha;
+  if (uDirect > 0.5) {
+    // Per-fragment (blending is additive): lift faint sprites, keep overlaps summing.
+    rgb = pow(rgb, vec3(0.8)) * 0.6;
+  }
   // Tiny screen-space dither so the additive glow never bands in 8-bit.
   float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
-  fragColor = vec4(vColor * a * vAlpha * 0.55 + (n - 0.5) / 255.0, 1.0);
+  fragColor = vec4(rgb + (n - 0.5) / 255.0, 1.0);
 }
 `;

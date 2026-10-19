@@ -49,8 +49,8 @@ if (canvas) {
 const story = document.querySelector<HTMLElement>('[data-swarm-story]');
 if (story) {
   // Beat i is centred when section i is centred in the viewport. Each formation
-  // holds around its section centre (+-0.2 of a section) and morphs in between,
-  // so copy and swarm always agree. Output feeds beatAt(): local < 0.5 holds.
+  // holds around its section centre (+-0.15 of a section) and morphs in between
+  // (about 70% of the scroll), so copy and swarm always agree. Output feeds beatAt(): local < 0.5 holds.
   const sections = Array.from(story.querySelectorAll<HTMLElement>(':scope > [data-beat]'));
   let centers: number[] = [];
   const measure = () => {
@@ -64,10 +64,10 @@ if (story) {
     while (i < n - 1 && centers[i + 1] <= c) i++;
     const span = i < n - 1 ? centers[i + 1] - centers[i] : 1;
     const s = c <= centers[0] || i === n - 1 ? i : i + (c - centers[i]) / span;
-    const t = s + 0.2;
+    const t = s + 0.15;
     const ii = Math.min(n - 1, Math.floor(t));
     const f = t - ii;
-    const local = f < 0.4 ? (f / 0.4) * 0.5 : 0.5 + ((f - 0.4) / 0.6) * 0.5;
+    const local = f < 0.3 ? (f / 0.3) * 0.5 : 0.5 + ((f - 0.3) / 0.7) * 0.5;
     return (ii + Math.min(0.999, local)) / n;
   };
   measure();
