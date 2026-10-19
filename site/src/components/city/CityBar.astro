@@ -1,5 +1,5 @@
 ---
-// Slim top bar for the homepage. Hidden while the pinned stage is on screen (so the hero title stays the LCP element and
+// Slim top bar for the /how-it-works page. Hidden while the pinned stage is on screen (so the hero title stays the LCP element and
 // nothing covers the scene), shown once the stage has been scrolled past. Links are to the section ids; the repo link
 // comes from facts. Without scripting the bar is a static strip (see city.css).
 import { repoUrl } from '../../lib/facts';
@@ -15,7 +15,7 @@ const links = [
 ];
 ---
 <header class="city-bar" data-city-bar>
-  <a class="city-bar-mark" href="#top">SwarmKit</a>
+  <a class="city-bar-mark" href="/" aria-label="Back to the SwarmKit showcase">← SwarmKit</a>
   <nav class="city-bar-nav" aria-label="Sections">
     <ul class="city-bar-links">
       {links.map((l) => <li><a href={`#${l.id}`}>{l.label}</a></li>)}
