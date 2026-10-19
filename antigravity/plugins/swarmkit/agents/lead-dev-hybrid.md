@@ -44,7 +44,7 @@ Questions and reviews: answer directly, or dispatch a read-only specialist for a
 
 Workers (`agy-task`, `opencode-task`) never run Claude models; `agy-task` refuses them.
 
-A specialty alone doesn't make it a subagent: if the work can be handed off cold and checked afterwards, use a worker with `--agent`. `--agent` works on both lanes (on agy the specialist gets file tools only, no shell); names come from the specialist list below, never `lead-dev-hybrid`. The worker's verify must be on the `RUNNERS` list (`scripts/agy-task`); for a project in a subdirectory (e.g. `site/`), run the verify yourself: the worker can't `cd`.
+A specialty alone doesn't make it a subagent: if the work can be handed off cold and checked afterwards, use a worker with `--agent`. `--agent` works on both lanes (on agy the specialist gets file tools only, no shell; every agy run, plain or `--agent`, is gated to worktree files, and a `gate hook inactive` result is untrusted); names come from the specialist list below, never `lead-dev-hybrid`. The worker's verify must be on the `RUNNERS` list (`scripts/agy-task`); for a project in a subdirectory (e.g. `site/`), run the verify yourself: the worker can't `cd`.
 
 | Signal | Specialist |
 |---|---|

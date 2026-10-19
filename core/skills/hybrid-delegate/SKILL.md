@@ -43,7 +43,7 @@ Everything else in the approved plan goes to a worker.
 5. **Keep slots full.** Start workers with a background Bash call. The running-task limit is **shared across all backends**; the wrapper reads it from the invoked backend's `*_TASK_MAX` (default 3). Do not treat it as 3 per backend. When a task lands and is merged or discarded, immediately start the next queued task so both quotas stay busy.
 6. **Review and merge as results land.** For each finished task:
    - Trust only `ok` in `result.json`; `agy` reports `SUCCESS` even when blocked.
-   - Read `git diff <base>..<cli>/<slug>`; the diff is the truth. An agy task that is `NOT ok` only because it tried a shell command (denied `RunCommand`) but produced a diff is not a failure: review the diff and run the verify command yourself instead of resuming.
+   - Read `git diff <base>..<cli>/<slug>`; the diff is the truth. An agy task that is `NOT ok` only because it tried a shell command (a denied `run_command`) but produced a diff is not a failure: review the diff and run the verify command yourself instead of resuming.
    - Rerun the verify command in the worktree yourself.
    - If something is wrong, `resume` once with concrete feedback (file, line, expected behaviour). `opencode-task` kills a worker at `--max-denied` (10) denied commands or `--max-tool-errors` (20) failed tool calls and records `stopped_by` in `result.json` (`max-denied`, `max-tool-errors`, `timeout`). One resume is allowed after any stop, `max-denied` included, when the worker's edits are worth keeping: the prompt lists the exact problems to fix and forbids the shell commands that were denied (only the plan's test command allowed). If the resumed worker fails or is stopped again, take the task over yourself (a subagent or another lane); never resume twice.
    - `git merge <cli>/<slug>`, then `<cli>-task clean <slug>`.
@@ -52,7 +52,7 @@ Everything else in the approved plan goes to a worker.
 
 ## Safety facts
 
-- The wrappers are guards, not sandboxes. `agy --yolo` and `opencode --yolo` are unsandboxed.
+- The wrappers are guards, not sandboxes. `agy --yolo` and `opencode --yolo` are unsandboxed. Every other agy run (plain and `--agent`) goes through the worktree path gate (`agy-delegate`); a result warning `gate hook inactive` means it did not, so treat that worktree as untrusted.
 - `opencode-task` denies file-tool access outside the worktree (`external_directory`), but its allowed shell runners can still write anywhere: a guard against stray edits, not a boundary.
 - Never copy `.env` or other secrets into a worktree.
 - Only send client repos to a provider the user has OK'd.

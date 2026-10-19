@@ -10,9 +10,10 @@
 response", not "files changed". --setup CMD runs in the worktree before agy (e.g. installing
 or linking dependencies; a fresh worktree has tracked files only). At most $AGY_TASK_MAX
 (default 3) tasks run at once; --wait queues for a free slot instead of refusing.
-Edit-only by default: agy can read and edit files but shell commands are denied, so run
-tests yourself on the branch. --yolo auto-approves every tool and is NOT sandboxed (agy
-can then write outside the worktree and reach the network); use it only for trusted work.
+Gated by default (see "agy gate" below): agy reads and edits worktree files only, and its shell is
+limited to read-only commands (none under --agent), so run tests and builds yourself on the branch.
+--yolo auto-approves every tool and is NOT sandboxed (agy can then write outside the worktree and
+reach the network); use it only for trusted work.
 Everything lands under $AGY_TASK_DIR (default ~/.agy-tasks/<repo>/<slug>): the worktree,
 result.json and agy.log. agy's own "status" is SUCCESS even when tools were denied, so
 result.json carries a recomputed "ok".
@@ -22,9 +23,19 @@ every later git call in the worktree is pinned to it, after checking it against 
 changed .git (restored), created a nested .git or .gitmodules, or changed the main repo's git config, hooks,
 info/ or worktree record is NOT ok and not auto-committed. Run agy-task from the main checkout, never
 from inside a task dir. Scope: this keeps the wrapper's own git calls from running what a worker planted
-through file edits. It is not a sandbox: the opencode lane's runner allowlist (npm test etc.) runs
-worker-written code on the host, and plain agy can write files outside the worktree by absolute path.
-An OS-level sandbox (bubblewrap/landlock) is the real long-term control.
+through file edits. It is not a sandbox: the runner allowlist (npm test etc.) runs worker-written code on
+the host. An OS-level sandbox (bubblewrap/landlock) is the real long-term control.
+agy gate: agy itself lets a plain accept-edits run write anywhere by absolute path, so every agy run
+(plain and --agent; not --yolo) gets a PreToolUse hook in <wt>/.agents/hooks.json (never committed):
+scripts/agy-gate.py allows view_file, list_dir, grep_search, find_by_name and (not under --review)
+write_to_file, edit_file, replace_file_content on absolute or file:/// paths that resolve inside the
+worktree, outside any .git or .agents-style component; plain runs also get run_command for read-only
+commands from the runner allowlist (git status/diff/log/show, ls, pwd, echo, wc, cat of source paths; no
+shell syntax, paths inside the worktree). No test runner: it would run worker-written code past the gate. Everything else is denied (MCP, browser, web),
+and every decision is logged into task/gate.log; denials land in denied_actions. agy runs a hook that
+crashes or prints nothing as an allow, so a run whose transcript has more tool calls than gate decisions
+(or that changed files with no decision logged) is NOT ok ("gate hook inactive"). A base that tracks
+anything under .agents/.agent/_agents/_agent is refused.
 
 Invoked as opencode-task (a symlink) it drives `opencode run`: branches opencode/<slug>, tasks under
 $OPENCODE_TASK_DIR (default ~/.opencode-tasks). A per-run config overlay (OPENCODE_CONFIG_CONTENT, this
@@ -39,17 +50,16 @@ stopped worker at most once (only if its edits are worth keeping); then take the
 from a small table (currently empty); a model not in the table gets no effort suffix, since a variant
 a model lacks fails the whole run (muse rejects `max`). --effort "" forces none. Resume reuses the model and effort of start.
 
-A worker can run as a named specialist with --agent NAME (start only; resume reuses it), while the model
+A worker can run as a named specialist with --agent NAME (start only, rejected on resume, which reuses it), while the model
 flag stays on the worker allowlist. A headless note (no browser or MCP here) is prepended to the prompt.
 --agent is rejected for the lead-dev-hybrid orchestrator and for unknown agents.
 opencode: `--agent NAME` instead of `--agent build`; the sandbox overlay is also applied under
 `agent.NAME.permission`, so the agent's own permission block (e.g. bash '*': allow) cannot widen it.
 Agents: opencode/agents/NAME.md ($SWARMKIT_OPENCODE_AGENTS_DIR in tests).
-agy: `--agent NAME` plus two per-run files in the worktree, never committed: .agents/agents/NAME/agent.md
-(the plugin agent with an explicit tool list: file tools only, read-only under --review, no shell or MCP)
-and .agents/hooks.json, a PreToolUse hook (scripts/agy-gate.py) that allows those tools on worktree paths
-only and logs each denial into denied_actions. Edits to .agents/ (and agy's other customization roots) are
-denied, and a base that already tracks those two files is refused. --yolo adds the shell and drops the hook.
+agy: `--agent NAME` plus .agents/agents/NAME/agent.md in the worktree (never committed): the plugin agent
+with an explicit tool list (file tools only, read-only under --review, no shell or MCP), next to the gate
+hook above (no shell for --agent). An agent whose frontmatter already sets tools, inheritMcp, hooks, plugins
+or commandExecutionPolicy is refused, on start and again on resume. --yolo adds the shell and drops the hook.
 Agents: antigravity/plugins/swarmkit/agents/NAME.md ($SWARMKIT_AGY_AGENTS_DIR in tests).
 
 start and resume print one banner line to stderr before the worker launches (slug, model, effort, base, log);
@@ -62,7 +72,7 @@ null), wall_s and stopped_by (null | max-denied | max-tool-errors | timeout).
 The running-task limit is shared: agy and opencode tasks of all repos together never exceed it
 (the limit itself is read from the invoked backend's *_TASK_MAX). list and clean stay per repo.
 """
-import argparse, fcntl, functools, hashlib, json, os, re, shlex, shutil, signal, subprocess, sys, threading, time
+import argparse, fcntl, functools, hashlib, json, os, re, shlex, shutil, signal, stat, subprocess, sys, threading, time
 from pathlib import Path
 
 # opencode-task is a symlink to this file; the name picks the backend
@@ -75,8 +85,8 @@ def seconds(s):
 
 def agy_cmd(task, prompt, a, resume_id):
     agent = getattr(a, "agent", None)
+    agy_overlay(task, a, agent)
     if agent:
-        agy_overlay(task, a, agent)
         prompt = HEADLESS_NOTE + "\n\n" + prompt
     cmd = ["agy", "-p", prompt, "--output-format", "json", "--mode", "accept-edits",
            "--print-timeout", f"{seconds(a.timeout)}s"] + (["--agent", agent] if agent else [])
@@ -196,32 +206,88 @@ def agy_agents_dir():
     return Path(d) if d else Path(__file__).resolve().parent.parent / "antigravity" / "plugins" / "swarmkit" / "agents"
 
 
-# A named agy agent gets only the tools its frontmatter lists, and headless agy auto-denies even reads under
-# it. So each run writes two workspace customizations into the worktree (they outrank the plugin, and the
-# commit skips them): the agent with an explicit tool list (no run_command, no MCP), and a PreToolUse hook
-# (agy-gate.py) that allows those tools on worktree paths only. The user's agy settings stay untouched.
+# Every agy run (plain and --agent) gets a PreToolUse hook in the worktree's .agents/hooks.json, a workspace
+# customization agy loads for plain runs too: agy-gate.py allows the file tools on worktree paths only, and
+# on plain runs run_command for read-only commands (AGY_SHELL); everything else (MCP, browser, other paths,
+# .git, .agents) is denied. A named agy agent also gets only the tools its frontmatter lists, and headless agy
+# auto-denies even reads under it, so --agent adds the agent with an explicit tool list (no run_command, no
+# MCP) next to the hook. The commit skips both; the user's agy settings stay untouched.
 AGY_TOOLS = ("view_file", "list_dir", "grep_search", "find_by_name")
-AGY_EDIT_TOOLS = ("write_to_file", "edit_file", "multi_replace_file_content")
-AGY_OVERLAY = (".agents/hooks.json", ".agents/agents/{}")
+AGY_EDIT_TOOLS = ("write_to_file", "edit_file", "replace_file_content")
+AGY_ROOTS = (".agents", ".agent", "_agents", "_agent")  # agy's customization roots; the gate denies them
+AGY_AGENT_KEYS = ("tools", "inheritMcp", "hooks", "plugins", "commandExecutionPolicy")  # the overlay sets these
+# A plain run's shell: the read-only part of the runner allowlist. No test runner: it runs code the worker can
+# write, which would walk around the gate (plain agy had no shell at all before the gate).
+AGY_SHELL = [p for c in RUNNERS if c.startswith("git ") for p in (c, c + " *")] + \
+            [g for g in RUNNER_GLOBS if not g.startswith(("node ", "python3 "))]
+
+
+def agy_agent_problem(agent):
+    """Why NAME cannot run as an agy worker, or None (checked on start and again on resume)."""
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", agent or ""):
+        return f"invalid agent name: {agent}"
+    if agent == "lead-dev-hybrid":
+        return "orchestrators cannot run as workers: lead-dev-hybrid"
+    f = agy_agents_dir() / f"{agent}.md"
+    if not f.is_file() or f.is_symlink():
+        return f"unknown Antigravity agent: {agent}"
+    parts = f.read_text().split("---\n", 2)
+    if len(parts) != 3 or parts[0]:
+        return f"agent {agent} has no frontmatter"
+    keys = [k for k in AGY_AGENT_KEYS if re.search(rf"^\s*['\"]?{k}['\"]?\s*:", parts[1], re.M | re.I)]
+    if keys:
+        return f"agent {agent} sets {', '.join(keys)} in its frontmatter; the worker sandbox sets those itself"
+    return None
 
 
 def agy_overlay(task, a, agent):
     wt = task / "worktree"
-    _, fm, body = (agy_agents_dir() / f"{agent}.md").read_text().split("---\n", 2)
-    tools = AGY_TOOLS + (() if a.review else AGY_EDIT_TOOLS) + (("run_command",) if a.yolo else ())
-    fm = fm.rstrip("\n") + "\ninheritMcp: false\ntools:\n" + "".join(f"  - {t}\n" for t in tools)
-    d = wt / ".agents" / "agents" / agent
-    d.mkdir(parents=True, exist_ok=True)
-    (d / "agent.md").write_text(f"---\n{fm}---\n{body}")
-    hooks = wt / ".agents" / "hooks.json"
-    (task / "gate.log").write_text("")  # this run's denials
+    hooks, overlay = wt / ".agents" / "hooks.json", [".agents/hooks.json"]
+    if agent:
+        _, fm, body = (agy_agents_dir() / f"{agent}.md").read_text().split("---\n", 2)
+        tools = AGY_TOOLS + (() if a.review else AGY_EDIT_TOOLS) + (("run_command",) if a.yolo else ())
+        fm = fm.rstrip("\n") + "\ninheritMcp: false\ntools:\n" + "".join(f"  - {t}\n" for t in tools)
+        d = wt / ".agents" / "agents" / agent
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "agent.md").write_text(f"---\n{fm}---\n{body}")
+        overlay.append(f".agents/agents/{agent}")
+    (task / "gate.log").unlink(missing_ok=True)  # this run's gate decisions (the gate creates it, O_NOFOLLOW)
     if a.yolo:  # unsandboxed: no gate
         hooks.unlink(missing_ok=True)
     else:
-        gate = ["python3", "-I", str(Path(__file__).resolve().parent / "agy-gate.py"), str(wt), str(task / "gate.log")]
+        hooks.parent.mkdir(exist_ok=True)
+        shell = [] if agent else AGY_SHELL
+        (task / "gate.json").write_text(json.dumps({"root": str(wt), "log": str(task / "gate.log"),
+                                                    "edit": not a.review, "shell": shell}))
+        gate = ["python3", "-I", str(Path(__file__).resolve().parent / "agy-gate.py"), str(task / "gate.json")]
         hooks.write_text(json.dumps({"swarmkit-worktree-gate": {"PreToolUse": [
             {"matcher": "*", "hooks": [{"type": "command", "command": shlex.join(gate), "timeout": 10}]}]}}, indent=1))
-    (task / "overlay").write_text("\n".join(p.format(agent) for p in AGY_OVERLAY))
+    (task / "overlay").write_text("\n".join(overlay))
+
+
+def agy_tool_calls(conv):
+    """How many tool calls agy's transcript of this conversation records, or None if it cannot be read."""
+    if not conv or not re.fullmatch(r"[0-9a-f-]{8,64}", str(conv)):
+        return None
+    brain = Path(os.environ.get("SWARMKIT_AGY_BRAIN_DIR", Path.home() / ".gemini" / "antigravity-cli" / "brain"))
+    n = 0
+    try:
+        for line in read_nofollow(brain / conv / ".system_generated" / "logs" / "transcript_full.jsonl").splitlines():
+            try:
+                n += len(json.loads(line).get("tool_calls") or [])
+            except (ValueError, AttributeError, TypeError):
+                pass
+    except OSError:
+        return None
+    return n
+
+
+def read_nofollow(path):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, errors="replace") as f:
+        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+            raise OSError(f"{path} is not a regular file")
+        return f.read()
 
 
 def opencode_cmd(task, prompt, a, resume_id):
@@ -394,7 +460,7 @@ def wt_git(p, *args, check=True):
     env = {k: v for k, v in os.environ.items() if k not in GIT_LOCATION_ENV}
     env.update(GIT_DIR=p["gitdir"], GIT_WORK_TREE=str(p["wt"]), GIT_CONFIG_NOSYSTEM="1")
     # attributes from the base commit, not the worktree (git 2.40+): a worker-written .gitattributes picks no filter
-    attr = [f"--attr-source={p['base']}"] if args[0] in ("add", "status", "diff") and git_version() >= (2, 40) else []
+    attr = [f"--attr-source={p['base']}"] if git_version() >= (2, 40) else []
     r = subprocess.run(["git", "--no-pager", *attr, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
                         "-c", "gc.auto=0", "-c", "maintenance.auto=false", *args],
                        cwd=p["wt"], env=env, text=True, capture_output=True)
@@ -448,10 +514,13 @@ def nested_gits(wt):
 
 
 def git_meta(p):
-    """Hash of the main repo's git metadata a worker could plant commands in: config, hooks, info/ and this
-    worktree's own record (HEAD too: pointed at main's branch, our commit would land there)."""
+    """Hash of the git metadata a worker could plant commands in: the main repo's config, hooks, info/, this
+    worktree's own record (HEAD too: pointed at main's branch, our commit would land there) and the user's
+    global git config and attributes."""
     c, g, h = p["common"], Path(p["gitdir"]), hashlib.sha1()
-    for f in [c / "config", g / "commondir", g / "gitdir", g / "config.worktree", g / "HEAD",
+    xdg = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "git"
+    for f in [c / "config", c / "config.worktree", g / "commondir", g / "gitdir", g / "config.worktree", g / "HEAD",
+              Path.home() / ".gitconfig", xdg / "config", xdg / "attributes",
               *[x for d in (c / "hooks", c / "info") for x in ([d, *sorted(d.rglob("*"))] if d.is_dir() else [d])]]:
         try:
             v = (b"link:" + os.readlink(f).encode() if f.is_symlink() else f.read_bytes() if f.is_file()
@@ -541,6 +610,8 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     meta_before = git_meta(pinned)
     nf = task / "nested-git"  # what --setup left (e.g. a submodule); anything else is the worker's
     nested_before = json.loads(nf.read_text()) if nf.exists() else {}
+    gated = CLI == "agy" and not a.yolo
+    calls_before = (agy_tool_calls(resume_id) if resume_id else 0) if gated else None
     cmd = BACKEND["cmd"](task, prompt, a, resume_id)
     banner(task, o, resume_id)
     dispatch_log("start", task.name, o.get("model"), effort=o.get("effort") or None, agent=o.get("agent"))
@@ -611,8 +682,15 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     logf.close()
     (task / f"{CLI}.log").write_text(f"{err}\n{out}")
     res = BACKEND["parse"](out, err)
-    if (task / "gate.log").exists():  # agy --agent: denials by agy-gate.py, which agy does not report
-        res["denied"] += [x for x in (task / "gate.log").read_text().splitlines() if x]
+    gate_log = []
+    if gated:  # agy-gate.py's decisions; agy does not report its denials
+        try:
+            gate_log = [x for x in read_nofollow(task / "gate.log").splitlines() if x]
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            gate_log = [f"deny ? gate log unreadable: {e}"]
+        res["denied"] += [x.split(" ", 1)[1] for x in gate_log if x.startswith("deny ")]
     warnings = list(warnings)
     # The main repo's git metadata first: if it changed, run no git at all (not even main_state's status).
     meta = check_pin(pinned) or ("" if git_meta(pinned) == meta_before else "config, hooks, info/ or worktree record")
@@ -634,14 +712,22 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
                         f" ({CLI} was killed; its edits are kept, inspect the diff)")
     # It may have pointed git at a gitdir it planted: restore .git, commit nothing, let the owner look.
     blocked = []
-    try:
-        if restore_dotgit(pinned):
-            blocked.append("worker modified .git: restored it")
-    except OSError as e:
-        blocked.append(f"worker modified .git and it could not be restored ({e})")
-    nested_after = nested_gits(wt)
-    for k in sorted(k for k in nested_before.keys() | nested_after.keys() if nested_before.get(k) != nested_after.get(k)):
-        blocked.append("worker changed .gitmodules" if k == ".gitmodules" else f"worker created a nested .git at {k}")
+    moved_wt = check_pin(pinned)  # the worktree path or its record changed: touch nothing in there
+    if moved_wt:
+        blocked.append(f"worker modified .git or the worktree path ({moved_wt}): left as it is")
+    else:
+        try:
+            if restore_dotgit(pinned):
+                blocked.append("worker modified .git: restored it")
+        except OSError as e:
+            blocked.append(f"worker modified .git and it could not be restored ({e})")
+        nested_after = nested_gits(wt)
+        for k in sorted(k for k in nested_before.keys() | nested_after.keys() if nested_before.get(k) != nested_after.get(k)):
+            blocked.append("worker changed .gitmodules" if k == ".gitmodules" else f"worker created a nested .git at {k}")
+        if not meta:  # symbolic-ref follows symref chains: a branch ref turned into a symref is caught too
+            head = wt_git(pinned, "symbolic-ref", "-q", "HEAD", check=False)
+            if head != f"refs/heads/{CLI}/{task.name}":
+                blocked.append(f"worker moved HEAD to {head or 'a detached commit'}")
     warnings += [f"{b}; nothing was auto-committed, inspect the worktree" for b in blocked]
     base = pinned["base"]
     changed = "not inspected"
@@ -650,7 +736,10 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
             return {line.split("\t", 1)[1] for line in out.splitlines() if line.startswith("160000 ")}
         try:  # never lose the agent's work to a hook or signing failure
             if not blocked:
-                wt_git(pinned, "add", "-A", *spec(task))
+                # git add fails on an exclude that names an ignored path (a repo that gitignores .agents/); add -A
+                # skips ignored paths anyway
+                wt_git(pinned, "add", "-A", *[x for x in spec(task) if not x.startswith(":(exclude)")
+                                              or not wt_git(pinned, "check-ignore", "--", x[10:], check=False)])
                 new = links(wt_git(pinned, "ls-files", "-s")) - links(wt_git(pinned, "ls-tree", "-r", "HEAD"))
                 if new:  # a backstop for the walk above
                     warnings.append(f"worker staged a new gitlink at {', '.join(sorted(new))}; nothing was auto-committed")
@@ -663,12 +752,19 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
         if changed == "no changes" and wt_git(pinned, "status", "--porcelain", "--ignore-submodules=all", *spec(task),
                                               check=False):
             changed = "uncommitted changes"
-    if not dotgit_ok(pinned):  # a straggler rewrote it after the restore
+    if not moved_wt and not dotgit_ok(pinned):  # a straggler rewrote it after the restore
         warnings.append("worker modified .git after the run; inspect the worktree")
+    if gated:  # agy runs a hook that crashed or printed nothing as if it allowed (fails open): catch that here
+        calls = agy_tool_calls(res["conversation_id"]) if calls_before is not None else None
+        if (calls is not None and calls - calls_before > len(gate_log)) or (not gate_log and changed != "no changes"):
+            warnings.append(f"gate hook inactive: {len(gate_log)} gate decisions for "
+                            f"{'?' if calls is None else calls - calls_before} tool calls ({changed}); inspect the worktree"
+                            " and anything the worker could reach")
     denied = res["denied"]
     stopped_by = stopped[0] if stopped else "timeout" if res["timed_out"] or "timeout" in interrupted else None
     review = a.review
-    incomplete = any(w.startswith(("interrupted", "timed out", "stopped", "commit failed", "worker ", "git metadata"))
+    incomplete = any(w.startswith(("interrupted", "timed out", "stopped", "commit failed", "worker ", "git metadata",
+                                   "gate hook"))
                      for w in warnings)
     produced = bool(res["response"].strip()) if review else changed != "no changes"
     ok = res["done"] and not denied and code == 0 and not incomplete and produced
@@ -682,7 +778,7 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     tokens = u.get("total_tokens", sum(v for v in u.values() if isinstance(v, int))) if isinstance(u, dict) and u else None
     dispatch_log("finish", task.name, o.get("model"), ok=ok, denied=len(denied), tokens=tokens,
                  wall_s=round(wall), stopped_by=stopped_by, agent=o.get("agent"))
-    hint = " (resume it: use file view/edit tools only, no shell)" if CLI == "agy" else ""
+    hint = " (resume it: file tools on worktree files only, no shell beyond git status/diff/log/show, ls, cat)" if CLI == "agy" else ""
     note = (f" DENIED: {', '.join(denied)}{hint}" if denied else "") \
         + "".join(f" WARNING: {w}" for w in warnings)
     print(f"{PROG} {task.name}: {'ok' if ok else 'NOT ok'} ({changed}){note} -> {task}/result.json")
@@ -714,24 +810,27 @@ def main():
         print(f"{PROG}: model not on the worker allowlist: {a.model} (allowed: {', '.join(BACKEND['allowed'])})", file=sys.stderr)
         sys.exit(2)
 
-    if a.cmd == "start" and getattr(a, "agent", None):
+    if a.cmd == "resume" and a.agent:
+        print(f"{PROG}: --agent is for start only; resume reuses the agent of start", file=sys.stderr)
+        sys.exit(2)
+    if a.cmd == "start" and a.agent and CLI == "agy":
+        bad = agy_agent_problem(a.agent)
+        if bad:
+            print(f"{PROG}: {bad}", file=sys.stderr)
+            sys.exit(2)
+    elif a.cmd == "start" and a.agent:
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", a.agent):
             print(f"{PROG}: invalid agent name: {a.agent}", file=sys.stderr)
             sys.exit(2)
         if a.agent == "lead-dev-hybrid":
             print(f"{PROG}: orchestrators cannot run as workers: lead-dev-hybrid", file=sys.stderr)
             sys.exit(2)
-        if not ((agy_agents_dir() if CLI == "agy" else agents_dir()) / f"{a.agent}.md").is_file():
-            print(f"{PROG}: unknown {'Antigravity' if CLI == 'agy' else 'OpenCode'} agent: {a.agent}", file=sys.stderr)
+        if not (agents_dir() / f"{a.agent}.md").is_file():
+            print(f"{PROG}: unknown OpenCode agent: {a.agent}", file=sys.stderr)
             sys.exit(2)
-        if CLI == "opencode" and agent_edits_git(a.agent):
+        if agent_edits_git(a.agent):
             print(f"{PROG}: agent {a.agent} has an edit rule for .git; it cannot run as a worker", file=sys.stderr)
             sys.exit(2)
-        if CLI == "agy":  # the overlay would replace the repo's own files
-            mine = [p.format(a.agent) for p in AGY_OVERLAY]
-            if sh("git", "ls-tree", "-r", "--name-only", a.base, "--", *mine, check=False):
-                print(f"{PROG}: {a.base} already tracks {' or '.join(mine)}; --agent cannot run here", file=sys.stderr)
-                sys.exit(2)
 
     def base(b):  # resolved, so the worktree path git records is the one we check against
         return Path(os.path.realpath(os.environ.get(f"{b['env']}_DIR", Path.home() / b["home"])))
@@ -745,6 +844,13 @@ def main():
     # `here` is the checkout we were invoked from: HEAD (default base, merged check) means its HEAD.
     repo = Path(sh("git", "worktree", "list", "--porcelain").splitlines()[0].split(" ", 1)[1])
     here = Path(sh("git", "rev-parse", "--show-toplevel"))
+    if a.cmd == "start" and CLI == "agy":  # the gate overlay lives in .agents/, which the gate keeps off limits
+        tracked = [f for f in sh("git", "ls-tree", "-r", "--name-only", "-z", a.base, cwd=here, check=False).split("\0")
+                   if {c.lower() for c in f.split("/")} & set(AGY_ROOTS)]
+        if tracked:
+            print(f"{PROG}: {a.base} tracks {tracked[0]}: agy's customization dirs ({', '.join(AGY_ROOTS)}) cannot be in a "
+                  "worker's base", file=sys.stderr)
+            sys.exit(2)
     key = f"{repo.name}-{hashlib.sha1(str(repo).encode()).hexdigest()[:6]}"
     root = base(BACKEND) / key
     if a.cmd == "list":
@@ -826,6 +932,15 @@ def main():
         dirty = sh("git", "status", "--porcelain", "--untracked-files=no", cwd=here)
         warn = [f"{here} has uncommitted changes; {CLI} sees only the committed state "
                 f"of {a.base}"] if dirty and a.base == "HEAD" else []
+        if git_version() < (2, 40):
+            warn.append(f"git {'.'.join(map(str, git_version()))} is older than 2.40: no --attr-source, so a"
+                        " worker-written .gitattributes can pick a filter from your git config")
+        out = [f for f in wt_git(p, "ls-files", "-s", "-z").split("\0") if f.startswith("120000 ")]
+        out = [f.split("\t", 1)[1] for f in out
+               if not Path(os.path.realpath(wt / f.split("\t", 1)[1])).is_relative_to(os.path.realpath(wt))]
+        if out:
+            warn.append(f"tracked symlinks point outside the worktree ({', '.join(out[:5])}); the gate resolves"
+                        f" them and denies {CLI} access through them, but your own test runs follow them")
         for w in warn:
             print(f"{PROG}: WARNING: {w}", file=sys.stderr)
         if a.setup:
@@ -851,6 +966,8 @@ def main():
         sys.exit(f"{PROG}: {task / 'worktree' / '.git'} was changed since the last run; inspect it, then clean it with --force")
     if CLI == "opencode" and o.get("agent") and agent_edits_git(o["agent"]):
         sys.exit(f"{PROG}: agent {o['agent']} has an edit rule for .git; it cannot run as a worker")
+    if CLI == "agy" and o.get("agent") and agy_agent_problem(o["agent"]):
+        sys.exit(f"{PROG}: {agy_agent_problem(o['agent'])}")
     a.review = a.review or prev.get("review", False)  # a resumed review stays a review
     claim(task)
     return run_task(task, prompt, a, repo, prev["conversation_id"])

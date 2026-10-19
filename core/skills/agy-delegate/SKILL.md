@@ -13,7 +13,7 @@ description: Use when handing a self-contained task to a headless Antigravity (a
 - Bulk mechanical edits or test writing, on agy's quota instead of yours (default `gemini-3.8-flash-high`).
 - 2-3 independent tasks at once. Never more: the box has 8 cores and little spare RAM.
 
-Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'); use the lane default unless the owner names a model, and never add a model without the owner's OK. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`). Give it a verify command from that list, or run the verify yourself after it lands.
+Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'); use the lane default unless the owner names a model, and never add a model without the owner's OK. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`); agy's only the read-only ones (no test runner). Give an opencode worker a verify command from that list; for agy, run the verify yourself after it lands.
 
 Skip it for small edits (do them inline), for anything that depends on conversation context, and for the same work a Claude subagent already does. agy starts cold: the prompt must carry the goal, the files, the constraints and what "done" looks like. Say "use your file view, search and edit tools, not the shell" in every prompt, reviews included: a model that reaches for a shell command (often `cat -n` for line numbers) is denied and returns nothing. If that happens, `resume` it with that instruction; in testing the retry succeeded.
 
@@ -40,7 +40,7 @@ The background run exits when agy does and prints one line. Read `result.json` n
 ## Read the result
 
 - agy reports `SUCCESS` even when it was blocked. Trust only `ok` in `result.json`; `denied_actions` lists what was refused, `warnings` lists a timeout (partial output), an interruption or a failed commit. `usage` shows the tokens spent. Slugs are lowercase letters, digits, `.`, `_`, `-`.
-- Edit-only by default: agy can read and edit but **cannot run shell commands** (no tests, builds or installs). Run those yourself in `worktree` before you merge. `--agent <specialist>` (start only; resume reuses it) runs a SwarmKit specialist with the same file-only access; its out-of-worktree attempts show up in `denied_actions`.
+- Gated by default, plain runs and `--agent` alike: a PreToolUse hook in the worktree (`scripts/agy-gate.py`, never committed) allows the file tools on worktree paths only, never `.git` or `.agents`, and denies MCP, the browser and the web. A plain run may also run read-only commands (`git status/diff/log/show`, `ls`, `cat` of source paths; no shell syntax), never a test runner (it would run worker-written code past the gate); `--agent <specialist>` (start only; resume reuses it) gets no shell. Run tests, builds and installs yourself in `worktree` before you merge. Gate denials show up in `denied_actions`. A run marked `gate hook inactive` was not gated: treat its worktree, and anything agy could reach, as untrusted. A base that tracks `.agents/` (or `.agent`, `_agents`, `_agent`) is refused.
 - Check `response` against `git diff <base>..agy/<slug>`; the diff is the truth, the prose is a claim.
 - Review notes from agy are advisory. Verify each against the code before acting on it.
 

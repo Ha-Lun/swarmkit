@@ -61,7 +61,7 @@ Questions and reviews: answer directly, or dispatch a read-only specialist for a
 
 - A specialty alone doesn't make it a Claude subagent: if the work can be handed off cold and checked afterwards, use a worker with `--agent`.
 - After a UI worker lands, verify visually with a Haiku screenshot capture that you judge, plus a click test of the primary buttons and links at 390 and 1440 px (an invisible overlay can block taps while screenshots look fine).
-- `--agent` works on both lanes; on agy the specialist gets file tools only (no shell), so you run its tests. Names come from the specialist list below; never `lead-dev-hybrid`.
+- `--agent` works on both lanes; on agy the specialist gets file tools only (no shell), so you run its tests. Every agy run, plain or `--agent`, is gated to worktree files (plain runs keep read-only commands such as `git diff`, no test runner); treat a `gate hook inactive` result as untrusted. Names come from the specialist list below; never `lead-dev-hybrid`.
 - The worker's verify must be on the `RUNNERS` list (`scripts/agy-task`). For a project in a subdirectory (e.g. `site/`), run the verify yourself after it lands: the worker can't `cd`.
 
 Workers (`agy-task`, `opencode-task`) never run Claude models; `agy-task` refuses them.
