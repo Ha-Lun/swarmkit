@@ -154,9 +154,6 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
   let camX = 0;
   let camY = 0;
   let spin = 0;
-  let layoutX = 0;
-  let layoutY = 0;
-  let layoutS = 1;
   let raf = 0;
   let disposed = false;
   const t0 = performance.now();
@@ -244,15 +241,12 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
     // phones shrink it and lift it above the bottom-anchored copy.
     const hh = HALF_FOV_TAN * camera.position.z;
     const hw = hh * aspect;
-    if (aspect >= 1.1) {
-      layoutX = hw * 0.37;
-      layoutY = 0;
-      layoutS = Math.min(1, (hw * 0.97 - layoutX) / FORM_RADIUS);
-    } else {
-      layoutX = 0;
-      layoutY = hh * 0.3;
-      layoutS = Math.min(1, hw / FORM_RADIUS);
-    }
+    const wide = aspect >= 1.1;
+    const layoutX = wide ? hw * 0.37 : 0;
+    const layoutY = wide ? 0 : hh * 0.3;
+    const layoutS = wide
+      ? Math.min(1, (hw * 0.97 - hw * 0.37) / FORM_RADIUS)
+      : Math.min(1, hw / FORM_RADIUS);
     // Portrait phones sit far back: boost the sprite so the swarm stays luminous.
     material.uniforms.uSize.value = POINT_SIZE * (aspect < 1.1 ? 1.9 : 1) * (tier === 'low' ? 1.2 : 1);
     group.position.set(layoutX, layoutY, 0);
@@ -264,12 +258,9 @@ export function createSwarm(canvas: HTMLCanvasElement, opts: SwarmOptions): Swar
   const onResize = (): void => resize();
   window.addEventListener('resize', onResize);
 
+  // resize() already renders once when reduced (static scene), so only animate otherwise.
   resize();
-  if (reduced) {
-    renderFrame(performance.now());
-  } else {
-    raf = requestAnimationFrame(frame);
-  }
+  if (!reduced) raf = requestAnimationFrame(frame);
 
   return {
     setProgress(p: number): void {

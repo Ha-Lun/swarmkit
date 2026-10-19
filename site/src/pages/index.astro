@@ -14,7 +14,6 @@ const run = loadFeaturedRun();
 const workers = run?.workers ?? [];
 const fanoutHeadline = workers.length > 0 ? `${workers.length} workers. At once.` : 'Workers. At once.';
 const fanoutLanes = [...new Set(workers.map((w) => w.lane))];
-const laneLabel = (lane: string) => (lane === 'agy' ? 'agy' : 'opencode');
 ---
 <Base
   title="SwarmKit: one mind plans, a swarm builds"
@@ -37,9 +36,9 @@ const laneLabel = (lane: string) => (lane === 'agy' ? 'agy' : 'opencode');
       body="Cheaper models on OpenCode and Antigravity build in parallel, each in its own git worktree."
     >
       {fanoutLanes.length > 0 && (
-        <ul class="swarm-legend" data-swarm-fade aria-label={`Lanes used: ${fanoutLanes.map(laneLabel).join(', ')}`}>
+        <ul class="swarm-legend" data-swarm-fade aria-label={`Lanes used: ${fanoutLanes.join(', ')}`}>
           {fanoutLanes.map((lane) => (
-            <li><span class={`swarm-dot swarm-dot-${lane}`} aria-hidden="true"></span>{laneLabel(lane)}</li>
+            <li><span class={`swarm-dot swarm-dot-${lane}`} aria-hidden="true"></span>{lane}</li>
           ))}
         </ul>
       )}

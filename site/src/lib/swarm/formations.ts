@@ -213,12 +213,13 @@ function bakeHex(arr: Float32Array, count: number, opus: number, rng: () => numb
       continue;
     }
     const e = Math.floor(rng() * 6);
+    // Edge e runs V_e -> V_e+1; the % 12 wraps the last edge (e = 5) back to V_0.
+    const ax = V[(e * 2) % 12];
+    const ay = V[(e * 2 + 1) % 12];
+    const bx = V[((e + 1) * 2) % 12];
+    const by = V[((e + 1) * 2 + 1) % 12];
     if (rng() < 0.12) {
       // sparse interior fill: uniform over the fan triangle (centre, V_e, V_e+1)
-      const ax = V[(e * 2) % 12];
-      const ay = V[(e * 2 + 1) % 12];
-      const bx = V[((e + 1) * 2) % 12];
-      const by = V[((e + 1) * 2 + 1) % 12];
       let u = rng();
       let v = rng();
       if (u + v > 1) {
@@ -231,10 +232,6 @@ function bakeHex(arr: Float32Array, count: number, opus: number, rng: () => numb
     } else {
       // glowing edge band: triangular offset, densest at the centre line
       const t = rng();
-      const ax = V[(e * 2) % 12];
-      const ay = V[(e * 2 + 1) % 12];
-      const bx = V[((e + 1) * 2) % 12];
-      const by = V[((e + 1) * 2 + 1) % 12];
       const ex = bx - ax;
       const ey = by - ay;
       const len = Math.hypot(ex, ey) || 1;

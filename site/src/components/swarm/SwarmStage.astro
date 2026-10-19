@@ -7,11 +7,6 @@ const lanes = run ? run.workers.map((w) => w.lane) : ['opencode', 'agy', 'openco
 <div class="swarm-stage">
   <div class="swarm-fallback" aria-hidden="true"></div>
   <canvas data-swarm-canvas data-lanes={JSON.stringify(lanes)} aria-hidden="true"></canvas>
-  <noscript>
-    <style>
-      html .swarm-fallback { opacity: 1; visibility: visible; }
-    </style>
-  </noscript>
 </div>
 <script>
   import './swarm-client.ts';

@@ -129,10 +129,6 @@ if (swarm && finePointer && !reducedMotion) {
   );
 }
 
-window.addEventListener('resize', () => {
-  swarm?.resize();
-});
-
 const bar = document.getElementById('swarmbar');
 if (bar) {
   const onScroll = () => {
