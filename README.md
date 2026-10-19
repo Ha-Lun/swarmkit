@@ -26,7 +26,7 @@ Each agent has a **tier** (`fast`, `standard`, `deep`). The model for each tier 
 
 | Tier | Claude Code | OpenCode | Used for |
 |---|---|---|---|
-| fast | `haiku` | `opencode-go/muse-spark-1.3` | explore, junior-dev, git-specialist, release-tester, showroom-asset-processor, test-writer, seo-worker |
+| fast | `haiku` | `opencode-go/muse-spark-1.3-contributor` | explore, junior-dev, git-specialist, release-tester, showroom-asset-processor, test-writer, seo-worker |
 | standard | `sonnet` | `opencode-go/glm-5.3-flash` | most specialists |
 | deep | `opus` | `opencode-go/kimi-k2.7-code` | db-specialist, security-auditor, lead-dev-hybrid |
 
