@@ -40,7 +40,7 @@ The background run exits when agy does and prints one line. Read `result.json` n
 ## Read the result
 
 - agy reports `SUCCESS` even when it was blocked. Trust only `ok` in `result.json`; `denied_actions` lists what was refused, `warnings` lists a timeout (partial output), an interruption or a failed commit. `usage` shows the tokens spent. Slugs are lowercase letters, digits, `.`, `_`, `-`.
-- Edit-only by default: agy can read and edit but **cannot run shell commands** (no tests, builds or installs). Run those yourself in `worktree` before you merge.
+- Edit-only by default: agy can read and edit but **cannot run shell commands** (no tests, builds or installs). Run those yourself in `worktree` before you merge. `--agent <specialist>` (start only; resume reuses it) runs a SwarmKit specialist with the same file-only access; its out-of-worktree attempts show up in `denied_actions`.
 - Check `response` against `git diff <base>..agy/<slug>`; the diff is the truth, the prose is a claim.
 - Review notes from agy are advisory. Verify each against the code before acting on it.
 

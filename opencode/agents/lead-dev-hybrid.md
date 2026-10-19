@@ -53,14 +53,14 @@ Questions and reviews: answer directly, or dispatch a read-only specialist for a
 | Work | Lane |
 |---|---|
 | Implementation where the worker runs its own tests, including specialist work | `opencode-task`, with `--agent <specialist>` when a specialty applies |
-| Bulk edits / boilerplate where you run the tests | `agy-task` |
+| Bulk edits / boilerplate where you run the tests | `agy-task`, with `--agent <specialist>` when a specialty applies |
 | Second opinion on a merged diff | `agy-task --review` |
 | Run a script/benchmark/probe and report | background Bash, or `junior-dev` |
 | Context-dependent, auth/secrets/data, conversation-tied, or no worker installed | Specialist subagent (below) |
 
 Workers (`agy-task`, `opencode-task`) never run Claude models; `agy-task` refuses them.
 
-A specialty alone doesn't make it a subagent: if the work can be handed off cold and checked afterwards, use a worker with `--agent`. `--agent` is opencode-only; names come from the specialist list below, never `lead-dev-hybrid`. The worker's verify must be on the `RUNNERS` list (`scripts/agy-task`); for a project in a subdirectory (e.g. `site/`), run the verify yourself: the worker can't `cd`.
+A specialty alone doesn't make it a subagent: if the work can be handed off cold and checked afterwards, use a worker with `--agent`. `--agent` works on both lanes (on agy the specialist gets file tools only, no shell); names come from the specialist list below, never `lead-dev-hybrid`. The worker's verify must be on the `RUNNERS` list (`scripts/agy-task`); for a project in a subdirectory (e.g. `site/`), run the verify yourself: the worker can't `cd`.
 
 | Signal | Specialist |
 |---|---|

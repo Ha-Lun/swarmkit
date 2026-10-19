@@ -207,10 +207,6 @@ rc=0; out=$("$TASK" start ag_orch --agent lead-dev-hybrid "hi" 2>&1) || rc=$?
 [ "$rc" = 2 ] || fail "orchestrator agent exit code: $rc"
 echo "$out" | grep -q "^opencode-task: orchestrators cannot run as workers: lead-dev-hybrid" || fail "orchestrator message: $out"
 [ ! -e "$OPENCODE_TASK_DIR"/*/ag_orch ] || fail "orchestrator agent left a task dir"
-rc=0; out=$("$AGY_TASK" start ag_agy --agent frontend-specialist "hi" 2>&1) || rc=$?
-[ "$rc" = 2 ] || fail "agy lane agent exit code: $rc"
-echo "$out" | grep -q "^agy-task: --agent is not supported on the agy lane" || fail "agy lane message: $out"
-[ ! -e "$AGY_TASK_DIR"/*/ag_agy ] || fail "agy lane agent left a task dir"
 printf -- "---\npermission:\n  edit:\n    '*': allow\n    '.git/*': allow\n---\n" > "$SWARMKIT_OPENCODE_AGENTS_DIR/gitty.md"
 rc=0; out=$("$TASK" start ag_git --agent gitty "hi" 2>&1) || rc=$?
 [ "$rc" = 2 ] || fail "agent with a .git edit rule exit code: $rc"
@@ -364,6 +360,59 @@ for s in gi4 gi5 gi7 gi11 gi13; do "$AGY_TASK" clean $s --force; done
 [ -z "$(git branch --list 'opencode/gi*' 'agy/gi*')" ] || fail "clean left branches"
 nomark "clean"
 unset STUB_PLANT
+
+# --- agy --agent: per-run agent with a file-only tool list and a worktree gate hook, never committed
+export SWARMKIT_AGY_AGENTS_DIR="$T/agy-agents"
+mkdir -p "$SWARMKIT_AGY_AGENTS_DIR"
+printf -- '---\nname: frontend-specialist\ndescription: d\n---\nBODY\n' > "$SWARMKIT_AGY_AGENTS_DIR/frontend-specialist.md"
+# The stub records its args, edits a file and calls the gate hook from .agents/hooks.json the way agy would.
+cat > "$T/bin/agy" <<'S'
+#!/bin/sh
+printf '%s\n' "$*" >> "$STUB_ARGS.agy"
+echo stub > stub.txt
+hook=$(jq -r '.[].PreToolUse[0].hooks[0].command' .agents/hooks.json 2>/dev/null)
+[ -n "$hook" ] && echo "{\"toolCall\":{\"name\":\"view_file\",\"args\":{\"AbsolutePath\":\"${STUB_READ:-$PWD/stub.txt}\"}}}" | (cd .agents && sh -c "$hook") > "$STUB_ARGS.gate"
+printf '{"status":"SUCCESS","conversation_id":"c1","response":"done"}\n'
+S
+chmod +x "$T/bin/agy"
+adir() { ls -d "$AGY_TASK_DIR"/*/"$1"; }
+rc=0; out=$("$AGY_TASK" start ag_agy --agent no-such-agent "hi" 2>&1) || rc=$?
+[ "$rc" = 2 ] || fail "agy lane unknown agent exit code: $rc"
+echo "$out" | grep -q "^agy-task: unknown Antigravity agent: no-such-agent" || fail "agy lane message: $out"
+[ ! -e "$AGY_TASK_DIR"/*/ag_agy ] || fail "agy lane agent left a task dir"
+rc=0; "$AGY_TASK" start ag_agy2 --agent lead-dev-hybrid "hi" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "agy lane orchestrator exit code: $rc"
+"$AGY_TASK" start ga1 --agent frontend-specialist "p" >/dev/null 2>&1 || fail "agy agent start not ok"
+grep -q -- "--agent frontend-specialist" "$STUB_ARGS.agy" || fail "agy --agent not passed: $(cat "$STUB_ARGS.agy")"
+grep -q -- "-p Headless worker" "$STUB_ARGS.agy" || fail "agy agent prompt lacks the headless note"
+[ "$(jq -r .decision "$STUB_ARGS.gate")" = allow ] || fail "gate denied a worktree read: $(cat "$STUB_ARGS.gate")"
+W=$(adir ga1)/worktree
+A="$W/.agents/agents/frontend-specialist/agent.md"
+grep -q '^  - write_to_file$' "$A" && ! grep -q 'run_command' "$A" && grep -q '^inheritMcp: false$' "$A" && grep -q '^BODY$' "$A" \
+  || fail "agy agent overlay: $(cat "$A")"
+[ "$(git -C "$W" show --name-only --format= HEAD)" = stub.txt ] || fail "overlay committed: $(git -C "$W" show --name-only --format= HEAD)"
+"$AGY_TASK" resume ga1 "again" >/dev/null 2>&1 || true
+[ "$(grep -c -- '--agent frontend-specialist' "$STUB_ARGS.agy")" = 2 ] || fail "agy resume must keep --agent"
+STUB_READ=/etc/hostname "$AGY_TASK" start ga2 --agent frontend-specialist "p" >/dev/null 2>&1 && fail "outside read reported ok"
+[ "$(jq -r .decision "$STUB_ARGS.gate")" = deny ] || fail "gate allowed /etc/hostname"
+[ "$(jq -r '.denied_actions[0]' "$(adir ga2)/result.json")" = "view_file /etc/hostname" ] || fail "gate denial not in denied_actions"
+"$AGY_TASK" start ga3 --agent frontend-specialist --review "p" >/dev/null 2>&1 || true
+grep -q 'write_to_file' "$(adir ga3)/worktree/.agents/agents/frontend-specialist/agent.md" && fail "--review agent can edit"
+# gate: shell, customization files and a symlink out of the worktree are denied
+G="${TASK%/*}/agy-gate.py"; ln -s /etc "$W/out"
+gate() { echo "$2" | python3 -I "$G" "$W" "$T/g.log" | jq -r .decision | grep -qx "$1" || fail "gate not $1: $2"; }
+gate deny '{"toolCall":{"name":"run_command","args":{"CommandLine":"ls"}}}'
+gate deny '{"toolCall":{"name":"write_to_file","args":{"TargetFile":".agents/hooks.json","CodeContent":"{}"}}}'
+gate deny '{"toolCall":{"name":"view_file","args":{"AbsolutePath":"out/hostname"}}}'
+gate allow '{"toolCall":{"name":"edit_file","args":{"TargetFile":"stub.txt","ReplacementContent":"/etc/x"}}}'
+gate deny 'not json'
+# a base that tracks the overlay paths is refused
+mkdir -p .agents && echo '{}' > .agents/hooks.json && git add .agents && git commit -qm hooks
+rc=0; out=$("$AGY_TASK" start ga4 --agent frontend-specialist "p" 2>&1) || rc=$?
+[ "$rc" = 2 ] && echo "$out" | grep -q "already tracks" || fail "tracked overlay not refused ($rc): $out"
+git reset -q --hard HEAD~1
+for s in ga1 ga2 ga3; do "$AGY_TASK" clean $s --force; done
+unset SWARMKIT_AGY_AGENTS_DIR
 
 # --- dispatch log: allowlisted fields only
 export SWARMKIT_DISPATCH_LOG="$T/dispatch.jsonl"

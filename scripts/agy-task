@@ -39,12 +39,18 @@ stopped worker at most once (only if its edits are worth keeping); then take the
 from a small table (currently empty); a model not in the table gets no effort suffix, since a variant
 a model lacks fails the whole run (muse rejects `max`). --effort "" forces none. Resume reuses the model and effort of start.
 
-An opencode worker can run as a named specialist with --agent NAME (start only; resume reuses it).
-The worker launches with `--agent NAME` instead of `--agent build` while the model flag stays on the
-worker allowlist. The sandbox overlay is also applied under `agent.NAME.permission`, so the agent's
-own permission block (e.g. bash '*': allow) cannot widen the sandbox. A headless note (no browser or
-MCP here) is prepended to the prompt. --agent is rejected on the agy lane, for the lead-dev-hybrid
-orchestrator, and for unknown agents (opencode/agents/NAME.md, or $SWARMKIT_OPENCODE_AGENTS_DIR in tests).
+A worker can run as a named specialist with --agent NAME (start only; resume reuses it), while the model
+flag stays on the worker allowlist. A headless note (no browser or MCP here) is prepended to the prompt.
+--agent is rejected for the lead-dev-hybrid orchestrator and for unknown agents.
+opencode: `--agent NAME` instead of `--agent build`; the sandbox overlay is also applied under
+`agent.NAME.permission`, so the agent's own permission block (e.g. bash '*': allow) cannot widen it.
+Agents: opencode/agents/NAME.md ($SWARMKIT_OPENCODE_AGENTS_DIR in tests).
+agy: `--agent NAME` plus two per-run files in the worktree, never committed: .agents/agents/NAME/agent.md
+(the plugin agent with an explicit tool list: file tools only, read-only under --review, no shell or MCP)
+and .agents/hooks.json, a PreToolUse hook (scripts/agy-gate.py) that allows those tools on worktree paths
+only and logs each denial into denied_actions. Edits to .agents/ (and agy's other customization roots) are
+denied, and a base that already tracks those two files is refused. --yolo adds the shell and drops the hook.
+Agents: antigravity/plugins/swarmkit/agents/NAME.md ($SWARMKIT_AGY_AGENTS_DIR in tests).
 
 start and resume print one banner line to stderr before the worker launches (slug, model, effort, base, log);
 the log is written live, and list shows model, elapsed time or wall seconds and (opencode) the live denied count.
@@ -56,7 +62,7 @@ null), wall_s and stopped_by (null | max-denied | max-tool-errors | timeout).
 The running-task limit is shared: agy and opencode tasks of all repos together never exceed it
 (the limit itself is read from the invoked backend's *_TASK_MAX). list and clean stay per repo.
 """
-import argparse, fcntl, functools, hashlib, json, os, re, shutil, signal, subprocess, sys, threading, time
+import argparse, fcntl, functools, hashlib, json, os, re, shlex, shutil, signal, subprocess, sys, threading, time
 from pathlib import Path
 
 # opencode-task is a symlink to this file; the name picks the backend
@@ -68,8 +74,12 @@ def seconds(s):
 
 
 def agy_cmd(task, prompt, a, resume_id):
+    agent = getattr(a, "agent", None)
+    if agent:
+        agy_overlay(task, a, agent)
+        prompt = HEADLESS_NOTE + "\n\n" + prompt
     cmd = ["agy", "-p", prompt, "--output-format", "json", "--mode", "accept-edits",
-           "--print-timeout", f"{seconds(a.timeout)}s"]
+           "--print-timeout", f"{seconds(a.timeout)}s"] + (["--agent", agent] if agent else [])
     if resume_id:
         cmd += ["--conversation", resume_id]
     else:
@@ -179,6 +189,39 @@ def agent_edits_git(agent):
 
 HEADLESS_NOTE = ("Headless worker: there is no browser or MCP here, so skip Playwright/screenshot steps;"
                  " the orchestrator verifies visually.")
+
+
+def agy_agents_dir():
+    d = os.environ.get("SWARMKIT_AGY_AGENTS_DIR")
+    return Path(d) if d else Path(__file__).resolve().parent.parent / "antigravity" / "plugins" / "swarmkit" / "agents"
+
+
+# A named agy agent gets only the tools its frontmatter lists, and headless agy auto-denies even reads under
+# it. So each run writes two workspace customizations into the worktree (they outrank the plugin, and the
+# commit skips them): the agent with an explicit tool list (no run_command, no MCP), and a PreToolUse hook
+# (agy-gate.py) that allows those tools on worktree paths only. The user's agy settings stay untouched.
+AGY_TOOLS = ("view_file", "list_dir", "grep_search", "find_by_name")
+AGY_EDIT_TOOLS = ("write_to_file", "edit_file", "multi_replace_file_content")
+AGY_OVERLAY = (".agents/hooks.json", ".agents/agents/{}")
+
+
+def agy_overlay(task, a, agent):
+    wt = task / "worktree"
+    _, fm, body = (agy_agents_dir() / f"{agent}.md").read_text().split("---\n", 2)
+    tools = AGY_TOOLS + (() if a.review else AGY_EDIT_TOOLS) + (("run_command",) if a.yolo else ())
+    fm = fm.rstrip("\n") + "\ninheritMcp: false\ntools:\n" + "".join(f"  - {t}\n" for t in tools)
+    d = wt / ".agents" / "agents" / agent
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "agent.md").write_text(f"---\n{fm}---\n{body}")
+    hooks = wt / ".agents" / "hooks.json"
+    (task / "gate.log").write_text("")  # this run's denials
+    if a.yolo:  # unsandboxed: no gate
+        hooks.unlink(missing_ok=True)
+    else:
+        gate = ["python3", "-I", str(Path(__file__).resolve().parent / "agy-gate.py"), str(wt), str(task / "gate.log")]
+        hooks.write_text(json.dumps({"swarmkit-worktree-gate": {"PreToolUse": [
+            {"matcher": "*", "hooks": [{"type": "command", "command": shlex.join(gate), "timeout": 10}]}]}}, indent=1))
+    (task / "overlay").write_text("\n".join(p.format(agent) for p in AGY_OVERLAY))
 
 
 def opencode_cmd(task, prompt, a, resume_id):
@@ -420,9 +463,9 @@ def git_meta(p):
 
 
 def spec(task):
-    """Pathspec for the worktree: everything except what --setup created."""
-    f = task / "setup-artifacts"
-    return ["--", ".", *[f":(exclude){x}" for x in (f.read_text().split("\n") if f.exists() else []) if x]]
+    """Pathspec for the worktree: everything except what --setup created and the agy --agent overlay."""
+    fs = [task / "setup-artifacts", task / "overlay"]
+    return ["--", ".", *[f":(exclude){x}" for f in fs if f.exists() for x in f.read_text().split("\n") if x]]
 
 
 def main_state(repo):
@@ -568,6 +611,8 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     logf.close()
     (task / f"{CLI}.log").write_text(f"{err}\n{out}")
     res = BACKEND["parse"](out, err)
+    if (task / "gate.log").exists():  # agy --agent: denials by agy-gate.py, which agy does not report
+        res["denied"] += [x for x in (task / "gate.log").read_text().splitlines() if x]
     warnings = list(warnings)
     # The main repo's git metadata first: if it changed, run no git at all (not even main_state's status).
     meta = check_pin(pinned) or ("" if git_meta(pinned) == meta_before else "config, hooks, info/ or worktree record")
@@ -651,7 +696,7 @@ def main():
     ap.add_argument("prompt", nargs="?", help="task text, or - to read it from stdin")
     ap.add_argument("--model", default=BACKEND["model"])
     ap.add_argument("--effort", help="model variant; default per model, '' for none")
-    ap.add_argument("--agent", default=None, help="opencode specialist agent (start only; resume reuses it)")
+    ap.add_argument("--agent", default=None, help="specialist agent (start only; resume reuses it)")
     ap.add_argument("--timeout", default="20m")
     ap.add_argument("--base", default="HEAD")
     ap.add_argument("--setup", help="shell command run in the worktree before agy (start only)")
@@ -670,21 +715,23 @@ def main():
         sys.exit(2)
 
     if a.cmd == "start" and getattr(a, "agent", None):
-        if PROG == "agy-task":
-            print("agy-task: --agent is not supported on the agy lane (headless agy denies file reads under a named agent)", file=sys.stderr)
-            sys.exit(2)
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", a.agent):
             print(f"{PROG}: invalid agent name: {a.agent}", file=sys.stderr)
             sys.exit(2)
         if a.agent == "lead-dev-hybrid":
             print(f"{PROG}: orchestrators cannot run as workers: lead-dev-hybrid", file=sys.stderr)
             sys.exit(2)
-        if not (agents_dir() / f"{a.agent}.md").is_file():
-            print(f"{PROG}: unknown OpenCode agent: {a.agent}", file=sys.stderr)
+        if not ((agy_agents_dir() if CLI == "agy" else agents_dir()) / f"{a.agent}.md").is_file():
+            print(f"{PROG}: unknown {'Antigravity' if CLI == 'agy' else 'OpenCode'} agent: {a.agent}", file=sys.stderr)
             sys.exit(2)
-        if agent_edits_git(a.agent):
+        if CLI == "opencode" and agent_edits_git(a.agent):
             print(f"{PROG}: agent {a.agent} has an edit rule for .git; it cannot run as a worker", file=sys.stderr)
             sys.exit(2)
+        if CLI == "agy":  # the overlay would replace the repo's own files
+            mine = [p.format(a.agent) for p in AGY_OVERLAY]
+            if sh("git", "ls-tree", "-r", "--name-only", a.base, "--", *mine, check=False):
+                print(f"{PROG}: {a.base} already tracks {' or '.join(mine)}; --agent cannot run here", file=sys.stderr)
+                sys.exit(2)
 
     def base(b):  # resolved, so the worktree path git records is the one we check against
         return Path(os.path.realpath(os.environ.get(f"{b['env']}_DIR", Path.home() / b["home"])))

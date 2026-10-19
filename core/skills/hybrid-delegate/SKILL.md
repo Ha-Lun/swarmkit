@@ -28,7 +28,7 @@ Everything else in the approved plan goes to a worker.
    | Task | Backend |
    |---|---|
    | Implementation where the worker should run its own tests | `opencode-task` (free `opencode-go/` model) |
-| The same, needing a specialty (UI, animation, backend, devops...) | `opencode-task --agent <specialist>` (lane model; opencode only, never `lead-dev-hybrid`) |
+| The same, needing a specialty (UI, animation, backend, devops...) | `opencode-task --agent <specialist>` (lane model, never `lead-dev-hybrid`); on agy, `agy-task --agent <specialist>` when you run the tests (file tools only) |
    | Bulk edits / boilerplate where you run the tests | `agy-task` (default `gemini-3.8-flash-high`) |
    | Second opinion on your own diff | `agy-task --review --model gemini-3.8-flash-high` |
    | Context-dependent work that cannot be handed off cold | Your own `Agent` subagents (Claude lane) |
