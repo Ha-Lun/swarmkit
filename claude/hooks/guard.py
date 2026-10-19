@@ -248,6 +248,11 @@ def check_path(agent_name, path, cwd):
 
 
 def decide(agent_name, data):
+    # A main-thread agent's frontmatter hooks also fire for its subagents' calls. Those carry their own
+    # `agent_type`; a guard only applies to its own agent (main thread has no agent_type).
+    agent_type = data.get('agent_type')
+    if agent_type and agent_type != agent_name:
+        return None
     tool_name = data.get('tool_name') or data.get('tool', '')
     params = data.get('tool_input') or data.get('params') or {}
     cmd = params.get('command') or params.get('cmd') or ''
