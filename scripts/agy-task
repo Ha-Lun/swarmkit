@@ -147,17 +147,33 @@ def agents_dir():
 
 
 def agent_edits_git(agent):
-    """True if the agent's frontmatter `edit:` map has a key naming .git: merged with the overlay, such a
-    rule could land after the .git deny and win."""
+    """True if the agent's frontmatter `edit:` map (block or inline form) has a non-deny rule that names .git
+    (`.git/hooks/*`, `.gi?`) or matches a .git path as a whole (`**`; opencode's `*` crosses `/`): merged with
+    the overlay, it would land after the .git deny and win. `*` is the overlay's own first key, so it keeps its
+    place. `**/test/**` passes; a nested .git it could write is caught after the run (nested_gits)."""
+    def glob(k):
+        return re.compile(re.escape(k).replace(r"\*", ".*").replace(r"\?", "."))
+    def risky(entry):
+        m = re.match(r"\s*(['\"]?)(.*?)\1\s*:\s*['\"]?(\w*)", entry)
+        if not m or m.group(3) == "deny" or m.group(2) == "*":
+            return False
+        k = m.group(2)
+        return any(glob(k).fullmatch(x) for x in (".git", ".git/config", ".git/hooks/x", "x/.git", "x/.git/config")) \
+            or any(glob(c).fullmatch(".git") for c in k.split("/") if not re.fullmatch(r"\*+", c))
     lines = (agents_dir() / f"{agent}.md").read_text().split("\n---", 1)[0].splitlines()
     for i, line in enumerate(lines):
-        m = re.match(r"(\s*)edit:\s*$", line)
-        if m:
-            for sub in lines[i + 1:]:
-                if len(sub) - len(sub.lstrip()) <= len(m.group(1)):
-                    break
-                if ".git" in sub.split(":")[0].strip().strip("'\""):
-                    return True
+        m = re.match(r"(\s*)edit:\s*(.*)$", line)
+        if not m:
+            continue
+        if m.group(2).startswith("{"):
+            if any(risky(e) for e in m.group(2).strip("{} ").split(",")):
+                return True
+            continue
+        for sub in lines[i + 1:]:
+            if len(sub) - len(sub.lstrip()) <= len(m.group(1)):
+                break
+            if risky(sub):
+                return True
     return False
 
 
@@ -367,13 +383,16 @@ def restore_dotgit(p):
 def nested_gits(wt):
     """Each entry named .git (any case) below the worktree root, and the root .gitmodules, with a content
     signature: a nested repo's own config or a submodule entry would make git run what the worker planted."""
-    def sig(path):
-        if os.path.islink(path):
-            return "link:" + os.readlink(path)
-        if os.path.isdir(path):
-            return "dir:" + "".join(hashlib.sha1(Path(path, n).read_bytes()).hexdigest() if Path(path, n).is_file()
-                                    else "-" for n in ("config", "HEAD", "commondir", "gitdir"))
-        return "file:" + hashlib.sha1(Path(path).read_bytes()).hexdigest()
+    def sig(path):  # regular files only: reading a planted FIFO would hang the wrapper
+        try:
+            if os.path.islink(path):
+                return "link:" + os.readlink(path)
+            if os.path.isdir(path):
+                return "dir:" + "".join(hashlib.sha1(Path(path, n).read_bytes()).hexdigest() if Path(path, n).is_file()
+                                        else "-" for n in ("config", "HEAD", "commondir", "gitdir"))
+            return "file:" + hashlib.sha1(Path(path).read_bytes()).hexdigest() if os.path.isfile(path) else "other"
+        except OSError as e:
+            return f"unreadable: {e}"
     found = {}
     for d, dirs, files in os.walk(wt):  # followlinks=False: a symlinked dir is listed, not entered
         for n in dirs + files:
@@ -387,13 +406,13 @@ def nested_gits(wt):
 
 def git_meta(p):
     """Hash of the main repo's git metadata a worker could plant commands in: config, hooks, info/ and this
-    worktree's own record."""
+    worktree's own record (HEAD too: pointed at main's branch, our commit would land there)."""
     c, g, h = p["common"], Path(p["gitdir"]), hashlib.sha1()
-    for f in [c / "config", g / "commondir", g / "gitdir", g / "config.worktree",
+    for f in [c / "config", g / "commondir", g / "gitdir", g / "config.worktree", g / "HEAD",
               *[x for d in (c / "hooks", c / "info") for x in ([d, *sorted(d.rglob("*"))] if d.is_dir() else [d])]]:
         try:
             v = (b"link:" + os.readlink(f).encode() if f.is_symlink() else f.read_bytes() if f.is_file()
-                 else b"dir" if f.is_dir() else b"none")
+                 else b"dir" if f.is_dir() else b"other" if os.path.lexists(f) else b"none")
         except OSError as e:
             v = str(e).encode()
         h.update(str(f).encode() + b"\0" + v + b"\0")

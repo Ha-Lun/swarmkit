@@ -11,6 +11,7 @@ mkdir -p "$T/bin"
 #   and on both lanes (bin/modes): tamper (points .git at the planted gitdir $STUB_PLANT) | tamperdir (replaces .git
 #   with a copy of it) | symlink (.git -> $STUB_PLANT) | delete (removes .git) | nested (sub/.git -> $STUB_PLANT)
 #   | gitmodules (writes .gitmodules) | meta (writes a file into $STUB_META, the main repo's info/)
+#   | head (points this worktree's HEAD record at branch $STUB_HEAD) | fifo (sub/.git is a FIFO)
 cat > "$T/bin/modes" <<'S'
 case "${STUB_MODE:-ok}" in
   tamper) printf 'gitdir: %s\n' "$STUB_PLANT" > .git ;;
@@ -20,6 +21,8 @@ case "${STUB_MODE:-ok}" in
   nested) mkdir -p sub && printf 'gitdir: %s\n' "$STUB_PLANT" > sub/.git && echo a > sub/f && echo '* filter=evil' > sub/.gitattributes ;;
   gitmodules) printf '[submodule "x"]\n\tpath = x\n\turl = ../x\n' > .gitmodules ;;
   meta) echo planted > "$STUB_META/planted" ;;
+  head) printf 'ref: refs/heads/%s\n' "$STUB_HEAD" > "$(sed 's/^gitdir: //' .git)/HEAD" ;;
+  fifo) mkdir -p sub && mkfifo sub/.git ;;
 esac
 S
 cat > "$T/bin/opencode" <<'S'
@@ -213,6 +216,10 @@ rc=0; out=$("$TASK" start ag_git --agent gitty "hi" 2>&1) || rc=$?
 [ "$rc" = 2 ] || fail "agent with a .git edit rule exit code: $rc"
 echo "$out" | grep -q "^opencode-task: agent gitty has an edit rule for .git" || fail "agent .git rule message: $out"
 [ ! -e "$OPENCODE_TASK_DIR"/*/ag_git ] || fail "agent with a .git edit rule left a task dir"
+printf -- "---\npermission:\n  edit: {'*': allow, '**': allow}\n---\n" > "$SWARMKIT_OPENCODE_AGENTS_DIR/broad.md"
+rc=0; out=$("$TASK" start ag_broad --agent broad "hi" 2>&1) || rc=$?
+[ "$rc" = 2 ] || fail "agent with an inline ** edit rule exit code: $rc"
+echo "$out" | grep -q "^opencode-task: agent broad has an edit rule for .git" || fail "inline ** rule message: $out"
 "$TASK" start ag2 "p" >/dev/null 2>&1 || true
 [ "$(last_agent)" = "build" ] || fail "default agent should be build, got $(last_agent)"
 for s in ag1 ag2; do "$TASK" clean $s --force; done
@@ -238,6 +245,7 @@ for h in pre-commit post-commit reference-transaction post-index-change; do
 done
 git -C "$T/plant" config core.hooksPath "$STUB_PLANT/evil-hooks"
 git -C "$T/plant" config filter.evil.clean "touch $T/marker; cat"
+mkdir -p "$STUB_PLANT/info" && echo '* filter=evil' > "$STUB_PLANT/info/attributes"  # read from whichever GIT_DIR is used
 git -C "$T/plant" config core.fsmonitor "touch $T/marker; false"   # set last: git -C plant now trips it
 plant_head=$(git --git-dir="$STUB_PLANT" -c core.fsmonitor=false rev-parse HEAD)
 main_refs=$(git for-each-ref --format='%(refname) %(objectname)' refs/heads)
@@ -281,16 +289,19 @@ tampered agy "$AGY_RES" gi5 "$(git rev-parse agy/gi5)"
 [ "$(git rev-parse agy/gi5~1)" = "$(cat "$AGY_RES"/r1-*/gi5/base)" ] || fail "agy resume: unexpected commits"
 [ "$(git for-each-ref --format='%(refname) %(objectname)' refs/heads | grep -v '^refs/heads/[a-z]*/gi')" = "$main_refs" ] \
   || fail "a main repo branch moved"
-# pinning on its own: a late re-tamper after the run; clean's dirty check (no --force) must not follow it
+# pinning on its own: a late re-tamper after the run; clean's dirty check (no --force) runs git status before it
+# compares .git, so only the pin keeps that status out of the planted gitdir (whose info/attributes filter f)
 d3=$(ls -d "$OPENCODE_TASK_DIR"/r1-*/gi3)
-printf 'gitdir: %s\n' "$STUB_PLANT" > "$d3/worktree/.git"
+printf 'gitdir: %s\n' "$STUB_PLANT" > "$d3/worktree/.git" && echo y > "$d3/worktree/f"
 out=$("$TASK" clean gi3 2>&1) && fail "clean accepted a re-tampered .git"
 nomark "late re-tamper clean"
-echo "$out" | grep -q "was changed since the run" || fail "re-tamper clean message: $out"
-cp "$d3/dotgit" "$d3/worktree/.git"
-# M1: run from inside a task worktree (or a nested dir there): refused before any git call
+echo "$out" | grep -Eq "was changed since the run|has uncommitted changes" || fail "re-tamper clean message: $out"
+# M1: run from inside a task worktree (or a nested dir there): refused before any git call, which would
+# otherwise follow the (here still re-tampered) .git
 out=$(cd "$d3/worktree" && "$TASK" start m1 "p" 2>&1) && fail "start from inside a task worktree accepted"
+nomark "start from inside a task worktree"
 echo "$out" | grep -q "run opencode-task from the main checkout" || fail "inside-worktree message: $out"
+cp "$d3/dotgit" "$d3/worktree/.git" && rm "$d3/worktree/f"
 out=$(cd "$d3" && "$AGY_TASK" list 2>&1) && fail "agy list from inside a task dir accepted"
 echo "$out" | grep -q "from the main checkout" || fail "inside-task-dir message: $out"
 # M2: a nested repo blocks the commit. The base has a gitlink sub, so a status run without
@@ -304,16 +315,19 @@ nomark "nested clean"
 STUB_MODE=gitmodules "$AGY_TASK" start gi11 "p" >/dev/null 2>&1 && fail "gitmodules run reported success"
 blocked agy "$AGY_RES" gi11 "^worker changed .gitmodules"
 "$TASK" start gi10 --setup "git init -q vendor/lib" "p" >/dev/null 2>&1 || fail "a nested repo made by --setup blocked the run"
-# M3: the recorded gitdir, the dotgit snapshot and the worktree path are checked against the main repo
+# M3: the recorded gitdir, the dotgit snapshot and the worktree path are checked against the main repo.
+# opts.json, dotgit and .git all re-pointed at the plant, consistently: only that check keeps git out of it.
 d5=$(ls -d "$AGY_RES"/r1-*/gi5)
-cp "$d5/opts.json" "$T/opts.bak"
+cp "$d5/opts.json" "$T/opts.bak"; cp "$d5/dotgit" "$T/dotgit.bak"
 jq --arg g "$STUB_PLANT" '.gitdir = $g' "$T/opts.bak" > "$d5/opts.json"
+printf 'gitdir: %s\n' "$STUB_PLANT" | tee "$d5/dotgit" > "$d5/worktree/.git"; echo y > "$d5/worktree/f"
 out=$("$AGY_TASK" resume gi5 "again" 2>&1) && fail "resume accepted a tampered opts.json gitdir"
+nomark "resume with a tampered gitdir"
 echo "$out" | grep -q "is not an entry of" || fail "tampered gitdir resume message: $out"
 out=$("$AGY_TASK" clean gi5 2>&1) && fail "clean accepted a tampered opts.json gitdir"
+nomark "clean with a tampered gitdir"
 echo "$out" | grep -q "is not an entry of" || fail "tampered gitdir clean message: $out"
-cp "$T/opts.bak" "$d5/opts.json"
-cp "$d5/dotgit" "$T/dotgit.bak"
+cp "$T/opts.bak" "$d5/opts.json"; cp "$T/dotgit.bak" "$d5/dotgit"; cp "$T/dotgit.bak" "$d5/worktree/.git"; rm "$d5/worktree/f"
 printf 'gitdir: %s\n' "$STUB_PLANT" > "$d5/dotgit"
 out=$("$AGY_TASK" resume gi5 "again" 2>&1) && fail "resume accepted a tampered dotgit"
 echo "$out" | grep -q "does not match the recorded gitdir" || fail "tampered dotgit message: $out"
@@ -328,14 +342,24 @@ STUB_MODE=meta "$TASK" start gi12 "p" >/dev/null 2>&1 && fail "metadata-changing
 blocked opencode "$OPENCODE_TASK_DIR" gi12 "^git metadata changed during the run"
 [ "$(res r1 .changes gi12)" = "not inspected" ] || fail "metadata change: git still ran in the worktree"
 rm "$STUB_META/planted"; unset STUB_META
+# HEAD record pointed at the main branch (plain agy can write there by absolute path): our commit would land on it
+main_branch=$(git symbolic-ref --short HEAD); main_head=$(git rev-parse HEAD)
+STUB_MODE=head STUB_HEAD="$main_branch" "$AGY_TASK" start gi13 "p" >/dev/null 2>&1 && fail "HEAD-redirecting run reported success"
+nomark "agy gi13"
+[ "$(jq -r .ok "$AGY_RES"/r1-*/gi13/result.json)" = false ] || fail "HEAD-redirecting run reported ok"
+jq -r '.warnings[]' "$AGY_RES"/r1-*/gi13/result.json | grep -q "^git metadata changed during the run" || fail "HEAD record change not caught"
+[ "$(git rev-parse "$main_branch")" = "$main_head" ] || fail "the worker's tree was committed onto $main_branch"
+# a FIFO named .git must not hang the nested scan
+STUB_MODE=fifo timeout 60 "$TASK" start gi14 "p" >/dev/null 2>&1 && fail "fifo run reported success"
+blocked opencode "$OPENCODE_TASK_DIR" gi14 "^worker created a nested .git at sub/.git"
 # legacy task (no recorded gitdir): resume refuses, plain clean refuses, clean --force works
 jq 'del(.gitdir)' "$d3/opts.json" > "$T/o" && mv "$T/o" "$d3/opts.json"
 out=$("$TASK" resume gi3 "again" 2>&1) && fail "legacy resume accepted"
 echo "$out" | grep -q "started before git isolation" || fail "legacy resume message: $out"
 out=$("$TASK" clean gi3 2>&1) && fail "legacy clean without --force accepted"
 echo "$out" | grep -q "no recorded gitdir" || fail "legacy clean message: $out"
-for s in gi1 gi2 gi3 gi6 gi8 gi9 gi10 gi12; do "$TASK" clean $s --force; done
-for s in gi4 gi5 gi7 gi11; do "$AGY_TASK" clean $s --force; done
+for s in gi1 gi2 gi3 gi6 gi8 gi9 gi10 gi12 gi14; do "$TASK" clean $s --force; done
+for s in gi4 gi5 gi7 gi11 gi13; do "$AGY_TASK" clean $s --force; done
 [ "$(git worktree list | wc -l)" = 1 ] || fail "clean left worktrees: $(git worktree list)"
 [ -z "$(git branch --list 'opencode/gi*' 'agy/gi*')" ] || fail "clean left branches"
 nomark "clean"
