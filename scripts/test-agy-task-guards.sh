@@ -7,14 +7,27 @@ T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 export OPENCODE_TASK_DIR="$T/oc" AGY_TASK_DIR="$T/agy" PATH="$T/bin:$PATH" STUB_ARGS="$T/args"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 mkdir -p "$T/bin"
-# STUB_MODE: ok (default) | deny (12 permission errors, then hangs) | slow (sleeps STUB_SLEEP s first)
-#   | tamper (points .git at the planted gitdir $STUB_PLANT) | tamperdir (replaces .git with a copy of it)
-#   | nested (a subdirectory repo sub/ whose .git points at $STUB_PLANT)
+# STUB_MODE: ok (default) | deny (opencode: 12 permission errors, then hangs) | slow (opencode: sleeps STUB_SLEEP s first)
+#   and on both lanes (bin/modes): tamper (points .git at the planted gitdir $STUB_PLANT) | tamperdir (replaces .git
+#   with a copy of it) | symlink (.git -> $STUB_PLANT) | delete (removes .git) | nested (sub/.git -> $STUB_PLANT)
+#   | gitmodules (writes .gitmodules) | meta (writes a file into $STUB_META, the main repo's info/)
+cat > "$T/bin/modes" <<'S'
+case "${STUB_MODE:-ok}" in
+  tamper) printf 'gitdir: %s\n' "$STUB_PLANT" > .git ;;
+  tamperdir) rm .git && cp -r "$STUB_PLANT" .git ;;
+  symlink) rm .git && ln -s "$STUB_PLANT" .git ;;
+  delete) rm .git ;;
+  nested) mkdir -p sub && printf 'gitdir: %s\n' "$STUB_PLANT" > sub/.git && echo a > sub/f && echo '* filter=evil' > sub/.gitattributes ;;
+  gitmodules) printf '[submodule "x"]\n\tpath = x\n\turl = ../x\n' > .gitmodules ;;
+  meta) echo planted > "$STUB_META/planted" ;;
+esac
+S
 cat > "$T/bin/opencode" <<'S'
 #!/bin/sh
 printf '%s\n' "$*" >> "$STUB_ARGS"
 printf '%s' "$OPENCODE_CONFIG_CONTENT" > "$STUB_ARGS.cfg"
 echo stub > stub.txt
+. "$(dirname "$0")/modes"
 case "${STUB_MODE:-ok}" in
   deny) i=0
     while [ $i -lt 12 ]; do
@@ -23,9 +36,6 @@ case "${STUB_MODE:-ok}" in
     done
     sleep 60 ;;
   slow) sleep "${STUB_SLEEP:-4}" ;;
-  tamper) printf 'gitdir: %s\n' "$STUB_PLANT" > .git ;;
-  tamperdir) rm .git && cp -r "$STUB_PLANT" .git ;;
-  nested) mkdir -p sub && printf 'gitdir: %s\n' "$STUB_PLANT" > sub/.git && echo a > sub/f && echo '* filter=evil' > sub/.gitattributes ;;
 esac
 printf '{"type":"text","sessionID":"ses_1","part":{"text":"all done PROMPT-SECRET"}}\n'
 printf '{"type":"step_finish","sessionID":"ses_1","part":{"tokens":{"input":10,"output":5,"reasoning":1,"cache":{"read":100,"write":0}}}}\n'
@@ -34,7 +44,7 @@ chmod +x "$T/bin/opencode"
 cat > "$T/bin/agy" <<'S'
 #!/bin/sh
 echo stub > stub.txt
-[ "${STUB_MODE:-ok}" = tamper ] && printf 'gitdir: %s\n' "$STUB_PLANT" > .git
+. "$(dirname "$0")/modes"
 printf '{"status":"SUCCESS","conversation_id":"c1","response":"done"}\n'
 S
 chmod +x "$T/bin/agy"
@@ -198,6 +208,11 @@ rc=0; out=$("$AGY_TASK" start ag_agy --agent frontend-specialist "hi" 2>&1) || r
 [ "$rc" = 2 ] || fail "agy lane agent exit code: $rc"
 echo "$out" | grep -q "^agy-task: --agent is not supported on the agy lane" || fail "agy lane message: $out"
 [ ! -e "$AGY_TASK_DIR"/*/ag_agy ] || fail "agy lane agent left a task dir"
+printf -- "---\npermission:\n  edit:\n    '*': allow\n    '.git/*': allow\n---\n" > "$SWARMKIT_OPENCODE_AGENTS_DIR/gitty.md"
+rc=0; out=$("$TASK" start ag_git --agent gitty "hi" 2>&1) || rc=$?
+[ "$rc" = 2 ] || fail "agent with a .git edit rule exit code: $rc"
+echo "$out" | grep -q "^opencode-task: agent gitty has an edit rule for .git" || fail "agent .git rule message: $out"
+[ ! -e "$OPENCODE_TASK_DIR"/*/ag_git ] || fail "agent with a .git edit rule left a task dir"
 "$TASK" start ag2 "p" >/dev/null 2>&1 || true
 [ "$(last_agent)" = "build" ] || fail "default agent should be build, got $(last_agent)"
 for s in ag1 ag2; do "$TASK" clean $s --force; done
@@ -209,8 +224,14 @@ AGY_RES="$AGY_TASK_DIR"
   = "**/.git **/.git/* .git .git/*" ] || fail "overlay does not deny edits to .git: $(jq -c .permission.edit "$STUB_ARGS.cfg")"
 [ "$(jq -r '.permission.edit | to_entries | first | "\(.key)=\(.value)"' "$STUB_ARGS.cfg")" = "*=allow" ] \
   || fail "the edit allow-all must come first (opencode: last match wins)"
-git init -q "$T/plant" && git -C "$T/plant" commit -q --allow-empty -m planted
-export STUB_PLANT="$T/plant/.git"
+# read-only git: --output, --no-index and --ext-diff are denied after the git allows (last match wins)
+for k in "git * --output*" "git * --no-index*" "git * --ext-diff*"; do
+  jq -e --arg k "$k" '.permission.bash | to_entries | (map(.key) | index($k)) as $d | $d != null and .[$d].value == "deny"
+        and ([to_entries[] | select(.value.value == "allow" and (.value.key | startswith("git "))) | .key] | max < $d)' \
+    "$STUB_ARGS.cfg" >/dev/null || fail "$k is not a deny after every git allow: $(jq -c .permission.bash "$STUB_ARGS.cfg")"
+done
+git init -q "$T/plant" && echo x > "$T/plant/f" && git -C "$T/plant" add f && git -C "$T/plant" commit -q -m planted
+export STUB_PLANT="$T/plant/.git"   # a tracked file: a status run inside a repo using this gitdir must clean-filter it
 mkdir -p "$STUB_PLANT/evil-hooks"
 for h in pre-commit post-commit reference-transaction post-index-change; do
   printf '#!/bin/sh\ntouch "%s"\n' "$T/marker" > "$STUB_PLANT/evil-hooks/$h"; chmod +x "$STUB_PLANT/evil-hooks/$h"
@@ -220,15 +241,23 @@ git -C "$T/plant" config filter.evil.clean "touch $T/marker; cat"
 git -C "$T/plant" config core.fsmonitor "touch $T/marker; false"   # set last: git -C plant now trips it
 plant_head=$(git --git-dir="$STUB_PLANT" -c core.fsmonitor=false rev-parse HEAD)
 main_refs=$(git for-each-ref --format='%(refname) %(objectname)' refs/heads)
+nomark() { [ ! -e "$T/marker" ] || fail "$1: a planted command ran"; }
 tampered() {  # LANE DIR SLUG [HEAD]: the result is NOT ok with the warning, .git is restored, nothing ran or was committed
   local d; d=$(ls -d "$2"/r1-*/"$3")
-  [ ! -e "$T/marker" ] || fail "$1 $3: a planted command ran"
+  nomark "$1 $3"
   [ "$(jq -r .ok "$d/result.json")" = false ] || fail "$1 $3: tampered run reported ok"
   jq -r '.warnings[]' "$d/result.json" | grep -q "^worker modified .git" || fail "$1 $3: no warning: $(jq -c .warnings "$d/result.json")"
-  [ -f "$d/worktree/.git" ] && cmp -s "$d/worktree/.git" "$d/dotgit" || fail "$1 $3: .git not restored"
+  [ -f "$d/worktree/.git" ] && [ ! -L "$d/worktree/.git" ] && cmp -s "$d/worktree/.git" "$d/dotgit" || fail "$1 $3: .git not restored"
   [ "$(git -C "$d/worktree" rev-parse HEAD)" = "${4:-$(cat "$d/base")}" ] || fail "$1 $3: the run was committed"
   [ "$(git --git-dir="$STUB_PLANT" -c core.fsmonitor=false rev-parse HEAD)" = "$plant_head" ] || fail "$1 $3: committed into the planted gitdir"
-  [ "$(git --git-dir="$STUB_PLANT" -c core.fsmonitor=false ls-files)" = "" ] || fail "$1 $3: staged into the planted gitdir"
+  [ "$(git --git-dir="$STUB_PLANT" -c core.fsmonitor=false ls-files)" = f ] || fail "$1 $3: staged into the planted gitdir"
+}
+blocked() {  # LANE DIR SLUG WARNING-REGEX: NOT ok with that warning, nothing committed, nothing ran
+  local d; d=$(ls -d "$2"/r1-*/"$3")
+  nomark "$1 $3"
+  [ "$(jq -r .ok "$d/result.json")" = false ] || fail "$1 $3: blocked run reported ok"
+  jq -r '.warnings[]' "$d/result.json" | grep -q "$4" || fail "$1 $3: no '$4' warning: $(jq -c .warnings "$d/result.json")"
+  [ "$(git -C "$d/worktree" rev-parse HEAD)" = "$(cat "$d/base")" ] || fail "$1 $3: the run was committed"
 }
 STUB_MODE=tamper "$TASK" start gi1 "p" >/dev/null 2>&1 && fail "opencode tampered start reported success"
 tampered opencode "$OPENCODE_TASK_DIR" gi1
@@ -238,31 +267,78 @@ tampered opencode "$OPENCODE_TASK_DIR" gi2
 gi3_head=$(git rev-parse opencode/gi3)
 STUB_MODE=tamper "$TASK" resume gi3 "again" >/dev/null 2>&1 && fail "opencode tampered resume reported success"
 tampered opencode "$OPENCODE_TASK_DIR" gi3 "$gi3_head"
+STUB_MODE=symlink "$TASK" start gi8 "p" >/dev/null 2>&1 || true
+tampered opencode "$OPENCODE_TASK_DIR" gi8
+STUB_MODE=delete "$TASK" start gi9 "p" >/dev/null 2>&1 || true
+tampered opencode "$OPENCODE_TASK_DIR" gi9
 STUB_MODE=tamper "$AGY_TASK" start gi4 "p" >/dev/null 2>&1 && fail "agy tampered start reported success"
 tampered agy "$AGY_RES" gi4
+STUB_MODE=tamperdir "$AGY_TASK" start gi7 "p" >/dev/null 2>&1 || true
+tampered agy "$AGY_RES" gi7
 "$AGY_TASK" start gi5 "p" >/dev/null 2>&1 || fail "untampered agy run not ok"
 STUB_MODE=tamper "$AGY_TASK" resume gi5 "again" >/dev/null 2>&1 && fail "agy tampered resume reported success"
 tampered agy "$AGY_RES" gi5 "$(git rev-parse agy/gi5)"
 [ "$(git rev-parse agy/gi5~1)" = "$(cat "$AGY_RES"/r1-*/gi5/base)" ] || fail "agy resume: unexpected commits"
 [ "$(git for-each-ref --format='%(refname) %(objectname)' refs/heads | grep -v '^refs/heads/[a-z]*/gi')" = "$main_refs" ] \
   || fail "a main repo branch moved"
-# a nested repo is committed as a gitlink only; the dirty checks must not run git inside it (its filter)
-STUB_MODE=nested "$TASK" start gi6 "p" >/dev/null 2>&1 || true
-out=$("$TASK" clean gi6 2>&1) && fail "clean accepted an unmerged branch"
-echo "$out" | grep -q "is not merged" || fail "nested clean message: $out"
-[ ! -e "$T/marker" ] || fail "a nested repo's planted filter ran"
-"$TASK" clean gi6 --force
+# pinning on its own: a late re-tamper after the run; clean's dirty check (no --force) must not follow it
+d3=$(ls -d "$OPENCODE_TASK_DIR"/r1-*/gi3)
+printf 'gitdir: %s\n' "$STUB_PLANT" > "$d3/worktree/.git"
+out=$("$TASK" clean gi3 2>&1) && fail "clean accepted a re-tampered .git"
+nomark "late re-tamper clean"
+echo "$out" | grep -q "was changed since the run" || fail "re-tamper clean message: $out"
+cp "$d3/dotgit" "$d3/worktree/.git"
+# M1: run from inside a task worktree (or a nested dir there): refused before any git call
+out=$(cd "$d3/worktree" && "$TASK" start m1 "p" 2>&1) && fail "start from inside a task worktree accepted"
+echo "$out" | grep -q "run opencode-task from the main checkout" || fail "inside-worktree message: $out"
+out=$(cd "$d3" && "$AGY_TASK" list 2>&1) && fail "agy list from inside a task dir accepted"
+echo "$out" | grep -q "from the main checkout" || fail "inside-task-dir message: $out"
+# M2: a nested repo blocks the commit. The base has a gitlink sub, so a status run without
+# --ignore-submodules=all would recurse into sub/ and clean-filter the planted repo's tracked f.
+withsub=$(git commit-tree -p HEAD -m sub "$(printf '160000 commit %s\tsub\n' "$plant_head" | git mktree)")
+STUB_MODE=nested "$TASK" start gi6 --base "$withsub" "p" >/dev/null 2>&1 && fail "nested run reported success"
+blocked opencode "$OPENCODE_TASK_DIR" gi6 "^worker created a nested .git at sub/.git"
+out=$("$TASK" clean gi6 2>&1) && fail "clean accepted the nested task"
+echo "$out" | grep -q "has uncommitted changes" || fail "nested clean message: $out"
+nomark "nested clean"
+STUB_MODE=gitmodules "$AGY_TASK" start gi11 "p" >/dev/null 2>&1 && fail "gitmodules run reported success"
+blocked agy "$AGY_RES" gi11 "^worker changed .gitmodules"
+"$TASK" start gi10 --setup "git init -q vendor/lib" "p" >/dev/null 2>&1 || fail "a nested repo made by --setup blocked the run"
+# M3: the recorded gitdir, the dotgit snapshot and the worktree path are checked against the main repo
+d5=$(ls -d "$AGY_RES"/r1-*/gi5)
+cp "$d5/opts.json" "$T/opts.bak"
+jq --arg g "$STUB_PLANT" '.gitdir = $g' "$T/opts.bak" > "$d5/opts.json"
+out=$("$AGY_TASK" resume gi5 "again" 2>&1) && fail "resume accepted a tampered opts.json gitdir"
+echo "$out" | grep -q "is not an entry of" || fail "tampered gitdir resume message: $out"
+out=$("$AGY_TASK" clean gi5 2>&1) && fail "clean accepted a tampered opts.json gitdir"
+echo "$out" | grep -q "is not an entry of" || fail "tampered gitdir clean message: $out"
+cp "$T/opts.bak" "$d5/opts.json"
+cp "$d5/dotgit" "$T/dotgit.bak"
+printf 'gitdir: %s\n' "$STUB_PLANT" > "$d5/dotgit"
+out=$("$AGY_TASK" resume gi5 "again" 2>&1) && fail "resume accepted a tampered dotgit"
+echo "$out" | grep -q "does not match the recorded gitdir" || fail "tampered dotgit message: $out"
+cp "$T/dotgit.bak" "$d5/dotgit"
+mv "$d5/worktree" "$d5/wt.real" && ln -s wt.real "$d5/worktree"
+out=$("$AGY_TASK" resume gi5 "again" 2>&1) && fail "resume accepted a symlinked worktree"
+echo "$out" | grep -q "is not a real directory" || fail "symlinked worktree message: $out"
+rm "$d5/worktree" && mv "$d5/wt.real" "$d5/worktree"
+nomark "M3 refusals"
+export STUB_META; STUB_META="$(git rev-parse --path-format=absolute --git-common-dir)/info"; mkdir -p "$STUB_META"
+STUB_MODE=meta "$TASK" start gi12 "p" >/dev/null 2>&1 && fail "metadata-changing run reported success"
+blocked opencode "$OPENCODE_TASK_DIR" gi12 "^git metadata changed during the run"
+[ "$(res r1 .changes gi12)" = "not inspected" ] || fail "metadata change: git still ran in the worktree"
+rm "$STUB_META/planted"; unset STUB_META
 # legacy task (no recorded gitdir): resume refuses, plain clean refuses, clean --force works
-jq 'del(.gitdir)' "$OPENCODE_TASK_DIR"/r1-*/gi3/opts.json > "$T/o" && mv "$T/o" "$OPENCODE_TASK_DIR"/r1-*/gi3/opts.json
+jq 'del(.gitdir)' "$d3/opts.json" > "$T/o" && mv "$T/o" "$d3/opts.json"
 out=$("$TASK" resume gi3 "again" 2>&1) && fail "legacy resume accepted"
 echo "$out" | grep -q "started before git isolation" || fail "legacy resume message: $out"
 out=$("$TASK" clean gi3 2>&1) && fail "legacy clean without --force accepted"
 echo "$out" | grep -q "no recorded gitdir" || fail "legacy clean message: $out"
-for s in gi1 gi2 gi3; do "$TASK" clean $s --force; done
-for s in gi4 gi5; do "$AGY_TASK" clean $s --force; done
+for s in gi1 gi2 gi3 gi6 gi8 gi9 gi10 gi12; do "$TASK" clean $s --force; done
+for s in gi4 gi5 gi7 gi11; do "$AGY_TASK" clean $s --force; done
 [ "$(git worktree list | wc -l)" = 1 ] || fail "clean left worktrees: $(git worktree list)"
 [ -z "$(git branch --list 'opencode/gi*' 'agy/gi*')" ] || fail "clean left branches"
-[ ! -e "$T/marker" ] || fail "a planted command ran during clean"
+nomark "clean"
 unset STUB_PLANT
 
 # --- dispatch log: allowlisted fields only

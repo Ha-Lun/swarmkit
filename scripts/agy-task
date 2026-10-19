@@ -17,8 +17,14 @@ Everything lands under $AGY_TASK_DIR (default ~/.agy-tasks/<repo>/<slug>): the w
 result.json and agy.log. agy's own "status" is SUCCESS even when tools were denied, so
 result.json carries a recomputed "ok".
 Git isolation: a worktree's .git is a file the worker can rewrite. The gitdir is recorded at creation and
-every later git call in the worktree is pinned to it (no fsmonitor, no hooks, no system config); a run
-that changed .git gets it restored, is NOT ok ("worker modified .git") and is not auto-committed.
+every later git call in the worktree is pinned to it, after checking it against the main repo's own record
+(no fsmonitor, hooks, ext-diff, textconv or system config; attributes from the base commit). A run that
+changed .git (restored), created a nested .git or .gitmodules, or changed the main repo's git config, hooks,
+info/ or worktree record is NOT ok and not auto-committed. Run agy-task from the main checkout, never
+from inside a task dir. Scope: this keeps the wrapper's own git calls from running what a worker planted
+through file edits. It is not a sandbox: the opencode lane's runner allowlist (npm test etc.) runs
+worker-written code on the host, and plain agy can write files outside the worktree by absolute path.
+An OS-level sandbox (bubblewrap/landlock) is the real long-term control.
 
 Invoked as opencode-task (a symlink) it drives `opencode run`: branches opencode/<slug>, tasks under
 $OPENCODE_TASK_DIR (default ~/.opencode-tasks). A per-run config overlay (OPENCODE_CONFIG_CONTENT, this
@@ -50,7 +56,7 @@ null), wall_s and stopped_by (null | max-denied | max-tool-errors | timeout).
 The running-task limit is shared: agy and opencode tasks of all repos together never exceed it
 (the limit itself is read from the invoked backend's *_TASK_MAX). list and clean stay per repo.
 """
-import argparse, fcntl, hashlib, json, os, re, shutil, signal, subprocess, sys, threading, time
+import argparse, fcntl, functools, hashlib, json, os, re, shutil, signal, subprocess, sys, threading, time
 from pathlib import Path
 
 # opencode-task is a symlink to this file; the name picks the backend
@@ -127,7 +133,10 @@ OPENCODE_OVERLAY = {
         "edit": {"*": "allow", **{g: "deny" for g in (".git", ".git/*", "**/.git", "**/.git/*")}},
         "webfetch": "deny", "task": "deny", "external_directory": "deny",
         "bash": {"*": "deny", **{p: "allow" for c in RUNNERS for p in (c, c + " *")},
-                 **{g: "allow" for g in RUNNER_GLOBS}},
+                 **{g: "allow" for g in RUNNER_GLOBS},
+                 # after the allows (last match wins): read-only git must not write files, read outside the
+                 # worktree or run an external diff. `*` also matches `=`, so `--output=x` is covered.
+                 **{g: "deny" for g in ("git * --output*", "git * --no-index*", "git * --ext-diff*")}},
     },
 }
 
@@ -135,6 +144,21 @@ OPENCODE_OVERLAY = {
 def agents_dir():
     d = os.environ.get("SWARMKIT_OPENCODE_AGENTS_DIR")
     return Path(d) if d else Path(__file__).resolve().parent.parent / "opencode" / "agents"
+
+
+def agent_edits_git(agent):
+    """True if the agent's frontmatter `edit:` map has a key naming .git: merged with the overlay, such a
+    rule could land after the .git deny and win."""
+    lines = (agents_dir() / f"{agent}.md").read_text().split("\n---", 1)[0].splitlines()
+    for i, line in enumerate(lines):
+        m = re.match(r"(\s*)edit:\s*$", line)
+        if m:
+            for sub in lines[i + 1:]:
+                if len(sub) - len(sub.lstrip()) <= len(m.group(1)):
+                    break
+                if ".git" in sub.split(":")[0].strip().strip("'\""):
+                    return True
+    return False
 
 
 HEADLESS_NOTE = ("Headless worker: there is no browser or MCP here, so skip Playwright/screenshot steps;"
@@ -166,6 +190,8 @@ def opencode_env(a, wt):
     cfg = {"permission": perm}
     agent = getattr(a, "agent", None)
     if agent:
+        if agent_edits_git(agent):
+            sys.exit(f"{PROG}: agent {agent} has an edit rule for .git; it cannot run as a worker")
         cfg["agent"] = {agent: {"permission": perm}}
     # opencode takes its project directory from $PWD, not the real cwd: without this it edits the
     # checkout agy-task was started from instead of the worktree.
@@ -255,34 +281,123 @@ def sh(*cmd, cwd=None, check=True):
 GIT_LOCATION_ENV = ("GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES")
 
 
-def wt_git(task, *args, check=True):
-    """git in a task worktree, pinned to the gitdir recorded at creation. Never through <wt>/.git: the
-    worker can rewrite it to point at a gitdir whose config or hooks run commands on the host."""
+def git_common(repo):
+    """The main repo's git common dir (main-repo-owned: the pin is checked against it)."""
+    return Path(os.path.realpath(sh("git", "-C", str(repo), "rev-parse", "--path-format=absolute", "--git-common-dir")))
+
+
+def check_pin(p):
+    """None if the pinned gitdir is still the main repo's own record of this worktree, else what is wrong."""
+    wt, g, common = p["wt"], Path(p["gitdir"]), p["common"]
+    if os.path.realpath(wt) != str(wt) or wt.is_symlink() or not wt.is_dir():
+        return f"{wt} is not a real directory (a symlink or moved)"
+    if g.parent != common / "worktrees" or os.path.realpath(g) != str(g) or not g.is_dir():
+        return f"recorded gitdir {g} is not an entry of {common / 'worktrees'}"
+    try:
+        if (g / "gitdir").read_text().strip() != str(wt / ".git"):
+            return f"{g / 'gitdir'} does not point at {wt / '.git'}"
+        if os.path.realpath(g / (g / "commondir").read_text().strip()) != str(common):
+            return f"{g / 'commondir'} does not point at {common}"
+    except OSError as e:
+        return f"cannot read the worktree record: {e}"
+    return None
+
+
+def pin(task, repo):
+    """Read the recorded gitdir once and check it; every wt_git call of this run uses only what this returns."""
     wt, f = task / "worktree", task / "opts.json"
     gitdir = json.loads(f.read_text()).get("gitdir") if f.exists() else None
     if not gitdir:
         sys.exit(f"{PROG}: {task.name} has no recorded gitdir (started before git isolation); "
                  f"inspect {wt} by hand, then clean it with --force")
+    base = (task / "base").read_text().strip() if (task / "base").exists() else ""
+    p = {"wt": wt, "gitdir": gitdir, "common": git_common(repo), "base": base,
+         "dotgit": f"gitdir: {gitdir}\n".encode()}
+    bad = check_pin(p) or (None if re.fullmatch(r"[0-9a-f]{40,64}", base) else f"bad base commit {base!r}") \
+        or (None if (task / "dotgit").exists() and (task / "dotgit").read_bytes() == p["dotgit"]
+            else f"{task / 'dotgit'} does not match the recorded gitdir")
+    if bad:
+        sys.exit(f"{PROG}: {task.name}: {bad}; inspect it by hand, then clean it with --force")
+    return p
+
+
+@functools.cache
+def git_version():
+    return tuple(int(x) for x in re.findall(r"\d+", sh("git", "--version"))[:2])
+
+
+def wt_git(p, *args, check=True):
+    """git in a task worktree, pinned to the checked gitdir. Never through <wt>/.git: the worker can rewrite
+    it to point at a gitdir whose config or hooks run commands on the host."""
+    bad = check_pin(p)  # before every call: a changed worktree record could reroute GIT_DIR's commondir
+    if bad:
+        sys.exit(f"{PROG}: refusing git in {p['wt']}: {bad}")
     env = {k: v for k, v in os.environ.items() if k not in GIT_LOCATION_ENV}
-    env.update(GIT_DIR=gitdir, GIT_WORK_TREE=str(wt), GIT_CONFIG_NOSYSTEM="1")
-    p = subprocess.run(["git", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", *args],
-                       cwd=wt, env=env, text=True, capture_output=True)
-    if check and p.returncode:
-        sys.exit(f"{PROG}: git {' '.join(args[:2])} failed: {p.stderr.strip() or p.stdout.strip()}")
-    return p.stdout.strip()
+    env.update(GIT_DIR=p["gitdir"], GIT_WORK_TREE=str(p["wt"]), GIT_CONFIG_NOSYSTEM="1")
+    # attributes from the base commit, not the worktree (git 2.40+): a worker-written .gitattributes picks no filter
+    attr = [f"--attr-source={p['base']}"] if args[0] in ("add", "status", "diff") and git_version() >= (2, 40) else []
+    r = subprocess.run(["git", "--no-pager", *attr, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
+                        "-c", "gc.auto=0", "-c", "maintenance.auto=false", *args],
+                       cwd=p["wt"], env=env, text=True, capture_output=True)
+    if check and r.returncode:
+        sys.exit(f"{PROG}: git {' '.join(args[:2])} failed: {r.stderr.strip() or r.stdout.strip()}")
+    return r.stdout.strip()
 
 
-def restore_dotgit(task):
-    """Put back <wt>/.git as snapshotted at creation; True if the worker had changed it (file, dir or symlink)."""
-    f, want = task / "worktree" / ".git", (task / "dotgit").read_bytes()
-    if not f.is_symlink() and f.is_file() and f.read_bytes() == want:
+def dotgit_ok(p):
+    f = p["wt"] / ".git"
+    return not f.is_symlink() and f.is_file() and f.read_bytes() == p["dotgit"]
+
+
+def restore_dotgit(p):
+    """Put back <wt>/.git as derived from the pinned gitdir; True if the worker had changed it (file, dir or symlink)."""
+    if dotgit_ok(p):
         return False
+    f = p["wt"] / ".git"
     if f.is_dir() and not f.is_symlink():
         shutil.rmtree(f)
     elif f.is_symlink() or f.exists():
         f.unlink()
-    f.write_bytes(want)
+    fd = os.open(f, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)  # never through a new symlink
+    with os.fdopen(fd, "wb") as w:
+        w.write(p["dotgit"])
     return True
+
+
+def nested_gits(wt):
+    """Each entry named .git (any case) below the worktree root, and the root .gitmodules, with a content
+    signature: a nested repo's own config or a submodule entry would make git run what the worker planted."""
+    def sig(path):
+        if os.path.islink(path):
+            return "link:" + os.readlink(path)
+        if os.path.isdir(path):
+            return "dir:" + "".join(hashlib.sha1(Path(path, n).read_bytes()).hexdigest() if Path(path, n).is_file()
+                                    else "-" for n in ("config", "HEAD", "commondir", "gitdir"))
+        return "file:" + hashlib.sha1(Path(path).read_bytes()).hexdigest()
+    found = {}
+    for d, dirs, files in os.walk(wt):  # followlinks=False: a symlinked dir is listed, not entered
+        for n in dirs + files:
+            if n.lower() == ".git" and not (d == str(wt) and n == ".git"):
+                found[os.path.relpath(os.path.join(d, n), wt)] = sig(os.path.join(d, n))
+        dirs[:] = [n for n in dirs if n.lower() != ".git"]
+    if os.path.lexists(wt / ".gitmodules"):
+        found[".gitmodules"] = sig(str(wt / ".gitmodules"))
+    return found
+
+
+def git_meta(p):
+    """Hash of the main repo's git metadata a worker could plant commands in: config, hooks, info/ and this
+    worktree's own record."""
+    c, g, h = p["common"], Path(p["gitdir"]), hashlib.sha1()
+    for f in [c / "config", g / "commondir", g / "gitdir", g / "config.worktree",
+              *[x for d in (c / "hooks", c / "info") for x in ([d, *sorted(d.rglob("*"))] if d.is_dir() else [d])]]:
+        try:
+            v = (b"link:" + os.readlink(f).encode() if f.is_symlink() else f.read_bytes() if f.is_file()
+                 else b"dir" if f.is_dir() else b"none")
+        except OSError as e:
+            v = str(e).encode()
+        h.update(str(f).encode() + b"\0" + v + b"\0")
+    return h.hexdigest()
 
 
 def spec(task):
@@ -293,7 +408,7 @@ def spec(task):
 
 def main_state(repo):
     """Changed and untracked paths of the main checkout, with a content hash for each."""
-    out = subprocess.run(["git", "status", "--porcelain", "-uall", "-z"], cwd=repo, text=True,
+    out = subprocess.run(["git", "-c", "core.fsmonitor=false", "status", "--porcelain", "-uall", "-z"], cwd=repo, text=True,
                          capture_output=True).stdout  # not sh(): stripping would eat the status column
     state, fields = {}, iter(out.split("\0"))
     for entry in fields:
@@ -360,6 +475,10 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     o = remembered_opts(task, a, resume_id)
     if o.get("agent"):
         a.agent = o["agent"]
+    pinned = pin(task, repo)  # read and checked once, before the worker runs; this run uses only this
+    meta_before = git_meta(pinned)
+    nf = task / "nested-git"  # what --setup left (e.g. a submodule); anything else is the worker's
+    nested_before = json.loads(nf.read_text()) if nf.exists() else {}
     cmd = BACKEND["cmd"](task, prompt, a, resume_id)
     banner(task, o, resume_id)
     dispatch_log("start", task.name, o.get("model"), effort=o.get("effort") or None, agent=o.get("agent"))
@@ -431,10 +550,16 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     (task / f"{CLI}.log").write_text(f"{err}\n{out}")
     res = BACKEND["parse"](out, err)
     warnings = list(warnings)
-    after = main_state(repo)
-    moved = sorted(k for k in main_before.keys() | after.keys() if main_before.get(k) != after.get(k))
-    if moved:  # advisory: you may have edited or merged there yourself meanwhile
-        warnings.append(f"main checkout changed during the run, not by you? {', '.join(moved[:5])}")
+    # The main repo's git metadata first: if it changed, run no git at all (not even main_state's status).
+    meta = check_pin(pinned) or ("" if git_meta(pinned) == meta_before else "config, hooks, info/ or worktree record")
+    if meta:
+        warnings.append(f"git metadata changed during the run ({meta}): nothing was auto-committed or inspected;"
+                        f" check {pinned['common']} before running git there")
+    else:
+        after = main_state(repo)
+        moved = sorted(k for k in main_before.keys() | after.keys() if main_before.get(k) != after.get(k))
+        if moved:  # advisory: you may have edited or merged there yourself meanwhile
+            warnings.append(f"main checkout changed during the run, not by you? {', '.join(moved[:5])}")
     if interrupted:
         warnings.append(f"interrupted: {CLI} was stopped before it finished")
     if res["timed_out"]:
@@ -443,25 +568,43 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
         n = counts["denied"] if stopped[0] == "max-denied" else counts["failed"]
         warnings.append(f"stopped: {n} {'denied commands' if stopped[0] == 'max-denied' else 'failed tool calls'}"
                         f" ({CLI} was killed; its edits are kept, inspect the diff)")
-    tampered = restore_dotgit(task)
-    if tampered:  # it may have pointed git at a gitdir it planted: commit nothing, let the owner look
-        warnings.append("worker modified .git: restored it; nothing was auto-committed, inspect the worktree")
-    try:  # never lose the agent's work to a hook or signing failure
-        if not tampered:
-            wt_git(task, "add", "-A", *spec(task))
-            if wt_git(task, "diff", "--cached", "--name-only"):
-                wt_git(task, "commit", "--no-gpg-sign", "--no-verify", "-qm", f"{CLI}: {task.name}")
-    except SystemExit as e:
-        warnings.append(f"commit failed, changes are uncommitted in the worktree: {e}")
-    base = (task / "base").read_text().strip()
-    changed = wt_git(task, "diff", "--shortstat", base, "HEAD", check=False) or "no changes"
-    if changed == "no changes" and wt_git(task, "status", "--porcelain", "--ignore-submodules=all", *spec(task),
-                                          check=False):
-        changed = "uncommitted changes"
+    # It may have pointed git at a gitdir it planted: restore .git, commit nothing, let the owner look.
+    blocked = []
+    try:
+        if restore_dotgit(pinned):
+            blocked.append("worker modified .git: restored it")
+    except OSError as e:
+        blocked.append(f"worker modified .git and it could not be restored ({e})")
+    nested_after = nested_gits(wt)
+    for k in sorted(k for k in nested_before.keys() | nested_after.keys() if nested_before.get(k) != nested_after.get(k)):
+        blocked.append("worker changed .gitmodules" if k == ".gitmodules" else f"worker created a nested .git at {k}")
+    warnings += [f"{b}; nothing was auto-committed, inspect the worktree" for b in blocked]
+    base = pinned["base"]
+    changed = "not inspected"
+    if not meta:
+        def links(out):
+            return {line.split("\t", 1)[1] for line in out.splitlines() if line.startswith("160000 ")}
+        try:  # never lose the agent's work to a hook or signing failure
+            if not blocked:
+                wt_git(pinned, "add", "-A", *spec(task))
+                new = links(wt_git(pinned, "ls-files", "-s")) - links(wt_git(pinned, "ls-tree", "-r", "HEAD"))
+                if new:  # a backstop for the walk above
+                    warnings.append(f"worker staged a new gitlink at {', '.join(sorted(new))}; nothing was auto-committed")
+                elif wt_git(pinned, "diff", "--cached", "--name-only", "--no-ext-diff", "--no-textconv"):
+                    wt_git(pinned, "commit", "--no-gpg-sign", "--no-verify", "-qm", f"{CLI}: {task.name}")
+        except SystemExit as e:
+            warnings.append(f"commit failed, changes are uncommitted in the worktree: {e}")
+        changed = wt_git(pinned, "diff", "--shortstat", "--no-ext-diff", "--no-textconv", base, "HEAD",
+                         check=False) or "no changes"
+        if changed == "no changes" and wt_git(pinned, "status", "--porcelain", "--ignore-submodules=all", *spec(task),
+                                              check=False):
+            changed = "uncommitted changes"
+    if not dotgit_ok(pinned):  # a straggler rewrote it after the restore
+        warnings.append("worker modified .git after the run; inspect the worktree")
     denied = res["denied"]
     stopped_by = stopped[0] if stopped else "timeout" if res["timed_out"] or "timeout" in interrupted else None
     review = a.review
-    incomplete = any(w.startswith(("interrupted", "timed out", "stopped", "commit failed", "worker modified .git"))
+    incomplete = any(w.startswith(("interrupted", "timed out", "stopped", "commit failed", "worker ", "git metadata"))
                      for w in warnings)
     produced = bool(res["response"].strip()) if review else changed != "no changes"
     ok = res["done"] and not denied and code == 0 and not incomplete and produced
@@ -520,15 +663,23 @@ def main():
         if not (agents_dir() / f"{a.agent}.md").is_file():
             print(f"{PROG}: unknown OpenCode agent: {a.agent}", file=sys.stderr)
             sys.exit(2)
+        if agent_edits_git(a.agent):
+            print(f"{PROG}: agent {a.agent} has an edit rule for .git; it cannot run as a worker", file=sys.stderr)
+            sys.exit(2)
 
-    # The first `git worktree list` entry is the main working tree, also when run from inside a
-    # task worktree or a submodule: it keys the task dirs, so every worktree shares one list and cap.
+    def base(b):  # resolved, so the worktree path git records is the one we check against
+        return Path(os.path.realpath(os.environ.get(f"{b['env']}_DIR", Path.home() / b["home"])))
+    # Before any git call: from inside a task dir, git here would follow the worker's .git.
+    cwd = Path(os.path.realpath(Path.cwd()))
+    for b in BACKENDS.values():
+        if cwd == base(b) or base(b) in cwd.parents:
+            sys.exit(f"{PROG}: run {PROG} from the main checkout, not from inside a task dir ({base(b)})")
+    # The first `git worktree list` entry is the main working tree, also when run from a linked
+    # worktree or a submodule: it keys the task dirs, so every worktree shares one list and cap.
     # `here` is the checkout we were invoked from: HEAD (default base, merged check) means its HEAD.
     repo = Path(sh("git", "worktree", "list", "--porcelain").splitlines()[0].split(" ", 1)[1])
     here = Path(sh("git", "rev-parse", "--show-toplevel"))
     key = f"{repo.name}-{hashlib.sha1(str(repo).encode()).hexdigest()[:6]}"
-    def base(b):
-        return Path(os.environ.get(f"{b['env']}_DIR", Path.home() / b["home"]))
     root = base(BACKEND) / key
     if a.cmd == "list":
         for d in sorted(root.glob("*/")) if root.exists() else []:
@@ -545,9 +696,12 @@ def main():
         wt = task / "worktree"
         merged = subprocess.run(["git", "merge-base", "--is-ancestor", branch, "HEAD"], cwd=here).returncode == 0
         if not a.force:
-            if wt.exists() and wt_git(task, "status", "--porcelain", "--ignore-submodules=all", *spec(task),
-                                      check=False):
-                sys.exit(f"{PROG}: {wt} has uncommitted changes; inspect them or pass --force to discard")
+            if os.path.lexists(wt):
+                p = pin(task, repo)
+                if wt_git(p, "status", "--porcelain", "--ignore-submodules=all", *spec(task), check=False):
+                    sys.exit(f"{PROG}: {wt} has uncommitted changes; inspect them or pass --force to discard")
+                if not dotgit_ok(p):
+                    sys.exit(f"{PROG}: {wt / '.git'} was changed since the run; inspect it, or pass --force to discard")
             if not merged:
                 sys.exit(f"{PROG}: {branch} is not merged into HEAD; merge it or pass --force to discard")
         # Not `git worktree remove`: it reads <wt>/.git. Delete the tree, then prune drops the gitdir that
@@ -591,7 +745,8 @@ def main():
         base = sh("git", "rev-parse", a.base, cwd=here)
         (task / "base").write_text(base)
         try:
-            sh("git", "worktree", "add", "-q", "-b", branch, str(task / "worktree"), base, cwd=repo)
+            sh("git", "-c", "worktree.useRelativePaths=false", "worktree", "add", "-q", "-b", branch,
+               str(task / "worktree"), base, cwd=repo)
         except SystemExit:
             for f in task.iterdir():
                 f.unlink()
@@ -601,6 +756,7 @@ def main():
         wt = task / "worktree"
         (task / "opts.json").write_text(json.dumps({"gitdir": sh("git", "rev-parse", "--absolute-git-dir", cwd=wt)}))
         (task / "dotgit").write_bytes((wt / ".git").read_bytes())
+        p = pin(task, repo)  # also checks that git wrote the .git we expect
         dirty = sh("git", "status", "--porcelain", "--untracked-files=no", cwd=here)
         warn = [f"{here} has uncommitted changes; {CLI} sees only the committed state "
                 f"of {a.base}"] if dirty and a.base == "HEAD" else []
@@ -611,7 +767,8 @@ def main():
             # Keep setup artifacts (e.g. a node_modules link) out of agy's commit. Not info/exclude:
             # that file is shared with the main checkout.
             (task / "setup-artifacts").write_text(
-                wt_git(task, "ls-files", "--others", "--exclude-standard", "--directory"))
+                wt_git(p, "ls-files", "--others", "--exclude-standard", "--directory"))
+        (task / "nested-git").write_text(json.dumps(nested_gits(wt)))  # setup's own repos are allowed
         return run_task(task, prompt, a, repo, warnings=warn)
     if alive(task / "pid"):
         sys.exit(f"{PROG}: {a.slug} is still running; wait for it before resuming")
@@ -624,6 +781,10 @@ def main():
     if not o.get("gitdir") or not (task / "dotgit").exists():
         sys.exit(f"{PROG}: {a.slug} was started before git isolation and cannot be resumed; "
                  f"inspect {task / 'worktree'} by hand, then clean it with --force")
+    if not dotgit_ok(pin(task, repo)):
+        sys.exit(f"{PROG}: {task / 'worktree' / '.git'} was changed since the last run; inspect it, then clean it with --force")
+    if CLI == "opencode" and o.get("agent") and agent_edits_git(o["agent"]):
+        sys.exit(f"{PROG}: agent {o['agent']} has an edit rule for .git; it cannot run as a worker")
     a.review = a.review or prev.get("review", False)  # a resumed review stays a review
     claim(task)
     return run_task(task, prompt, a, repo, prev["conversation_id"])
