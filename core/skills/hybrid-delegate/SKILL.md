@@ -52,7 +52,7 @@ Everything else in the approved plan goes to a worker.
 
 ## Safety facts
 
-- The wrappers are guards, not sandboxes. `agy --yolo` and `opencode --yolo` are unsandboxed. Every other agy run (plain and `--agent`) goes through the worktree path gate (`agy-delegate`); a result warning `gate hook inactive` means it did not, so treat that worktree as untrusted.
+- The wrappers are guards, not sandboxes. `agy --yolo` and `opencode --yolo` are unsandboxed. Every other agy run (plain and `--agent`) goes through the worktree path gate (`agy-delegate`); a result warning `gate hook inactive` or `gate check unavailable` means it did not (provably), so nothing was committed; treat that worktree as untrusted.
 - `opencode-task` denies file-tool access outside the worktree (`external_directory`), but its allowed shell runners can still write anywhere: a guard against stray edits, not a boundary.
 - Never copy `.env` or other secrets into a worktree.
 - Only send client repos to a provider the user has OK'd.
