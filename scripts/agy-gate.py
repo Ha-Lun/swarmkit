@@ -6,7 +6,8 @@ file, never committed) at this script. CONFIG: {"root": worktree, "log": file, "
 Allowed: the file tools below on paths inside root, the edit tools only if "edit", and run_command only if its
 command matches a "shell" glob (plain runs: the read-only part of the runner allowlist). Everything else is denied:
 other tools (MCP, browser, web), paths outside root, any path component named .git or one of agy's
-customization roots (.agents etc.: a written hooks.json would run commands), relative paths, backslashes,
+customization roots (.agents, .gemini etc.: a written hooks.json would run commands), edits of the root
+AGENTS.md or GEMINI.md (agy loads them as rules), relative paths, backslashes,
 any URL scheme (file: too: agy 1.4.2 never sends one, and a URL parser can read ?, # or % differently) and any
 argument key outside the tool's schema below. Every decision is appended to the log ("allow|deny|deny-quiet TOOL TARGET"): agy leaves
 hook denials out of its denied_actions, and an empty log after tool calls means the hook was not active.
@@ -27,7 +28,8 @@ EDIT = {"write_to_file": (("TargetFile",), ("CodeContent", "Description", "Overw
         "replace_file_content": (("TargetFile",), ("TargetContent", "ReplacementContent", "StartLine", "EndLine",
                                                    "AllowMultiple", "Instruction", "Description"))}
 SHELL = {"run_command": (("Cwd",), ("CommandLine", "WaitMsBeforeAsync"))}
-GUARDED = {".git", ".agents", ".agent", "_agents", "_agent"}
+GUARDED = {".git", ".agents", ".agent", "_agents", "_agent", ".gemini"}
+RULES = {"agents.md", "gemini.md"}  # agy loads these from the worktree root as rules: read-only for the worker
 PATHY_KEY = re.compile(r"path|file|dir", re.I)
 SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:")
 CMD_CHARS = re.compile(r"[A-Za-z0-9_./=:@%+, -]+")  # no quotes, globs, redirects, separators or substitutions
@@ -116,6 +118,8 @@ def decide(call, cfg):
             raise ValueError(f"unexpected argument {k}")
         if isinstance(v, (list, dict)) and pathlike(v):
             raise ValueError(f"path-like value in {k}")
+    if name in EDIT and any(os.path.relpath(p, root).lower() in RULES for p in paths):
+        raise ValueError("the worktree's AGENTS.md and GEMINI.md are agy's rules: read-only for workers")
     if name in SHELL:
         check_command(args.get("CommandLine"), paths[0], root, cfg["shell"])
 

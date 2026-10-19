@@ -539,6 +539,8 @@ gate() { printf '%s' "$2" | python3 -I "$G" "$T/gate.json" | jq -r .decision | g
 gate allow "$(call view_file "{\"AbsolutePath\":\"$W/stub.txt\",\"toolAction\":\"Reading\"}")"
 gate allow "$(call edit_file "{\"Path\":\"$W/stub.txt\",\"Target\":\"a\",\"Replacement\":\"/etc/x\"}")"
 gate allow "$(call find_by_name "{\"SearchDirectory\":\"$W\",\"Pattern\":\"*.txt\"}")"
+gate allow "$(call view_file "{\"AbsolutePath\":\"$W/AGENTS.md\"}")"                         # rules: read-only, root only
+gate allow "$(call write_to_file "{\"TargetFile\":\"$W/sub/AGENTS.md\",\"CodeContent\":\"x\"}")"
 gate allow "$(call view_file "{\"AbsolutePath\":\"$W/stub.txt\",\"StartLine\":1,\"EndLine\":2,\"toolSummary\":\"s\"}")"
 # only each tool's own argument keys (M3)
 gate deny "$(call view_file "{\"AbsolutePath\":\"$W/stub.txt\",\"Foo\":\"x\"}")"
@@ -548,7 +550,7 @@ gate deny "$(call run_command "{\"CommandLine\":\"ls\",\"Cwd\":\"$W\",\"BypassSa
 gate deny "$(call run_command '{"CommandLine":"ls"}')"                                        # no Cwd
 gate deny "$(call write_to_file "{\"TargetFile\":\"$W/.agents/hooks.json\",\"CodeContent\":\"{}\"}")"
 gate deny "$(call view_file "{\"AbsolutePath\":\"$W/out/hostname\"}")"                      # symlink out of the worktree
-for p in sub/x/.git/config sub/.GIT sub/x/.Agents/hooks.json _agent/a _AGENTS .agent; do      # .git and agy roots at any depth
+for p in sub/x/.git/config sub/.GIT sub/x/.Agents/hooks.json _agent/a _AGENTS .agent .gemini/config.json AGENTS.md Gemini.md; do      # .git and agy roots at any depth
   gate deny "$(call write_to_file "{\"TargetFile\":\"$W/$p\",\"CodeContent\":\"x\"}")"
 done
 : > "$T/g.log"; gate deny "$(call list_dir "{\"DirectoryPath\":\"$W/.agents\"}")"; gate deny "$(call view_file "{\"AbsolutePath\":\"$W/.git\"}")"
@@ -597,7 +599,7 @@ rm "$T/g.log"; ln -sf "$T/gate.json" "$T/gate-link.json"
 printf '%s' "$(call list_dir "{\"DirectoryPath\":\"$W\"}")" | python3 -I "$G" "$T/gate-link.json" | jq -e '.decision == "deny"' >/dev/null \
   || fail "gate read its config through a symlink"
 # a base that tracks anything in agy's customization dirs is refused, at any depth and any case, plain or --agent
-for f in .agents/hooks.json docs/.Agent/x _agents; do
+for f in .agents/hooks.json docs/.Agent/x _agents .gemini/config.json; do
   mkdir -p "$(dirname "$f")" && echo '{}' > "$f" && git add -A && git commit -qm roots
   rc=0; out=$("$AGY_TASK" start ga4 "p" 2>&1) || rc=$?
   [ "$rc" = 2 ] && echo "$out" | grep -q "tracks $f: agy's customization dirs" || fail "tracked $f not refused ($rc): $out"

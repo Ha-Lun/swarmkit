@@ -29,7 +29,7 @@ agy gate: agy itself lets a plain accept-edits run write anywhere by absolute pa
 (plain and --agent; not --yolo) gets a PreToolUse hook in <wt>/.agents/hooks.json (never committed):
 scripts/agy-gate.py allows view_file, list_dir, grep_search, find_by_name and (not under --review)
 write_to_file, edit_file, replace_file_content on absolute or file:/// paths that resolve inside the
-worktree, outside any .git or .agents-style component; plain runs also get run_command for read-only
+worktree, outside any .git or .agents-style component (.gemini too), never the root AGENTS.md or GEMINI.md; plain runs also get run_command for read-only
 commands from the runner allowlist (git status/diff/log/show, ls, pwd, echo, wc, cat of source paths; no
 shell syntax, paths inside the worktree). No test runner: it would run worker-written code past the gate. Everything else is denied (MCP, browser, web),
 and every decision is logged into task/gate.log; denials land in denied_actions (reads of .git or .agents are
@@ -37,7 +37,7 @@ denied quietly: counted in quiet_denials, a warning above 3). agy runs a hook th
 an allow, so before the commit the tool names in agy's transcript of this run are matched one by one against
 the gate log: a mismatch ("gate hook inactive"), an unreadable transcript ("gate check unavailable") or a
 resume that answered for another conversation is NOT ok and not committed. A base that tracks anything under
-.agents/.agent/_agents/_agent is refused, and so is a launch (start after --setup, resume) while the worktree
+.agents/.agent/_agents/_agent/.gemini is refused, and so is a launch (start after --setup, resume) while the worktree
 has any such entry besides the wrapper's own overlay, or a symlink among them.
 The gate's schema (tool names, argument keys, transcript format) was probed on agy 1.4.2 (AGY_PROBED): another
 agy version is refused unless AGY_TASK_ALLOW_UNPROBED=1. Re-probe before bumping it: in a scratch repo, run one
@@ -223,7 +223,7 @@ def agy_agents_dir():
 # MCP) next to the hook. The commit skips both; the user's agy settings stay untouched.
 AGY_TOOLS = ("view_file", "list_dir", "grep_search", "find_by_name")
 AGY_EDIT_TOOLS = ("write_to_file", "edit_file", "replace_file_content")
-AGY_ROOTS = (".agents", ".agent", "_agents", "_agent")  # agy's customization roots; the gate denies them
+AGY_ROOTS = (".agents", ".agent", "_agents", "_agent", ".gemini")  # agy's customization roots; the gate denies them
 AGY_AGENT_KEYS = ("tools", "inheritMcp", "hooks", "plugins", "commandExecutionPolicy")  # the overlay sets these
 # A plain run's shell: the read-only part of the runner allowlist. No test runner: it runs code the worker can
 # write, which would walk around the gate (plain agy had no shell at all before the gate).
