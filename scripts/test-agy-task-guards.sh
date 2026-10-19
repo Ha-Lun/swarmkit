@@ -533,7 +533,7 @@ jq -e '.edit == false' "$(adir ga3)/gate.json" >/dev/null || fail "--review gate
 # the gate itself (W = ga1's worktree)
 G="${TASK%/*}/agy-gate.py"; ln -s /etc "$W/out"; mkdir -p "$W/sub/x"
 cfg() { jq -n --arg r "$W" --arg l "$T/g.log" --argjson e "$1" --argjson s "$2" '{root: $r, log: $l, edit: $e, shell: $s}' > "$T/gate.json"; }
-SH='["npm test","npm test *","ls","ls *","cat src/*","git log","git log *","git diff","git diff *"]'
+SH='["npm test","npm test *","ls","ls *","wc *","cat src/*","git log","git log *","git diff","git diff *"]'
 cfg true "$SH"
 gate() { printf '%s' "$2" | python3 -I "$G" "$T/gate.json" | jq -r .decision | grep -qx "$1" || fail "gate not $1: $2"; }
 gate allow "$(call view_file "{\"AbsolutePath\":\"$W/stub.txt\",\"toolAction\":\"Reading\"}")"
