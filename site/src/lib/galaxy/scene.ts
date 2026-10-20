@@ -216,7 +216,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   opts.workers.forEach((w, i) => { if (w.failed && w.fixer) fixers.push({ w: i, slug: w.fixer.slug, lane: w.fixer.lane }); });
   const nFix = fixers.length;
   const nodeCount = nWork + 1 + nFix; // frame nodes: 0 the sun, 1..n workers (story order), then fixers
-  const SUN_R = 0.14;
+  const SUN_R = 0.11;
   const PLANET_R = 0.095;
   const SLOT_R = 0.05;
   const FIX_R = 0.024;
@@ -431,8 +431,8 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     // the galaxy sits far behind and dim from the dive's end through the merge; it comes back up as the camera pulls out
     const lg = ss(0.3, 0.72, m);
     const calmDive = ss(0.1, 0.28, pp) * (1 - ss(0.5, 0.58, pp));
-    const calmPlan = ss(0.42, 0.6, pp) * (1 - lg);
-    const calm = (1 - 0.6 * calmDive) * (1 - 0.93 * calmPlan);
+    const calmPlan = ss(0.4, 0.56, pp) * (1 - lg);
+    const calm = (1 - 0.6 * calmDive) * (1 - 0.93 * calmPlan) * (1 - 0.5 * ss(0.5, 0.58, pp) * (1 - lg));
     shared.uGain.value = 1.4 * st.galaxyGain * calm * (1 + 1.5 * lg);
     shared.uCoreDim.value = (st.coreGain + (0.8 - st.coreGain) * lg) * (1 - 0.7 * pullOut) * (1 - 0.5 * calmPlan);
     hazeMat.uniforms.uGain.value = 0.8 * st.galaxyGain * (1 - 0.8 * ss(0.5, 0.62, pp)) * (1 + 2.4 * lg) * (1 - 0.8 * band) * (1 - 0.6 * pullOut) * calm * (1 - 0.6 * calmPlan);
@@ -556,15 +556,15 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
 
     // ---- the system layer ----
     const px = shared.uScale.value / shared.uPR.value; // css px per world unit at depth 1
-    const sunA = ss(0.5, 0.56, pp) * (1 - 0.55 * pullOut);
+    const sunA = ss(0.5, 0.56, pp) * (1 - 0.55 * pullOut) * (1 - 0.7 * cA);
     const pulseP = st.pulse > 0 && st.pulse < 1 ? st.pulse : 0;
     const pulseGlow = Math.sin(Math.PI * pulseP) ** 2;
     uP[SUN].set(0, 0, 0, SUN_R * (1 + 0.3 * flare + 0.1 * pulseGlow));
     uS[SUN].set(sunA, 0, 0, 0);
-    bodyMat.uniforms.uFlare.value = flare * 0.9 + st.flash * 1.2 + pulseGlow * 0.12;
+    bodyMat.uniforms.uFlare.value = flare * 0.9 + st.flash * 0.5 + pulseGlow * 0.12;
     nodeWorld[0] = [0, 0, 0];
     nodeRad[0] = SUN_R;
-    nodeOnArr[0] = sunA;
+    nodeOnArr[0] = sunA * (1 - cA);
 
     const scanS = win(L.scan, u);
     const scanLen = L.scan[1] - L.scan[0];
@@ -658,7 +658,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
         uP[FIX0 + kf].set(headP[0], headP[1], headP[2], FIX_R);
         uS[FIX0 + kf].set(a, 0, 0, 0);
         // tail: the last stretch of the flight
-        for (let s = 0; s <= FSEG; s++) bez(1 - (1 - Math.max(0, kS - 0.14 * (1 - s / FSEG))) ** 2.2, tailPts[s]);
+        for (let s = 0; s <= FSEG; s++) bez(Math.max(0, e - 0.2 * (1 - s / FSEG)), tailPts[s]);
         for (let s = 0; s <= FSEG; s++) for (let sd = 0; sd < 2; sd++) {
           const v = (kf * (FSEG + 1) + s) * 2 + sd;
           const q = tailPts[s];
@@ -687,7 +687,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     if (composer) renderer.toneMappingExposure = st.exposure;
     // planets and rings stay crisp: the bloom steps back while the system is on screen
     const sysAmt = sunA * (1 - pullOut);
-    if (bloom) bloom.strength = 0.45 * st.bloom * (1 - 0.35 * ss(0.5, 0.62, pp) * (1 - lg)) * (opts.tier === 'medium' ? 0.9 : 1) * (1 - 0.55 * sysAmt) * (1 + 0.12 * flare);
+    if (bloom) bloom.strength = 0.45 * st.bloom * (1 - 0.35 * ss(0.5, 0.62, pp) * (1 - lg)) * (opts.tier === 'medium' ? 0.9 : 1) * (1 - 0.55 * sysAmt) * (1 - 0.6 * cA) * (1 + 0.12 * flare);
 
     // project nodes
     camera.updateMatrixWorld();

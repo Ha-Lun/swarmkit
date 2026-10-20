@@ -178,9 +178,9 @@ const TAN25 = Math.tan((25 * Math.PI) / 180);
 /** A camera that sees `focus` from (dist, elev, az) with the focus placed at NDC (offX, offY) on screen. */
 export function viewPose(focus: V3, dist: number, elev: number, az: number, offX: number, offY: number, aspect: number): LateCam {
   const dir: V3 = [Math.sin(az) * Math.cos(elev), Math.sin(elev), Math.cos(az) * Math.cos(elev)];
-  // forward = -dir; right = normalize(forward x up); up' = right x forward
+  // forward = -dir; right = normalize(forward x up) = (dir.z, 0, -dir.x); up' = right x forward
   const rl = Math.hypot(dir[2], dir[0]) || 1;
-  const right: V3 = [-dir[2] / rl, 0, dir[0] / rl];
+  const right: V3 = [dir[2] / rl, 0, -dir[0] / rl];
   const fwd: V3 = [-dir[0], -dir[1], -dir[2]];
   const up: V3 = [right[1] * fwd[2] - right[2] * fwd[1], right[2] * fwd[0] - right[0] * fwd[2], right[0] * fwd[1] - right[1] * fwd[0]];
   const hh = dist * TAN25;

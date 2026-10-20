@@ -272,13 +272,13 @@ void main() {
   float aa = max(fwidth(d), 1e-4) * 0.9;
   vec3 col = vec3(0.0);
   if (vKind < 0.5) {
-    // sun: a warm disc, a short glow and a flare that swells with each arrival; soft-clipped so it never whites out
+    // sun: a warm disc with a hot centre and a darker limb, a short glow, and a flare that swells with each arrival;
+    // soft-clipped so it never whites out
     float core = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, d);
-    float glow = 0.42 * exp(-d * 0.95) + 0.16 * exp(-d * d * 0.07) + uFlare * (0.9 * exp(-d * 0.55) + 0.3 * exp(-d * d * 0.05));
-    vec3 hot = vec3(1.0, 0.86, 0.62);
-    vec3 warm = vec3(1.0, 0.66, 0.30);
-    vec3 c = hot * core * 1.05 + warm * glow;
-    c = vec3(1.0) - exp(-c * 1.15);
+    float limb = pow(max(0.0, 1.0 - d * d), 0.5);
+    float glow = 0.3 * exp(-d * 1.15) + 0.1 * exp(-d * d * 0.09) + uFlare * (0.75 * exp(-d * 0.6) + 0.25 * exp(-d * d * 0.05));
+    vec3 c = mix(vec3(1.0, 0.42, 0.1), vec3(1.0, 0.82, 0.5), limb) * core * 0.95 + vec3(1.0, 0.62, 0.28) * glow;
+    c = vec3(1.0) - exp(-c * 1.2);
     col = c * (1.0 - smoothstep(6.5, 9.0, d)) * vS.x;
   } else if (vKind < 1.5) {
     float disc = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, d);
@@ -286,9 +286,10 @@ void main() {
     float diff = max(dot(n, vL), 0.0);
     vec3 st = mix(vC, vec3(0.3, 1.0, 0.55), vS.z);
     st = mix(st, vec3(1.0, 0.22, 0.18), clamp(vS.w, 0.0, 1.0));
-    vec3 body = vC * (0.34 + 0.9 * diff) + vC * pow(1.0 - n.z, 3.0) * 0.22;
+    float band = 0.05 * sin(n.y * 13.0 + vIdx * 3.1) * smoothstep(0.0, 0.6, n.z);
+    vec3 body = vC * (0.2 + 1.0 * pow(diff, 1.15) + band) + vC * pow(1.0 - n.z, 3.0) * 0.18 * (0.3 + diff);
     col += body * disc;
-    col += st * exp(-pow(max(d - 1.0, 0.0) * 1.8, 2.0)) * (1.0 - disc) * (0.2 + 0.55 * vS.w + 0.2 * vS.z);
+    col += st * exp(-pow(max(d - 1.0, 0.0) * 3.0, 2.0)) * (1.0 - disc) * (0.12 + 0.5 * vS.w + 0.15 * vS.z);
     if (vS.y > 0.002) {
       float tilt = -0.42 + 0.18 * sin(vIdx * 2.7);
       float ratio = 0.34 + 0.05 * sin(vIdx * 1.9);
@@ -400,8 +401,8 @@ void main() {
   if (uPulseA > 0.001) {
     float aa = max(fwidth(r), 1e-4);
     float line = 1.0 - smoothstep(0.0, 1.5 * aa, abs(r - uPulseR));
-    float soft = exp(-pow((r - uPulseR) / 0.16, 2.0)) * 0.25;
-    col += vec3(0.84, 0.78, 1.0) * (line * 0.6 + soft) * uPulseA;
+    float soft = exp(-pow((r - uPulseR) / 0.09, 2.0)) * 0.1;
+    col += vec3(0.84, 0.78, 1.0) * (line * 0.3 + soft) * uPulseA;
   }
   if (uScanVis > 0.001) {
     float th = atan(-vP.y, vP.x);
@@ -409,9 +410,9 @@ void main() {
     float perp = r * sin(min(da, 1.5707));
     float aa = max(fwidth(perp), 1e-4);
     float edge = da < 1.5707 ? 1.0 - smoothstep(0.0, 1.4 * aa, abs(perp)) : 0.0;
-    float sector = da < 1.9 ? exp(-da * 3.2) * 0.07 : 0.0;
+    float sector = da < 1.6 ? exp(-da * 4.5) * 0.04 : 0.0;
     float radial = (1.0 - smoothstep(uR - 0.9, uR, r)) * smoothstep(0.1, 0.7, r);
-    col += vec3(0.55, 0.92, 1.0) * (edge * 0.55 + sector) * radial * uScanVis;
+    col += vec3(0.55, 0.92, 1.0) * (edge * 0.4 + sector) * radial * uScanVis;
   }
   fragColor = vec4(col, 1.0);
 }
