@@ -6,7 +6,7 @@
   agy-task list
   agy-task clean  SLUG [--force]
 
-start and resume run only under Claude Code (CLAUDECODE=1) or with SWARMKIT_ALLOW_WORKERS=1; list and clean run anywhere.
+start and resume: opencode-task runs under Claude Code (CLAUDECODE=1), never under OpenCode (OPENCODE=1); agy-task runs under Claude Code or OpenCode; SWARMKIT_ALLOW_WORKERS=1 allows a manual start; list and clean run anywhere.
 
 --review is for tasks that answer in text: ok then means "no tool denied and a non-empty
 response", not "files changed". --setup CMD runs in the worktree before agy (e.g. installing
@@ -880,10 +880,18 @@ def main():
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--wait", action="store_true", help="queue for a free slot instead of refusing at the limit")
     a = ap.parse_args()
-    if a.cmd in ("start", "resume") and os.environ.get("CLAUDECODE") != "1" and os.environ.get("SWARMKIT_ALLOW_WORKERS") != "1":
-        print(f"{PROG}: workers are started only by Claude Code (CLAUDECODE=1 missing). In OpenCode or Antigravity, use your own "
-              "subagents instead. Set SWARMKIT_ALLOW_WORKERS=1 to start one by hand from a terminal.", file=sys.stderr)
-        sys.exit(2)
+    if a.cmd in ("start", "resume"):
+        manual, claude, opencode = (os.environ.get(k) == "1" for k in ("SWARMKIT_ALLOW_WORKERS", "CLAUDECODE", "OPENCODE"))
+        def refuse(m):
+            print(m, file=sys.stderr)
+            sys.exit(2)
+        if CLI == "opencode" and opencode and not manual:
+            refuse(f"{PROG}: OpenCode never starts opencode workers; use your own subagents (task tool), or agy-task for an agy worker.")
+        if CLI == "opencode" and not (claude or manual):
+            refuse(f"{PROG}: workers are started only by Claude Code (CLAUDECODE=1 missing). In OpenCode or Antigravity, use your own "
+                     "subagents instead. Set SWARMKIT_ALLOW_WORKERS=1 to start one by hand from a terminal.")
+        if CLI == "agy" and not (claude or opencode or manual):
+            refuse(f"{PROG}: agy workers are started only by Claude Code or OpenCode. Set SWARMKIT_ALLOW_WORKERS=1 to start one by hand from a terminal.")
     from_agent = a.model is None and a.cmd == "start" and a.agent and CLI == "opencode"
     if a.model is None:
         a.model = BACKEND["model"]

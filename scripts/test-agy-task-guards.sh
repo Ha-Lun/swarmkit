@@ -657,16 +657,35 @@ unset SWARMKIT_DISPATCH_LOG
 "$TASK" start dl3 "p" >/dev/null 2>&1 || true
 [ "$(wc -l < "$T/dispatch.jsonl")" = 4 ] || fail "logged without SWARMKIT_DISPATCH_LOG"
 for s in dl1 dl2 dl3; do "$TASK" clean $s --force; done
-# --- only Claude Code starts workers
-MSG="opencode-task: workers are started only by Claude Code"
-rc=0; out=$(env -u CLAUDECODE -u SWARMKIT_ALLOW_WORKERS "$TASK" start cc1 "p" 2>&1) || rc=$?
-[ "$rc" = 2 ] && [[ "$out" == "$MSG"* ]] || fail "start not refused outside Claude Code: rc=$rc $out"
-rc=0; out=$(env -u CLAUDECODE -u SWARMKIT_ALLOW_WORKERS "$TASK" resume cc1 "p" 2>&1) || rc=$?
-[ "$rc" = 2 ] && [[ "$out" == "$MSG"* ]] || fail "resume not refused outside Claude Code: rc=$rc $out"
-env -u CLAUDECODE -u SWARMKIT_ALLOW_WORKERS "$TASK" list >/dev/null 2>&1 || fail "list refused outside Claude Code"
-out=$(env -u CLAUDECODE SWARMKIT_ALLOW_WORKERS=1 "$TASK" start cc2 "p" 2>&1 || true)
-[[ "$out" == *"$MSG"* ]] && fail "start refused despite SWARMKIT_ALLOW_WORKERS=1"
-out=$(env -u SWARMKIT_ALLOW_WORKERS CLAUDECODE=1 "$TASK" start cc3 "p" 2>&1 || true)
-[[ "$out" == *"$MSG"* ]] && fail "start refused despite CLAUDECODE=1"
-for s in cc2 cc3; do "$TASK" clean $s --force; done
+# --- worker start guard per lane
+CLEAN=(env -u CLAUDECODE -u OPENCODE -u SWARMKIT_ALLOW_WORKERS)
+OC_NEW="opencode-task: OpenCode never starts opencode workers"
+OC_OLD="opencode-task: workers are started only by Claude Code"
+AGY_MSG="agy-task: agy workers are started only by Claude Code or OpenCode"
+refused() { # msg cmd... : exit 2 and the message
+  local m="$1"; shift; rc=0; out=$("$@" 2>&1) || rc=$?
+  [ "$rc" = 2 ] && [[ "$out" == "$m"* ]] || fail "not refused ($*): rc=$rc $out"
+}
+allowed() { # cmd... : output has no guard refusal
+  out=$("$@" 2>&1 || true)
+  [[ "$out" == *"$OC_NEW"* || "$out" == *"$OC_OLD"* || "$out" == *"$AGY_MSG"* ]] && fail "refused by guard ($*): $out"
+  return 0
+}
+refused "$OC_OLD" "${CLEAN[@]}" "$TASK" start cc1 "p"
+refused "$OC_OLD" "${CLEAN[@]}" "$TASK" resume cc1 "p"
+refused "$AGY_MSG" "${CLEAN[@]}" "$AGY_TASK" start cc1 "p"
+refused "$AGY_MSG" "${CLEAN[@]}" "$AGY_TASK" resume cc1 "p"
+"${CLEAN[@]}" "$TASK" list >/dev/null 2>&1 || fail "list refused with no env"
+"${CLEAN[@]}" "$AGY_TASK" list >/dev/null 2>&1 || fail "agy list refused with no env"
+allowed "${CLEAN[@]}" CLAUDECODE=1 "$TASK" start cc2 "p"
+allowed "${CLEAN[@]}" CLAUDECODE=1 "$AGY_TASK" start cc3 "p"
+refused "$OC_NEW" "${CLEAN[@]}" OPENCODE=1 "$TASK" start cc4 "p"
+refused "$OC_NEW" "${CLEAN[@]}" OPENCODE=1 "$TASK" resume cc4 "p"
+allowed "${CLEAN[@]}" OPENCODE=1 "$AGY_TASK" start cc5 "p"
+allowed "${CLEAN[@]}" OPENCODE=1 "$AGY_TASK" resume cc5 "p"
+refused "$OC_NEW" "${CLEAN[@]}" CLAUDECODE=1 OPENCODE=1 "$TASK" start cc6 "p"
+allowed "${CLEAN[@]}" CLAUDECODE=1 OPENCODE=1 "$AGY_TASK" start cc7 "p"
+allowed "${CLEAN[@]}" SWARMKIT_ALLOW_WORKERS=1 OPENCODE=1 "$TASK" start cc8 "p"
+allowed "${CLEAN[@]}" SWARMKIT_ALLOW_WORKERS=1 "$AGY_TASK" start cc9 "p"
+for s in cc2 cc3 cc5 cc7 cc8 cc9; do "$TASK" clean $s --force >/dev/null 2>&1 || true; "$AGY_TASK" clean $s --force >/dev/null 2>&1 || true; done
 echo "ok"
