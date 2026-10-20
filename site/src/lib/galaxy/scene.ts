@@ -15,6 +15,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { PALETTE } from './shared.ts';
+import { createBackdrop } from './backdrop.ts';
 import type { Tier } from './shared.ts';
 import type { Lane } from '../run.ts';
 import type { StoryWorker } from './story.ts';
@@ -104,7 +105,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   // ---- shared uniforms -------------------------------------------------------------------------------------
   const shared = {
     uTime: { value: 0 }, uSpin: { value: 0 }, uScale: { value: 800 }, uPR: { value: 1 }, uGain: { value: 1.4 },
-    uCoreDim: { value: 1 }, uMax: { value: pointMax },
+    uCoreDim: { value: 1 }, uMax: { value: pointMax }, uDof: { value: 0 }, uFocusD: { value: 2 },
   };
   const sprite = (blending: Blending, mode: number, o: { size?: number; rotate?: number; px?: number; big?: number; gain?: number }): ShaderMaterial => {
     const m = new ShaderMaterial({
@@ -136,6 +137,10 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     skyMats.push(m);
     points(cloudGeometry(buildSky(n, r[0], r[1], 100 + i)), m, 0);
   });
+  // Far procedural backdrop (Milky-Way band + nebulae): drawn first, additive, faded in for the system beats.
+  const backdrop = createBackdrop(opts.tier);
+  scene.add(backdrop.object3d);
+  const bdMat = (backdrop.object3d as Mesh).material as ShaderMaterial;
   // Galaxy: stars, haze (additive), dust (alpha)
   const starMat = sprite(AdditiveBlending, 0, { size: opts.tier === 'low' ? 0.07 : 0.05, rotate: 1 });
   points(cloudGeometry(buildGalaxy(tcfg.stars)), starMat, 2);
@@ -239,9 +244,18 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   bodies.renderOrder = 7;
   scene.add(bodies);
 
+  // the sun's soft lens glow: one big warm sprite (no cross, no spikes), own gain, never core-dimmed
+  const haloGeo = track(new BufferGeometry());
+  haloGeo.setAttribute('position', new BufferAttribute(new Float32Array(3), 3));
+  haloGeo.setAttribute('aColor', new BufferAttribute(new Float32Array([1.0, 0.62, 0.3]), 3));
+  haloGeo.setAttribute('aData', new BufferAttribute(new Float32Array([1, 0.3, 0.3, 0]), 4));
+  const haloMat = sprite(AdditiveBlending, 1, { size: 2.8, big: 1, gain: 0 });
+  haloMat.uniforms.uCoreDim = { value: 1 };
+  points(haloGeo, haloMat, 4);
+
   // ribbons: one orbit hairline per planet, plus the fixer's short tail
   const lineRes = { value: new Vector2(1, 1) }; // shared device-px screen size for the ribbon lines
-  interface Ribbon { mesh: Mesh; pos: Float32Array; next: Float32Array; geo: BufferGeometry; prog: number[]; al: number[] }
+  interface Ribbon { mesh: Mesh; pos: Float32Array; next: Float32Array; geo: BufferGeometry; prog: number[]; al: number[]; ang: number[]; mat: ShaderMaterial }
   function makeRibbon(nLines: number, segs: number, kind: number, width: number, color: (li: number) => Rgb): Ribbon {
     const vCount = nLines * (segs + 1) * 2;
     const pos = new Float32Array(vCount * 3);
@@ -268,8 +282,9 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     geo.setIndex(new BufferAttribute(idx, 1));
     const prog = new Array(Math.max(1, nLines)).fill(0) as number[];
     const al = new Array(Math.max(1, nLines)).fill(0) as number[];
+    const ang = new Array(Math.max(1, nLines)).fill(0) as number[];
     const mat = track(new ShaderMaterial({
-      uniforms: { uRes: lineRes, uWidth: { value: width }, uPR: shared.uPR, uProg: { value: prog }, uAl: { value: al } },
+      uniforms: { uRes: lineRes, uWidth: { value: width }, uPR: shared.uPR, uProg: { value: prog }, uAl: { value: al }, uAng: { value: ang }, uFocus: { value: new Vector3() }, uDof: shared.uDof },
       vertexShader: lineVert(Math.max(1, nLines)), fragmentShader: lineFrag, glslVersion: GLSL3,
       blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, side: 2,
     }));
@@ -277,7 +292,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     mesh.frustumCulled = false;
     mesh.renderOrder = 6;
     scene.add(mesh);
-    return { mesh, pos, next, geo, prog, al };
+    return { mesh, pos, next, geo, prog, al, ang, mat };
   }
   const SEGO = 128;
   const FSEG = 16;
@@ -289,7 +304,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
 
   // flat effects in the orbital plane: the approval pulse and the scan arc
   const fxMat = track(new ShaderMaterial({
-    uniforms: { uPulseR: { value: 0 }, uPulseA: { value: 0 }, uAng: { value: 0 }, uScanVis: { value: 0 }, uR: { value: 6 } },
+    uniforms: { uPool: { value: 0 }, uPulseR: { value: 0 }, uPulseA: { value: 0 }, uAng: { value: 0 }, uScanVis: { value: 0 }, uR: { value: 6 } },
     vertexShader: fxVert, fragmentShader: fxFrag, glslVersion: GLSL3,
     blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true,
   }));
@@ -392,7 +407,8 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     const pullOut = ss(0.42, 0.98, m);
     const st = sceneState(pp);
     const t = reduced ? 0 : (nowMs - t0) / 1000;
-    const tt = orbitT(progress); // orbital clock: scroll-driven
+    const idleOn = reduced ? 0 : 1; // ambient idle motion (owner-allowed): time-based, layered on the scroll; 0 under reduced motion
+    const tt = orbitT(progress) + idleOn * t * 0.11; // orbital clock: scroll-driven plus a slow idle drift (inner planets faster)
     shared.uTime.value = t;
     shared.uSpin.value = st.spin + 0.5 * m;
     const band = ss(0.27, 0.36, pp) * (1 - ss(0.53, 0.6, pp)); // the dive's bright stretch: thin the bulge so the tunnel reads
@@ -400,13 +416,13 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     const lg = ss(0.3, 0.72, m);
     const calmDive = ss(0.1, 0.28, pp) * (1 - ss(0.5, 0.58, pp));
     const calmPlan = ss(0.4, 0.56, pp) * (1 - lg);
-    const calm = (1 - 0.6 * calmDive) * (1 - 0.93 * calmPlan) * (1 - 0.5 * ss(0.5, 0.58, pp) * (1 - lg));
+    const calm = (1 - 0.6 * calmDive) * (1 - 0.84 * calmPlan) * (1 - 0.5 * ss(0.5, 0.58, pp) * (1 - lg));
     shared.uGain.value = 1.4 * st.galaxyGain * calm * (1 + 1.5 * lg);
     shared.uCoreDim.value = (st.coreGain + (0.8 - st.coreGain) * lg) * (1 - 0.7 * pullOut) * (1 - 0.5 * calmPlan);
     hazeMat.uniforms.uGain.value = 0.8 * st.galaxyGain * (1 - 0.8 * ss(0.5, 0.62, pp)) * (1 + 2.4 * lg) * (1 - 0.8 * band) * (1 - 0.6 * pullOut) * calm * (1 - 0.6 * calmPlan);
     dustMat.uniforms.uGain.value = (1 + 0.4 * ss(0.5, 0.6, pp)) * (1 - 0.95 * ss(0.14, 0.3, pp) * (1 - lg)) * (1 - 0.85 * calmPlan);
     // late beats: clean black around the sun so the system reads against it; the full field returns as the merge camera pulls out
-    const clearR = Math.max((5 + 4 * (1 - ss(0.56, 0.62, pp))) * ss(0.5, 0.55, pp), 5 * ss(0, 0.05, u)) * (1 - ss(0.4, 0.9, m)); // also clean around the sun at the core beat
+    const clearR = Math.max((2.6 + 3 * (1 - ss(0.56, 0.62, pp))) * ss(0.5, 0.55, pp), 2.6 * ss(0, 0.05, u)) * (1 - ss(0.4, 0.9, m)); // also clean around the sun at the core beat
     starMat.uniforms.uClearR.value = clearR;
     hazeMat.uniforms.uClearR.value = clearR;
     dustMat.uniforms.uClearR.value = clearR;
@@ -430,6 +446,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     });
     const cronPos: V3 = closeIdx >= 0 ? planetPos(planets[closeIdx], tt) : [0, 0, 0];
     const cA = closeIdx >= 0 ? closeAmt(u) : 0;
+    shared.uDof.value = cA; // fake depth of field in the close-up: far stars, orbit lines soften with distance from the focus planet
 
     // ---- camera ----
     const aspect = camera.aspect;
@@ -477,7 +494,14 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       [cx, cy, cz] = mc.cam;
       [tg[0], tg[1], tg[2]] = mc.target;
     }
-    camera.position.set(cx + ptr.sx * 0.5 * par, cy + ptr.sy * 0.3 * par, cz);
+    // camera life: stronger pointer parallax in the system beats, plus a tiny slow Lissajous sway (smaller in the close-up so framing holds)
+    const sysP = wSys * (1 - m);
+    const sway = idleOn * (0.2 + 0.8 * wSys) * (1 - 0.92 * cA) * (1 - m);
+    camera.position.set(
+      cx + ptr.sx * 0.5 * par * (1 + 0.9 * sysP) + Math.sin(t * 0.21) * 0.16 * sway,
+      cy + ptr.sy * 0.3 * par * (1 + 0.9 * sysP) + Math.sin(t * 0.17 + 1.3) * 0.1 * sway,
+      cz + Math.sin(t * 0.13 + 2.1) * 0.12 * sway,
+    );
     camera.up.set(Math.sin(st.roll), Math.cos(st.roll), 0);
     camera.lookAt(tg[0], tg[1], tg[2]);
     if (Math.abs(camera.fov - fov) > 1e-3) {
@@ -488,6 +512,11 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     camera.updateMatrixWorld();
     camera.matrixWorld.extractBasis(right, upV, back);
     fwd.copy(back).negate();
+    // backdrop: system beats at full, nothing during the galaxy/dive beats, a moderate level for the merged galaxy; the low tier renders direct (no OutputPass), so lift it
+    const bdAmt = ss(0.5, 0.6, pp) * (1 - 0.55 * lg) * (opts.tier === 'low' ? 1.7 : 1);
+    backdrop.update(camera, t, bdAmt);
+    shared.uFocusD.value = Math.max(0.5, (cronPos[0] - camera.position.x) * fwd.x + (cronPos[1] - camera.position.y) * fwd.y + (cronPos[2] - camera.position.z) * fwd.z);
+    orbits.mat.uniforms.uFocus.value.set(cronPos[0], cronPos[1], cronPos[2]);
     starMat.uniforms.uSize.value = (opts.tier === 'low' ? 0.07 : 0.05) * (1 + 0.3 * hw) * (1 - 0.6 * band) * (1 - 0.45 * calmPlan);
 
     // comet
@@ -522,7 +551,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     const pulseP = st.pulse > 0 && st.pulse < 1 ? st.pulse : 0;
     const pulseGlow = Math.sin(Math.PI * pulseP) ** 2;
     uP[SUN].set(0, 0, 0, SUN_R * (1 + 0.3 * flare + 0.1 * pulseGlow));
-    uS[SUN].set(sunA, 0, 0, 0);
+    uS[SUN].set(sunA * (1 + 2.6 * cA), 0, 0, 0); // behind the close-up copy the far sun is lifted back to a blazing star (the dimming above only guards the pill and the bloom)
     bodyMat.uniforms.uSpin.value = tt;
     bodyMat.uniforms.uFlare.value = flare * 0.9 + st.flash * 0.5 + pulseGlow * 0.12;
     nodeWorld[0] = [0, 0, 0];
@@ -566,13 +595,15 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       const ringAmt = g * (1 - ss(0.02, 0.2, mkI));
       const R = PLANET_R * (1 + 0.3 * g);
       uP[1 + pi].set(bodyPos[pi][0], bodyPos[pi][1], bodyPos[pi][2], R);
-      uS[1 + pi].set(live * (pi === closeIdx || camera.aspect >= 1.2 ? 1 : 1 - 0.8 * cA), ringAmt, okV, redV);
+      const nearSun = 1.18 - 0.28 * ((p.orbit - sys.planets[0].orbit) / Math.max(0.01, rMax - sys.planets[0].orbit)); // planets nearer the sun a touch brighter
+      uS[1 + pi].set(live * nearSun * (pi === closeIdx || camera.aspect >= 1.2 ? 1 : 1 - 0.8 * cA), ringAmt, okV, redV);
       // plan slot: a dim dot on the orbit until the planet lands on it
       const slotA = ss(0.8, 1, draw) * 0.7 * (1 - ss(0.5, 0.95, k));
       const sp = planetPos(p, tt);
       uP[SLOT0 + pi].set(sp[0], sp[1], sp[2], SLOT_R);
       uS[SLOT0 + pi].set(slotA, 0, 0, 0);
       orbProg[pi] = draw;
+      orbits.ang[pi] = p.phase + p.speed * tt;
       orbAl[pi] = 1.2 * ss(0, 0.12, draw) * (1 - ss(0.05, 0.9, mkI)) * (1 - 0.6 * ss(0.4, 0.85, m));
       // the DOM pill: on the slot until launch, hidden while it flies out, then on the planet
       const mask = clamp01(1 - ss(0, 0.08, k) + ss(0.5, 0.9, k));
@@ -587,6 +618,9 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     });
     orbits.mesh.visible = n > 0 && st.draw > 0;
     // the sun's approval pulse and the verify scan arc
+    const elev = Math.abs(camera.position.y) / Math.max(0.01, camera.position.length());
+    fxMat.uniforms.uPool.value = ss(0.5, 0.56, pp) * ss(0.14, 0.5, elev) * (1 - 0.6 * pullOut) * (1 - ss(0.6, 0.9, m)) * (1 - 0.3 * cA);
+    haloMat.uniforms.uGain.value = 0.17 * sunA * (1 + 1.6 * cA);
     fxMat.uniforms.uPulseR.value = pulseP * (rMax + 0.8);
     fxMat.uniforms.uPulseA.value = pulseP > 0 ? Math.sin(Math.PI * pulseP) ** 0.8 * 0.9 : 0;
     fxMat.uniforms.uAng.value = TH0 + scanS * Math.PI * 2;
@@ -729,6 +763,9 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     lineRes.value.set(cssW * pr, cssH * pr);
     tailMat.uniforms.uRes.value.set(cssW * pr, cssH * pr);
     bakeSystem();
+    // keep the copy readable over the backdrop: the left column on wide screens, the top band on portrait
+    if (camera.aspect >= 1.2) bdMat.uniforms.uCopyMask.value.set(-0.6, 0, 0.5, 0.95);
+    else bdMat.uniforms.uCopyMask.value.set(0, 0.55, 1.5, 0.5);
     if (reduced || !active) renderFrame(performance.now());
   }
   const onResize = (): void => resize();
@@ -755,6 +792,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       disposed = true;
       if (raf) cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
+      backdrop.dispose();
       for (const p of passes) p.dispose?.();
       composer?.dispose();
       for (const d of disposables) d.dispose();

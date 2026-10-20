@@ -15,6 +15,8 @@ uniform float uPR;
 uniform float uCoreDim;
 uniform float uBig; // 1 = large soft sprites (haze, dust): no energy normalisation
 uniform float uGrow; // grows a cloud outward from the core: points with aData.w = t appear once uGrow passes t
+uniform float uDof; // 0..1 close-up fake depth of field: things far behind the focus plane get bigger and dimmer
+uniform float uFocusD;
 uniform float uClearR; // >0: clean black around the origin — brightness fades in from uClearR*0.5 out to uClearR (the system beats)
 in vec3 aColor;
 in vec4 aData;
@@ -44,6 +46,11 @@ void main() {
   }
   a *= smoothstep(0.12, 1.2, depth);
   if (uClearR > 0.0) a *= smoothstep(uClearR * 0.5, uClearR, r); // radial clear around the sun (r is the cylindrical radius, rotation-invariant)
+  if (uDof > 0.0 && uBig < 0.5) {
+    float bl = uDof * smoothstep(uFocusD * 1.6, uFocusD * 14.0, depth);
+    size *= 1.0 + 2.2 * bl;
+    a /= 1.0 + 3.0 * bl;
+  }
   size = min(size, uMax);
   float minPx = 1.5 * uPR;
   if (size < minPx) { a *= size / minPx; size = minPx; }
@@ -490,6 +497,9 @@ uniform float uWidth;
 uniform float uPR;
 uniform float uProg[${n}];
 uniform float uAl[${n}];
+uniform float uAng[${n}]; // each orbit's planet angle (rad), idle drift included
+uniform vec3 uFocus; // the close-up planet
+uniform float uDof;
 in vec3 aNext;
 in vec3 aColor;
 in vec4 aData; // t, side, line, kind (0 orbit, 1 tail)
@@ -498,15 +508,19 @@ out float vSide;
 out float vProg;
 out float vAl;
 out float vK;
+out float vAng;
+out float vRad;
+out float vBlur;
 out vec3 vCol;
 void main() {
+  float blur = uDof * clamp(length(position - uFocus) / 4.5, 0.0, 1.0);
   vec4 ca = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   vec4 cb = projectionMatrix * modelViewMatrix * vec4(aNext, 1.0);
   vec2 d = (cb.xy / cb.w - ca.xy / ca.w) * uRes * 0.5;
   float l = length(d);
   vec2 dir = l > 1e-4 ? d / l : vec2(1.0, 0.0);
   vec2 perp = vec2(-dir.y, dir.x);
-  float wpx = uWidth * uPR * (aData.w > 0.5 ? 1.6 * aData.x : 1.0);
+  float wpx = uWidth * uPR * (aData.w > 0.5 ? 1.6 * aData.x : 1.0) * (1.0 + 2.2 * blur);
   vec2 off = perp * aData.y * wpx / (uRes * 0.5);
   gl_Position = ca + vec4(off * ca.w, 0.0, 0.0);
   int li = int(aData.z + 0.5);
@@ -514,6 +528,9 @@ void main() {
   vSide = aData.y;
   vProg = uProg[li];
   vAl = uAl[li];
+  vAng = uAng[li];
+  vRad = length(position.xz);
+  vBlur = blur;
   vK = aData.w;
   vCol = aColor;
   if (vAl < 0.002) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
@@ -525,16 +542,23 @@ in float vSide;
 in float vProg;
 in float vAl;
 in float vK;
+in float vAng;
+in float vRad;
+in float vBlur;
 in vec3 vCol;
 out vec4 fragColor;
 void main() {
-  float across = exp(-vSide * vSide * 2.6);
+  float across = exp(-vSide * vSide * 2.6 / (1.0 + 1.6 * vBlur)) / (1.0 + 1.6 * vBlur);
   float a;
   if (vK < 0.5) {
     float shown = 1.0 - smoothstep(vProg - 0.012, vProg, vT);
     if (shown <= 0.0) discard;
     float head = vProg < 0.999 ? exp(-pow((vT - vProg) * 16.0, 2.0)) : 0.0;
-    a = across * shown * (0.2 + head * 0.8) * vAl;
+    // a comet-like light trail: brightest just behind the planet, fading over ~80 degrees; a faint base keeps the whole orbit readable
+    float behind = mod(vAng - vT * 6.2831853, 6.2831853);
+    float trail = behind < 1.5 ? pow(1.0 - behind / 1.5, 2.2) * smoothstep(0.0, 0.05, behind) : 0.0;
+    float rad = 1.5 / (1.0 + 0.2 * vRad); // brighter near the sun, fading outward
+    a = across * shown * (0.17 * rad + head * 0.8 + trail * 0.95 * rad) * vAl;
   } else {
     a = across * pow(vT, 1.7) * vAl;
   }
@@ -551,6 +575,7 @@ void main() {
 }
 `;
 export const fxFrag = /* glsl */ `
+uniform float uPool;
 uniform float uPulseR;
 uniform float uPulseA;
 uniform float uAng;
@@ -561,6 +586,12 @@ out vec4 fragColor;
 void main() {
   float r = length(vP);
   vec3 col = vec3(0.0);
+  if (uPool > 0.001) {
+    // a very soft warm glow pool in the orbital plane around the sun; fades to nothing before the plane's edge
+    float pool = 0.075 * exp(-r / 1.2) + 0.03 * exp(-r / 3.4);
+    pool *= 1.0 - smoothstep(uR - 2.2, uR, r);
+    col += vec3(1.0, 0.66, 0.34) * pool * uPool;
+  }
   if (uPulseA > 0.001) {
     float aa = max(fwidth(r), 1e-4);
     float line = 1.0 - smoothstep(0.0, 1.5 * aa, abs(r - uPulseR));
@@ -577,6 +608,8 @@ void main() {
     float radial = (1.0 - smoothstep(uR - 0.9, uR, r)) * smoothstep(0.1, 0.7, r);
     col += vec3(0.55, 0.92, 1.0) * (edge * 0.4 + sector) * radial * uScanVis;
   }
+  float dn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
+  col += dn / 255.0 * step(0.002, dot(col, vec3(1.0)));
   fragColor = vec4(col, 1.0);
 }
 `;

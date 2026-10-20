@@ -27,7 +27,7 @@ Core idea: a tilt-shift miniature-city diorama on a drafting table. **The city i
 - No AI-generated media (images, models, textures, video).
 - No backend; static site only. No React.
 - No sound in v1.
-- No autoplay film and no scroll lock. The visitor scrolls; the scene follows.
+- No autoplay film and no scroll lock. The visitor scrolls; the scene follows. Ambient idle motion is allowed (owner, 2026-10-20): time-based, layered on the scroll; the story still advances only on scroll, and reduced motion turns it off.
 
 ## 4. Honesty rules (non-negotiable)
 

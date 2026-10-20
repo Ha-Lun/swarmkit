@@ -22,3 +22,4 @@
 {"ts":"2026-10-20T13:51:44Z","agent":"animation-specialist","task":"galaxy round F2: no pinwheel, small planet colour, smooth corona"}
 {"ts":"2026-10-20T15:10:00Z","agent":"animation-specialist","model":"claude-sonnet-5-5","task":"galaxy round G job E: backdrop.ts procedural Milky-Way band + nebulae (not wired)"}
 {"ts":"2026-10-20T15:20:00Z","session_id":"galaxy-round-g-d","agent_type":"animation-specialist","model":"claude-sonnet-5-5","summary":"galaxy round G job D: alive bodies - emissive boiling sun with prominences and breathing corona, drifting cloud layers, thin atmosphere rims, translucent icy ringlet rings, idle uTime motion"}
+{"ts": "2026-10-20T16:00:00Z", "session_id": "galaxy-round-g-f", "agent_type": "animation-specialist", "model": "claude-sonnet-5-5", "summary": "galaxy round G job F: backdrop integration, idle drift and camera sway, orbit light trails, sun glow pool and halo, close-up fake DOF, rules and logs"}

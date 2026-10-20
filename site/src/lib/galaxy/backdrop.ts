@@ -165,7 +165,7 @@ export function createBackdrop(tier: Tier): Backdrop {
   return {
     object3d: mesh,
     update(camera, timeSec, amount) {
-      const a = Math.min(1, Math.max(0, amount));
+      const a = Math.min(2, Math.max(0, amount));
       mesh.visible = a > 0.001;
       if (!mesh.visible) return;
       camera.updateMatrixWorld();

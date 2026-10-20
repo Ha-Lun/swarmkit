@@ -4,7 +4,7 @@
 - Branch: Work happens on `main` or a short-lived branch from it; the site is in `site/`. Every push to `main` deploys production (Vercel). Never push to `main` without the human saying so.
 - Static Astro site. No backend, no React. Three.js is vanilla, in one fixed-canvas island.
 - All text lives in the DOM. Never render copy in WebGL; labels pinned to 3D are DOM elements.
-- One scroll source of truth: GSAP ScrollTrigger writes the shared progress; the scene only reads it. Native scroll, scrubbed. No autoplay, no scroll lock.
+- One scroll source of truth: GSAP ScrollTrigger writes the shared progress; the scene only reads it. Native scroll, scrubbed. No autoplay, no scroll lock. Ambient idle motion is allowed (owner, 2026-10-20): time-based, layered on the scroll; the story still advances only on scroll, and reduced motion turns every idle term off.
 - Never hardcode counts, agent lists or pack names. Derive them from `../core/agents` and `../core/skills` at build time.
 - Never invent metrics, testimonials or users.
 - Benchmarks come only from `public/data/benchmark_metrics.json`, and only cells with n >= 3 completed runs (enforced in code; show min/median/max and losses). The file may be absent: render an honest "pending" state, never placeholder numbers.
