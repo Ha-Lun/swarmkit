@@ -15,6 +15,7 @@ uniform float uPR;
 uniform float uCoreDim;
 uniform float uBig; // 1 = large soft sprites (haze, dust): no energy normalisation
 uniform float uGrow; // grows a cloud outward from the core: points with aData.w = t appear once uGrow passes t
+uniform float uClearR; // >0: clean black around the origin — brightness fades in from uClearR*0.5 out to uClearR (the system beats)
 in vec3 aColor;
 in vec4 aData;
 out vec3 vC;
@@ -42,6 +43,7 @@ void main() {
     a *= 1.0 - (1.0 - uCoreDim) * exp(-r * r * 0.35);
   }
   a *= smoothstep(0.12, 1.2, depth);
+  if (uClearR > 0.0) a *= smoothstep(uClearR * 0.5, uClearR, r); // radial clear around the sun (r is the cylindrical radius, rotation-invariant)
   size = min(size, uMax);
   float minPx = 1.5 * uPR;
   if (size < minPx) { a *= size / minPx; size = minPx; }
@@ -70,75 +72,6 @@ void main() {
   vec3 rgb = vC * g * vA;
   float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
   fragColor = vec4(rgb + (n - 0.5) / 255.0 * step(0.0001, g), 1.0);
-}
-`;
-
-/** The dive's star tunnel: stars in a cylinder around the camera axis (position = [right, up, depth phase]) that stream
- *  past as the scroll travels (uTravel), drawn as quads stretched toward the vanishing point by uStretch. */
-export const streakVert = /* glsl */ `
-uniform vec2 uRes;
-uniform vec3 uFwd;
-uniform vec3 uRight;
-uniform vec3 uUp;
-uniform vec3 uCam;
-uniform float uTravel;
-uniform float uDepth;
-uniform float uStretch;
-uniform float uVis;
-uniform float uWidth;
-uniform float uPR;
-uniform vec4 uClear; // ndc ellipse (cx, cy, rx, ry) kept dark behind the copy
-in vec2 aCorner;
-in vec3 aData; // length factor, brightness, layer 0 (far) .. 1 (near)
-out vec2 vUv;
-out float vA;
-out vec3 vCol;
-
-void main() {
-  float ph = fract(position.z + uTravel * (0.75 + 0.5 * aData.z));
-  float zd = 0.35 + ph * uDepth;
-  vec3 head = uCam + uRight * position.x + uUp * position.y + uFwd * zd;
-  vec3 tail = head + uFwd * uStretch * aData.x * (0.5 + aData.z);
-  vec4 mvh = modelViewMatrix * vec4(head, 1.0);
-  vec4 mvt = modelViewMatrix * vec4(tail, 1.0);
-  vec4 ch = projectionMatrix * mvh;
-  vec4 ct = projectionMatrix * mvt;
-  if (mvh.z > -0.2) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vUv = vec2(0.0); vA = 0.0; vCol = vec3(0.0); return; }
-  vec2 nh = ch.xy / ch.w;
-  vec2 nt = ct.xy / ct.w;
-  vec2 dpx = (nh - nt) * uRes * 0.5;
-  float len = length(dpx);
-  vec2 dir = len > 0.001 ? dpx / len : vec2(1.0, 0.0);
-  vec2 perp = vec2(-dir.y, dir.x);
-  float w = uWidth * uPR * (0.65 + aData.z * 1.5);
-  float isHead = aCorner.x;
-  vec2 ndc = mix(nt, nh, isHead);
-  vec2 off = (perp * aCorner.y * w * mix(0.2, 1.0, isHead) + dir * (isHead * 2.0 - 1.0) * w * 0.8) / (uRes * 0.5);
-  ndc += off;
-  float W = mix(ct.w, ch.w, isHead);
-  float Z = mix(ct.z / ct.w, ch.z / ch.w, isHead);
-  gl_Position = vec4(ndc * W, Z * W, W);
-  vUv = vec2(isHead, aCorner.y);
-  float fade = smoothstep(0.0, 0.1, ph) * (1.0 - smoothstep(0.82, 1.0, ph));
-  // tunnel, not starburst: streaks live toward the periphery and fade out near the centre and behind the copy
-  float rad = length(nh * vec2(uRes.x / uRes.y, 1.0));
-  float tunnel = smoothstep(0.38, 1.05, rad);
-  float clear = 1.0 - 0.92 * (1.0 - smoothstep(0.55, 1.0, length((nh - uClear.xy) / uClear.zw)));
-  vA = uVis * aData.y * fade * tunnel * clear * (0.45 + 0.9 * aData.z) / (1.0 + zd * 0.03);
-  vec3 tint = aData.z > 0.7 ? vec3(1.0, 0.82, 0.6) : (aData.z < 0.25 ? vec3(0.45, 0.95, 0.85) : vec3(0.62, 0.7, 1.0));
-  vCol = mix(vec3(0.8, 0.88, 1.0), tint, 0.6);
-}
-`;
-export const streakFrag = /* glsl */ `
-in vec2 vUv;
-in float vA;
-in vec3 vCol;
-out vec4 fragColor;
-void main() {
-  float along = pow(clamp(vUv.x, 0.0, 1.0), 1.3);
-  float across = exp(-vUv.y * vUv.y * 3.2);
-  float a = along * across * vA * 1.05;
-  fragColor = vec4(vCol * a, 1.0);
 }
 `;
 

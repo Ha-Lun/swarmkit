@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildGalaxy, buildNewArm, buildStreaks, GALAXY_R } from '../../src/lib/galaxy/generator.ts';
+import { buildGalaxy, buildNewArm, GALAXY_R } from '../../src/lib/galaxy/generator.ts';
 
 const a = buildGalaxy(4000, 3);
 const b = buildGalaxy(4000, 3);
@@ -21,9 +21,6 @@ for (let i = 0; i < a.count; i += 2) {
   if (r > 6 && r < 9) { n++; if (a.color[i * 3 + 1] > a.color[i * 3]) teal++; }
 }
 assert.ok(n > 0 && teal / n > 0.4);
-const s = buildStreaks(100);
-assert.equal(s.index.length, 600);
-assert.equal(Math.max(...s.index), 399);
 
 // the new arm (grown by the merge) is deterministic, inside the disc, and carries its radius in data.w for the grow mask
 {
