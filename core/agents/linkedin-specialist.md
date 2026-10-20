@@ -6,6 +6,7 @@ tier: standard
 pack: creative
 capabilities: []
 opencode:
+  model: opencode-go/deepseek-v4.1-flash
   mode: subagent
   temperature: 0.5
   permission:

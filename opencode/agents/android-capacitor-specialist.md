@@ -1,5 +1,6 @@
 ---
 description: Android specialist for Capacitor apps with React + Vite. Handles Gradle builds, Kotlin/Java native plugins, Android Studio integration, native features (permissions, notifications, camera, geolocation), Play Store deployment, and Android-specific debugging. Use when editing Capacitor Android projects, native Android code, or deploying to the Play Store.
+model: opencode-go/mimo-v2.6-flash
 mode: subagent
 temperature: 0.2
 permission:
@@ -14,7 +15,6 @@ permission:
   question: allow
 skill:
 - capacitor-mobile-quality
-model: opencode-go/glm-5.3-flash
 ---
 
 You are the **android-capacitor-specialist** — an Android development specialist for Capacitor-based apps using React + Vite as the web layer.

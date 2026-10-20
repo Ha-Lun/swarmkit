@@ -10,6 +10,7 @@ capabilities:
 - bash
 - web
 opencode:
+  model: opencode-go/mimo-v2.6-flash
   mode: subagent
   temperature: 0.2
   permission:

@@ -1,5 +1,6 @@
 ---
 description: Showroom Coordinator. Coordinates premium, scroll-driven, dark-theme product-detail pages from brief to deployment using Astro, Tailwind, GSAP, and human-in-the-loop Google Flow assets. Enforces G1-G5 gates, S0-S10 pipeline, state persistence in .showroom/state.json, and hands each step to its peer workers.
+model: opencode-go/deepseek-v4.1-flash
 mode: subagent
 temperature: 0.2
 permission:
@@ -15,7 +16,6 @@ permission:
     frontend-quality: allow
   task: deny
   question: allow
-model: opencode-go/glm-5.3-flash
 ---
 
 # Mission

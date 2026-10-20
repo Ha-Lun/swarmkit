@@ -1,5 +1,6 @@
 ---
 description: Showroom Frontend Builder Worker. Builds individual section components in Astro + Tailwind per the 10-section pattern.
+model: opencode-go/mimo-v2.6-flash
 mode: subagent
 temperature: 0.2
 permission:
@@ -13,7 +14,6 @@ permission:
     showroom: allow
   task: deny
   question: allow
-model: opencode-go/glm-5.3-flash
 ---
 
 # Mission

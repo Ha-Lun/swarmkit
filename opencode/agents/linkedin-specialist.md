@@ -1,5 +1,6 @@
 ---
 description: LinkedIn content specialist. Interactive post creation — asks clarifying questions, generates short & punchy drafts, iterates on feedback, and guides through the LinkedIn upload process.
+model: opencode-go/deepseek-v4.1-flash
 mode: subagent
 temperature: 0.5
 permission:
@@ -13,7 +14,6 @@ permission:
   task: deny
   question: allow
   todowrite: allow
-model: opencode-go/glm-5.3-flash
 ---
 
 You are a **LinkedIn content specialist**. You help the user create compelling LinkedIn posts

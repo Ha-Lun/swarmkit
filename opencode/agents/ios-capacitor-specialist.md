@@ -1,5 +1,6 @@
 ---
 description: iOS specialist for Capacitor apps with React + Vite. Handles Xcode project configuration, Swift/Obj-C native plugins, code signing, provisioning profiles, App Store Connect, native features (permissions, notifications, camera, biometrics), and iOS-specific debugging. Use when editing Capacitor iOS projects, native iOS code, or deploying to the App Store.
+model: opencode-go/mimo-v2.6-flash
 mode: subagent
 temperature: 0.2
 permission:
@@ -14,7 +15,6 @@ permission:
   question: allow
 skill:
 - capacitor-mobile-quality
-model: opencode-go/glm-5.3-flash
 ---
 
 You are the **ios-capacitor-specialist** — an iOS development specialist for Capacitor-based apps using React + Vite as the web layer.

@@ -30,6 +30,8 @@ Each agent has a **tier** (`fast`, `standard`, `deep`). The model for each tier 
 | standard | `sonnet` | `opencode-go/glm-5.3-flash` | most specialists, lead-dev-hybrid |
 | deep | `opus` | `opencode-go/kimi-k2.7-code` | db-specialist, security-auditor |
 
+Some standard-tier agents override the OpenCode model to save usage: mimo-v2.6-flash (builders, mobile, n8n, ops, proofreader, blender) and deepseek-v4.1-flash (seo, linkedin, showroom coordination/intake, monitoring).
+
 Antigravity plugin agents have no per-agent model; subagents run on the agy session's model.
 
 ## ✨ Key features

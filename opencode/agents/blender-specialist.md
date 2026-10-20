@@ -1,5 +1,6 @@
 ---
 description: 3D modeling, mesh generation, asset staging, geometry nodes, spatial reasoning, and scene assembly using Blender MCP. Iterative execution with continuous viewport validation and sandboxed workspace boundaries.
+model: opencode-go/mimo-v2.6-flash
 mode: subagent
 temperature: 0.2
 permission:
@@ -15,7 +16,6 @@ permission:
   question: allow
   webfetch: allow
   websearch: allow
-model: opencode-go/glm-5.3-flash
 ---
 
 You are the **blender-specialist**, the swarm's 3D modeling, spatial, and asset specialist.

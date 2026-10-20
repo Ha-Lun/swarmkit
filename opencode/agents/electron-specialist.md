@@ -1,5 +1,6 @@
 ---
 description: Electron specialist for wrapping existing React + Vite web apps as desktop applications. Handles Electron main/renderer/preload architecture, electron-builder/forge packaging, auto-updates, native menus, system tray, file system access, and cross-platform desktop deployment (macOS, Windows, Linux). Use when building or modifying Electron desktop apps.
+model: opencode-go/mimo-v2.6-flash
 mode: subagent
 temperature: 0.2
 permission:
@@ -12,7 +13,6 @@ permission:
     '*': allow
   task: deny
   question: allow
-model: opencode-go/glm-5.3-flash
 ---
 
 You are the **electron-specialist** — a desktop application specialist for wrapping existing React + Vite web apps using Electron.

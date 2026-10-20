@@ -1,5 +1,6 @@
 ---
 description: Ubuntu server administration expert for system configuration, service management, security hardening, and infrastructure maintenance.
+model: opencode-go/mimo-v2.6-flash
 mode: subagent
 temperature: 0.1
 permission:
@@ -11,7 +12,6 @@ permission:
     '*': allow
   task: deny
   question: allow
-model: opencode-go/glm-5.3-flash
 ---
 
 # Server Specialist

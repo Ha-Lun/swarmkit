@@ -1,5 +1,6 @@
 ---
 description: Showroom Intake Worker. Manages brief completeness, single batched question set, outputs BRIEF.md, halts at G1.
+model: opencode-go/deepseek-v4.1-flash
 mode: subagent
 temperature: 0.2
 permission:
@@ -13,7 +14,6 @@ permission:
     showroom: allow
   task: deny
   question: allow
-model: opencode-go/glm-5.3-flash
 ---
 
 # Mission

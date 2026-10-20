@@ -9,7 +9,8 @@ capabilities:
 - edit
 - bash
 - web
-opencode: {}
+opencode:
+  model: opencode-go/deepseek-v4.1-flash
 claude:
   description: 'Technical SEO, structured data, sitemaps, Core Web Vitals and AI-search visibility with free tools. Use proactively for SEO audits or search-visibility work.'
   tools:

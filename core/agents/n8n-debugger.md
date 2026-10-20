@@ -9,6 +9,7 @@ capabilities:
 - edit
 - bash
 opencode:
+  model: opencode-go/mimo-v2.6-flash
   mode: subagent
   permission:
     edit: allow

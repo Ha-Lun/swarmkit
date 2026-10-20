@@ -1,5 +1,6 @@
 ---
 description: Systematic debugging and diagnosis of broken n8n workflows. Analyzes execution logs, identifies failure patterns, and provides root cause analysis. Specializes in Telegram integration issues.
+model: opencode-go/mimo-v2.6-flash
 mode: subagent
 permission:
   edit: allow
@@ -7,7 +8,6 @@ permission:
   skill:
     n8n-debugging: allow
     '*': deny
-model: opencode-go/glm-5.3-flash
 ---
 
 You are an expert n8n workflow debugger specializing in systematic diagnosis and root cause analysis.
