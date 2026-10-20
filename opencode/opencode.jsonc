@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "opencode-go/kimi-k2.7-code",
+  "model": "opencode-go/mimo-v2.6-pro",
   "default_agent": "lead-dev-hybrid",
   "instructions": ["{env:HOME}/.config/opencode/custom-instructions.md"],
   "tool_output": {
