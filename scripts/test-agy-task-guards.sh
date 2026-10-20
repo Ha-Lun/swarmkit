@@ -249,6 +249,28 @@ echo "$out" | grep -q "^opencode-task: agent broad has an edit rule for .git" ||
 "$TASK" start ag2 "p" >/dev/null 2>&1 || true
 [ "$(last_agent)" = "build" ] || fail "default agent should be build, got $(last_agent)"
 for s in ag1 ag2; do "$TASK" clean $s --force; done
+# --agent model: the agent's own model when allowlisted, else the lane default with a notice
+mkagent() { printf -- "---\n%s---\n" "$2" > "$SWARMKIT_OPENCODE_AGENTS_DIR/$1.md"; }
+mkagent m-glm "model: opencode-go/glm-5.3-flash
+"
+mkagent m-kimi "model: opencode-go/kimi-k2.7-code
+"
+mkagent m-none "description: x
+"
+task_model() { jq -r .model "$(ls -d "$OPENCODE_TASK_DIR"/*/"$1"/opts.json 2>/dev/null | head -1)"; }
+"$TASK" start am1 --agent m-glm "p" >/dev/null 2>&1 || true
+[ "$(task_model am1)" = "opencode-go/glm-5.3-flash" ] || fail "agent model not used: $(task_model am1)"
+err=$("$TASK" start am2 --agent m-kimi "p" 2>&1 >/dev/null) || true
+[ "$(task_model am2)" = "opencode-go/muse-spark-1.3-contributor" ] || fail "kimi agent must fall back to muse: $(task_model am2)"
+echo "$err" | grep -q "^opencode-task: agent m-kimi model opencode-go/kimi-k2.7-code is not on the worker allowlist; using opencode-go/muse-spark-1.3-contributor" || fail "kimi fallback notice: $err"
+err=$("$TASK" start am3 --agent m-none "p" 2>&1 >/dev/null) || true
+[ "$(task_model am3)" = "opencode-go/muse-spark-1.3-contributor" ] || fail "agent without model must use muse: $(task_model am3)"
+echo "$err" | grep -q "allowlist" && fail "agent without model must not print a notice: $err"
+"$TASK" start am4 --agent m-glm --model opencode-go/deepseek-v4.1-flash "p" >/dev/null 2>&1 || true
+[ "$(task_model am4)" = "opencode-go/deepseek-v4.1-flash" ] || fail "--model must win over the agent: $(task_model am4)"
+"$TASK" start am5 "p" >/dev/null 2>&1 || true
+[ "$(task_model am5)" = "opencode-go/muse-spark-1.3-contributor" ] || fail "no --agent must use muse: $(task_model am5)"
+for s in am1 am2 am3 am4 am5; do "$TASK" clean $s --force; done
 unset SWARMKIT_OPENCODE_AGENTS_DIR
 
 # --- git isolation: a worker that points .git at a gitdir it planted gets nothing run or committed there

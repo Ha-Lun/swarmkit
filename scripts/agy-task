@@ -58,8 +58,9 @@ stopped worker at most once (only if its edits are worth keeping); then take the
 from a small table (currently empty); a model not in the table gets no effort suffix, since a variant
 a model lacks fails the whole run (muse rejects `max`). --effort "" forces none. Resume reuses the model and effort of start.
 
-A worker can run as a named specialist with --agent NAME (start only, rejected on resume, which reuses it), while the model
-flag stays on the worker allowlist. A headless note (no browser or MCP here) is prepended to the prompt.
+A worker can run as a named specialist with --agent NAME (start only, rejected on resume, which reuses it). On opencode
+without --model the worker uses the agent's own `model:` when it is on the worker allowlist, else the lane default
+(with a stderr notice); --model always wins and must be on the allowlist. A headless note (no browser or MCP here) is prepended to the prompt.
 --agent is rejected for the lead-dev-hybrid orchestrator and for unknown agents.
 opencode: `--agent NAME` instead of `--agent build`; the sandbox overlay is also applied under
 `agent.NAME.permission`, so the agent's own permission block (e.g. bash '*': allow) cannot widen it.
@@ -173,6 +174,15 @@ OPENCODE_OVERLAY = {
 def agents_dir():
     d = os.environ.get("SWARMKIT_OPENCODE_AGENTS_DIR")
     return Path(d) if d else Path(__file__).resolve().parent.parent / "opencode" / "agents"
+
+
+def agent_model(agent):
+    """The `model:` value of the agent's frontmatter, quotes stripped; "" if it has none."""
+    for line in (agents_dir() / f"{agent}.md").read_text().split("\n---", 1)[0].splitlines():
+        m = re.match(r"model:\s*(.*?)\s*$", line)
+        if m:
+            return m.group(1).strip("'\"")
+    return ""
 
 
 def agent_edits_git(agent):
@@ -855,7 +865,7 @@ def main():
     ap.add_argument("cmd", choices=["start", "resume", "list", "clean"])
     ap.add_argument("slug", nargs="?")
     ap.add_argument("prompt", nargs="?", help="task text, or - to read it from stdin")
-    ap.add_argument("--model", default=BACKEND["model"])
+    ap.add_argument("--model", default=None)
     ap.add_argument("--effort", help="model variant; default per model, '' for none")
     ap.add_argument("--agent", default=None, help="specialist agent (start only; resume reuses it)")
     ap.add_argument("--timeout", default="20m")
@@ -868,8 +878,9 @@ def main():
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--wait", action="store_true", help="queue for a free slot instead of refusing at the limit")
     a = ap.parse_args()
-    if a.effort is None:
-        a.effort = EFFORT_DEFAULTS.get(a.model, "")
+    from_agent = a.model is None and a.cmd == "start" and a.agent and CLI == "opencode"
+    if a.model is None:
+        a.model = BACKEND["model"]
 
     if a.cmd == "start" and a.model not in BACKEND["allowed"]:
         print(f"{PROG}: model not on the worker allowlist: {a.model} (allowed: {', '.join(BACKEND['allowed'])})", file=sys.stderr)
@@ -896,6 +907,14 @@ def main():
         if agent_edits_git(a.agent):
             print(f"{PROG}: agent {a.agent} has an edit rule for .git; it cannot run as a worker", file=sys.stderr)
             sys.exit(2)
+        if from_agent:
+            m = agent_model(a.agent)
+            if m in BACKEND["allowed"]:
+                a.model = m
+            elif m:
+                print(f"{PROG}: agent {a.agent} model {m} is not on the worker allowlist; using {a.model}", file=sys.stderr)
+    if a.effort is None:
+        a.effort = EFFORT_DEFAULTS.get(a.model, "")
 
     def base(b):  # resolved, so the worktree path git records is the one we check against
         return Path(os.path.realpath(os.environ.get(f"{b['env']}_DIR", Path.home() / b["home"])))
