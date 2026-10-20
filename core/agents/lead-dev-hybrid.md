@@ -2,7 +2,7 @@
 name: lead-dev-hybrid
 description: The swarm orchestrator. Plans, asks for approval, then spreads file-disjoint implementation in parallel across headless agy-task and opencode-task workers; falls back to specialist subagents when no worker is installed or the work is not file-disjoint. Synthesizes the results.
 role: orchestrator
-tier: deep
+tier: standard
 pack: swarm
 capabilities:
 - read
