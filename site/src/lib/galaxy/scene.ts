@@ -578,8 +578,8 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     const band = ss(0.27, 0.36, pp) * (1 - ss(0.53, 0.6, pp)); // the dive's bright stretch: thin the bulge so the tunnel reads
     const lg = ss(0, 0.22, u); // the galaxy comes back up behind the late beats
     shared.uGain.value = 1.4 * st.galaxyGain * (1 + 1.5 * lg);
-    shared.uCoreDim.value = (st.coreGain + (0.8 - st.coreGain) * lg) * (1 - 0.5 * pullOut); // the bulge steps back so the arms read in the wide shot
-    hazeMat.uniforms.uGain.value = 0.8 * st.galaxyGain * (1 - 0.8 * ss(0.5, 0.62, pp)) * (1 + 2.4 * lg) * (1 - 0.8 * band) * (1 + 0.5 * pullOut);
+    shared.uCoreDim.value = (st.coreGain + (0.8 - st.coreGain) * lg) * (1 - 0.7 * pullOut); // the bulge steps back so the arms read in the wide shot
+    hazeMat.uniforms.uGain.value = 0.8 * st.galaxyGain * (1 - 0.8 * ss(0.5, 0.62, pp)) * (1 + 2.4 * lg) * (1 - 0.8 * band) * (1 - 0.6 * pullOut);
     dustMat.uniforms.uGain.value = (1 + 0.4 * ss(0.5, 0.6, pp)) * (1 - 0.85 * ss(0.3, 0.38, pp) * (1 - ss(0.56, 0.64, pp)));
 
     // camera: aspect pull-back so portrait phones still see the whole galaxy, then pointer parallax
@@ -663,11 +663,11 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     // core flash as the comet lands: a brief gain bump on the bulge
     shared.uGain.value *= 1 + 0.9 * st.flash;
     // merge: the whole galaxy comes back up as the camera pulls out; the bulge swells with each arrival (saturating, never blown out)
-    shared.uGain.value *= (1 + 0.45 * pullOut) * (1 + 0.28 * flare);
-    const wideSize = 1 + 0.3 * pullOut;
+    shared.uGain.value *= (1 + 0.35 * pullOut) * (1 + 0.28 * flare);
+    const wideSize = 1 + 1.1 * pullOut; // stars are fixed-size in world units: keep them readable from the far camera
     starMat.uniforms.uSize.value *= wideSize;
     armMat.uniforms.uSize.value = starMat.uniforms.uSize.value;
-    armMat.uniforms.uGain.value = shared.uGain.value * 1.2;
+    armMat.uniforms.uGain.value = shared.uGain.value * 1.0;
     armMat.uniforms.uGrow.value = -0.15 + 1.27 * armGrow(m);
     armHazeMat.uniforms.uGrow.value = armMat.uniforms.uGrow.value;
     armHazeMat.uniforms.uGain.value = hazeMat.uniforms.uGain.value * 0.3;

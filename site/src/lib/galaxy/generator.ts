@@ -178,7 +178,7 @@ export function buildNewArm(count: number, seed = 31): PointCloud {
     c.position[i * 3 + 2] = Math.sin(a2) * r;
     const tint = mix3(lane[i & 1], MINT, 0.35 + 0.3 * rnd());
     let col = mix3(CORE, tint, sstep(0.05, 0.4, t));
-    let bright = (0.8 + rnd() * 0.8) * (1.15 - 0.4 * t) * (0.12 + 0.88 * sstep(0.12, 0.5, t)); // thin out the bulge end so it does not wash the core
+    let bright = (0.6 + rnd() * 0.6) * (1.15 - 0.4 * t) * (0.12 + 0.88 * sstep(0.12, 0.5, t)); // thin out the bulge end so it does not wash the core
     let size = 0.55 + rnd() * 0.7;
     if (rnd() < 0.06) {
       col = mix3(col, [1, 1, 1], 0.5);

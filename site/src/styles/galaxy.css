@@ -153,6 +153,8 @@ html.gx-live .gx-plan-inner, html.gx-still .gx-plan-inner { max-width: 26rem; }
   .gx-node { font-size: 12px; }
   html.gx-live .gx-track { height: 1960svh; }
   .gx-close-sec { background: rgba(5, 6, 10, 0.74); }
+  /* the pinned worker pills own the lower screen here; the sentence stays in the DOM and in the stacked layouts */
+  html.gx-live [data-beat='verify'] .gx-cap-note { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .gx-caret { animation: none; }
