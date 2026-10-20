@@ -141,11 +141,16 @@ export function typedChars(p: number, len: number): number {
 }
 
 // ---- late flight: beats 3-5 (fan-out, build, verify) ---------------------------------------------------------------
-// The page's scroll progress P (0..1) is split: P in 0..SPLIT drives the legacy beats 0-2 (sceneState takes p = P / SPLIT),
-// P in SPLIT..1 drives u = 0..1 below. Everything is a pure function of (u, worker index), so it scrubs and rewinds.
-export const SPLIT = 0.46;
+// The pinned track's scroll progress P (0..1) is split in three: P in 0..SPLIT drives the legacy beats 0-2 (sceneState
+// takes p = P / SPLIT), P in SPLIT..LATE_END drives u = 0..1 below (beats 3-5), and P in LATE_END..1 drives the merge
+// beat m = 0..1. (The proportions keep beats 0-5 at the scroll length they had before the merge was added.) After the
+// track the close sections scroll over the final pose (P stays 1). Everything is a pure function of (u|m, worker
+// index), so it scrubs and rewinds.
+export const SPLIT = 0.352;
+export const LATE_END = 0.766;
 export const legacyP = (P: number): number => clamp01(P / SPLIT);
-export const lateU = (P: number): number => clamp01((P - SPLIT) / (1 - SPLIT));
+export const lateU = (P: number): number => clamp01((P - SPLIT) / (LATE_END - SPLIT));
+export const mergeM = (P: number): number => clamp01((P - LATE_END) / (1 - LATE_END));
 
 export const L = {
   fan: [0.03, 0.27], // star launches, staggered by launchIndex (stagger share 0.4 of the window)
@@ -251,6 +256,74 @@ export function lateCam(u: number, aspect: number): LateCam {
   return { cam: mix(a.cam, b.cam), target: mix(a.tg, b.tg), fov: lerp(a.fov, b.fov, t) };
 }
 
+// ---- beat 6: merge (m) -------------------------------------------------------------------------------------------------
+export const M = {
+  pull: [0.05, 0.6], // planets fall into the core, staggered by merge order (stagger share 0.5 of the window)
+  arm: [0.5, 0.9], // the new bright arm grows outward from the core
+  cam: [0.42, 0.98], // the camera pulls out to the full galaxy
+} as const;
+
+/** Fall progress 0..1 of the planet with merge rank r of n (gravity: it accelerates). */
+export function pullK(m: number, r: number, n: number): number {
+  const [a, b] = stag(M.pull, r, n, 0.5);
+  const x = clamp01((m - a) / (b - a));
+  return x ** 2.1;
+}
+/** Time (m) the planet with merge rank r of n reaches the core. */
+export const pullEnd = (r: number, n: number): number => stag(M.pull, r, n, 0.5)[1];
+/** Position on the in-spiral from the rest point d to the core, k in 0..1 (writes out). Curved, ends at the core. */
+export function mergeAt(out: V3, d: V3, k: number, j: number): V3 {
+  const r0 = Math.hypot(d[0], d[2]);
+  const a0 = Math.atan2(d[2], d[0]);
+  const swirl = 1.15 + 0.12 * (j % 4);
+  const a = a0 + swirl * k ** 1.15;
+  const r = r0 * (1 - k) ** 0.92;
+  out[0] = Math.cos(a) * r;
+  out[1] = d[1] * (1 - k) + 0.7 * Math.sin(Math.PI * k) * (j % 2 ? 1 : -0.6) * (1 - 0.4 * k);
+  out[2] = Math.sin(a) * r;
+  return out;
+}
+/** Core flare 0..1 (saturating): a short swell before each arrival, an exponential decay after it. Never reaches 1. */
+export function coreFlare(m: number, n: number): number {
+  let sum = 0;
+  for (let r = 0; r < n; r++) {
+    const t = m - pullEnd(r, n);
+    sum += t < 0 ? 0.55 * Math.exp(-((t / 0.014) ** 2)) : 0.55 * Math.exp(-t / 0.055);
+  }
+  return 1 - Math.exp(-sum * 1.1);
+}
+/** Growth of the new arm, 0 (not there) .. 1 (full). */
+export const armGrow = (m: number): number => ss(M.arm[0], M.arm[1], m);
+
+const MERGE_KEYS = (wide: boolean): { m: number; cam: V3; tg: V3 }[] => wide
+  ? [
+    { m: 0.0, cam: lateCam(1, 1.6).cam, tg: lateCam(1, 1.6).target },
+    { m: 0.42, cam: [-0.6, 8.2, 12.6], tg: [-3.9, -0.4, 0.2] },
+    { m: 1.0, cam: [0.4, 14.0, 20.0], tg: [-5.6, -0.4, 0.0] },
+  ]
+  : [
+    { m: 0.0, cam: lateCam(1, 0.46).cam, tg: lateCam(1, 0.46).target },
+    { m: 0.42, cam: [0, 12.5, 15.5], tg: [0, 2.2, 0.2] },
+    { m: 1.0, cam: [0, 40, 24], tg: [0, -1.4, 0.0] },
+  ];
+/** Merge camera at m: starts on the final verify pose, leans in while the planets fall, then pulls out to the whole galaxy. */
+export function mergeCam(m: number, aspect: number): LateCam {
+  const k = MERGE_KEYS(aspect >= 1.2);
+  let i = 0;
+  while (i < k.length - 2 && m > k[i + 1].m) i++;
+  const t = easeInOut(clamp01((m - k[i].m) / (k[i + 1].m - k[i].m)));
+  const a = k[i];
+  const b = k[i + 1];
+  const mix = (x: V3, y: V3): V3 => [lerp(x[0], y[0], t), lerp(x[1], y[1], t), lerp(x[2], y[2], t)];
+  return { cam: mix(a.cam, b.cam), target: mix(a.tg, b.tg), fov: 50 };
+}
+
+/** Copy envelope for the merge beat (and the fade-out of the verify copy). */
+export const mergeOpacity = {
+  verifyOut: (m: number): number => 1 - ss(0.0, 0.07, m),
+  copy: (m: number): number => ss(0.06, 0.12, m) * (1 - ss(0.84, 0.93, m)),
+};
+
 /** Copy envelopes for beats 3-5 (u) and the fade-out of the plan copy. */
 export const lateOpacity = {
   planOut: (u: number): number => 1 - ss(0.0, 0.05, u),
@@ -264,7 +337,9 @@ export const STATIC_POSE = {
   galaxy: 0.02 * SPLIT,
   core: 0.55 * SPLIT,
   constellation: 0.92 * SPLIT,
-  fan: SPLIT + 0.3 * (1 - SPLIT),
-  build: SPLIT + 0.62 * (1 - SPLIT),
-  verify: 1,
+  fan: SPLIT + 0.3 * (LATE_END - SPLIT),
+  build: SPLIT + 0.62 * (LATE_END - SPLIT),
+  verify: LATE_END,
+  merge: LATE_END + 0.5 * (1 - LATE_END),
+  close: 1,
 } as const;

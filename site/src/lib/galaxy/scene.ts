@@ -17,11 +17,11 @@ import { PALETTE } from './shared.ts';
 import type { Tier } from './shared.ts';
 import { layoutNodes, linkProgress, nodeOn, spokeProgress } from './constellation.ts';
 import type { Lane } from './constellation.ts';
-import { buildDust, buildGalaxy, buildHaze, buildSky, buildStreaks } from './generator.ts';
+import { buildDust, buildGalaxy, buildHaze, buildNewArm, buildNewArmHaze, buildSky, buildStreaks } from './generator.ts';
 import type { PointCloud } from './generator.ts';
 import {
-  bubbleAmt, cometAt, clamp01, destTheta, fixerAt, fixWindow, growAmt, L, lateCam, lateU, launchK, legacyP, lerp, sceneState,
-  ss, starAt, starDest, sweepAngle, sweepRange, sweepTime,
+  armGrow, bubbleAmt, cometAt, clamp01, coreFlare, destTheta, fixerAt, fixWindow, growAmt, L, lateCam, lateU, launchK, legacyP, lerp,
+  mergeAt, mergeCam, mergeM, pullK, sceneState, ss, starAt, starDest, sweepAngle, sweepRange, sweepTime,
 } from './path.ts';
 import type { SceneState, V3 } from './path.ts';
 import {
@@ -31,9 +31,9 @@ import {
 
 const CLEAR = '#05060a';
 const TIER = {
-  high: { stars: 110000, haze: 44, dust: 280, sky: [5200, 2600, 1100], streaks: 3200, acc: 150, pr: 1.75, bloom: true },
-  medium: { stars: 55000, haze: 36, dust: 200, sky: [2600, 1300, 600], streaks: 2000, acc: 100, pr: 1.25, bloom: true },
-  low: { stars: 15000, haze: 22, dust: 120, sky: [900, 500, 250], streaks: 1000, acc: 60, pr: 1, bloom: false },
+  high: { stars: 110000, arm: 15000, haze: 44, dust: 280, sky: [5200, 2600, 1100], streaks: 3200, acc: 150, pr: 1.75, bloom: true },
+  medium: { stars: 55000, arm: 8000, haze: 36, dust: 200, sky: [2600, 1300, 600], streaks: 2000, acc: 100, pr: 1.25, bloom: true },
+  low: { stars: 15000, arm: 2600, haze: 22, dust: 120, sky: [900, 500, 250], streaks: 1000, acc: 60, pr: 1, bloom: false },
 } as const;
 
 export interface NodeInfo {
@@ -44,12 +44,15 @@ export interface NodeInfo {
   failed: boolean;
   fixer: { slug: string; lane: Lane } | null;
   reviewed: boolean;
+  mergeIndex: number | null;
 }
 export interface GalaxyFrame {
   /** legacy progress for beats 0-2 (0..1 over the first SPLIT of the page) */
   p: number;
   /** late progress for beats 3-5 */
   u: number;
+  /** merge progress for beat 6 */
+  m: number;
   state: SceneState;
   /**
    * CSS px relative to the canvas: x, y, in-front flag, node brightness 0..1, bubble radius in px, status 0..1
@@ -117,7 +120,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
         ...shared,
         ...(o.gain !== undefined ? { uGain: { value: o.gain } } : {}),
         uSize: { value: o.size ?? 0.05 }, uRotate: { value: o.rotate ?? 0 }, uPx: { value: o.px ?? 0 },
-        uBig: { value: o.big ?? 0 }, uMode: { value: mode },
+        uBig: { value: o.big ?? 0 }, uMode: { value: mode }, uGrow: { value: 2 },
       },
       vertexShader: spriteVert, fragmentShader: spriteFrag, glslVersion: GLSL3,
       blending, depthWrite: false, depthTest: false, transparent: true,
@@ -148,6 +151,14 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   points(cloudGeometry(buildHaze(tcfg.haze)), hazeMat, 1);
   const dustMat = sprite(NormalBlending, 2, { size: 1, rotate: 1, big: 1, gain: 1 });
   points(cloudGeometry(buildDust(tcfg.dust)), dustMat, 3);
+
+  // The arm the merge adds (grows outward from the core, driven by uGrow).
+  const armMat = sprite(AdditiveBlending, 0, { size: opts.tier === 'low' ? 0.07 : 0.05, rotate: 1, gain: 1.4 });
+  const armHazeMat = sprite(AdditiveBlending, 1, { size: 1, rotate: 1, big: 1, gain: 0.8 });
+  const armPts = points(cloudGeometry(buildNewArm(tcfg.arm)), armMat, 2);
+  const armHazePts = points(cloudGeometry(buildNewArmHaze(Math.round(tcfg.haze / 3))), armHazeMat, 1);
+  armPts.visible = false;
+  armHazePts.visible = false;
 
   // ---- streaks ----------------------------------------------------------------------------------------------
   const sk = buildStreaks(tcfg.streaks);
@@ -507,7 +518,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   const ptr = { x: 0, y: 0, sx: 0, sy: 0 };
   const tmpV = new Vector3();
   const fwd = new Vector3();
-  const frameOut: GalaxyFrame = { p: 0, u: 0, state: sceneState(0), nodes: [], pulseOn: 0 };
+  const frameOut: GalaxyFrame = { p: 0, u: 0, m: 0, state: sceneState(0), nodes: [], pulseOn: 0 };
   for (let i = 0; i < nodeCount; i++) frameOut.nodes.push({ x: 0, y: 0, front: false, on: 0, rad: 0, ok: 0, bad: 0, rev: 0 });
   const right = new Vector3();
   const upV = new Vector3();
@@ -519,6 +530,13 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   let refStar = 4.4;
   const retestRank: number[] = [];
   { let r = 0; opts.workers.forEach((w, i) => { retestRank[i] = w.failed && !w.fixer ? r++ : 0; }); }
+  // merge order: the data's merge index (a fixed branch merges as its fixer), unmerged workers last in launch order
+  const mergeRank: number[] = [];
+  opts.workers
+    .map((w, i) => ({ i, key: (w.mergeIndex ?? 1000) + w.launchIndex * 1e-3 }))
+    .sort((a, b) => a.key - b.key)
+    .forEach((e, r) => { mergeRank[e.i] = r; });
+  const mk: number[] = opts.workers.map(() => 0);
   const ptsTmp = new Float32Array((TSEGS + 1) * 3);
   const fixDest: V3[] = fixers.map(() => [0, 0, 0]);
   let cssW = 1;
@@ -550,15 +568,18 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     vel += (Math.max(sv, Math.min(1, inst * 14)) - vel) * (1 - Math.exp(-dt * 6));
     const u = lateU(progress);
     const pp = legacyP(progress);
+    const m = mergeM(progress);
+    const flare = coreFlare(m, nWork);
+    const pullOut = ss(0.42, 0.98, m);
     const st = sceneState(pp);
     const t = reduced ? 0 : (nowMs - t0) / 1000;
     shared.uTime.value = t;
-    shared.uSpin.value = st.spin;
+    shared.uSpin.value = st.spin + 0.5 * m;
     const band = ss(0.27, 0.36, pp) * (1 - ss(0.53, 0.6, pp)); // the dive's bright stretch: thin the bulge so the tunnel reads
     const lg = ss(0, 0.22, u); // the galaxy comes back up behind the late beats
     shared.uGain.value = 1.4 * st.galaxyGain * (1 + 1.5 * lg);
-    shared.uCoreDim.value = st.coreGain + (0.8 - st.coreGain) * lg;
-    hazeMat.uniforms.uGain.value = 0.8 * st.galaxyGain * (1 - 0.8 * ss(0.5, 0.62, pp)) * (1 + 2.4 * lg) * (1 - 0.8 * band);
+    shared.uCoreDim.value = (st.coreGain + (0.8 - st.coreGain) * lg) * (1 - 0.5 * pullOut); // the bulge steps back so the arms read in the wide shot
+    hazeMat.uniforms.uGain.value = 0.8 * st.galaxyGain * (1 - 0.8 * ss(0.5, 0.62, pp)) * (1 + 2.4 * lg) * (1 - 0.8 * band) * (1 + 0.5 * pullOut);
     dustMat.uniforms.uGain.value = (1 + 0.4 * ss(0.5, 0.6, pp)) * (1 - 0.85 * ss(0.3, 0.38, pp) * (1 - ss(0.56, 0.64, pp)));
 
     // camera: aspect pull-back so portrait phones still see the whole galaxy, then pointer parallax
@@ -596,6 +617,12 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       tg[1] = lerp(tg[1], lc.target[1], w);
       tg[2] = lerp(tg[2], lc.target[2], w);
       fov = lerp(fov, lc.fov, w);
+    }
+    if (m > 0) {
+      const mc = mergeCam(m, aspect);
+      [cx, cy, cz] = mc.cam;
+      [tg[0], tg[1], tg[2]] = mc.target;
+      fov = mc.fov;
     }
     camera.position.set(cx + ptr.sx * 0.5 * par, cy + ptr.sy * 0.3 * par, cz);
     camera.up.set(Math.sin(st.roll), Math.cos(st.roll), 0);
@@ -635,10 +662,21 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
 
     // core flash as the comet lands: a brief gain bump on the bulge
     shared.uGain.value *= 1 + 0.9 * st.flash;
+    // merge: the whole galaxy comes back up as the camera pulls out; the bulge swells with each arrival (saturating, never blown out)
+    shared.uGain.value *= (1 + 0.45 * pullOut) * (1 + 0.28 * flare);
+    const wideSize = 1 + 0.3 * pullOut;
+    starMat.uniforms.uSize.value *= wideSize;
+    armMat.uniforms.uSize.value = starMat.uniforms.uSize.value;
+    armMat.uniforms.uGain.value = shared.uGain.value * 1.2;
+    armMat.uniforms.uGrow.value = -0.15 + 1.27 * armGrow(m);
+    armHazeMat.uniforms.uGrow.value = armMat.uniforms.uGrow.value;
+    armHazeMat.uniforms.uGain.value = hazeMat.uniforms.uGain.value * 0.3;
+    armPts.visible = m > 0.3;
+    armHazePts.visible = armPts.visible;
 
     // constellation
     const on = nodeMat.uniforms.uOn.value as number[];
-    on[0] = ss(0.5, 0.6, pp);
+    on[0] = ss(0.5, 0.6, pp) * (1 + 0.7 * flare);
     for (let i = 0; i < nWork; i++) on[i + 1] = nodeOn(st.draw, i, nWork) * (st.draw > 0 ? 1 : 0);
     const prog = rMat.uniforms.uProg.value as number[];
     for (let i = 0; i < nWork; i++) prog[i] = spokeProgress(st.draw, i, nWork);
@@ -666,6 +704,10 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       const k = lateOnNow ? launchK(u, w.launchIndex, nWork) : 0;
       const grow = growAmt(u, w.buildIndex, nWork);
       starAt(sp, slot, dest[i], w.launchIndex, k);
+      // merge: fall into the core along an in-spiral, in the data's merge order (gravity: it accelerates)
+      const mkI = m > 0 ? pullK(m, mergeRank[i], nWork) : 0;
+      mk[i] = mkI;
+      if (mkI > 0) mergeAt(sp, dest[i], mkI, i);
       nodePos[(i + 1) * 3] = sp[0];
       nodePos[(i + 1) * 3 + 1] = sp[1];
       nodePos[(i + 1) * 3 + 2] = sp[2];
@@ -673,7 +715,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       orbPos[i * 3 + 1] = sp[1];
       orbPos[i * 3 + 2] = sp[2];
       uC[i].set(sp[0], sp[1], sp[2]);
-      if (lateOnNow) on[i + 1] = (1 + 0.7 * Math.sin(Math.PI * k) ** 2) * (1 - 0.5 * grow);
+      if (lateOnNow) on[i + 1] = (1 + 0.7 * Math.sin(Math.PI * k) ** 2) * (1 - 0.5 * grow) * (1 - ss(0.5, 0.95, mkI));
       prog[i] *= 1 - k;
       // verify
       const vt = sweepTime(destAng[i], sweepA0, sweepA1);
@@ -696,8 +738,8 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
         kind = u < fb ? 1 : 0;
         revT = fb + 0.035;
       }
-      uA[i].set(bubbleAmt(u, w.launchIndex, nWork), grow, okA, badA);
-      uB[i].set(ph, kind, 0, 0);
+      uA[i].set(bubbleAmt(u, w.launchIndex, nWork) * (1 - ss(0, 0.3, mkI)), grow * (1 - ss(0.7, 1, mkI)), okA, badA);
+      uB[i].set(ph, kind, ss(0.02, 0.25, mkI), 0);
       const fo = frameOut.nodes[i + 1];
       fo.ok = okA;
       fo.bad = badA;
@@ -705,7 +747,15 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       // launch trail
       const tl = trProg;
       tl[i] = lateOnNow && k > 0.001 ? 1 - ss(0.88, 1, k) : 0;
-      if (tl[i] > 0) {
+      if (mkI > 0.002) tl[i] = ss(0.01, 0.1, mkI) * (1 - ss(0.88, 1, mkI));
+      if (mkI > 0.002 && tl[i] > 0) {
+        const m0 = Math.max(0, mkI - 0.45);
+        for (let sg = 0; sg <= TSEGS; sg++) {
+          mergeAt(sq, dest[i], lerp(m0, mkI, sg / TSEGS), i);
+          ptsTmp.set(sq, sg * 3);
+        }
+        writeTrail(i);
+      } else if (tl[i] > 0) {
         const t0k = Math.max(0, k - 0.5);
         for (let sg = 0; sg <= TSEGS; sg++) {
           starAt(sq, slot, dest[i], w.launchIndex, lerp(t0k, k, sg / TSEGS));
@@ -720,12 +770,19 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       const kf = ss(fa, fb, u);
       const d = fixDest[kk];
       fixerAt(sp, d, kf, kk);
+      const mo = mk[fx.w];
+      if (mo > 0) {
+        // the fixer's branch merges as the worker it fixed: it rides the same in-spiral, offset by where it hovered
+        mergeAt(sq, dest[fx.w], mo, fx.w);
+        for (let c = 0; c < 3; c++) sp[c] = sq[c] + (d[c] - dest[fx.w][c]) * (1 - mo);
+      }
       const ni = nWork + 1 + kk;
       nodePos[ni * 3] = sp[0];
       nodePos[ni * 3 + 1] = sp[1];
       nodePos[ni * 3 + 2] = sp[2];
-      on[ni] = ss(fa - 0.005, fa + 0.01, u) * (1 + 0.5 * Math.sin(Math.PI * kf) ** 2);
+      on[ni] = ss(fa - 0.005, fa + 0.01, u) * (1 + 0.5 * Math.sin(Math.PI * kf) ** 2) * (1 - ss(0.4, 0.95, mo));
       trProg[nWork + kk] = kf > 0.001 ? 1 - ss(0.86, 1, kf) : 0;
+      if (mo > 0) trProg[nWork + kk] = 0;
       if (trProg[nWork + kk] > 0) {
         for (let sg = 0; sg <= TSEGS; sg++) {
           fixerAt(sq, d, lerp(Math.max(0, kf - 0.5), kf, sg / TSEGS), kk);
@@ -752,7 +809,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     scanMat.uniforms.uAng.value = sweepAngle(u, sweepA0, sweepA1);
 
     if (composer) renderer.toneMappingExposure = st.exposure;
-    if (bloom) bloom.strength = 0.55 * st.bloom * (opts.tier === 'medium' ? 0.9 : 1);
+    if (bloom) bloom.strength = 0.55 * st.bloom * (opts.tier === 'medium' ? 0.9 : 1) * (1 + 0.12 * flare);
 
     // project nodes
     camera.updateMatrixWorld();
@@ -770,6 +827,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     }
     frameOut.p = pp;
     frameOut.u = u;
+    frameOut.m = m;
     frameOut.state = st;
     frameOut.pulseOn = pulseU.uPulseOn.value;
 

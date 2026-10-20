@@ -1,0 +1,22 @@
+---
+import { repoUrl } from '../../../lib/facts.ts';
+
+const dir = repoUrl.split('/').pop();
+const lines = [`git clone ${repoUrl}.git`, `cd ${dir}`, './install.sh --all'];
+---
+<section class="gx-close-sec" data-close id="install" aria-labelledby="gx-cta-title">
+  <div class="gx-close-inner">
+    <p class="gx-kicker">Install</p>
+    <h2 class="gx-h2" id="gx-cta-title">Put a swarm<br />on your next task.</h2>
+    <div class="gx-install">
+      <pre><code id="gx-install-code">{lines.join('\n')}</code></pre>
+      <button type="button" class="gx-install-copy" id="gx-install-copy">Copy</button>
+      <p class="gx-status" id="gx-install-status" role="status" aria-live="polite"></p>
+    </div>
+    <p class="gx-actions gx-actions-left">
+      <a class="gx-btn gx-btn-primary" href="/how-it-works">How it works in depth &rarr;</a>
+      <a class="gx-btn gx-btn-secondary" href={repoUrl}>GitHub</a>
+    </p>
+    <p class="gx-small gx-footer">Hand-built. No AI-generated media.</p>
+  </div>
+</section>

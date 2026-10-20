@@ -1,0 +1,23 @@
+---
+import { facts } from '../../../lib/facts.ts';
+
+const title = 'One config. Three CLIs.';
+const words = title.split(' ');
+const line = `${facts.agents.length} specialists · ${facts.skills.length} skills · built from one core/ folder`;
+---
+<section class="gx-close-sec" data-close aria-labelledby="gx-clis-title">
+  <div class="gx-close-inner">
+      <p class="gx-kicker">Works with</p>
+      <h2 class="gx-h2" id="gx-clis-title">{words.map((w, i) => (
+        <>{i > 0 ? ' ' : ''}{w}</>
+      ))}</h2>
+      <div class="gx-clis-wrap">
+        <ul class="gx-clis">
+          {facts.platforms.map((p) => (
+            <li>{p.name}</li>
+          ))}
+        </ul>
+        <p class="gx-body">{line}</p>
+      </div>
+  </div>
+</section>

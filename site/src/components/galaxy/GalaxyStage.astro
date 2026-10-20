@@ -1,21 +1,36 @@
 ---
-// Into the galaxy (prototype, beats 0-5). One fixed canvas, one sticky pin holding all copy as DOM. The copy and the
+// Into the galaxy (homepage, beats 0-7). One fixed canvas, one sticky pin holding all copy as DOM. The copy and the
 // worker labels are real elements; the client pins the labels to the projected 3D positions of the constellation
 // nodes. Without scripting, WebGL or with reduced motion the sections stack as plain full-height compositions.
 import '../../styles/galaxy.css';
 import { loadFeaturedRun } from '../../lib/run.ts';
 import { buildStory } from '../../lib/galaxy/story.ts';
+import Numbers from './sections/Numbers.astro';
+import Clis from './sections/Clis.astro';
+import Cta from './sections/Cta.astro';
 
 const run = loadFeaturedRun();
 const story = run ? buildStory(run) : null;
 const workers = story?.workers ?? [];
 const fixers = workers.filter((w) => w.failed && w.fixer);
+// verify fine print, derived: who failed a verify, and how each was fixed (a fixer branch, or a resume with no fixer)
+const names = (xs: string[]): string => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}` : xs[0] ?? '');
+const times = (n: number): string => (n === 1 ? 'once' : `${n} times`);
+const byFixer = workers.filter((w) => w.failed && w.fixer);
+const byResume = workers.filter((w) => w.failed && !w.fixer);
+const verifyNote = [
+  ...byFixer.map((w) => `${w.slug} failed its tests ${times(w.failedVerifies)} and was fixed by the ${w.fixer!.lane} fixer ${w.fixer!.slug}.`),
+  byResume.length > 0 ? `${names(byResume.map((w) => w.slug))} failed once each and were fixed on resume, with no fixer.` : '',
+].filter(Boolean).join(' ');
+const mergeLine = story
+  ? `${story.counts.merges} merges · ${story.counts.reviews} reviews, ${story.counts.crossModelReviews} by a different model family`
+  : '';
 const task = run?.task ?? '';
 const approval = run?.plan_approval;
 const json = JSON.stringify({
   task,
   workers: workers.map((w) => ({
-    slug: w.slug, lane: w.lane, launchIndex: w.launchIndex, buildIndex: w.buildIndex, failed: w.failed, fixer: w.fixer, reviewed: w.reviewed,
+    slug: w.slug, lane: w.lane, launchIndex: w.launchIndex, buildIndex: w.buildIndex, failed: w.failed, fixer: w.fixer, reviewed: w.reviewed, mergeIndex: w.mergeIndex,
   })),
 }).replace(/</g, '\\u003c');
 ---
@@ -79,6 +94,16 @@ const json = JSON.stringify({
               <p class="gx-kicker gx-num">04</p>
               <h2 id="gx-verify-title" class="gx-h2">Tested. Reviewed. Fixed.</h2>
               <p class="gx-body">Every branch re-tested, reviewed by a different model. What failed got fixed.</p>
+              {verifyNote && <p class="gx-cap gx-cap-note">{verifyNote}</p>}
+              <p class="gx-cap gx-cap-run">{story.label}</p>
+            </div>
+          </section>
+          <section class="gx-beat gx-plan gx-late" data-beat="merge" aria-labelledby="gx-merge-title">
+            <div class="gx-plan-inner" data-inner>
+              <p class="gx-kicker gx-num">05</p>
+              <h2 id="gx-merge-title" class="gx-h2">{story.verifyOk ? 'Merged. Green.' : 'Merged.'}</h2>
+              <p class="gx-body">Opus merges what passed. {story.verifyOk ? 'One clean branch, final tests green.' : 'One clean branch.'} The galaxy grows an arm.</p>
+              <p class="gx-cap gx-cap-note">{mergeLine}</p>
               <p class="gx-cap gx-cap-run">{story.label}</p>
             </div>
           </section>
@@ -92,7 +117,7 @@ const json = JSON.stringify({
             <span class="gx-node-row"><span class="gx-node-slug">{w.slug}</span><span class="gx-node-lane">{w.lane}</span></span>
             <span class="gx-node-tags">
               {w.failed && <span class="gx-tag gx-tag-fail" data-tag="fail">tests failed ×{w.failedVerifies}</span>}
-              {w.failed && w.fixer && <span class="gx-tag gx-tag-fixed" data-tag="fixed">fixed by {w.fixer.slug}</span>}
+              {w.failed && <span class="gx-tag gx-tag-fixed" data-tag="fixed">{w.fixer ? `fixed by ${w.fixer.slug}` : w.resumes > 0 ? 'fixed on resume' : 're-tested green'}</span>}
               {w.reviewed && <span class="gx-tag gx-tag-rev" data-tag="rev">{w.reviewedBy === 'cross-model' ? 'cross-model review' : 'reviewed'}</span>}
             </span>
           </li>
@@ -107,10 +132,11 @@ const json = JSON.stringify({
     </div>
   </div>
 
-  <section class="gx-end" aria-label="Prototype note">
-    <p class="gx-end-note">Prototype: beats 6-7 to come (merge, close)</p>
-    <p><a class="gx-btn gx-btn-secondary" href="/">Back to the homepage</a></p>
-  </section>
+  <div class="gx-close" data-close-wrap>
+    <Numbers />
+    <Clis />
+    <Cta />
+  </div>
   <script type="application/json" id="gx-data" set:html={json} />
 </div>
 

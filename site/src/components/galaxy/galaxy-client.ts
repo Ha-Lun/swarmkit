@@ -3,7 +3,7 @@
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { detectTier } from '../../lib/galaxy/shared.ts';
-import { beatOpacity, lateOpacity, STATIC_POSE, typedChars } from '../../lib/galaxy/path.ts';
+import { beatOpacity, lateOpacity, mergeOpacity, STATIC_POSE, typedChars } from '../../lib/galaxy/path.ts';
 import type { GalaxyFrame, GalaxyScene, NodeInfo } from '../../lib/galaxy/scene.ts';
 
 gsap.registerPlugin(ScrollTrigger);
@@ -33,6 +33,8 @@ async function boot(): Promise<void> {
   const fan = sec('fan');
   const build = sec('build');
   const verify = sec('verify');
+  const merge = sec('merge');
+  const closeEls = [...root.querySelectorAll<HTMLElement>('[data-close]')];
   const typed = root.querySelector<HTMLElement>('[data-typed]');
   const rest = root.querySelector<HTMLElement>('[data-rest]');
   const approved = root.querySelector<HTMLElement>('[data-approved]');
@@ -45,7 +47,7 @@ async function boot(): Promise<void> {
     rev: el.querySelector<HTMLElement>('[data-tag="rev"]'),
     fixer: el.querySelector<HTMLElement>('[data-tag="fixer"]'),
   }));
-  const POSE_ORDER = ['galaxy', 'core', 'constellation', 'fan', 'build', 'verify'] as const;
+  const POSE_ORDER = ['galaxy', 'core', 'constellation', 'fan', 'build', 'verify', 'merge', 'close'] as const;
   let pose: keyof typeof STATIC_POSE = 'galaxy';
   const setTag = (el: HTMLElement | null, v: number): boolean => {
     if (!el) return false;
@@ -66,7 +68,9 @@ async function boot(): Promise<void> {
     const p = f.p;
     const live = html.classList.contains('gx-live');
     const u = f.u;
-    const pillO = live ? beatOpacity.plan(p) : POSE_ORDER.indexOf(pose) >= 2 ? 1 : 0;
+    const mm = f.m;
+    const poseI = POSE_ORDER.indexOf(pose);
+    const pillO = live ? beatOpacity.plan(p) * mergeOpacity.verifyOut(mm) : poseI >= 2 && poseI <= 5 ? 1 : 0;
     const planO = live ? beatOpacity.plan(p) * lateOpacity.planOut(u) : pose === 'constellation' ? 1 : 0;
     if (live) {
       setOpacity(hero, beatOpacity.hero(p));
@@ -74,7 +78,8 @@ async function boot(): Promise<void> {
       setOpacity(plan, planO);
       setOpacity(fan, lateOpacity.fan(u));
       setOpacity(build, lateOpacity.build(u));
-      setOpacity(verify, lateOpacity.verify(u));
+      setOpacity(verify, lateOpacity.verify(u) * mergeOpacity.verifyOut(mm));
+      setOpacity(merge, mergeOpacity.copy(mm));
       const h = hero?.firstElementChild as HTMLElement | null;
       if (h) h.style.transform = `translate3d(0, ${(-24 * (1 - beatOpacity.hero(p))).toFixed(1)}px, 0)`;
       if (typed && rest && data.task) {
@@ -137,7 +142,7 @@ async function boot(): Promise<void> {
 
   if (reduced) {
     html.classList.add('gx-still');
-    const sections: [HTMLElement | null, keyof typeof STATIC_POSE][] = [[hero, 'galaxy'], [task, 'core'], [plan, 'constellation'], [fan, 'fan'], [build, 'build'], [verify, 'verify']];
+    const sections: [HTMLElement | null, keyof typeof STATIC_POSE][] = [[hero, 'galaxy'], [task, 'core'], [plan, 'constellation'], [fan, 'fan'], [build, 'build'], [verify, 'verify'], [merge, 'merge'], ...closeEls.map((el): [HTMLElement, keyof typeof STATIC_POSE] => [el, 'close'])];
     const io = new IntersectionObserver((entries) => {
       for (const e of entries) {
         if (!e.isIntersecting) continue;
@@ -167,7 +172,7 @@ async function boot(): Promise<void> {
   });
   scene.setProgress(st.progress);
   const io = new IntersectionObserver((entries) => scene.setActive(entries.some((e) => e.isIntersecting)), { rootMargin: '10% 0px' });
-  io.observe(track);
+  io.observe(root);
   const move = (e: PointerEvent): void => scene.setPointer((e.clientX / innerWidth) * 2 - 1, -((e.clientY / innerHeight) * 2 - 1));
   addEventListener('pointermove', move, { passive: true });
   addEventListener('pagehide', () => {
@@ -179,3 +184,24 @@ async function boot(): Promise<void> {
 }
 
 void boot();
+
+// install command: copy button (no-op without the block)
+{
+  const copyBtn = document.getElementById('gx-install-copy');
+  const copyCode = document.getElementById('gx-install-code');
+  const copyStatus = document.getElementById('gx-install-status');
+  copyBtn?.addEventListener('click', () => {
+    const done = (label: string, note: string): void => {
+      if (copyBtn) copyBtn.textContent = label;
+      if (copyStatus) copyStatus.textContent = note;
+      window.setTimeout(() => { if (copyBtn) copyBtn.textContent = 'Copy'; }, 2000);
+    };
+    const select = (): void => { if (copyCode) window.getSelection()?.selectAllChildren(copyCode); };
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(copyCode?.textContent ?? '').then(() => done('Copied', 'Copied')).catch(() => { select(); done('Copy', 'Copy failed: the command is selected, press Ctrl+C'); });
+    } else {
+      select();
+      done('Copy', 'Copy unavailable: the command is selected, press Ctrl+C');
+    }
+  });
+}

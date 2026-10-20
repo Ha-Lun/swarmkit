@@ -1,0 +1,48 @@
+---
+import { loadBenchmarks } from '../../../lib/benchmarks.ts';
+
+const bench = loadBenchmarks();
+type Cell = NonNullable<ReturnType<typeof loadBenchmarks>>['cells'][number];
+let hybrid: Cell | null = null;
+let vanilla: Cell | null = null;
+if (bench) {
+  for (const h of bench.cells.filter((c) => c.variant === 'hybrid')) {
+    const v = bench.cells.find((c) => c.variant === 'vanilla' && c.case === h.case && c.model === h.model);
+    if (v) {
+      hybrid = h;
+      vanilla = v;
+      break;
+    }
+  }
+}
+const pair = hybrid && vanilla ? { hybrid, vanilla } : null;
+const costRatio = pair ? pair.hybrid.cost_usd.median / pair.vanilla.cost_usd.median : null;
+const wallRatio = pair ? pair.hybrid.wall_s.median / pair.vanilla.wall_s.median : null;
+const runsEach = pair ? Math.min(pair.hybrid.n, pair.vanilla.n) : null;
+---
+<section class="gx-close-sec" data-close aria-labelledby="gx-numbers-title">
+  <div class="gx-close-inner">
+      <p class="gx-kicker">vs. vanilla Claude Code</p>
+      {pair && costRatio !== null && wallRatio !== null ? (
+        <>
+          <h2 class="gx-stats" id="gx-numbers-title">
+            <span class="gx-stat">
+              <span class="gx-stat-num">{costRatio.toFixed(2)}&times;</span>
+              <span class="gx-stat-label">Claude cost</span>
+            </span>
+            <span class="gx-stat">
+              <span class="gx-stat-num">{wallRatio.toFixed(2)}&times;</span>
+              <span class="gx-stat-label">wall time: the trade</span>
+            </span>
+          </h2>
+          <p class="gx-small">{pair.hybrid.case} task &middot; {pair.hybrid.model} &middot; median of {runsEach} runs each &middot; worker tokens are quota, not dollars</p>
+          <p class="gx-small"><a class="gx-link" href="/how-it-works#numbers">All numbers &rarr;</a></p>
+        </>
+      ) : (
+        <>
+          <h2 class="gx-h2 gx-pending" id="gx-numbers-title">Numbers pending</h2>
+          <p class="gx-small">No published hybrid/vanilla pair yet. <a class="gx-link" href="/how-it-works#numbers">All numbers &rarr;</a></p>
+        </>
+      )}
+  </div>
+</section>

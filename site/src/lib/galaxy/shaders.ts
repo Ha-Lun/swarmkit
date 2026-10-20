@@ -14,6 +14,7 @@ uniform float uPx; // >0: fixed pixel size (deep field)
 uniform float uPR;
 uniform float uCoreDim;
 uniform float uBig; // 1 = large soft sprites (haze, dust): no energy normalisation
+uniform float uGrow; // grows a cloud outward from the core: points with aData.w = t appear once uGrow passes t
 in vec3 aColor;
 in vec4 aData;
 out vec3 vC;
@@ -33,7 +34,7 @@ void main() {
   float depth = max(-mv.z, 0.01);
   float tw = 1.0 + 0.28 * sin(uTime * (0.7 + aData.z * 2.2) + aData.y * 40.0);
   float size = uPx > 0.0 ? aData.x * uPx * uPR : aData.x * uSize * uScale / depth;
-  float a = uGain * tw;
+  float a = uGain * tw * smoothstep(aData.w - 0.12, aData.w, uGrow);
   if (uBig < 0.5 && uPx <= 0.0) {
     a /= 1.0 + pow(size / (16.0 * uPR), 2.0); // keep energy when a star is close to the lens
     a *= 1.0 - (1.0 - uCoreDim) * exp(-r * r * 0.35);
@@ -398,8 +399,9 @@ void main() {
   // standing status ring
   float rs = rb * 1.2;
   float ring = exp(-pow((d - rs) / 0.012, 2.0));
-  col += vec3(0.3, 1.0, 0.55) * ring * vA.z * 0.4;
-  col += vec3(1.0, 0.22, 0.2) * ring * vA.w * (0.9 + 0.3 * sin(uTime * 6.0));
+  float ringKeep = 1.0 - vB.z; // the merge fades the standing ring first
+  col += vec3(0.3, 1.0, 0.55) * ring * vA.z * 0.4 * ringKeep;
+  col += vec3(1.0, 0.22, 0.2) * ring * vA.w * (0.9 + 0.3 * sin(uTime * 6.0)) * ringKeep;
   // pulse ring
   if (vB.x > 0.0 && vB.x < 1.0) {
     float rr = mix(rb * 0.9, 0.97, 1.0 - pow(1.0 - vB.x, 2.0));

@@ -152,6 +152,62 @@ export function buildGalaxy(count: number, seed = 11): PointCloud {
   return c;
 }
 
+/** Angular offset (in arm slots) of the arm the merge grows: it sits between two of the four original arms. */
+export const NEW_ARM_SLOT = 1.5;
+const MINT: RGB = [0.62, 1, 0.8]; // verified, merged green-white
+
+/** The arm the merge adds: a bright, slightly thinner spiral between two existing arms, tinted by both lanes with mint
+ *  highlights. data.w = normalised radius t, so the vertex shader can grow it outward from the core (uGrow). */
+export function buildNewArm(count: number, seed = 31): PointCloud {
+  const rnd = mulberry32(seed);
+  const gauss = (): number => {
+    const u = Math.max(1e-6, rnd());
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd());
+  };
+  const c = cloud(count);
+  const lane: RGB[] = [PALETTE.opencode as RGB, PALETTE.agy as RGB];
+  for (let i = 0; i < count; i++) {
+    const t = Math.min(1, 0.1 + Math.sqrt(rnd()) * 0.9); // denser toward the rim, where the arm should read
+    const ang = NEW_ARM_SLOT * (Math.PI * 2 / ARMS) + armTwist(t);
+    const sigma = GALAXY_R * (0.012 + 0.036 * t);
+    const off = gauss() * sigma + (rnd() ** 4) * (rnd() < 0.5 ? -1 : 1) * sigma * 2.5;
+    const r = t * GALAXY_R + gauss() * 0.05;
+    const a2 = ang + off / Math.max(r, 0.5);
+    c.position[i * 3] = Math.cos(a2) * r;
+    c.position[i * 3 + 1] = gauss() * (0.05 + 0.18 * Math.exp(-t * 2.4)) + 0.5 * t ** 2.4 * Math.sin(a2 - 0.6);
+    c.position[i * 3 + 2] = Math.sin(a2) * r;
+    const tint = mix3(lane[i & 1], MINT, 0.35 + 0.3 * rnd());
+    let col = mix3(CORE, tint, sstep(0.05, 0.4, t));
+    let bright = (0.8 + rnd() * 0.8) * (1.15 - 0.4 * t) * (0.12 + 0.88 * sstep(0.12, 0.5, t)); // thin out the bulge end so it does not wash the core
+    let size = 0.55 + rnd() * 0.7;
+    if (rnd() < 0.06) {
+      col = mix3(col, [1, 1, 1], 0.5);
+      bright *= 1.8;
+      size = 1.4 + rnd() * 0.6;
+    }
+    c.color.set([col[0] * bright, col[1] * bright, col[2] * bright], i * 3);
+    c.data.set([size, rnd(), rnd(), t], i * 4);
+  }
+  return c;
+}
+
+/** A few large faint sprites along the new arm (same grow convention as buildNewArm). */
+export function buildNewArmHaze(count: number, seed = 33): PointCloud {
+  const rnd = mulberry32(seed);
+  const c = cloud(count);
+  for (let i = 0; i < count; i++) {
+    const t = 0.3 + rnd() * 0.64;
+    const ang = NEW_ARM_SLOT * (Math.PI * 2 / ARMS) + armTwist(t) + (rnd() - 0.5) * 0.2;
+    const r = t * GALAXY_R;
+    c.position.set([Math.cos(ang) * r, (rnd() - 0.5) * 0.4, Math.sin(ang) * r], i * 3);
+    const col = mix3(MINT, i & 1 ? (PALETTE.agy as RGB) : (PALETTE.opencode as RGB), 0.45);
+    const b = 0.05 + rnd() * 0.035;
+    c.color.set([col[0] * b, col[1] * b, col[2] * b], i * 3);
+    c.data.set([3 + rnd() * 4, rnd(), rnd(), t], i * 4);
+  }
+  return c;
+}
+
 /** Large, faint, coloured sprites over the arms and around the bulge. Used sparingly. */
 export function buildHaze(count: number, seed = 5): PointCloud {
   const rnd = mulberry32(seed);

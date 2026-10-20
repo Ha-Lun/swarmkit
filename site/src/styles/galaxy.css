@@ -1,4 +1,4 @@
-/* Into the galaxy (prototype). Scoped to [data-gx] / .gx-*. Animates transform and opacity only in the DOM. */
+/* Into the galaxy (homepage). Scoped to [data-gx] / .gx-*. Animates transform and opacity only in the DOM. */
 :root {
   --gx-bg: #05060a;
   --gx-ink: #f3f1ff;
@@ -100,12 +100,35 @@ html.gx-live .gx-node-lane, html.gx-still .gx-node-lane { font-size: 13px; lette
 .gx-node-agy { border-color: rgba(255, 181, 71, 0.7); }
 .gx-node-opus { border-color: rgba(217, 204, 255, 0.75); }
 
-.gx-end { position: relative; z-index: 1; min-height: 70svh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; text-align: center; padding: 96px 24px; background: linear-gradient(to bottom, transparent, var(--gx-bg) 38%); }
-.gx-end-note { font-family: var(--gx-mono); font-size: 14px; letter-spacing: 0.08em; color: var(--gx-muted); margin: 0; }
-.gx-end p { margin: 0; }
+/* ---- close: the numbers, the CLIs and the install block scroll over the final wide shot ---- */
+.gx-close { position: relative; z-index: 1; }
+.gx-close-sec { position: relative; min-height: 90svh; display: flex; align-items: center; padding: 96px clamp(20px, 6vw, 96px); box-sizing: border-box;
+  background: linear-gradient(90deg, rgba(5, 6, 10, 0.82), rgba(5, 6, 10, 0.6) 48%, rgba(5, 6, 10, 0.18)); }
+.gx-close-inner { max-width: 38rem; }
+.gx-close-sec .gx-kicker { margin-bottom: 18px; }
+.gx-stats { display: flex; flex-direction: column; gap: 8px; margin: 0; font-weight: 400; }
+.gx-stat { display: block; }
+.gx-stat-num { display: block; font-weight: 700; font-size: clamp(64px, 9.5vw, 152px); line-height: 0.95; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; text-shadow: 0 2px 30px rgba(5, 6, 10, 0.9); }
+.gx-stat-label { display: block; margin-top: 4px; font-family: var(--gx-mono); font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--gx-muted); }
+.gx-small { margin: 24px 0 0; font-family: var(--gx-mono); font-size: 13px; line-height: 1.7; color: var(--gx-muted); max-width: 38rem; }
+.gx-link { color: var(--gx-ink); text-decoration: underline; text-underline-offset: 3px; }
+.gx-pending { margin: 0; }
+.gx-clis-wrap { margin-top: 28px; }
+.gx-clis { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px; }
+.gx-clis li { padding: 8px 18px; border: 1px solid var(--gx-line); border-radius: 999px; background: rgba(8, 8, 20, 0.7); font-weight: 500; font-size: clamp(16px, 1.8vw, 20px); }
+.gx-clis-wrap .gx-body { margin-top: 22px; }
+.gx-install { position: relative; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; margin-top: 28px; padding: 16px; max-width: 30rem; background: #11131c; border: 1px solid rgba(243, 241, 255, 0.22); border-radius: 12px; }
+.gx-install pre { flex: 1 1 16rem; margin: 0; overflow-x: auto; }
+.gx-install code { font-family: var(--gx-mono); font-size: 14px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.gx-install-copy { padding: 8px 16px; min-height: 40px; background: var(--gx-ink); border: 1px solid var(--gx-ink); border-radius: 999px; color: var(--gx-bg); font-weight: 600; font-family: var(--gx-mono); font-size: 14px; cursor: pointer; }
+.gx-install-copy:hover { background: #fff; }
+.gx-status { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.gx-actions-left { justify-content: flex-start; margin-top: 28px; }
+.gx-footer { margin-top: 36px; }
+.gx-cap-note { max-width: 30rem; line-height: 1.6; color: #cfcbe8; text-shadow: 0 1px 18px rgba(5, 6, 10, 0.95); }
 
 /* ---- live: one sticky pin, copy layered, JS drives opacity ---- */
-html.gx-live .gx-track { height: 1700svh; }
+html.gx-live .gx-track { height: 2220svh; }
 html.gx-live .gx-pin { position: sticky; top: 0; height: 100svh; overflow: clip; }
 html.gx-live .gx-beat { position: absolute; inset: 0; min-height: 0; opacity: 0; visibility: hidden; pointer-events: none; }
 html.gx-live .gx-hero { opacity: 1; visibility: visible; }
@@ -117,6 +140,9 @@ html.gx-live .gx-task { padding-bottom: clamp(48px, 10svh, 110px); }
 html.gx-live .gx-plan, html.gx-still .gx-plan { justify-content: flex-start; padding-top: clamp(100px, 17svh, 200px); }
 html.gx-live .gx-plan-inner, html.gx-still .gx-plan-inner { max-width: 26rem; }
 
+/* plan / late beats: a soft dark pool behind the left copy column so it holds over passing planets */
+.gx-plan::before { content: ''; position: absolute; left: 0; top: 0; width: min(760px, 100vw); height: 78%; background: radial-gradient(62% 56% at 22% 34%, rgba(5, 6, 10, 0.62), transparent 100%); pointer-events: none; z-index: -1; }
+
 /* hero: darken a soft pool behind the headline so it holds over the bright galaxy */
 .gx-hero::before { content: ''; position: absolute; left: 50%; top: 0; width: min(1200px, 110vw); height: 70%; transform: translateX(-50%); background: radial-gradient(50% 50% at 50% 38%, rgba(5, 6, 10, 0.55), transparent 72%); pointer-events: none; z-index: -1; }
 
@@ -125,7 +151,8 @@ html.gx-live .gx-plan-inner, html.gx-still .gx-plan-inner { max-width: 26rem; }
   html.gx-live .gx-plan-inner, html.gx-still .gx-plan-inner { max-width: none; }
   .gx-task-line { max-width: none; }
   .gx-node { font-size: 12px; }
-  html.gx-live .gx-track { height: 1500svh; }
+  html.gx-live .gx-track { height: 1960svh; }
+  .gx-close-sec { background: rgba(5, 6, 10, 0.74); }
 }
 @media (prefers-reduced-motion: reduce) {
   .gx-caret { animation: none; }
