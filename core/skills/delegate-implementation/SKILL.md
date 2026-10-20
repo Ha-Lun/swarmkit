@@ -32,6 +32,8 @@ Everything else in the plan goes to a worker.
 | Second opinion on your own diff | `agy-task --review --model gemini-3.8-flash-high` |
 | Cross-review of a worker's branch | the other family's worker, see below |
 
+Claude Code runs both lanes. From OpenCode use only `agy-task` (`opencode-task` refuses under OpenCode). Antigravity runs no workers.
+
 Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'); use the lane default unless the owner names a model (with `--agent` on the opencode lane the worker uses the agent's own model when allowlisted, muse otherwise), and never add a model without the owner's OK. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`). Give it a verify command from that list, or run the verify yourself after it lands. A worker can't `cd`, so for a project in a subdirectory (e.g. `site/`) run the verify yourself.
 
 Cross-review runs on the other lane's default model (agy reviews opencode-written branches, opencode-task reviews agy-written ones). No --model flag.

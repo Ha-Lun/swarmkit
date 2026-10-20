@@ -207,15 +207,21 @@ pack_skills() {
 }
 
 # Symlink shared skills into $1: all of them, or only the names in $2 (then any
-# other link into this repo is removed, so the set stays exact).
+# other link into this repo is removed, so the set stays exact). $3 is a space-
+# separated skip list: those names are not linked, and a repo link already
+# there is removed.
 link_skills() {
-  local dest="$1" only="${2:-}" skill_dir name
+  local dest="$1" only="${2:-}" skip="${3:-}" skill_dir name
   mkdir -p "$dest"
   if [ -n "$only" ]; then remove_repo_links "$dest"; else prune_dead_repo_links "$dest"; fi
   for skill_dir in "$REPO_DIR"/core/skills/*/; do
     [ -f "$skill_dir/SKILL.md" ] || continue
     name="$(basename "$skill_dir")"
     if [ -n "$only" ] && [[ " $(echo $only) " != *" $name "* ]]; then continue; fi
+    if [[ " $skip " == *" $name "* ]]; then
+      if [ -L "$dest/$name" ] && [[ "$(readlink "$dest/$name")" == "$REPO_DIR"/* ]]; then rm -f "$dest/$name"; fi
+      continue
+    fi
     ln -sfn "${skill_dir%/}" "$dest/$name"
   done
 }
@@ -345,7 +351,7 @@ install_opencode() {
   link_files "$REPO_DIR/opencode/agents" "$OPENCODE_DIR/agents"
   link "$REPO_DIR/opencode/AGENTS.md" "$OPENCODE_DIR/AGENTS.md"
   link_files "$REPO_DIR/opencode/command" "$OPENCODE_DIR/command"
-  link_skills "$OPENCODE_DIR/skills"
+  link_skills "$OPENCODE_DIR/skills" "" "hybrid-delegate opencode-delegate"
 
   if [ "$FREE_MODE" = true ] || [ "$MCP" != true ]; then
     # A copy, not a link: free mode swaps the model, no --mcp drops the "mcp" block.
@@ -391,7 +397,7 @@ install_agy() {
   done
 
   link "$REPO_DIR/antigravity/plugins/swarmkit" "$GEMINI_DIR/plugins/swarmkit"
-  link_skills "$GEMINI_DIR/skills"
+  link_skills "$GEMINI_DIR/skills" "" "hybrid-delegate opencode-delegate agy-delegate delegate-implementation"
   if [ "$MCP" = true ] && ! cmp -s "$REPO_DIR/core/mcp.json" "$GEMINI_DIR/mcp_config.json"; then
     backup_if_exists "$GEMINI_DIR/mcp_config.json"
     cp "$REPO_DIR/core/mcp.json" "$GEMINI_DIR/mcp_config.json"
