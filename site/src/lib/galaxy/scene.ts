@@ -230,7 +230,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     bodyGeo.setIndex(new BufferAttribute(bIdx, 1));
   }
   const bodyMat = track(new ShaderMaterial({
-    uniforms: { uP: { value: uP }, uS: { value: uS }, uScale: shared.uScale, uPR: shared.uPR, uFlare: { value: 0 }, uSpin: { value: 0 } },
+    uniforms: { uP: { value: uP }, uS: { value: uS }, uScale: shared.uScale, uPR: shared.uPR, uFlare: { value: 0 }, uSpin: { value: 0 }, uTime: shared.uTime },
     vertexShader: bodyVert(nBody), fragmentShader: bodyFrag(opts.tier === 'low' ? 3 : opts.tier === 'medium' ? 4 : 5), glslVersion: GLSL3,
     blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true,
   }));

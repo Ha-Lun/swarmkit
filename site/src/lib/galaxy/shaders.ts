@@ -204,7 +204,8 @@ void main() {
 export const bodyFrag = (oct: number): string => /* glsl */ `
 #define OCT ${oct}
 uniform float uFlare;
-uniform float uSpin; // scroll-driven rotation clock (never wall time)
+uniform float uSpin; // scroll-driven rotation clock
+uniform float uTime; // wall seconds for idle motion (0 under reduced motion)
 in vec2 vP;
 in vec3 vC;
 in vec3 vL;
@@ -243,11 +244,17 @@ float fbm(vec3 p, int nOct) {
 }
 float ringDen(float r, float sd, float det) {
   float x = r * 46.0;
-  float n = 0.5 * vn(vec3(x * 0.35, sd, 1.0)) + 0.3 * vn(vec3(x, sd, 5.0)) + 0.2 * mix(0.5, vn(vec3(x * 3.1, sd, 9.0)), det);
-  float dens = 0.2 + 1.0 * n;
-  dens *= 1.0 - 0.93 * (1.0 - smoothstep(0.0, 0.04, abs(r - (0.58 + 0.04 * sin(sd * 5.0)))));
-  dens *= 1.0 - 0.7 * (1.0 - smoothstep(0.0, 0.014, abs(r - 0.86)));
-  dens *= 0.3 + 0.7 * smoothstep(0.0, 0.3, r);
+  float broad = vn(vec3(x * 0.3, sd, 1.0));
+  float mid = vn(vec3(x * 1.1, sd, 5.0));
+  float fine = vn(vec3(x * 3.6, sd, 7.0));
+  float ultra = mix(0.5, vn(vec3(x * 14.0, sd, 9.0)), det);
+  float n = 0.42 * broad + 0.3 * mid + 0.19 * fine + 0.09 * ultra;
+  float dens = smoothstep(0.2, 0.78, n);
+  dens *= 0.7 + 0.3 * (0.5 + 0.5 * sin(x * 4.0 + 3.0 * mid + sd)); // many thin ringlets
+  dens = 0.06 + 1.0 * dens;
+  dens *= 1.0 - 0.96 * (1.0 - smoothstep(0.0, 0.04, abs(r - (0.58 + 0.04 * sin(sd * 5.0)))));
+  dens *= 1.0 - 0.8 * (1.0 - smoothstep(0.0, 0.014, abs(r - 0.86)));
+  dens *= 0.22 + 0.78 * smoothstep(0.0, 0.3, r);
   dens *= smoothstep(0.0, 0.03, r) * (1.0 - smoothstep(0.94, 1.0, r));
   return clamp(dens, 0.0, 1.0);
 }
@@ -259,30 +266,40 @@ void main() {
   float det = smoothstep(14.0, 80.0, vRpx);
   int nOct = vRpx < 14.0 ? 2 : (vRpx < 45.0 ? min(3, OCT) : OCT);
   if (vKind < 0.5) {
-    // sun: limb-darkened, granulated photosphere, smooth corona with faint streamers
+    // sun: hot emissive disc (white-yellow core, orange limb), boiling granulation, slow prominences, breathing corona
     float disc = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, d);
     float mu = sqrt(max(0.0, 1.0 - d * d));
-    float cs = cos(uSpin * 0.35);
-    float sn = sin(uSpin * 0.35);
+    float cs = cos(uSpin * 0.35 + uTime * 0.02);
+    float sn = sin(uSpin * 0.35 + uTime * 0.02);
     vec3 N = vec3(vP, mu);
     vec3 p3 = vec3(N.x * cs + N.z * sn, N.y, -N.x * sn + N.z * cs);
-    float warp = vn(p3 * 6.0 + uSpin * 0.4);
-    float g1 = vn(p3 * 16.0 + warp * 2.2);
-    float g2 = vn(p3 * 34.0 + warp * 3.0 + 7.0);
-    float gran = mix(0.5, 0.62 * g1 + 0.38 * g2, det);
-    float spots = smoothstep(0.7, 0.82, fbm(p3 * 2.6 + 3.0, min(nOct, 3))) * det;
-    float limb = 1.0 - 0.62 * (1.0 - mu);
-    float temp = clamp(limb * (0.82 + 0.55 * (gran - 0.5)) - 0.38 * spots, 0.0, 1.2);
-    vec3 surf = mix(vec3(0.93, 0.3, 0.05), vec3(1.0, 0.8, 0.42), clamp(temp, 0.0, 1.0)) * (0.55 + 0.75 * temp);
+    float tb = uTime * 0.11;
+    float warp = vn(p3 * 5.0 + vec3(0.0, tb * 0.6, uSpin * 0.4));
+    float g1 = vn(p3 * 15.0 + warp * 2.4 + vec3(0.0, 0.0, tb));
+    float g2 = vn(p3 * 33.0 + warp * 3.0 + vec3(7.0, tb * 1.7, 0.0));
+    float detS = smoothstep(4.0, 40.0, vRpx);
+    float gran = mix(0.5, 0.6 * g1 + 0.4 * g2, detS);
+    float spots = smoothstep(0.74, 0.86, vn(p3 * 2.4 + 3.0 + vec3(0.0, tb * 0.1, 0.0))) * detS;
+    float limb = 1.0 - 0.5 * (1.0 - mu) - 0.15 * (1.0 - mu) * (1.0 - mu);
+    float temp = clamp(limb * (0.9 + 0.9 * (gran - 0.5)) - 0.12 * spots, 0.0, 1.4);
+    // hot: white-yellow; cooler toward the limb: orange. Emissive (>1) so it blooms.
+    vec3 surf = mix(vec3(1.0, 0.3, 0.04), vec3(1.0, 0.8, 0.4), smoothstep(0.35, 0.95, temp));
+    surf = mix(surf, vec3(1.0, 0.93, 0.72), smoothstep(0.9, 1.25, temp));
+    surf *= 0.6 + 1.7 * temp * temp;
     float rr = max(d - 1.0, 0.0);
     float a = atan(vP.y, vP.x);
-    // streamers: a few broad, slow lobes (low angular frequency, no noise), faded in with distance so nothing spikes at the limb
-    float lobes = 0.5 + 0.5 * (0.6 * sin(a * 2.0 + uSpin * 0.2 + 1.0) + 0.4 * sin(a * 3.0 - uSpin * 0.15 + 2.0));
+    float breath = 1.0 + 0.07 * sin(uTime * 0.55) + 0.04 * sin(uTime * 0.97 + 1.3);
+    // streamers: broad slow lobes, faded in with distance so nothing spikes at the limb
+    float lobes = 0.5 + 0.5 * (0.6 * sin(a * 2.0 + uSpin * 0.2 + uTime * 0.03 + 1.0) + 0.4 * sin(a * 3.0 - uSpin * 0.15 - uTime * 0.025 + 2.0));
     float streak = lobes * lobes * exp(-rr * (0.7 - 0.15 * uFlare)) * (0.12 + 0.3 * uFlare);
-    float coronaE = 0.85 * exp(-rr * 6.0) + (0.2 + 0.35 * uFlare) * exp(-rr * 1.5) + (0.05 + 0.22 * uFlare) * exp(-rr * 0.5) + streak * smoothstep(0.0, 0.8, rr);
-    vec3 corona = mix(vec3(1.0, 0.42, 0.12), vec3(1.0, 0.72, 0.36), exp(-rr * 2.0)) * coronaE * (d > 1.0 ? 1.0 : 0.55);
-    vec3 c = surf * disc + corona * (1.0 - 0.7 * disc);
-    c = vec3(1.0) - exp(-c * 1.25);
+    float coronaE = (0.95 * exp(-rr * 6.0) + (0.22 + 0.35 * uFlare) * exp(-rr * 1.5) + (0.05 + 0.22 * uFlare) * exp(-rr * 0.5) + streak * smoothstep(0.0, 0.8, rr)) * breath;
+    // faint prominences: slow arcs of plasma just above the limb
+    float pn = vn(vec3(cos(a) * 2.2, sin(a) * 2.2, uTime * 0.06 + uSpin * 0.2));
+    float prom = smoothstep(0.55, 0.85, pn) * exp(-rr * 11.0) * 0.5 * smoothstep(0.0, 0.02, rr) * (0.4 + 0.6 * det);
+    vec3 corona = mix(vec3(1.0, 0.4, 0.1), vec3(1.0, 0.76, 0.42), exp(-rr * 2.0)) * coronaE * (d > 1.0 ? 1.0 : 0.55);
+    corona += vec3(1.0, 0.35, 0.12) * prom;
+    vec3 c = surf * disc + corona * (1.0 - 0.6 * disc);
+    c = vec3(1.0) - exp(-c * 1.0);
     col = c * (1.0 - smoothstep(6.5, 9.0, d)) * vS.x;
   } else if (vKind < 1.5) {
     float disc = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, d);
@@ -306,6 +323,7 @@ void main() {
     // ring plane
     float ringA = 0.0;
     vec3 ringC = vec3(0.0);
+    vec3 rbase = mix(vec3(0.9, 0.82, 0.7), vC, 0.2); // icy grey-beige, a hint of lane tint
     float ringFront = 1.0;
     float gr = vS.y;
     if (gr > 0.002) {
@@ -323,14 +341,13 @@ void main() {
         float disc2 = b * b - (dot(P, P) - 1.0);
         float shadow = (b < 0.0 && disc2 > 0.0) ? smoothstep(0.0, 0.12, disc2) : 0.0;
         float lit = (0.3 + 0.7 * abs(pl)) * (1.0 - 0.93 * shadow);
-        float fs = pow(max(0.0, -Lq.z), 3.0) * (1.0 - dens) * (1.0 - 0.9 * shadow);
+        float fs = pow(max(0.0, -Lq.z), 2.2) * pow(1.0 - dens, 1.4) * (1.0 - 0.9 * shadow); // forward scatter: thin parts glow when backlit
         bool sunSide = pl * ratio > 0.0;
         float refl = sunSide ? lit : 0.2 * lit + 0.9 * (1.0 - dens) * (1.0 - 0.9 * shadow) * (0.3 + 0.7 * abs(pl));
-        vec3 base = mix(vC, vec3(1.0, 0.93, 0.8), 0.22);
-        base = mix(base, stT, 0.3 * stat);
-        base *= 0.78 + 0.45 * vn(vec3(rn * 9.0, sd, 3.0));
-        ringC = base * (refl * 0.95 + fs * 1.1);
-        ringA = clamp(dens * 0.92, 0.0, 1.0) * smoothstep(0.0, 0.2, gr);
+        vec3 base = mix(rbase, vec3(0.62, 0.56, 0.5), 0.5 * smoothstep(0.55, 0.62, rn) * (1.0 - smoothstep(0.62, 0.7, rn)));
+        base *= 0.7 + 0.6 * vn(vec3(rn * 9.0, sd, 3.0));
+        ringC = base * (refl * 0.8 + fs * 1.8);
+        ringA = clamp(dens * 0.8, 0.0, 1.0) * smoothstep(0.0, 0.2, gr);
         ringFront = (zr > 0.0 || d > 1.0) ? 1.0 : 0.0;
         ringA *= ringFront;
         float nearHalf = step(0.0, zr);
@@ -344,7 +361,7 @@ void main() {
       float lat = dot(N, pole);
       float u = N.x;
       float v = dot(N, e2);
-      float spin = uSpin * (0.42 + 0.2 * sin(sd * 3.0)) + sd * 2.0;
+      float spin = uSpin * (0.42 + 0.2 * sin(sd * 3.0)) + sd * 2.0 + uTime * (0.012 + 0.006 * sin(sd * 2.0));
       float cs = cos(spin);
       float sn = sin(spin);
       vec3 p3 = vec3(u * cs - v * sn, u * sn + v * cs, lat);
@@ -362,6 +379,13 @@ void main() {
         vec3 zone = mix(vC, vec3(1.0, 0.88, 0.64), 0.55);
         c = mix(belt, zone, bnd);
         c *= 0.78 + 0.5 * fine;
+        // drifting cloud layer: differential rotation, stretched along the bands
+        float dr = uTime * (0.025 + 0.03 * (1.0 - abs(lat)));
+        float cdr = cos(dr);
+        float sdr = sin(dr);
+        vec3 cp = vec3(p3.x * cdr - p3.y * sdr, p3.x * sdr + p3.y * cdr, lat);
+        float cl = fbm(vec3(cp.xy * 3.4, lat * 9.0) + sdv * 3.0 + vec3(0.0, 0.0, uTime * 0.02), min(nOct, 3));
+        c = mix(c, mix(c, vec3(1.0, 0.92, 0.78), 0.55), smoothstep(0.5, 0.75, cl) * 0.45 * (0.3 + 0.7 * det));
         c *= mix(1.0, 0.62, smoothstep(0.68, 1.0, abs(lat)));
         for (int k = 0; k < 3; k++) {
           float h1 = h31(vec3(vIdx, float(k), 7.1));
@@ -385,8 +409,12 @@ void main() {
         vec3 deep = vC * vec3(0.3, 0.65, 1.15) * 0.42;
         vec3 pale = mix(vC, vec3(0.6, 0.98, 1.0), 0.28);
         c = mix(deep, pale, 0.08 + 0.85 * smoothstep(0.15, 0.85, bnd));
-        float cir = det * fbm(vec3(p3.xy * 2.6, lat * 11.0) + sdv * 2.0 + 4.0, nOct);
-        c = mix(c, vec3(0.82, 1.0, 1.0), smoothstep(0.52, 0.72, cir) * 0.38);
+        float dri = uTime * 0.03;
+        float cdi = cos(dri);
+        float sdi = sin(dri);
+        vec3 cpi = vec3(p3.x * cdi - p3.y * sdi, p3.x * sdi + p3.y * cdi, lat);
+        float cir2 = det * fbm(vec3(cpi.xy * 2.6, lat * 11.0) + sdv * 2.0 + 4.0 + vec3(0.0, 0.0, uTime * 0.02), nOct);
+        c = mix(c, vec3(0.82, 1.0, 1.0), smoothstep(0.52, 0.72, cir2) * 0.38);
         c = mix(c, pale * 1.05, smoothstep(0.6, 1.0, abs(lat)) * 0.3);
         float la = (h31(vec3(vIdx, 3.0, 2.0)) - 0.5) * 0.9;
         float lo = h31(vec3(vIdx, 5.0, 2.0)) * 6.2832;
@@ -416,19 +444,21 @@ void main() {
       float small = 1.0 - smoothstep(14.0, 48.0, vRpx);
       float soft = pow(clamp((diff + 0.7) / 1.7, 0.0, 1.0), 0.9);
       body = mix(body, c * soft * 1.05 + vC * 0.08 * small, small * 0.8);
-      body += vC * 0.012 * (0.5 + c) ; // night side: nearly black, a trace of lane colour
-      float fres = pow(1.0 - mu, 3.2);
+      float night = 1.0 - smoothstep(-0.15, 0.35, diff);
+      float rshine = smoothstep(0.0, 0.3, gr) * 0.05;
+      body += (vC * 0.014 * (0.5 + c) + c * rbase * rshine + scatC * 0.012) * night; // night side: ring-shine and scattered light
+      float fres = pow(1.0 - mu, 4.5);
       vec3 atm = mix(vC, vec3(0.6, 0.88, 1.0), (1.0 - gas) * 0.45 + 0.1);
       atm = mix(atm, stT, 0.75 * stat);
-      body += atm * fres * (0.05 + 1.05 * pow(clamp(diff * 0.8 + 0.4, 0.0, 1.0), 1.3)) * (1.0 + 0.8 * stat);
+      body += atm * fres * (0.03 + 0.62 * pow(clamp(diff * 0.8 + 0.4, 0.0, 1.0), 1.3)) * (1.0 + 0.6 * stat);
       vec3 Hh = normalize(Lq + vec3(0.0, 0.0, 1.0));
-      spec = pow(max(dot(N, Hh), 0.0), 48.0) * 0.28 * (1.0 - gas) * lit;
+      spec = (pow(max(dot(N, Hh), 0.0), 70.0) * 0.3 + pow(max(dot(N, Hh), 0.0), 14.0) * 0.04) * (1.0 - gas) * lit;
       body += vec3(0.8, 0.97, 1.0) * spec;
       outc = body * disc;
     }
     // atmosphere glow outside the limb: lane tinted, status tint when verifying; lit side brighter
     float lb = 0.5 + 0.5 * dot(vP / max(d, 1e-3), vL.xy / max(length(vL.xy), 1e-3)) * min(1.0, length(vL.xy) * 1.3 + 0.2);
-    float halo = exp(-max(d - 1.0, 0.0) * 8.0) * (1.0 - disc) * (0.045 + 0.16 * vS.w + 0.1 * vS.z) * (0.4 + 0.9 * lb);
+    float halo = exp(-max(d - 1.0, 0.0) * 26.0) * (1.0 - disc) * (0.028 + 0.1 * vS.w + 0.07 * vS.z) * (0.3 + 0.9 * lb);
     outc += mix(vC, stT, stat) * halo;
     // composite the ring: near half over, far half behind (only visible off the disc)
     float aR = ringA;
