@@ -94,7 +94,7 @@ async function boot(): Promise<void> {
       }
     }
     setOpacity(approved, live ? beatOpacity.approved(p) : planO);
-    // pills sit centred just below their node (and bubble); neighbours that would overlap are pushed apart vertically
+    // pills sit centred just below their node ; neighbours that would overlap are pushed apart vertically
     const wide = canvas.clientWidth >= canvas.clientHeight * 1.2;
     // portrait phones/tablets and short landscape screens: a full overlap solver that also keeps pills inside the viewport
     const solve = !wide || innerWidth < 768 || innerHeight < 520;

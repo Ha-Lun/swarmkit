@@ -321,12 +321,10 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   fx.renderOrder = 5;
   scene.add(fx);
 
-  let planetOf: number[] = []; // worker index (story order) -> planet index (launch order)
   let closeIdx = -1; // planet index of the close-up
   let rMax = 6;
   function bakeSystem(): void {
     sys = buildSystem({ workers: opts.workers }, camera.aspect);
-    planetOf = opts.workers.map((w) => sys.planets.findIndex((p) => p.slug === w.slug));
     closeIdx = sys.closeUp === null ? -1 : sys.planets.findIndex((p) => p.slug === sys.closeUp);
     rMax = sys.planets.length ? Math.max(...sys.planets.map((p) => p.orbit)) : 6;
     sys.planets.forEach((p, li) => {
@@ -630,7 +628,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     fxMat.uniforms.uScanVis.value = n > 0 ? ss(L.scan[0] - 0.01, L.scan[0] + 0.005, u) * (1 - ss(L.scan[1] - 0.004, L.scan[1] + 0.012, u)) : 0;
 
     // the fixer: a small amber spark from outside the system that docks on the close-up planet's ring
-    fixers.forEach((fx2, kf) => {
+    fixers.forEach((_fx, kf) => {
       const ni = 1 + n + kf;
       const isClose = closeIdx >= 0 && fx2.w === opts.workers.findIndex((w) => w.slug === planets[closeIdx].slug);
       let a = 0;
@@ -706,7 +704,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       if (closeIdx >= 0 && i === opts.workers.findIndex((w) => w.slug === planets[closeIdx].slug) + 1) cronScreen = [fo.x, fo.y];
     }
     // the fixer's pill hovers on the far side of the ship from the close-up planet, never over it
-    fixers.forEach((fx2, kf) => {
+    fixers.forEach((_fx, kf) => {
       const fo = frameOut.nodes[1 + n + kf];
       if (!cronScreen || fo.on <= 0.01) return;
       const dx = fo.x - cronScreen[0];
