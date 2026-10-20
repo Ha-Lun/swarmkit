@@ -1,6 +1,6 @@
 // Procedural galaxy and sky bakers. Deterministic (seeded), allocation-light, no three.js import, so they are testable.
 // World units: the galaxy disc is radius GALAXY_R in the XZ plane, y up. Colours are LINEAR (same as swarm PALETTE).
-import { mulberry32, PALETTE } from '../swarm/formations.ts';
+import { mulberry32, PALETTE } from './shared.ts';
 
 export const GALAXY_R = 10;
 type RGB = [number, number, number];

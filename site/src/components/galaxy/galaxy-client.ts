@@ -2,7 +2,7 @@
 // node labels pinned to projected 3D positions). Three.js loads lazily, only when WebGL is available.
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { detectTier } from '../../lib/swarm/scene.ts';
+import { detectTier } from '../../lib/galaxy/shared.ts';
 import { beatOpacity, lateOpacity, STATIC_POSE, typedChars } from '../../lib/galaxy/path.ts';
 import type { GalaxyFrame, GalaxyScene, NodeInfo } from '../../lib/galaxy/scene.ts';
 
