@@ -2,9 +2,10 @@
 // One full-screen triangle at max depth; the fragment shader rebuilds the world view direction from the camera
 // rotation, so the sky never translates (infinitely far) but rotates correctly against the system. No assets.
 import {
-  AdditiveBlending, BufferAttribute, BufferGeometry, GLSL3, Matrix3, Mesh, Object3D, PerspectiveCamera,
+  AdditiveBlending, BufferAttribute, BufferGeometry, GLSL3, Matrix3, Matrix4, Mesh, Object3D,
   ShaderMaterial, Vector4,
 } from 'three';
+import type { PerspectiveCamera } from 'three';
 import { PALETTE, type Tier } from './shared';
 
 export interface Backdrop {
@@ -128,7 +129,7 @@ void main() {
 
   // Tiny hash dither so the dim gradient does not band in 8 bit.
   float dn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
-  col = max(col * uAmount + dn * 0.0012 * step(0.0005, uAmount), 0.0);
+  col = max(col * uAmount + dn * 0.0012, 0.0);
   outColor = vec4(col, 1.0);
 }
 `;
@@ -138,7 +139,7 @@ export function createBackdrop(tier: Tier): Backdrop {
   geo.setAttribute('position', new BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
   const mat = new ShaderMaterial({
     uniforms: {
-      uInvProj: { value: new PerspectiveCamera().projectionMatrixInverse },
+      uInvProj: { value: new Matrix4() },
       uCamRot: { value: new Matrix3() },
       uTime: { value: 0 },
       uAmount: { value: 0 },
@@ -159,8 +160,6 @@ export function createBackdrop(tier: Tier): Backdrop {
   const mesh = new Mesh(geo, mat);
   mesh.frustumCulled = false;
   mesh.renderOrder = -1000;
-  mesh.visible = false;
-  const rot = new Matrix3();
 
   return {
     object3d: mesh,
@@ -168,9 +167,7 @@ export function createBackdrop(tier: Tier): Backdrop {
       const a = Math.min(2, Math.max(0, amount));
       mesh.visible = a > 0.001;
       if (!mesh.visible) return;
-      camera.updateMatrixWorld();
-      rot.setFromMatrix4(camera.matrixWorld);
-      mat.uniforms.uCamRot.value.copy(rot);
+      mat.uniforms.uCamRot.value.setFromMatrix4(camera.matrixWorld);
       mat.uniforms.uInvProj.value.copy(camera.projectionMatrixInverse);
       mat.uniforms.uTime.value = timeSec;
       mat.uniforms.uAmount.value = a;

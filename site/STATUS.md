@@ -1,6 +1,12 @@
 # SwarmKit City showcase: status (started 2026-10-16)
 
-The showcase site is being rebuilt as "SwarmKit City": a scroll-scrubbed miniature-city 3D scene that replays one real `lead-dev-hybrid` run (the city is the codebase). The old honeycomb-globe site is archived in `docs/archive/`. Everything lives in `site/` on `main`; the feature branch and worktree were merged and deleted. It is released: deployed to production (main bc0170f, https://swarmkit-site.vercel.app).
+The showcase site is being rebuilt as "SwarmKit City": a scroll-scrubbed miniature-city 3D scene that replays one real `lead-dev-hybrid` run (the city is the codebase). The old honeycomb-globe site is archived in `docs/archive/`. The site was removed from `main` on 2026-10-18 (commit 206bf6f) and lives on branch `showcase`, where Vercel deploys production (https://swarmkit-site.vercel.app). The City was released on 2026-10-17 (main bc0170f); the Galaxy replaced it on 2026-10-20.
+
+## 2026-10-20 (galaxy released)
+- The Galaxy replaces the City as the homepage (branch `site/galaxy` merged into `showcase`).
+- Round F: procedural photoreal sun, gas/ice-giant planets and 3D ringlets, a smoother two-armed galaxy, no streak particles or grain.
+- Round G (alive pass): ambient idle motion (owner-approved 2026-10-20; off under reduced motion), a procedural Milky-Way/nebula backdrop (`src/lib/galaxy/backdrop.ts`), orbit light trails, sun glow and halo, fake depth of field in the close-up.
+- Follow-ups: real-phone fps unmeasured; final galaxy sparse on the low tier (390 px); storytelling round pending; the hero "Install" anchor scroll (`#install`) to be checked.
 
 ## 2026-10-17 (released)
 - City is live on production as the homepage (main bc0170f). The globe is retired.
@@ -15,8 +21,8 @@ The showcase site is being rebuilt as "SwarmKit City": a scroll-scrubbed miniatu
 ## Where to start
 - Read `BRIEF.md` (approved at gate G1 on 2026-10-16, logged in `.buildlog/human.jsonl`) and `CLAUDE.md` (rules).
 - Plan: `/home/ha-lun/.claude/plans/i-believe-the-showcase-peppy-hartmanis.md` (outside the repo; the brief mirrors it).
-- Work happens on `main` (or a short-lived branch from `main`). The site is in `site/`.
-- Every push to `main` deploys production via Vercel (project swarmkit-site, root directory `site`).
+- Work happens on short-lived branches from `showcase` (e.g. `site/galaxy`, worktree `.worktrees/site-galaxy`). The site is in `site/`.
+- Vercel (project swarmkit-site, root directory `site`) deploys production from `showcase`. Push only on the owner's word.
 - Dev: `cd site && npm install && npm run dev` (binds 0.0.0.0; report it at http://100.126.82.90:<port>, the Tailscale IP).
 - Checks: `npm test`, `npx astro check`, `npm run build`.
 - Rules: read `site/CLAUDE.md`.
@@ -47,4 +53,4 @@ The showcase site is being rebuilt as "SwarmKit City": a scroll-scrubbed miniatu
 - Recovery tags kept: `city-started-2026-10-16` and `archive/lead-dev-and-codex-task` (restore steps in `CHANGELOG.md` on that tag).
 
 ## Deploying
-Every push to `main` deploys production via Vercel (project swarmkit-site, root directory `site`). Push only on the owner's word.
+Vercel (project swarmkit-site, root directory `site`) deploys production from `showcase`; the site is no longer on `main`. Push only on the owner's word.

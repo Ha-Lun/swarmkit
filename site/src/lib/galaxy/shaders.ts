@@ -258,7 +258,7 @@ float ringDen(float r, float sd, float det) {
   float n = 0.42 * broad + 0.3 * mid + 0.19 * fine + 0.09 * ultra;
   float dens = smoothstep(0.2, 0.78, n);
   dens *= 0.7 + 0.3 * (0.5 + 0.5 * sin(x * 4.0 + 3.0 * mid + sd)); // many thin ringlets
-  dens = 0.06 + 1.0 * dens;
+  dens = 0.06 + dens;
   dens *= 1.0 - 0.96 * (1.0 - smoothstep(0.0, 0.04, abs(r - (0.58 + 0.04 * sin(sd * 5.0)))));
   dens *= 1.0 - 0.8 * (1.0 - smoothstep(0.0, 0.014, abs(r - 0.86)));
   dens *= 0.22 + 0.78 * smoothstep(0.0, 0.3, r);
@@ -306,7 +306,7 @@ void main() {
     vec3 corona = mix(vec3(1.0, 0.4, 0.1), vec3(1.0, 0.76, 0.42), exp(-rr * 2.0)) * coronaE * (d > 1.0 ? 1.0 : 0.55);
     corona += vec3(1.0, 0.35, 0.12) * prom;
     vec3 c = surf * disc + corona * (1.0 - 0.6 * disc);
-    c = vec3(1.0) - exp(-c * 1.0);
+    c = vec3(1.0) - exp(-c);
     col = c * (1.0 - smoothstep(6.5, 9.0, d)) * vS.x;
   } else if (vKind < 1.5) {
     float disc = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, d);
@@ -390,9 +390,9 @@ void main() {
         float dr = uTime * (0.025 + 0.03 * (1.0 - abs(lat)));
         float cdr = cos(dr);
         float sdr = sin(dr);
-        vec3 cp = vec3(p3.x * cdr - p3.y * sdr, p3.x * sdr + p3.y * cdr, lat);
-        float cl = fbm(vec3(cp.xy * 3.4, lat * 9.0) + sdv * 3.0 + vec3(0.0, 0.0, uTime * 0.02), min(nOct, 3));
-        c = mix(c, mix(c, vec3(1.0, 0.92, 0.78), 0.55), smoothstep(0.5, 0.75, cl) * 0.45 * (0.3 + 0.7 * det));
+        vec2 cp = vec2(p3.x * cdr - p3.y * sdr, p3.x * sdr + p3.y * cdr);
+        float cl = fbm(vec3(cp * 3.4, lat * 9.0) + sdv * 3.0 + vec3(0.0, 0.0, uTime * 0.02), min(nOct, 3));
+        c = mix(c, vec3(1.0, 0.92, 0.78), smoothstep(0.5, 0.75, cl) * 0.2475 * (0.3 + 0.7 * det));
         c *= mix(1.0, 0.62, smoothstep(0.68, 1.0, abs(lat)));
         for (int k = 0; k < 3; k++) {
           float h1 = h31(vec3(vIdx, float(k), 7.1));
@@ -419,8 +419,8 @@ void main() {
         float dri = uTime * 0.03;
         float cdi = cos(dri);
         float sdi = sin(dri);
-        vec3 cpi = vec3(p3.x * cdi - p3.y * sdi, p3.x * sdi + p3.y * cdi, lat);
-        float cir2 = det * fbm(vec3(cpi.xy * 2.6, lat * 11.0) + sdv * 2.0 + 4.0 + vec3(0.0, 0.0, uTime * 0.02), nOct);
+        vec2 cpi = vec2(p3.x * cdi - p3.y * sdi, p3.x * sdi + p3.y * cdi);
+        float cir2 = det * fbm(vec3(cpi * 2.6, lat * 11.0) + sdv * 2.0 + 4.0 + vec3(0.0, 0.0, uTime * 0.02), nOct);
         c = mix(c, vec3(0.82, 1.0, 1.0), smoothstep(0.52, 0.72, cir2) * 0.38);
         c = mix(c, pale * 1.05, smoothstep(0.6, 1.0, abs(lat)) * 0.3);
         float la = (h31(vec3(vIdx, 3.0, 2.0)) - 0.5) * 0.9;
