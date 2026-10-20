@@ -628,7 +628,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     fxMat.uniforms.uScanVis.value = n > 0 ? ss(L.scan[0] - 0.01, L.scan[0] + 0.005, u) * (1 - ss(L.scan[1] - 0.004, L.scan[1] + 0.012, u)) : 0;
 
     // the fixer: a small amber spark from outside the system that docks on the close-up planet's ring
-    fixers.forEach((_fx, kf) => {
+    fixers.forEach((fx2, kf) => {
       const ni = 1 + n + kf;
       const isClose = closeIdx >= 0 && fx2.w === opts.workers.findIndex((w) => w.slug === planets[closeIdx].slug);
       let a = 0;
