@@ -6,6 +6,7 @@ export interface StoryWorker {
   launchIndex: number; // 0-based order of this worker's FIRST 'dispatch' event (by event.order)
   buildIndex: number; // 0-based order of its FIRST 'worker_done' event (workers with none come last, in launch order)
   failedVerifies: number; // count of 'verify' events for this slug with ok === false
+  resumes: number; // RunWorker.resumes: how many times the orchestrator resumed this worker
   failed: boolean; // failedVerifies > 0 (ONLY real failing tests count; RunWorker.ok=false means a denied command, NOT failure)
   fixer: { slug: string; lane: Lane } | null; // from RunWorker.merged_via + that slug's dispatch event lane; null if none
   reviewed: boolean; // at least one 'review' event for this slug
@@ -18,7 +19,9 @@ export interface Story {
   label: string; // run.label (e.g. "One real run, not a median")
   workers: StoryWorker[]; // in launchIndex order
   lanes: Lane[]; // distinct lanes used, in first-launch order
-  counts: { workers: number; dispatches: number; reviews: number; merges: number; fixers: number }; // all from events/workers
+  counts: { workers: number; dispatches: number; reviews: number; merges: number; fixers: number; crossModelReviews: number; branchReviews: number };
+  // crossModelReviews: review events with by === 'cross-model' (they review the MERGED result and carry no slug)
+  // branchReviews: review events that carry a slug (per-branch reviews)
   verifyOk: boolean; // run.verify_ok
 }
 
@@ -106,6 +109,7 @@ export function buildStory(run: FeaturedRun): Story {
       launchIndex: launchIndex.get(w.slug) as number,
       buildIndex: buildIndex.get(w.slug) as number,
       failedVerifies,
+      resumes: w.resumes,
       failed,
       fixer,
       reviewed,
@@ -132,6 +136,8 @@ export function buildStory(run: FeaturedRun): Story {
       // Extra branches (extra: true dispatches, e.g. cronfix) are not workers
       // but count as dispatches and as fixers.
       fixers: dispatches.filter((e) => e.extra === true).length,
+      crossModelReviews: reviews.filter((e) => e.by === 'cross-model').length,
+      branchReviews: reviews.filter((e) => e.slug !== undefined).length,
     },
     verifyOk: run.verify_ok,
   };

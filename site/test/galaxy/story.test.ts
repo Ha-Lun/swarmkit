@@ -101,7 +101,18 @@ assert.deepEqual(story.counts, {
   reviews: count('review'),
   merges: count('merge'),
   fixers: run.events.filter((e) => e.type === 'dispatch' && e.extra === true).length,
+  crossModelReviews: run.events.filter((e) => e.type === 'review' && e.by === 'cross-model').length,
+  branchReviews: run.events.filter((e) => e.type === 'review' && e.slug !== undefined).length,
 });
+assert.equal(story.counts.crossModelReviews, 3);
+assert.equal(story.counts.branchReviews, 5);
+// resumes come straight from RunWorker.resumes; template and wrap failed once, were resumed, then passed (no fixer)
+for (const w of story.workers) assert.equal(w.resumes, run.workers.find((r) => r.slug === w.slug)!.resumes, w.slug);
+for (const slug of ['template', 'wrap']) {
+  const sw = story.workers.find((w) => w.slug === slug)!;
+  assert.ok(sw.failed && sw.fixer === null && sw.resumes > 0, `${slug} fixed on resume`);
+}
+assert.ok(cron.fixer !== null, 'cron is fixed by a fixer, not a resume');
 assert.equal(story.counts.workers, 8);
 assert.equal(story.counts.dispatches, 10); // 8 workers + cronfix + review-fixes
 assert.equal(story.counts.reviews, 8); // 5 slugged + 3 cross-model
@@ -210,7 +221,7 @@ assert.equal(beta.failedVerifies, 0);
 // beta has no worker_done, so it sorts last for build order even though it launched second here;
 // with only alpha done, beta is buildIndex 1.
 assert.equal(beta.buildIndex, 1);
-assert.deepEqual(s1.counts, { workers: 2, dispatches: 2, reviews: 0, merges: 1, fixers: 0 });
+assert.deepEqual(s1.counts, { workers: 2, dispatches: 2, reviews: 0, merges: 1, fixers: 0, crossModelReviews: 0, branchReviews: 0 });
 assert.deepEqual(s1.lanes, ['agy']);
 
 // Synthetic 2: cross-model review wins, fixer merge lands the work, failed verifies fail the worker.
@@ -238,10 +249,11 @@ assert.equal(gamma.buildIndex, 0);
 assert.equal(gamma.failedVerifies, 2);
 assert.equal(gamma.failed, true);
 assert.deepEqual(gamma.fixer, { slug: 'gammafix', lane: 'agy' });
+assert.equal(gamma.resumes, 0);
 assert.equal(gamma.reviewed, true);
 assert.equal(gamma.reviewedBy, 'cross-model');
 assert.equal(gamma.mergeIndex, 0, 'fixer merge lands the work');
-assert.deepEqual(s2.counts, { workers: 1, dispatches: 2, reviews: 2, merges: 1, fixers: 1 });
+assert.deepEqual(s2.counts, { workers: 1, dispatches: 2, reviews: 2, merges: 1, fixers: 1, crossModelReviews: 1, branchReviews: 2 });
 assert.deepEqual(s2.lanes, ['opencode']);
 
 // Synthetic 3: merged_via with no matching dispatch -> fixer null; merge missing -> null mergeIndex.
