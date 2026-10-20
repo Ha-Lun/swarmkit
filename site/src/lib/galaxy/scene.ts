@@ -416,7 +416,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     hazeMat.uniforms.uGain.value = 0.8 * st.galaxyGain * (1 - 0.8 * ss(0.5, 0.62, pp)) * (1 + 2.4 * lg) * (1 - 0.8 * band) * (1 - 0.6 * pullOut) * calm * (1 - 0.6 * calmPlan);
     dustMat.uniforms.uGain.value = (1 + 0.4 * ss(0.5, 0.6, pp)) * (1 - 0.95 * ss(0.14, 0.3, pp) * (1 - lg)) * (1 - 0.85 * calmPlan);
     // late beats: clean black around the sun so the system reads against it; the full field returns as the merge camera pulls out
-    const clearR = 5 * ss(0, 0.05, u) * (1 - ss(0.4, 0.9, m));
+    const clearR = Math.max((5 + 4 * (1 - ss(0.56, 0.62, pp))) * ss(0.5, 0.55, pp), 5 * ss(0, 0.05, u)) * (1 - ss(0.4, 0.9, m)); // also clean around the sun at the core beat
     starMat.uniforms.uClearR.value = clearR;
     hazeMat.uniforms.uClearR.value = clearR;
     dustMat.uniforms.uClearR.value = clearR;
@@ -522,7 +522,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     const wideSize = Math.min(1.4, (1 + 1.1 * pullOut) * (1 + 0.55 * pullOut * sparse)); // stars are fixed-size in world units: keep them readable from the far camera, boost capped
     starMat.uniforms.uSize.value *= wideSize;
     armMat.uniforms.uSize.value = starMat.uniforms.uSize.value;
-    armMat.uniforms.uGain.value = shared.uGain.value * 0.4; // the new arm sits below the original field: never an over-bright crescent
+    armMat.uniforms.uGain.value = shared.uGain.value * 0.45; // the new arm sits below the original field: never an over-bright crescent
     armMat.uniforms.uGrow.value = -0.15 + 1.27 * armGrow(m);
     armPts.visible = m > 0.3;
 

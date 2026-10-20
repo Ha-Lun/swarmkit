@@ -247,7 +247,7 @@ export function mergeCam(m: number, aspect: number, rMax: number): LateCam {
   const k: { m: number; cam: V3; tg: V3 }[] = [
     { m: 0, cam: a.cam, tg: a.target },
     { m: 0.42, cam: systemView(aspect, rMax, 0.8).cam, tg: systemView(aspect, rMax, 0.8).target },
-    wide ? { m: 1, cam: [0.4, 14.0, 20.0], tg: [-5.6, -0.4, 0.0] } : { m: 1, cam: [0, 41.5, 25], tg: [0, -0.5, 0.0] }, // portrait: pulled back ~25% so the whole disc fits the narrow width
+    wide ? { m: 1, cam: [0.4, 10.5, 21.5], tg: [-5.6, -0.4, 0.0] } : { m: 1, cam: [0, 29, 38], tg: [0, -0.5, 0.0] }, // inclined like the hero (about 25-35 deg), never face-on; portrait pulled back so the whole disc fits
   ];
   let i = 0;
   while (i < k.length - 2 && m > k[i + 1].m) i++;

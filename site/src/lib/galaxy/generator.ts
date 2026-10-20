@@ -34,9 +34,9 @@ function armTwist(t: number): number {
 
 const ARMS = 4;
 /** Arms 0 and 2 are the two dominant log-spirals; 1 and 3 are weaker. Cumulative pick weights. */
-const ARM_CUM = [0.34, 0.5, 0.84, 1];
+const ARM_CUM = [0.42, 0.5, 0.92, 1]; // 42/8/42/8
 const pickArm = (u: number): number => (u < ARM_CUM[0] ? 0 : u < ARM_CUM[1] ? 1 : u < ARM_CUM[2] ? 2 : 3);
-/** Fixed arm sequence for the small sprite sets (dust, haze): same 34/16/34/16 split. */
+/** Fixed arm sequence for the haze sprites (faint, so the weak arms may keep a sprite each). */
 const ARM_SEQ = [0, 2, 0, 2, 1, 3];
 /** Lane blend 0 (teal) .. 1 (amber): varies smoothly with azimuth and radius, so lanes flow into each other. */
 const laneMix = (a: number, t: number): number => 0.5 + 0.42 * Math.sin(a - 0.5 + 2.2 * t);
@@ -90,7 +90,8 @@ export function buildGalaxy(count: number, seed = 11): PointCloud {
         spurAng = spur.slope * s * spur.len * 3.2;
       }
       const ang = armI * (Math.PI * 2 / ARMS) + armTwist(t) + spurAng;
-      const sigma = armSigma(t) * (spur ? 0.8 : 1) * (clumped ? 0.35 : 1);
+      const weak = armI === 1 || armI === 3;
+      const sigma = armSigma(t) * (spur ? 0.8 : 1) * (clumped ? 0.35 : 1) * (weak ? 2.6 : 1); // weak arms are diffuse feathering, not arms
       // off < 0 is the trailing (inner) edge, where the dust lane sits: thin the stars there
       const off = clumped ? kn.lat * armSigma(t) + gauss() * sigma : gauss() * sigma + (rnd() ** 4) * (rnd() < 0.5 ? -1 : 1) * sigma * 2.5;
       const r = t * GALAXY_R + gauss() * 0.05;
@@ -105,7 +106,7 @@ export function buildGalaxy(count: number, seed = 11): PointCloud {
       col = mix3(col, tint, sstep(0.3, 0.62, t));
       const dustSide = off < -sigma * 0.5 ? 1 - 0.55 * sstep(0.5, 2, -off / sigma) : 1;
       const young = rnd() < 0.04;
-      bright = (0.55 + rnd() * 0.6) * (1.1 - 0.5 * t) * (spur ? 0.8 : 1) * dustSide * (0.45 + 0.55 * sstep(0.02, 0.2, t));
+      bright = (0.55 + rnd() * 0.6) * (1.1 - 0.5 * t) * (spur ? 0.8 : 1) * dustSide * (weak && !clumped ? 0.5 : 1) * (0.3 + 0.7 * sstep(0.05, 0.3, t));
       if (clumped) {
         col = mix3(PINK, [1, 1, 1], 0.3);
         bright = (0.6 + rnd() * 0.5) * (1.1 - 0.4 * t);
@@ -231,22 +232,23 @@ export function buildHaze(count: number, seed = 5): PointCloud {
   return c;
 }
 
-/** Dark dust: alpha-blended near-black sprites on the trailing edge of each arm and across the bulge. */
+/** Dark dust: faint alpha-blended near-black sprites on the trailing edge of the two dominant arms only. Subtle on purpose:
+ *  it must never carve dark quadrants (that reads as a pinwheel). */
 export function buildDust(count: number, seed = 9): PointCloud {
   const rnd = mulberry32(seed);
   const c = cloud(count);
   for (let i = 0; i < count; i++) {
-    const arm = ARM_SEQ[i % ARM_SEQ.length];
-    const t = 0.16 + rnd() * 0.7;
+    const arm = (i & 1) * 2; // arms 0 and 2
+    const t = 0.2 + rnd() * 0.6;
     // just inside the trailing edge of the arm: about 1 to 1.8 arm sigmas behind the centreline
     const ang = arm * (Math.PI * 2 / ARMS) + armTwist(t) - (armSigma(t) / (t * GALAXY_R)) * (1 + 0.8 * rnd());
     const r = t * GALAXY_R;
     c.position[i * 3] = Math.cos(ang) * r;
     c.position[i * 3 + 1] = (rnd() - 0.5) * 0.12;
     c.position[i * 3 + 2] = Math.sin(ang) * r;
-    const a = 0.12 + rnd() * 0.2; // stored in colour.x as the alpha
+    const a = 0.05 + rnd() * 0.08; // stored in colour.x as the alpha
     c.color.set([a, 0, 0], i * 3);
-    c.data.set([0.8 + rnd() * 1.6 + (1 - t) * 0.8, rnd(), rnd(), 0], i * 4);
+    c.data.set([0.6 + rnd() * 1.0 + (1 - t) * 0.5, rnd(), rnd(), 0], i * 4);
   }
   return c;
 }

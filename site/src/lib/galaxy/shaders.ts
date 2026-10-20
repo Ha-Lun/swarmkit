@@ -71,7 +71,8 @@ void main() {
   float g = uMode < 0.5 ? (exp(-d * d * 7.0) * 0.72 + exp(-d * 3.0) * 0.28) * edge : exp(-d * d * 3.0) * edge * edge;
   vec3 rgb = vC * g * vA;
   float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
-  fragColor = vec4(rgb + (n - 0.5) / 255.0 * step(0.0001, g), 1.0);
+  // dither only the big soft haze glows, and only where they carry light: dithering every faint star footprint reads as sandy grain
+  fragColor = vec4(rgb + (n - 0.5) / 255.0 * step(0.5, uMode) * step(0.006, dot(rgb, vec3(1.0))), 1.0);
 }
 `;
 
@@ -276,10 +277,10 @@ void main() {
     float rr = max(d - 1.0, 0.0);
     float fl = uFlare;
     float a = atan(vP.y, vP.x);
-    vec2 ad = vec2(cos(a), sin(a));
-    float st = fbm(vec3(ad * 2.4, uSpin * 0.18 + 0.7), min(nOct, 3));
-    float streak = pow(clamp((st - 0.35) * 2.2, 0.0, 1.0), 1.6) * exp(-rr * (0.55 - 0.15 * fl)) * (0.28 + 0.4 * fl);
-    float coronaE = 0.85 * exp(-rr * 6.0) + (0.2 + 0.35 * fl) * exp(-rr * 1.5) + (0.05 + 0.22 * fl) * exp(-rr * 0.5) + streak * smoothstep(0.0, 0.3, rr);
+    // streamers: a few broad, slow lobes (low angular frequency, no noise), faded in with distance so nothing spikes at the limb
+    float lobes = 0.5 + 0.5 * (0.6 * sin(a * 2.0 + uSpin * 0.2 + 1.0) + 0.4 * sin(a * 3.0 - uSpin * 0.15 + 2.0));
+    float streak = lobes * lobes * exp(-rr * (0.7 - 0.15 * fl)) * (0.12 + 0.3 * fl);
+    float coronaE = 0.85 * exp(-rr * 6.0) + (0.2 + 0.35 * fl) * exp(-rr * 1.5) + (0.05 + 0.22 * fl) * exp(-rr * 0.5) + streak * smoothstep(0.0, 0.8, rr);
     vec3 corona = mix(vec3(1.0, 0.42, 0.12), vec3(1.0, 0.72, 0.36), exp(-rr * 2.0)) * coronaE * (d > 1.0 ? 1.0 : 0.55);
     vec3 c = surf * disc + corona * (1.0 - 0.7 * disc);
     c = vec3(1.0) - exp(-c * 1.25);
@@ -413,6 +414,10 @@ void main() {
       float scat = exp(-pow(diff / 0.17, 2.0)) * 0.3;
       vec3 scatC = mix(vC, vec3(1.0, 0.5, 0.3), 0.45);
       vec3 body = c * lit * 1.15 * (1.0 - rs) + scatC * scat * (0.5 + 0.5 * lit * 0.0 + 0.5) * smoothstep(-0.25, 0.05, diff) * 0.55;
+      // small on screen: blend toward a soft, lane-coloured, mostly lit disc (gibbous) so the lane reads
+      float small = 1.0 - smoothstep(14.0, 48.0, vRpx);
+      float soft = pow(clamp((diff + 0.7) / 1.7, 0.0, 1.0), 0.9);
+      body = mix(body, c * soft * 1.05 + vC * 0.08 * small, small * 0.8);
       body += vC * 0.012 * (0.5 + c) ; // night side: nearly black, a trace of lane colour
       float fres = pow(1.0 - mu, 3.2);
       vec3 atm = mix(vC, vec3(0.6, 0.88, 1.0), (1.0 - gas) * 0.45 + 0.1);
