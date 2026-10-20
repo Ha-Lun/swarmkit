@@ -1,62 +1,13 @@
 ---
 import Base from '../layouts/Base.astro';
-import SwarmBar from '../components/swarm/SwarmBar.astro';
-import SwarmStage from '../components/swarm/SwarmStage.astro';
-import Hero from '../components/swarm/sections/Hero.astro';
-import Beat from '../components/swarm/sections/Beat.astro';
-import Numbers from '../components/swarm/sections/Numbers.astro';
-import Clis from '../components/swarm/sections/Clis.astro';
-import Cta from '../components/swarm/sections/Cta.astro';
-import '../styles/swarm.css';
-import { loadFeaturedRun } from '../lib/run.ts';
-
-const run = loadFeaturedRun();
-const workers = run?.workers ?? [];
-const fanoutHeadline = workers.length > 0 ? `${workers.length} workers. At once.` : 'Workers. At once.';
-const fanoutLanes = [...new Set(workers.map((w) => w.lane))];
+import GalaxyBar from '../components/galaxy/GalaxyBar.astro';
+import GalaxyStage from '../components/galaxy/GalaxyStage.astro';
 ---
 <Base
   title="SwarmKit: one mind plans, a swarm builds"
-  description="Opus plans. Cheaper models build in parallel, each branch tested and reviewed before it merges. One config for Claude Code, OpenCode and Antigravity."
+  description="A scroll-driven flight into a galaxy of code: Opus plans, cheaper models build in parallel, every branch tested and reviewed before it merges. One config for Claude Code, OpenCode and Antigravity."
+  imageAlt="A spiral galaxy of teal and amber stars around a bright violet-white core, rendered live in WebGL: the SwarmKit galaxy, where each worker is a star."
 >
-  <SwarmBar slot="top" />
-  <SwarmStage />
-  <div class="swarm" data-swarm-story>
-    <Hero />
-    <Beat
-      beat="plan"
-      num="01"
-      headline="Opus plans."
-      body="Plan mode on the strongest model. You approve before a single file changes."
-    />
-    <Beat
-      beat="fanout"
-      num="02"
-      headline={fanoutHeadline}
-      body="Cheaper models on OpenCode and Antigravity build in parallel, each in its own git worktree."
-    >
-      {fanoutLanes.length > 0 && (
-        <ul class="swarm-legend" data-swarm-fade aria-label={`Lanes used: ${fanoutLanes.join(', ')}`}>
-          {fanoutLanes.map((lane) => (
-            <li><span class={`swarm-dot swarm-dot-${lane}`} aria-hidden="true"></span>{lane}</li>
-          ))}
-        </ul>
-      )}
-    </Beat>
-    <Beat
-      beat="build"
-      num="03"
-      headline="Checked twice."
-      body="Every branch is re-tested, then reviewed by a different model family."
-    />
-    <Beat
-      beat="merge"
-      num="04"
-      headline="Merged. Green."
-      body="Opus merges what passed. You get one clean branch."
-    />
-    <Numbers />
-    <Clis />
-    <Cta />
-  </div>
+  <GalaxyBar slot="top" />
+  <GalaxyStage />
 </Base>
