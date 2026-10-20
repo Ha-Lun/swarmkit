@@ -275,12 +275,11 @@ void main() {
     float temp = clamp(limb * (0.82 + 0.55 * (gran - 0.5)) - 0.38 * spots, 0.0, 1.2);
     vec3 surf = mix(vec3(0.93, 0.3, 0.05), vec3(1.0, 0.8, 0.42), clamp(temp, 0.0, 1.0)) * (0.55 + 0.75 * temp);
     float rr = max(d - 1.0, 0.0);
-    float fl = uFlare;
     float a = atan(vP.y, vP.x);
     // streamers: a few broad, slow lobes (low angular frequency, no noise), faded in with distance so nothing spikes at the limb
     float lobes = 0.5 + 0.5 * (0.6 * sin(a * 2.0 + uSpin * 0.2 + 1.0) + 0.4 * sin(a * 3.0 - uSpin * 0.15 + 2.0));
-    float streak = lobes * lobes * exp(-rr * (0.7 - 0.15 * fl)) * (0.12 + 0.3 * fl);
-    float coronaE = 0.85 * exp(-rr * 6.0) + (0.2 + 0.35 * fl) * exp(-rr * 1.5) + (0.05 + 0.22 * fl) * exp(-rr * 0.5) + streak * smoothstep(0.0, 0.8, rr);
+    float streak = lobes * lobes * exp(-rr * (0.7 - 0.15 * uFlare)) * (0.12 + 0.3 * uFlare);
+    float coronaE = 0.85 * exp(-rr * 6.0) + (0.2 + 0.35 * uFlare) * exp(-rr * 1.5) + (0.05 + 0.22 * uFlare) * exp(-rr * 0.5) + streak * smoothstep(0.0, 0.8, rr);
     vec3 corona = mix(vec3(1.0, 0.42, 0.12), vec3(1.0, 0.72, 0.36), exp(-rr * 2.0)) * coronaE * (d > 1.0 ? 1.0 : 0.55);
     vec3 c = surf * disc + corona * (1.0 - 0.7 * disc);
     c = vec3(1.0) - exp(-c * 1.25);
@@ -331,8 +330,7 @@ void main() {
         base = mix(base, stT, 0.3 * stat);
         base *= 0.78 + 0.45 * vn(vec3(rn * 9.0, sd, 3.0));
         ringC = base * (refl * 0.95 + fs * 1.1);
-        float edge = 1.0 - smoothstep(0.0, 1.5 * max(fwidth(rho), 1e-4) / (rout - rin), min(rn, 1.0 - rn));
-        ringA = clamp(dens * 0.92, 0.0, 1.0) * (1.0 - 0.0 * edge) * smoothstep(0.0, 0.2, gr);
+        ringA = clamp(dens * 0.92, 0.0, 1.0) * smoothstep(0.0, 0.2, gr);
         ringFront = (zr > 0.0 || d > 1.0) ? 1.0 : 0.0;
         ringA *= ringFront;
         float nearHalf = step(0.0, zr);
@@ -375,7 +373,7 @@ void main() {
           vec3 dd = p3 - cd;
           float sz = k == 0 ? 1.0 : 0.55;
           float r2 = pow(length(dd.xy) / (0.26 * sz), 2.0) + pow(dd.z / (0.1 * sz), 2.0);
-          float storm = exp(-r2 * 1.4) * (k == 0 ? 1.0 : 0.65) * step(0.0, p3.z * 0.0 + dot(p3, cd));
+          float storm = exp(-r2 * 1.4) * (k == 0 ? 1.0 : 0.65) * step(0.0, dot(p3, cd));
           vec3 sc = k == 1 ? vec3(0.95, 0.9, 0.8) : vec3(0.82, 0.34, 0.18) * vC.r;
           c = mix(c, sc, storm * 0.75);
           c += 0.12 * vC * exp(-pow(sqrt(r2) - 1.15, 2.0) * 6.0) * det;
@@ -387,7 +385,7 @@ void main() {
         vec3 deep = vC * vec3(0.3, 0.65, 1.15) * 0.42;
         vec3 pale = mix(vC, vec3(0.6, 0.98, 1.0), 0.28);
         c = mix(deep, pale, 0.08 + 0.85 * smoothstep(0.15, 0.85, bnd));
-        float cir = mix(0.0, fbm(vec3(p3.xy * 2.6, lat * 11.0) + sdv * 2.0 + 4.0, nOct), det);
+        float cir = det * fbm(vec3(p3.xy * 2.6, lat * 11.0) + sdv * 2.0 + 4.0, nOct);
         c = mix(c, vec3(0.82, 1.0, 1.0), smoothstep(0.52, 0.72, cir) * 0.38);
         c = mix(c, pale * 1.05, smoothstep(0.6, 1.0, abs(lat)) * 0.3);
         float la = (h31(vec3(vIdx, 3.0, 2.0)) - 0.5) * 0.9;
@@ -413,7 +411,7 @@ void main() {
       }
       float scat = exp(-pow(diff / 0.17, 2.0)) * 0.3;
       vec3 scatC = mix(vC, vec3(1.0, 0.5, 0.3), 0.45);
-      vec3 body = c * lit * 1.15 * (1.0 - rs) + scatC * scat * (0.5 + 0.5 * lit * 0.0 + 0.5) * smoothstep(-0.25, 0.05, diff) * 0.55;
+      vec3 body = c * lit * 1.15 * (1.0 - rs) + scatC * scat * smoothstep(-0.25, 0.05, diff) * 0.55;
       // small on screen: blend toward a soft, lane-coloured, mostly lit disc (gibbous) so the lane reads
       float small = 1.0 - smoothstep(14.0, 48.0, vRpx);
       float soft = pow(clamp((diff + 0.7) / 1.7, 0.0, 1.0), 0.9);

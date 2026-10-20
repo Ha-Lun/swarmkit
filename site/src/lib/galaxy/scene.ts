@@ -63,8 +63,6 @@ export interface GalaxyOptions {
 }
 export interface GalaxyScene {
   setProgress(p: number): void;
-  /** raw scroll velocity in px/s (ScrollTrigger getVelocity); smoothed inside */
-  setScrollVelocity(v: number): void;
   setPointer(x: number, y: number): void;
   setActive(on: boolean): void;
   resize(): void;
@@ -355,9 +353,6 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   // ---- loop -------------------------------------------------------------------------------------------------
   let target = 0;
   let progress = 0;
-  let vel = 0;
-  let scrollVel = 0;
-  let scrollVelAt = 0;
   let raf = 0;
   let disposed = false;
   let active = true;
@@ -389,12 +384,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     const dtRaw = Math.max(0, (nowMs - lastMs) / 1000);
     lastMs = nowMs;
     const dt = Math.min(0.1, dtRaw);
-    const prev = progress;
     progress = reduced ? target : progress + (target - progress) * (1 - Math.exp(-Math.min(dtRaw, 1) * 6));
-    const inst = dtRaw > 0 ? Math.abs(progress - prev) / Math.max(dtRaw, 1e-3) : 0;
-    // scroll velocity: ScrollTrigger's px/s (zero if stale) combined with the eased-progress rate, then smoothed
-    const sv = nowMs - scrollVelAt < Math.max(140, dtRaw * 2500) ? Math.min(1, Math.abs(scrollVel) / (cssH * 3.2)) : 0;
-    vel += (Math.max(sv, Math.min(1, inst * 14)) - vel) * (1 - Math.exp(-dt * 6));
     const u = lateU(progress);
     const pp = legacyP(progress);
     const m = mergeM(progress);
@@ -750,10 +740,6 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     setProgress(p: number): void {
       target = clamp01(p);
       if (reduced) renderFrame(performance.now());
-    },
-    setScrollVelocity(v: number): void {
-      scrollVel = v;
-      scrollVelAt = performance.now();
     },
     setPointer(x: number, y: number): void {
       ptr.x = x;

@@ -256,7 +256,6 @@ async function boot(): Promise<void> {
     end: 'bottom bottom',
     onUpdate: (self) => {
       scene.setProgress(self.progress);
-      scene.setScrollVelocity(self.getVelocity());
     },
     onRefresh: (self) => scene.setProgress(self.progress),
   });

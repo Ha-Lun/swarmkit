@@ -83,7 +83,7 @@ export interface SceneState {
   cometU: number;
   cometVis: number; // 0..1
   flash: number; // core flash when the comet lands
-  diveEnv: number; // 0..1 fly-through envelope (streaks)
+  diveEnv: number; // 0..1 fly-through envelope (parallax)
   galaxyGain: number; // galaxy brightness multiplier
   coreGain: number; // bulge dimming once the camera is inside it
   bloom: number; // bloom strength multiplier
