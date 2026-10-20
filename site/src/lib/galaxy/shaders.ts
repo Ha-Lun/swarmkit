@@ -235,6 +235,7 @@ out vec3 vL;
 out vec4 vS;
 out float vKind;
 out float vIdx;
+out float vRpx;
 void main() {
   int i = int(aData.x + 0.5);
   float kind = aData.y;
@@ -256,54 +257,248 @@ void main() {
   vS = s;
   vKind = kind;
   vIdx = aData.x;
+  vRpx = r * uScale / depth; // body radius in device px: detail fades in with it
 }
 `;
-export const bodyFrag = /* glsl */ `
+
+/**
+ * Body shading, all procedural. Planets: sphere normal rebuilt per pixel, spun by the scroll clock (uSpin), 3D noise.
+ * agy = gas giants (bands, domain-warped turbulence, storm ovals); opencode = ice giants (soft banding, haze, dark spot).
+ * Rings are a real plane (ray-plane in the impostor) that shadows and is shadowed. Sun: limb darkening, granulation,
+ * smooth corona. `oct` = noise octave cap per tier.
+ */
+export const bodyFrag = (oct: number): string => /* glsl */ `
+#define OCT ${oct}
 uniform float uFlare;
+uniform float uSpin; // scroll-driven rotation clock (never wall time)
 in vec2 vP;
 in vec3 vC;
 in vec3 vL;
 in vec4 vS;
 in float vKind;
 in float vIdx;
+in float vRpx;
 out vec4 fragColor;
+
+float h31(vec3 p) {
+  p = fract(p * 0.1031);
+  p += dot(p, p.zyx + 31.32);
+  return fract((p.x + p.y) * p.z);
+}
+float vn(vec3 p) {
+  vec3 i = floor(p);
+  vec3 f = fract(p);
+  f = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  return mix(
+    mix(mix(h31(i), h31(i + vec3(1, 0, 0)), f.x), mix(h31(i + vec3(0, 1, 0)), h31(i + vec3(1, 1, 0)), f.x), f.y),
+    mix(mix(h31(i + vec3(0, 0, 1)), h31(i + vec3(1, 0, 1)), f.x), mix(h31(i + vec3(0, 1, 1)), h31(i + vec3(1, 1, 1)), f.x), f.y),
+    f.z);
+}
+float fbm(vec3 p, int nOct) {
+  float a = 0.5;
+  float s = 0.0;
+  float tot = 0.0;
+  for (int i = 0; i < OCT; i++) {
+    if (i >= nOct) break;
+    s += a * vn(p);
+    tot += a;
+    p = p * 2.03 + vec3(17.1, 3.7, 9.2);
+    a *= 0.5;
+  }
+  return s / tot;
+}
+float ringDen(float r, float sd, float det) {
+  float x = r * 46.0;
+  float n = 0.5 * vn(vec3(x * 0.35, sd, 1.0)) + 0.3 * vn(vec3(x, sd, 5.0)) + 0.2 * mix(0.5, vn(vec3(x * 3.1, sd, 9.0)), det);
+  float dens = 0.2 + 1.0 * n;
+  dens *= 1.0 - 0.93 * (1.0 - smoothstep(0.0, 0.04, abs(r - (0.58 + 0.04 * sin(sd * 5.0)))));
+  dens *= 1.0 - 0.7 * (1.0 - smoothstep(0.0, 0.014, abs(r - 0.86)));
+  dens *= 0.3 + 0.7 * smoothstep(0.0, 0.3, r);
+  dens *= smoothstep(0.0, 0.03, r) * (1.0 - smoothstep(0.94, 1.0, r));
+  return clamp(dens, 0.0, 1.0);
+}
+
 void main() {
   float d = length(vP);
   float aa = max(fwidth(d), 1e-4) * 0.9;
   vec3 col = vec3(0.0);
+  float det = smoothstep(14.0, 80.0, vRpx);
+  int nOct = vRpx < 14.0 ? 2 : (vRpx < 45.0 ? min(3, OCT) : OCT);
   if (vKind < 0.5) {
-    // sun: a warm disc with a hot centre and a darker limb, a short glow, and a flare that swells with each arrival;
-    // soft-clipped so it never whites out
-    float core = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, d);
-    float limb = pow(max(0.0, 1.0 - d * d), 0.5);
-    float glow = 0.3 * exp(-d * 1.15) + 0.1 * exp(-d * d * 0.09) + uFlare * (0.75 * exp(-d * 0.6) + 0.25 * exp(-d * d * 0.05));
-    vec3 c = mix(vec3(1.0, 0.42, 0.1), vec3(1.0, 0.82, 0.5), limb) * core * 0.95 + vec3(1.0, 0.62, 0.28) * glow;
-    c = vec3(1.0) - exp(-c * 1.2);
+    // sun: limb-darkened, granulated photosphere, smooth corona with faint streamers
+    float disc = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, d);
+    float mu = sqrt(max(0.0, 1.0 - d * d));
+    float cs = cos(uSpin * 0.35);
+    float sn = sin(uSpin * 0.35);
+    vec3 N = vec3(vP, mu);
+    vec3 p3 = vec3(N.x * cs + N.z * sn, N.y, -N.x * sn + N.z * cs);
+    float warp = vn(p3 * 6.0 + uSpin * 0.4);
+    float g1 = vn(p3 * 16.0 + warp * 2.2);
+    float g2 = vn(p3 * 34.0 + warp * 3.0 + 7.0);
+    float gran = mix(0.5, 0.62 * g1 + 0.38 * g2, det);
+    float spots = smoothstep(0.7, 0.82, fbm(p3 * 2.6 + 3.0, min(nOct, 3))) * det;
+    float limb = 1.0 - 0.62 * (1.0 - mu);
+    float temp = clamp(limb * (0.82 + 0.55 * (gran - 0.5)) - 0.38 * spots, 0.0, 1.2);
+    vec3 surf = mix(vec3(0.93, 0.3, 0.05), vec3(1.0, 0.8, 0.42), clamp(temp, 0.0, 1.0)) * (0.55 + 0.75 * temp);
+    float rr = max(d - 1.0, 0.0);
+    float fl = uFlare;
+    float a = atan(vP.y, vP.x);
+    vec2 ad = vec2(cos(a), sin(a));
+    float st = fbm(vec3(ad * 2.4, uSpin * 0.18 + 0.7), min(nOct, 3));
+    float streak = pow(clamp((st - 0.35) * 2.2, 0.0, 1.0), 1.6) * exp(-rr * (0.55 - 0.15 * fl)) * (0.28 + 0.4 * fl);
+    float coronaE = 0.85 * exp(-rr * 6.0) + (0.2 + 0.35 * fl) * exp(-rr * 1.5) + (0.05 + 0.22 * fl) * exp(-rr * 0.5) + streak * smoothstep(0.0, 0.3, rr);
+    vec3 corona = mix(vec3(1.0, 0.42, 0.12), vec3(1.0, 0.72, 0.36), exp(-rr * 2.0)) * coronaE * (d > 1.0 ? 1.0 : 0.55);
+    vec3 c = surf * disc + corona * (1.0 - 0.7 * disc);
+    c = vec3(1.0) - exp(-c * 1.25);
     col = c * (1.0 - smoothstep(6.5, 9.0, d)) * vS.x;
   } else if (vKind < 1.5) {
     float disc = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, d);
-    vec3 n = vec3(vP, sqrt(max(0.0, 1.0 - d * d)));
-    float diff = max(dot(n, vL), 0.0);
-    vec3 st = mix(vC, vec3(0.3, 1.0, 0.55), vS.z);
-    st = mix(st, vec3(1.0, 0.22, 0.18), clamp(vS.w, 0.0, 1.0));
-    float band = 0.05 * sin(n.y * 13.0 + vIdx * 3.1) * smoothstep(0.0, 0.6, n.z);
-    vec3 body = vC * (0.2 + 1.0 * pow(diff, 1.15) + band) + vC * pow(1.0 - n.z, 3.0) * 0.18 * (0.3 + diff);
-    col += body * disc;
-    col += st * exp(-pow(max(d - 1.0, 0.0) * 6.0, 2.0)) * (1.0 - disc) * (0.07 + 0.22 * vS.w + 0.1 * vS.z);
-    if (vS.y > 0.002) {
-      float tilt = -0.42 + 0.18 * sin(vIdx * 2.7);
-      float ratio = 0.34 + 0.05 * sin(vIdx * 1.9);
-      float ca = cos(tilt);
-      float sa = sin(tilt);
-      vec2 q = vec2(ca * vP.x + sa * vP.y, -sa * vP.x + ca * vP.y);
-      float ra = 2.5 * vS.y;
-      float f = length(vec2(q.x / ra, q.y / (ra * ratio)));
-      float w = max(fwidth(f), 1e-4);
-      float line = 1.0 - smoothstep(0.3 * w, 1.0 * w, abs(f - 1.0));
-      line *= 1.0 - step(0.0, q.y) * disc; // the far half passes behind the planet
-      col += st * line * (0.5 + 0.7 * vS.w + 0.3 * vS.z) * smoothstep(0.0, 0.25, vS.y);
+    float gas = step(vC.b, vC.r); // agy amber = gas giant, opencode teal = ice giant
+    float sd = vIdx * 1.713;
+    float tilt = -0.42 + 0.18 * sin(vIdx * 2.7); // ringTilt() in scene.ts
+    float ratio = 0.34 + 0.05 * sin(vIdx * 1.9);
+    float ca = cos(tilt);
+    float sa = sin(tilt);
+    mat2 R = mat2(ca, -sa, sa, ca);
+    vec2 q = R * vP;
+    float sinP = sqrt(1.0 - ratio * ratio);
+    vec3 pole = vec3(0.0, sinP, ratio); // spin axis = ring-plane normal, in the tilted screen frame
+    vec3 e2 = vec3(0.0, ratio, -sinP);
+    vec3 Lq = vec3(R * vL.xy, vL.z);
+    vec3 stT = mix(vC, vec3(0.3, 1.0, 0.55), vS.z);
+    stT = mix(stT, vec3(1.0, 0.22, 0.18), clamp(vS.w, 0.0, 1.0));
+    float stat = clamp(vS.z + vS.w, 0.0, 1.0);
+    vec3 outc = vec3(0.0);
+
+    // ring plane
+    float ringA = 0.0;
+    vec3 ringC = vec3(0.0);
+    float ringFront = 1.0;
+    float gr = vS.y;
+    if (gr > 0.002) {
+      float rin = 1.18;
+      float rout = rin + 1.35 * gr;
+      float zr = -sinP * q.y / ratio;
+      vec3 P = vec3(q, zr);
+      float rho = length(P);
+      float rn = (rho - rin) / (rout - rin);
+      if (rn > 0.0 && rn < 1.0) {
+        float dens = ringDen(rn, sd, det);
+        float pl = dot(pole, Lq);
+        // planet shadow on the ring
+        float b = dot(P, Lq);
+        float disc2 = b * b - (dot(P, P) - 1.0);
+        float shadow = (b < 0.0 && disc2 > 0.0) ? smoothstep(0.0, 0.12, disc2) : 0.0;
+        float lit = (0.3 + 0.7 * abs(pl)) * (1.0 - 0.93 * shadow);
+        float fs = pow(max(0.0, -Lq.z), 3.0) * (1.0 - dens) * (1.0 - 0.9 * shadow);
+        bool sunSide = pl * ratio > 0.0;
+        float refl = sunSide ? lit : 0.2 * lit + 0.9 * (1.0 - dens) * (1.0 - 0.9 * shadow) * (0.3 + 0.7 * abs(pl));
+        vec3 base = mix(vC, vec3(1.0, 0.93, 0.8), 0.22);
+        base = mix(base, stT, 0.3 * stat);
+        base *= 0.78 + 0.45 * vn(vec3(rn * 9.0, sd, 3.0));
+        ringC = base * (refl * 0.95 + fs * 1.1);
+        float edge = 1.0 - smoothstep(0.0, 1.5 * max(fwidth(rho), 1e-4) / (rout - rin), min(rn, 1.0 - rn));
+        ringA = clamp(dens * 0.92, 0.0, 1.0) * (1.0 - 0.0 * edge) * smoothstep(0.0, 0.2, gr);
+        ringFront = (zr > 0.0 || d > 1.0) ? 1.0 : 0.0;
+        ringA *= ringFront;
+        float nearHalf = step(0.0, zr);
+        ringFront = nearHalf; // near half composites over the planet, far half only shows outside the disc
+      }
     }
-    col *= vS.x;
+
+    if (disc > 0.0 || d < 1.05) {
+      float mu = sqrt(max(0.0, 1.0 - d * d));
+      vec3 N = vec3(q, mu);
+      float lat = dot(N, pole);
+      float u = N.x;
+      float v = dot(N, e2);
+      float spin = uSpin * (0.42 + 0.2 * sin(sd * 3.0)) + sd * 2.0;
+      float cs = cos(spin);
+      float sn = sin(spin);
+      vec3 p3 = vec3(u * cs - v * sn, u * sn + v * cs, lat);
+      vec3 sdv = vec3(sd, sd * 0.7, sd * 1.3);
+      vec3 c;
+      float spec = 0.0;
+      if (gas > 0.5) {
+        float n1 = fbm(vec3(p3.xy * 1.9, lat * 6.5) + sdv, nOct);
+        float turb = 0.5 + 0.9 * det;
+        float ph = lat * (5.2 + 1.6 * sin(sd)) + (n1 - 0.5) * 1.7 * turb + 0.4 * sin(lat * 3.0 + sd);
+        float bnd = 0.5 + 0.5 * sin(ph * 6.2832 * 0.5);
+        bnd = smoothstep(0.22, 0.78, bnd + (n1 - 0.5) * 0.25);
+        float fine = mix(0.5, fbm(vec3(p3.xy * 3.2, lat * 20.0) + sdv * 2.0, nOct), det);
+        vec3 belt = vC * vec3(0.5, 0.3, 0.2) * 0.75;
+        vec3 zone = mix(vC, vec3(1.0, 0.88, 0.64), 0.55);
+        c = mix(belt, zone, bnd);
+        c *= 0.78 + 0.5 * fine;
+        c *= mix(1.0, 0.62, smoothstep(0.68, 1.0, abs(lat)));
+        for (int k = 0; k < 3; k++) {
+          float h1 = h31(vec3(vIdx, float(k), 7.1));
+          float h2 = h31(vec3(vIdx, float(k), 13.7));
+          float la = (h2 - 0.5) * 1.1;
+          float lo = h1 * 6.2832;
+          float rl = sqrt(max(0.0, 1.0 - la * la));
+          vec3 cd = vec3(cos(lo) * rl, sin(lo) * rl, la);
+          vec3 dd = p3 - cd;
+          float sz = k == 0 ? 1.0 : 0.55;
+          float r2 = pow(length(dd.xy) / (0.26 * sz), 2.0) + pow(dd.z / (0.1 * sz), 2.0);
+          float storm = exp(-r2 * 1.4) * (k == 0 ? 1.0 : 0.65) * step(0.0, p3.z * 0.0 + dot(p3, cd));
+          vec3 sc = k == 1 ? vec3(0.95, 0.9, 0.8) : vec3(0.82, 0.34, 0.18) * vC.r;
+          c = mix(c, sc, storm * 0.75);
+          c += 0.12 * vC * exp(-pow(sqrt(r2) - 1.15, 2.0) * 6.0) * det;
+        }
+      } else {
+        float n1 = fbm(vec3(p3.xy * 1.6, lat * 4.0) + sdv, nOct);
+        float ph = lat * 3.3 + (n1 - 0.5) * 0.9 + 0.3 * sin(sd);
+        float bnd = 0.5 + 0.5 * sin(ph * 3.1416);
+        vec3 deep = vC * vec3(0.3, 0.65, 1.15) * 0.42;
+        vec3 pale = mix(vC, vec3(0.6, 0.98, 1.0), 0.28);
+        c = mix(deep, pale, 0.08 + 0.85 * smoothstep(0.15, 0.85, bnd));
+        float cir = mix(0.0, fbm(vec3(p3.xy * 2.6, lat * 11.0) + sdv * 2.0 + 4.0, nOct), det);
+        c = mix(c, vec3(0.82, 1.0, 1.0), smoothstep(0.52, 0.72, cir) * 0.38);
+        c = mix(c, pale * 1.05, smoothstep(0.6, 1.0, abs(lat)) * 0.3);
+        float la = (h31(vec3(vIdx, 3.0, 2.0)) - 0.5) * 0.9;
+        float lo = h31(vec3(vIdx, 5.0, 2.0)) * 6.2832;
+        float rl = sqrt(max(0.0, 1.0 - la * la));
+        vec3 dd = p3 - vec3(cos(lo) * rl, sin(lo) * rl, la);
+        float r2 = pow(length(dd.xy) / 0.24, 2.0) + pow(dd.z / 0.11, 2.0);
+        c *= 1.0 - 0.45 * exp(-r2 * 1.6) * (0.4 + 0.6 * det);
+      }
+      float diff = dot(N, Lq);
+      float lam = clamp((diff + 0.1) / 1.1, 0.0, 1.0);
+      float lit = pow(lam, 1.05);
+      // ring shadow on the planet: march from the surface toward the sun to the ring plane
+      float rs = 0.0;
+      if (gr > 0.002) {
+        float pL = dot(pole, Lq);
+        float sT = -dot(pole, N) / (abs(pL) < 1e-3 ? 1e-3 : pL);
+        if (sT > 0.0) {
+          vec3 H = N + sT * Lq;
+          float rn2 = (length(H) - 1.18) / (1.35 * gr);
+          if (rn2 > 0.0 && rn2 < 1.0) rs = ringDen(rn2, sd, 0.0) * 0.85 * smoothstep(0.0, 0.2, gr);
+        }
+      }
+      float scat = exp(-pow(diff / 0.17, 2.0)) * 0.3;
+      vec3 scatC = mix(vC, vec3(1.0, 0.5, 0.3), 0.45);
+      vec3 body = c * lit * 1.15 * (1.0 - rs) + scatC * scat * (0.5 + 0.5 * lit * 0.0 + 0.5) * smoothstep(-0.25, 0.05, diff) * 0.55;
+      body += vC * 0.012 * (0.5 + c) ; // night side: nearly black, a trace of lane colour
+      float fres = pow(1.0 - mu, 3.2);
+      vec3 atm = mix(vC, vec3(0.6, 0.88, 1.0), (1.0 - gas) * 0.45 + 0.1);
+      atm = mix(atm, stT, 0.75 * stat);
+      body += atm * fres * (0.05 + 1.05 * pow(clamp(diff * 0.8 + 0.4, 0.0, 1.0), 1.3)) * (1.0 + 0.8 * stat);
+      vec3 Hh = normalize(Lq + vec3(0.0, 0.0, 1.0));
+      spec = pow(max(dot(N, Hh), 0.0), 48.0) * 0.28 * (1.0 - gas) * lit;
+      body += vec3(0.8, 0.97, 1.0) * spec;
+      outc = body * disc;
+    }
+    // atmosphere glow outside the limb: lane tinted, status tint when verifying; lit side brighter
+    float lb = 0.5 + 0.5 * dot(vP / max(d, 1e-3), vL.xy / max(length(vL.xy), 1e-3)) * min(1.0, length(vL.xy) * 1.3 + 0.2);
+    float halo = exp(-max(d - 1.0, 0.0) * 8.0) * (1.0 - disc) * (0.045 + 0.16 * vS.w + 0.1 * vS.z) * (0.4 + 0.9 * lb);
+    outc += mix(vC, stT, stat) * halo;
+    // composite the ring: near half over, far half behind (only visible off the disc)
+    float aR = ringA;
+    if (ringFront < 0.5) aR *= (1.0 - disc);
+    outc = outc * (1.0 - aR) + ringC * aR;
+    col = outc * vS.x;
   } else if (vKind < 2.5) {
     // fixer: a small amber spark
     float core = exp(-d * d * 3.5);
@@ -316,6 +511,8 @@ void main() {
     float disc = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, d);
     col = vC * (disc * 0.8 + 0.18 * exp(-d * d * 1.2)) * vS.x;
   }
+  float dn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+  col += (dn - 0.5) / 255.0 * step(0.002, dot(col, vec3(1.0)));
   fragColor = vec4(col, 1.0);
 }
 `;

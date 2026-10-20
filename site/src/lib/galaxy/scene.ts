@@ -253,8 +253,8 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     bodyGeo.setIndex(new BufferAttribute(bIdx, 1));
   }
   const bodyMat = track(new ShaderMaterial({
-    uniforms: { uP: { value: uP }, uS: { value: uS }, uScale: shared.uScale, uPR: shared.uPR, uFlare: { value: 0 } },
-    vertexShader: bodyVert(nBody), fragmentShader: bodyFrag, glslVersion: GLSL3,
+    uniforms: { uP: { value: uP }, uS: { value: uS }, uScale: shared.uScale, uPR: shared.uPR, uFlare: { value: 0 }, uSpin: { value: 0 } },
+    vertexShader: bodyVert(nBody), fragmentShader: bodyFrag(opts.tier === 'low' ? 3 : opts.tier === 'medium' ? 4 : 5), glslVersion: GLSL3,
     blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true,
   }));
   const bodies = new Mesh(bodyGeo, bodyMat);
@@ -559,6 +559,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     const pulseGlow = Math.sin(Math.PI * pulseP) ** 2;
     uP[SUN].set(0, 0, 0, SUN_R * (1 + 0.3 * flare + 0.1 * pulseGlow));
     uS[SUN].set(sunA, 0, 0, 0);
+    bodyMat.uniforms.uSpin.value = tt;
     bodyMat.uniforms.uFlare.value = flare * 0.9 + st.flash * 0.5 + pulseGlow * 0.12;
     nodeWorld[0] = [0, 0, 0];
     nodeRad[0] = SUN_R;
