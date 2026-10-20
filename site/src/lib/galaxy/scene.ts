@@ -601,7 +601,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       const ringAmt = g * (1 - ss(0.02, 0.2, mkI));
       const R = PLANET_R * (1 + 0.3 * g);
       uP[1 + pi].set(bodyPos[pi][0], bodyPos[pi][1], bodyPos[pi][2], R);
-      uS[1 + pi].set(live, ringAmt, okV, redV);
+      uS[1 + pi].set(live * (pi === closeIdx || camera.aspect >= 1.2 ? 1 : 1 - 0.8 * cA), ringAmt, okV, redV);
       // plan slot: a dim dot on the orbit until the planet lands on it
       const slotA = ss(0.8, 1, draw) * 0.7 * (1 - ss(0.5, 0.95, k));
       const sp = planetPos(p, tt);
