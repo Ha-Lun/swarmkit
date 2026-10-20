@@ -87,6 +87,7 @@ uniform float uStretch;
 uniform float uVis;
 uniform float uWidth;
 uniform float uPR;
+uniform vec4 uClear; // ndc ellipse (cx, cy, rx, ry) kept dark behind the copy
 in vec2 aCorner;
 in vec3 aData; // length factor, brightness, layer 0 (far) .. 1 (near)
 out vec2 vUv;
@@ -119,7 +120,11 @@ void main() {
   gl_Position = vec4(ndc * W, Z * W, W);
   vUv = vec2(isHead, aCorner.y);
   float fade = smoothstep(0.0, 0.1, ph) * (1.0 - smoothstep(0.82, 1.0, ph));
-  vA = uVis * aData.y * fade * (0.45 + 0.9 * aData.z) / (1.0 + zd * 0.03);
+  // tunnel, not starburst: streaks live toward the periphery and fade out near the centre and behind the copy
+  float rad = length(nh * vec2(uRes.x / uRes.y, 1.0));
+  float tunnel = smoothstep(0.38, 1.05, rad);
+  float clear = 1.0 - 0.92 * (1.0 - smoothstep(0.55, 1.0, length((nh - uClear.xy) / uClear.zw)));
+  vA = uVis * aData.y * fade * tunnel * clear * (0.45 + 0.9 * aData.z) / (1.0 + zd * 0.03);
   vec3 tint = aData.z > 0.7 ? vec3(1.0, 0.82, 0.6) : (aData.z < 0.25 ? vec3(0.45, 0.95, 0.85) : vec3(0.62, 0.7, 1.0));
   vCol = mix(vec3(0.8, 0.88, 1.0), tint, 0.6);
 }
@@ -132,7 +137,7 @@ out vec4 fragColor;
 void main() {
   float along = pow(clamp(vUv.x, 0.0, 1.0), 1.3);
   float across = exp(-vUv.y * vUv.y * 3.2);
-  float a = along * across * vA * 2.1;
+  float a = along * across * vA * 1.05;
   fragColor = vec4(vCol * a, 1.0);
 }
 `;
@@ -158,7 +163,7 @@ void main() {
   gl_Position = projectionMatrix * mv;
   float depth = max(-mv.z, 0.01);
   bool head = aT < 0.021;
-  float size = 0.34 * uScale / depth * (1.0 + uFlash * 2.0);
+  float size = 0.26 * uScale / depth * (1.0 + uFlash * 2.0);
   vec3 tailCol = mix(vec3(0.35, 0.85, 1.0), vec3(0.62, 0.42, 1.0), smoothstep(0.1, 0.9, aT));
   vC = head ? vec3(2.2, 2.3, 2.6) : tailCol * 1.6;
   vA = uVis * (head ? 1.0 : 0.55 * pow(1.0 - aT, 1.5)) * smoothstep(0.1, 1.0, depth);
@@ -207,7 +212,7 @@ void main() {
   float along = pow(1.0 - vT, 1.6);
   vec3 col = mix(vec3(0.9, 0.97, 1.0), vec3(0.3, 0.82, 1.0), smoothstep(0.0, 0.3, vT));
   col = mix(col, vec3(0.55, 0.4, 1.0), smoothstep(0.35, 1.0, vT));
-  float a = across * along * uVis * 1.5;
+  float a = across * along * uVis * 1.2;
   fragColor = vec4(col * a, 1.0);
 }
 `;
@@ -247,9 +252,9 @@ void main() {
   float d = length(q);
   if (d > 1.0) discard;
   float core = exp(-d * d * 30.0);
-  float halo = exp(-d * d * 6.0) * 0.3;
-  float spikes = (exp(-abs(q.x) * 20.0) * exp(-abs(q.y) * 2.4) + exp(-abs(q.y) * 20.0) * exp(-abs(q.x) * 2.4)) * 0.6;
-  float g = (core * 1.6 + halo + spikes) * (1.0 - smoothstep(0.8, 1.0, d));
+  float halo = exp(-d * d * 7.0) * 0.2;
+  float spikes = (exp(-abs(q.x) * 26.0) * exp(-abs(q.y) * 5.0) + exp(-abs(q.y) * 26.0) * exp(-abs(q.x) * 5.0)) * 0.2;
+  float g = (core * 1.4 + halo + spikes) * (1.0 - smoothstep(0.8, 1.0, d));
   fragColor = vec4(mix(vC, vec3(1.0), core * 0.6) * g * vA, 1.0);
 }
 `;
@@ -323,7 +328,7 @@ in vec2 vP;
 out vec4 fragColor;
 void main() {
   float d = length(vP);
-  float ring = exp(-pow((d - uR) / 0.07, 2.0)) * 1.4 + exp(-pow((d - uR) / 0.5, 2.0)) * 0.08;
+  float ring = exp(-pow((d - uR) / 0.07, 2.0)) * 0.25 + exp(-pow((d - uR) / 0.5, 2.0)) * 0.02;
   vec3 col = mix(vec3(0.72, 0.62, 1.0), vec3(1.0), 0.5);
   fragColor = vec4(col * ring * uAlpha, 1.0);
 }

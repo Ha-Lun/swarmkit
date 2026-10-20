@@ -31,9 +31,9 @@ import {
 
 const CLEAR = '#05060a';
 const TIER = {
-  high: { stars: 110000, arm: 5000, haze: 44, dust: 280, sky: [5200, 2600, 1100], streaks: 3200, acc: 150, pr: 1.75, bloom: true },
-  medium: { stars: 55000, arm: 3200, haze: 36, dust: 200, sky: [2600, 1300, 600], streaks: 2000, acc: 100, pr: 1.25, bloom: true },
-  low: { stars: 15000, arm: 2200, haze: 22, dust: 120, sky: [900, 500, 250], streaks: 1000, acc: 60, pr: 1, bloom: false },
+  high: { stars: 110000, arm: 5000, haze: 44, dust: 280, sky: [5200, 2600, 1100], streaks: 700, acc: 150, pr: 1.75, bloom: true },
+  medium: { stars: 55000, arm: 3200, haze: 36, dust: 200, sky: [2600, 1300, 600], streaks: 440, acc: 100, pr: 1.25, bloom: true },
+  low: { stars: 15000, arm: 2200, haze: 22, dust: 120, sky: [900, 500, 250], streaks: 230, acc: 60, pr: 1, bloom: false },
 } as const;
 
 export interface NodeInfo {
@@ -168,7 +168,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     uniforms: {
       uRes: { value: new Vector2(1, 1) }, uFwd: { value: new Vector3(0, 0, -1) }, uRight: { value: new Vector3(1, 0, 0) },
       uUp: { value: new Vector3(0, 1, 0) }, uCam: { value: new Vector3() }, uTravel: { value: 0 }, uDepth: { value: 26 },
-      uStretch: { value: 0 }, uVis: { value: 0 }, uWidth: { value: 1.4 }, uPR: shared.uPR,
+      uStretch: { value: 0 }, uClear: { value: new Vector4(-0.5, -0.5, 0.6, 0.35) }, uVis: { value: 0 }, uWidth: { value: 1.4 }, uPR: shared.uPR,
     },
     vertexShader: streakVert, fragmentShader: streakFrag, glslVersion: GLSL3,
     blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, side: 2,
@@ -276,7 +276,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   rGeo.setIndex(new BufferAttribute(rIdx, 1));
   const rMat = track(new ShaderMaterial({
     uniforms: {
-      uRes: streakMat.uniforms.uRes, uWidth: { value: 2.2 }, uPR: shared.uPR, uTime: shared.uTime,
+      uRes: streakMat.uniforms.uRes, uWidth: { value: 1.7 }, uPR: shared.uPR, uTime: shared.uTime,
       uProg: { value: new Array(nLines).fill(0) }, ...pulseU,
     },
     vertexShader: ribbonVert.replace('uProg[24]', `uProg[${Math.max(1, nLines)}]`), fragmentShader: ribbonFrag, glslVersion: GLSL3,
@@ -480,12 +480,12 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       renderer.setClearColor(new Color(0, 0, 0), 1);
       composer = new EffectComposer(renderer);
       const renderPass = new RenderPass(scene, camera);
-      bloom = new UnrealBloomPass(new Vector2(256, 256), 0.55, 0.45, 0.6);
+      bloom = new UnrealBloomPass(new Vector2(256, 256), 0.45, 0.3, 0.65);
       const output = new OutputPass();
       const dither = new ShaderPass({
         uniforms: { tDiffuse: { value: null } },
         vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-        fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main() { vec4 c = texture2D(tDiffuse, vUv); float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453); vec3 bg = vec3(5.0, 6.0, 10.0) / 255.0; vec3 rgb = c.rgb + bg * (1.0 - clamp(max(c.r, max(c.g, c.b)) * 4.0, 0.0, 1.0)); vec3 hi = max(rgb - 0.62, 0.0); rgb = min(rgb, vec3(0.62)) + 0.22 * (1.0 - exp(-hi / 0.22)); gl_FragColor = vec4(rgb + (n - 0.5) * 1.5 / 255.0, 1.0); }',
+        fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main() { vec4 c = texture2D(tDiffuse, vUv); float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453); vec3 bg = vec3(5.0, 6.0, 10.0) / 255.0; vec3 rgb = c.rgb + bg * (1.0 - clamp(max(c.r, max(c.g, c.b)) * 4.0, 0.0, 1.0)); vec3 hi = max(rgb - 0.62, 0.0); rgb = min(rgb, vec3(0.62)) + 0.22 * (1.0 - exp(-hi / 0.22)); float lum = max(rgb.r, max(rgb.g, rgb.b)); gl_FragColor = vec4(rgb + (n - 0.5) * 1.2 / 255.0 * (1.0 - smoothstep(0.1, 0.3, lum)), 1.0); }',
       });
       composer.addPass(renderPass);
       composer.addPass(bloom);
@@ -574,10 +574,14 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     shared.uSpin.value = st.spin + 0.5 * m;
     const band = ss(0.27, 0.36, pp) * (1 - ss(0.53, 0.6, pp)); // the dive's bright stretch: thin the bulge so the tunnel reads
     const lg = ss(0, 0.22, u); // the galaxy comes back up behind the late beats
-    shared.uGain.value = 1.4 * st.galaxyGain * (1 + 1.5 * lg);
-    shared.uCoreDim.value = (st.coreGain + (0.8 - st.coreGain) * lg) * (1 - 0.7 * pullOut); // the bulge steps back so the arms read in the wide shot
-    hazeMat.uniforms.uGain.value = 0.8 * st.galaxyGain * (1 - 0.8 * ss(0.5, 0.62, pp)) * (1 + 2.4 * lg) * (1 - 0.8 * band) * (1 - 0.6 * pullOut);
-    dustMat.uniforms.uGain.value = (1 + 0.4 * ss(0.5, 0.6, pp)) * (1 - 0.85 * ss(0.3, 0.38, pp) * (1 - ss(0.56, 0.64, pp)));
+    // calm: the approach/dive and the plan beat keep the galaxy down so the comet, then the diagram, are the only bright things
+    const calmDive = ss(0.1, 0.28, pp) * (1 - ss(0.5, 0.58, pp));
+    const calmPlan = ss(0.42, 0.6, pp) * (1 - lg);
+    const calm = (1 - 0.6 * calmDive) * (1 - 0.93 * calmPlan);
+    shared.uGain.value = 1.4 * st.galaxyGain * calm * (1 + 1.5 * lg);
+    shared.uCoreDim.value = (st.coreGain + (0.8 - st.coreGain) * lg) * (1 - 0.7 * pullOut) * (1 - 0.5 * calmPlan); // the bulge steps back so the arms read in the wide shot
+    hazeMat.uniforms.uGain.value = 0.8 * st.galaxyGain * (1 - 0.8 * ss(0.5, 0.62, pp)) * (1 + 2.4 * lg) * (1 - 0.8 * band) * (1 - 0.6 * pullOut) * calm * (1 - 0.6 * calmPlan);
+    dustMat.uniforms.uGain.value = (1 + 0.4 * ss(0.5, 0.6, pp)) * (1 - 0.95 * ss(0.14, 0.3, pp) * (1 - lg)) * (1 - 0.85 * calmPlan);
 
     // camera: aspect pull-back so portrait phones still see the whole galaxy, then pointer parallax
     const aspect = camera.aspect;
@@ -632,7 +636,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     camera.updateMatrixWorld();
     camera.matrixWorld.extractBasis(right, upV, back);
     fwd.copy(back).negate();
-    starMat.uniforms.uSize.value = (opts.tier === 'low' ? 0.07 : 0.05) * (1 + 0.3 * hw) * (1 - 0.6 * band);
+    starMat.uniforms.uSize.value = (opts.tier === 'low' ? 0.07 : 0.05) * (1 + 0.3 * hw) * (1 - 0.6 * band) * (1 - 0.45 * calmPlan);
 
     // dive tunnel: stars stream past with the scroll (uTravel), stretched by a base amount plus the scroll velocity
     streakMat.uniforms.uFwd.value.copy(fwd);
@@ -641,7 +645,9 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     streakMat.uniforms.uCam.value.copy(camera.position);
     streakMat.uniforms.uTravel.value = pp * 12;
     streakMat.uniforms.uVis.value = st.diveEnv * (reduced ? 0 : 1);
-    streakMat.uniforms.uStretch.value = st.diveEnv * (2.0 + 7 * vel);
+    streakMat.uniforms.uStretch.value = st.diveEnv * (0.9 + 3.6 * vel);
+    if (aspect > 1.2) streakMat.uniforms.uClear.value.set(-0.5, -0.5, 0.62, 0.36);
+    else streakMat.uniforms.uClear.value.set(0, -0.45, 1.3, 0.3);
 
     // comet
     const cu = st.cometU;
@@ -804,7 +810,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     scanMat.uniforms.uAng.value = sweepAngle(u, sweepA0, sweepA1);
 
     if (composer) renderer.toneMappingExposure = st.exposure;
-    if (bloom) bloom.strength = 0.55 * st.bloom * (opts.tier === 'medium' ? 0.9 : 1) * (1 + 0.12 * flare);
+    if (bloom) bloom.strength = 0.45 * st.bloom * (1 - 0.35 * ss(0.5, 0.62, pp) * (1 - lg)) * (opts.tier === 'medium' ? 0.9 : 1) * (1 + 0.12 * flare);
 
     // project nodes
     camera.updateMatrixWorld();
