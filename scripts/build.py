@@ -32,7 +32,7 @@ TIER_MODELS = {
     'opencode': {
         'fast': 'opencode-go/muse-spark-1.3-contributor',
         'standard': 'opencode-go/glm-5.3-flash',
-        'deep': 'opencode-go/kimi-k2.7-code',
+        'deep': 'opencode-go/mimo-v2.6-pro',
     },
 }
 

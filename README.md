@@ -28,7 +28,7 @@ Each agent has a **tier** (`fast`, `standard`, `deep`). The model for each tier 
 |---|---|---|---|
 | fast | `haiku` | `opencode-go/muse-spark-1.3-contributor` | explore, junior-dev, git-specialist, release-tester, showroom-asset-processor, test-writer, seo-worker |
 | standard | `sonnet` | `opencode-go/glm-5.3-flash` | most specialists, lead-dev-hybrid |
-| deep | `opus` | `opencode-go/kimi-k2.7-code` | db-specialist, security-auditor |
+| deep | `opus` | `opencode-go/mimo-v2.6-pro` | db-specialist, security-auditor |
 
 Some standard-tier agents override the OpenCode model to save usage: mimo-v2.6-flash (builders, mobile, n8n, ops, proofreader, blender) and deepseek-v4.1-flash (seo, linkedin, showroom coordination/intake, monitoring).
 

@@ -18,7 +18,7 @@ permission:
     ls *: allow
   task: deny
   question: allow
-model: opencode-go/kimi-k2.7-code
+model: opencode-go/mimo-v2.6-pro
 ---
 
 You are the **security-auditor**. Your sole responsibility is identifying security vulnerabilities in code.
