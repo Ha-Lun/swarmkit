@@ -128,7 +128,7 @@ async function boot(): Promise<void> {
     if (solve) {
       const vw = innerWidth;
       const vh = innerHeight;
-      const M = 8;
+      const M = 9;
       const topMin = 60;
       // keep clear of the copy block of whichever beat is showing (opacity-weighted so crossfades do not jump)
       let ex = 0;
@@ -155,12 +155,17 @@ async function boot(): Promise<void> {
       // the 3D nodes themselves are obstacles: a pill belongs under its own planet, not over a neighbour's
       const discs = f.nodes.filter((n) => n.on * pillO > 0.2).map((n) => { const r = Math.max(n.rad, 10) + 2; return { x: n.x - r, y: n.y - r, w: 2 * r, h: 2 * r }; });
       const order = [...place].sort((a, b) => a.y - b.y);
-      for (let pass = 0; pass < 40; pass++) {
+      for (let pass = 0; pass < 80; pass++) {
+        const useDiscs = pass < 40; // planets are a soft preference: if the screen is too crowded, pills clearing each other wins
         let moved = false;
         for (let k = 0; k < order.length; k++) {
           const a = order[k];
-          if (a.x < ex && a.y < ey && ey > M) { a.y = ey; moved = true; }
-          for (const o of discs) {
+          if (a.x < ex && a.y < ey && ey > M) {
+            // clear of the copy block: sideways if that is the shorter way out (landscape), otherwise below it
+            if (ex - a.x < (ey - a.y) * 1.2 && ex + a.w < vw - M) a.x = ex; else a.y = ey;
+            moved = true;
+          }
+          for (const o of useDiscs ? discs : []) {
             if (a.x >= o.x + o.w || o.x >= a.x + a.w || a.y >= o.y + o.h || o.y >= a.y + a.h) continue;
             moved = true;
             const dn = o.y + o.h + G - a.y;
@@ -191,7 +196,8 @@ async function boot(): Promise<void> {
           a.x = Math.min(Math.max(a.x, M), Math.max(M, vw - M - a.w));
           a.y = Math.min(Math.max(a.y, topMin), Math.max(topMin, vh - M - a.h));
         }
-        if (!moved) break;
+        if (!moved && pass >= 40) break;
+        if (!moved) pass = 39;
       }
       place.forEach((q) => {
         q.x = Math.min(Math.max(q.x, M), Math.max(M, vw - M - q.w));

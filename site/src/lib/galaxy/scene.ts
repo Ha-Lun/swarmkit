@@ -660,8 +660,9 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     // core flash as the comet lands: a brief gain bump on the bulge
     shared.uGain.value *= 1 + 0.9 * st.flash;
     // merge: the whole galaxy comes back up as the camera pulls out; the bulge swells with each arrival (saturating, never blown out)
-    shared.uGain.value *= (1 + 0.35 * pullOut * (1 + clamp01((1.2 - aspect) / 0.74))) * (1 + 0.28 * flare);
-    const wideSize = (1 + 1.1 * pullOut) * (1 + 0.55 * pullOut * clamp01((1.2 - aspect) / 0.74)); // portrait: the far camera is width-limited, so stars grow more // stars are fixed-size in world units: keep them readable from the far camera
+    const sparse = (opts.tier === 'low' ? 1 : 0.15) * clamp01((1.2 - aspect) / 0.74); // portrait + few stars (phones): the far camera is width-limited, so stars grow and brighten
+    shared.uGain.value *= (1 + 0.35 * pullOut * (1 + sparse)) * (1 + 0.28 * flare);
+    const wideSize = (1 + 1.1 * pullOut) * (1 + 0.55 * pullOut * sparse); // stars are fixed-size in world units: keep them readable from the far camera
     starMat.uniforms.uSize.value *= wideSize;
     armMat.uniforms.uSize.value = starMat.uniforms.uSize.value;
     armMat.uniforms.uGain.value = shared.uGain.value * 0.6;
