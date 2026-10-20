@@ -5,6 +5,7 @@ set -euo pipefail
 TASK="$(cd "$(dirname "$0")" && pwd)/opencode-task"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 export OPENCODE_TASK_DIR="$T/oc" AGY_TASK_DIR="$T/agy" PATH="$T/bin:$PATH" STUB_ARGS="$T/args" SWARMKIT_AGY_BRAIN_DIR="$T/brain"
+export SWARMKIT_ALLOW_WORKERS=1
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 mkdir -p "$T/bin"
 # STUB_MODE: ok (default) | deny (opencode: 12 permission errors, then hangs) | slow (opencode: sleeps STUB_SLEEP s first)
@@ -656,4 +657,16 @@ unset SWARMKIT_DISPATCH_LOG
 "$TASK" start dl3 "p" >/dev/null 2>&1 || true
 [ "$(wc -l < "$T/dispatch.jsonl")" = 4 ] || fail "logged without SWARMKIT_DISPATCH_LOG"
 for s in dl1 dl2 dl3; do "$TASK" clean $s --force; done
+# --- only Claude Code starts workers
+MSG="opencode-task: workers are started only by Claude Code"
+rc=0; out=$(env -u CLAUDECODE -u SWARMKIT_ALLOW_WORKERS "$TASK" start cc1 "p" 2>&1) || rc=$?
+[ "$rc" = 2 ] && [[ "$out" == "$MSG"* ]] || fail "start not refused outside Claude Code: rc=$rc $out"
+rc=0; out=$(env -u CLAUDECODE -u SWARMKIT_ALLOW_WORKERS "$TASK" resume cc1 "p" 2>&1) || rc=$?
+[ "$rc" = 2 ] && [[ "$out" == "$MSG"* ]] || fail "resume not refused outside Claude Code: rc=$rc $out"
+env -u CLAUDECODE -u SWARMKIT_ALLOW_WORKERS "$TASK" list >/dev/null 2>&1 || fail "list refused outside Claude Code"
+out=$(env -u CLAUDECODE SWARMKIT_ALLOW_WORKERS=1 "$TASK" start cc2 "p" 2>&1 || true)
+[[ "$out" == *"$MSG"* ]] && fail "start refused despite SWARMKIT_ALLOW_WORKERS=1"
+out=$(env -u SWARMKIT_ALLOW_WORKERS CLAUDECODE=1 "$TASK" start cc3 "p" 2>&1 || true)
+[[ "$out" == *"$MSG"* ]] && fail "start refused despite CLAUDECODE=1"
+for s in cc2 cc3; do "$TASK" clean $s --force; done
 echo "ok"

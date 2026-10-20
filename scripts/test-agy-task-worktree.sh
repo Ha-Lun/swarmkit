@@ -6,6 +6,7 @@ set -euo pipefail
 TASK="$(cd "$(dirname "$0")" && pwd)/opencode-task"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 export OPENCODE_TASK_DIR="$T/oc" AGY_TASK_DIR="$T/agy" PATH="$T/bin:$PATH"
+export SWARMKIT_ALLOW_WORKERS=1
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 mkdir -p "$T/bin" && printf '#!/bin/sh\necho stub > stub.txt\n' > "$T/bin/opencode" && chmod +x "$T/bin/opencode"
 fail() { echo "FAIL: $*"; exit 1; }
