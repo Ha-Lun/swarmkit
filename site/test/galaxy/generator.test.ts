@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildGalaxy, buildNewArm, buildNewArmHaze, buildStreaks, GALAXY_R } from '../../src/lib/galaxy/generator.ts';
+import { buildGalaxy, buildNewArm, buildStreaks, GALAXY_R } from '../../src/lib/galaxy/generator.ts';
 
 const a = buildGalaxy(4000, 3);
 const b = buildGalaxy(4000, 3);
@@ -38,6 +38,4 @@ assert.equal(Math.max(...s.index), 399);
     assert.ok(a.color[i * 3] >= 0 && a.color[i * 3 + 1] >= 0 && a.color[i * 3 + 2] >= 0);
   }
   assert.ok(maxR < GALAXY_R * 1.05);
-  const h = buildNewArmHaze(20);
-  for (let i = 0; i < h.count; i++) assert.ok(h.data[i * 4 + 3] > 0.1);
 }

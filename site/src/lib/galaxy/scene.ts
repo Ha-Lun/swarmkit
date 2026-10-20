@@ -1,6 +1,6 @@
 // The galaxy flight scene: one camera, driven by scroll progress through sceneState(p). Vanilla three.js.
-// High/medium render through bloom on a black clear (same black-level fix as the swarm scene: the final pass adds
-// #05060a after tone mapping); low renders direct. All copy and labels are DOM; this file only reports where the
+// High/medium render through bloom on a black clear (the final pass adds #05060a after tone mapping); low renders
+// direct. All copy and labels are DOM; this file only reports where the
 // constellation nodes land on screen.
 import {
   ACESFilmicToneMapping, AdditiveBlending, BufferAttribute, BufferGeometry, Color, GLSL3, Group, Mesh,

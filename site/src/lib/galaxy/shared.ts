@@ -1,5 +1,4 @@
 // Small shared helpers for the galaxy page: render tier detection, the lane palette and a seeded RNG.
-// (Moved here from the retired swarm code so nothing in the galaxy imports lib/swarm.)
 export type Tier = 'high' | 'medium' | 'low';
 
 // Linear RGB 0..1: opus white-violet, opencode teal, agy amber.

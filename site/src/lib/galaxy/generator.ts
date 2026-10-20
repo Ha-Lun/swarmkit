@@ -1,5 +1,5 @@
 // Procedural galaxy and sky bakers. Deterministic (seeded), allocation-light, no three.js import, so they are testable.
-// World units: the galaxy disc is radius GALAXY_R in the XZ plane, y up. Colours are LINEAR (same as swarm PALETTE).
+// World units: the galaxy disc is radius GALAXY_R in the XZ plane, y up. Colours are LINEAR.
 import { mulberry32, PALETTE } from './shared.ts';
 
 export const GALAXY_R = 10;
@@ -28,11 +28,11 @@ const WARM: RGB = [1, 0.74, 0.5];
 const DEEP: RGB = [0.30, 0.34, 0.85];
 
 /** Twist of the arm centreline: angle offset at normalised radius t (0..1). */
-export function armTwist(t: number): number {
+function armTwist(t: number): number {
   return 5.0 * Math.log(1 + t * 5.5) / Math.log(6.5);
 }
 
-export const ARMS = 4;
+const ARMS = 4;
 /** Spurs: short branches that leave a main arm and fan outward. */
 const SPURS = Array.from({ length: 14 }, (_, i) => ({
   arm: i % ARMS,
@@ -153,7 +153,7 @@ export function buildGalaxy(count: number, seed = 11): PointCloud {
 }
 
 /** Angular offset (in arm slots) of the arm the merge grows: it sits between two of the four original arms. */
-export const NEW_ARM_SLOT = 1.5;
+const NEW_ARM_SLOT = 1.5;
 const MINT: RGB = [0.62, 1, 0.8]; // verified, merged green-white
 
 /** The arm the merge adds: a bright, slightly thinner spiral between two existing arms, tinted by both lanes with mint
@@ -187,23 +187,6 @@ export function buildNewArm(count: number, seed = 31): PointCloud {
     }
     c.color.set([col[0] * bright, col[1] * bright, col[2] * bright], i * 3);
     c.data.set([size, rnd(), rnd(), t], i * 4);
-  }
-  return c;
-}
-
-/** A few large faint sprites along the new arm (same grow convention as buildNewArm). */
-export function buildNewArmHaze(count: number, seed = 33): PointCloud {
-  const rnd = mulberry32(seed);
-  const c = cloud(count);
-  for (let i = 0; i < count; i++) {
-    const t = 0.3 + rnd() * 0.64;
-    const ang = NEW_ARM_SLOT * (Math.PI * 2 / ARMS) + armTwist(t) + (rnd() - 0.5) * 0.2;
-    const r = t * GALAXY_R;
-    c.position.set([Math.cos(ang) * r, (rnd() - 0.5) * 0.4, Math.sin(ang) * r], i * 3);
-    const col = mix3(MINT, i & 1 ? (PALETTE.agy as RGB) : (PALETTE.opencode as RGB), 0.45);
-    const b = 0.05 + rnd() * 0.035;
-    c.color.set([col[0] * b, col[1] * b, col[2] * b], i * 3);
-    c.data.set([3 + rnd() * 4, rnd(), rnd(), t], i * 4);
   }
   return c;
 }
@@ -302,16 +285,4 @@ export function buildStreaks(count: number, seed = 21): StreakMesh {
     index.set([b, b + 1, b + 2, b + 1, b + 3, b + 2], i * 6);
   }
   return { count, position, corner, data, index };
-}
-
-/** Comet tail particles: aT along the tail (0 head .. 1 end), random scatter. */
-export function buildComet(count: number, seed = 3): { t: Float32Array; rand: Float32Array } {
-  const rnd = mulberry32(seed);
-  const t = new Float32Array(count);
-  const rand = new Float32Array(count * 3);
-  for (let i = 0; i < count; i++) {
-    t[i] = i < 40 ? rnd() * 0.02 : rnd() ** 1.6;
-    rand.set([rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1], i * 3);
-  }
-  return { t, rand };
 }

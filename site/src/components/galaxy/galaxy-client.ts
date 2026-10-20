@@ -94,15 +94,14 @@ async function boot(): Promise<void> {
     }
     setOpacity(approved, live ? beatOpacity.approved(p) : planO);
     // pills sit centred just below their node (and bubble); neighbours that would overlap are pushed apart vertically
-    const live2 = live;
     const wide = canvas.clientWidth >= canvas.clientHeight * 1.2;
     // portrait phones/tablets and short landscape screens: a full overlap solver that also keeps pills inside the viewport
     const solve = !wide || innerWidth < 768 || innerHeight < 520;
     labelEls.forEach((el, i) => {
       const n = f.nodes[i];
       const t = tagsOf[i];
-      if (live2 || pose !== 'galaxy') {
-        setTag(t.fail, live2 ? n.bad : n.ok + n.bad);
+      if (live || pose !== 'galaxy') {
+        setTag(t.fail, live ? n.bad : n.ok + n.bad);
         setTag(t.fixed, n.ok);
         setTag(t.rev, n.rev);
         setTag(t.fixer, u >= 0.6 ? n.on : 0);
@@ -119,7 +118,7 @@ async function boot(): Promise<void> {
       const tw = tags > 0 && tb ? tb.offsetWidth : 0;
       const th = tags > 0 && tb ? tb.offsetHeight + 5 : 0;
       const ph = el.offsetHeight || 26;
-      const fixer = wide && !solve && el.classList.contains('gx-node-fixer');
+      const fixer = !solve && el.classList.contains('gx-node-fixer');
       const h = solve ? ph + th : 32 + tags * 19;
       const W = solve ? Math.max(w, tw) : w;
       const y = fixer ? n.y - 16 - h : n.y + (n.rad || 14) + 8;
@@ -133,23 +132,21 @@ async function boot(): Promise<void> {
       // keep clear of the copy block of whichever beat is showing (opacity-weighted so crossfades do not jump)
       let ex = 0;
       let ey = 0;
-      {
-        const ws: [HTMLElement | null, number][] = live
-          ? [[plan, planO], [fan, lateOpacity.fan(u)], [build, lateOpacity.build(u)], [verify, lateOpacity.verify(u) * mergeOpacity.verifyOut(mm)]]
-          : [[plan, pose === 'constellation' ? 1 : 0], [fan, pose === 'fan' ? 1 : 0], [build, pose === 'build' ? 1 : 0], [verify, pose === 'verify' ? 1 : 0]];
-        let tw = 0;
-        for (const [el, wgt] of ws) {
-          const inner = el?.firstElementChild as HTMLElement | null;
-          if (!inner || wgt < 0.01) continue;
-          const r = inner.getBoundingClientRect();
-          ex += wgt * r.right;
-          ey += wgt * Math.max(0, r.bottom);
-          tw += wgt;
-        }
-        if (tw > 0) {
-          ex = ex / tw + M;
-          ey = ey / tw + M;
-        }
+      const ws: [HTMLElement | null, number][] = live
+        ? [[plan, planO], [fan, lateOpacity.fan(u)], [build, lateOpacity.build(u)], [verify, lateOpacity.verify(u) * mergeOpacity.verifyOut(mm)]]
+        : [[plan, pose === 'constellation' ? 1 : 0], [fan, pose === 'fan' ? 1 : 0], [build, pose === 'build' ? 1 : 0], [verify, pose === 'verify' ? 1 : 0]];
+      let tw = 0;
+      for (const [el, wgt] of ws) {
+        const inner = el?.firstElementChild as HTMLElement | null;
+        if (!inner || wgt < 0.01) continue;
+        const r = inner.getBoundingClientRect();
+        ex += wgt * r.right;
+        ey += wgt * Math.max(0, r.bottom);
+        tw += wgt;
+      }
+      if (tw > 0) {
+        ex = ex / tw + M;
+        ey = ey / tw + M;
       }
       const G = 4;
       // the 3D nodes themselves are obstacles: a pill belongs under its own planet, not over a neighbour's

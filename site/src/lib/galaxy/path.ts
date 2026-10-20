@@ -38,7 +38,7 @@ export function spline(pts: readonly V3[], u: number): V3 {
   return out;
 }
 
-export const CAM_PTS: readonly V3[] = [
+const CAM_PTS: readonly V3[] = [
   [0, 7.6, 15.2],
   [-2.6, 6.8, 12.4],
   [-7.0, 4.4, 5.6],
@@ -46,7 +46,7 @@ export const CAM_PTS: readonly V3[] = [
   [-1.5, 0.7, 3.4],
   [0, 0.1, 2.9],
 ];
-export const COMET_PTS: readonly V3[] = [
+const COMET_PTS: readonly V3[] = [
   [-36, 16, -30],
   [-18, 8.8, -13],
   [-8.5, 4.2, -3],
@@ -60,7 +60,7 @@ export const camRoute = (u: number): V3 => spline(CAM_PTS, u);
 const pow = Math.pow;
 
 /** Comet route parameter: fast streak-in, then it accelerates into the core. */
-export function cometU(p: number): number {
+function cometU(p: number): number {
   if (p <= T.cometIn[0]) return 0;
   if (p < T.cometIn[1]) {
     const x = (p - T.cometIn[0]) / (T.cometIn[1] - T.cometIn[0]);
@@ -70,7 +70,7 @@ export function cometU(p: number): number {
   return 0.6 + 0.4 * (x * x * (3 - 2 * x)) ** 0.9;
 }
 /** Camera route parameter. The camera trails the comet and catches up in the dive. */
-export function camU(p: number): number {
+function camU(p: number): number {
   const x = clamp01((p - 0.10) / (T.dive[1] - 0.10));
   return x * x * (3 - 2 * x) * 0.6 + x * 0.4;
 }
