@@ -204,7 +204,7 @@ export function closeView(pos: V3, aspect: number): LateCam {
   const hx = -Math.sin(ang) * 0.82 + Math.cos(ang) * 0.57; // tangent plus a little outward
   const hz = Math.cos(ang) * 0.82 + Math.sin(ang) * 0.57;
   const wide = aspect >= 1.2;
-  return viewPose(pos, wide ? 1.9 : 1.75, 0.34, Math.atan2(hx, hz), wide ? 0.3 : 0, wide ? -0.02 : -0.26, aspect);
+  return viewPose(pos, wide ? 1.9 : 1.75, 0.34, Math.atan2(hx, hz), wide ? 0.3 : 0, wide ? -0.02 : -0.36, aspect);
 }
 
 // ---- beat 5: merge (m) -------------------------------------------------------------------------------------------------

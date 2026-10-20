@@ -289,7 +289,7 @@ void main() {
     float band = 0.05 * sin(n.y * 13.0 + vIdx * 3.1) * smoothstep(0.0, 0.6, n.z);
     vec3 body = vC * (0.2 + 1.0 * pow(diff, 1.15) + band) + vC * pow(1.0 - n.z, 3.0) * 0.18 * (0.3 + diff);
     col += body * disc;
-    col += st * exp(-pow(max(d - 1.0, 0.0) * 3.0, 2.0)) * (1.0 - disc) * (0.12 + 0.5 * vS.w + 0.15 * vS.z);
+    col += st * exp(-pow(max(d - 1.0, 0.0) * 6.0, 2.0)) * (1.0 - disc) * (0.07 + 0.22 * vS.w + 0.1 * vS.z);
     if (vS.y > 0.002) {
       float tilt = -0.42 + 0.18 * sin(vIdx * 2.7);
       float ratio = 0.34 + 0.05 * sin(vIdx * 1.9);
