@@ -169,21 +169,21 @@ export function buildNewArm(count: number, seed = 31): PointCloud {
   for (let i = 0; i < count; i++) {
     const t = Math.min(1, 0.1 + Math.sqrt(rnd()) * 0.9); // denser toward the rim, where the arm should read
     const ang = NEW_ARM_SLOT * (Math.PI * 2 / ARMS) + armTwist(t);
-    const sigma = GALAXY_R * (0.012 + 0.036 * t);
-    const off = gauss() * sigma + (rnd() ** 4) * (rnd() < 0.5 ? -1 : 1) * sigma * 2.5;
+    const sigma = GALAXY_R * (0.006 + 0.016 * t);
+    const off = gauss() * sigma + (rnd() ** 4) * (rnd() < 0.5 ? -1 : 1) * sigma * 2;
     const r = t * GALAXY_R + gauss() * 0.05;
     const a2 = ang + off / Math.max(r, 0.5);
     c.position[i * 3] = Math.cos(a2) * r;
     c.position[i * 3 + 1] = gauss() * (0.05 + 0.18 * Math.exp(-t * 2.4)) + 0.5 * t ** 2.4 * Math.sin(a2 - 0.6);
     c.position[i * 3 + 2] = Math.sin(a2) * r;
-    const tint = mix3(lane[i & 1], MINT, 0.35 + 0.3 * rnd());
+    const tint = mix3(lane[i & 1], MINT, 0.2 + 0.25 * rnd());
     let col = mix3(CORE, tint, sstep(0.05, 0.4, t));
-    let bright = (0.6 + rnd() * 0.6) * (1.15 - 0.4 * t) * (0.12 + 0.88 * sstep(0.12, 0.5, t)); // thin out the bulge end so it does not wash the core
-    let size = 0.55 + rnd() * 0.7;
-    if (rnd() < 0.06) {
-      col = mix3(col, [1, 1, 1], 0.5);
-      bright *= 1.8;
-      size = 1.4 + rnd() * 0.6;
+    let bright = (0.6 + rnd() * 0.6) * (1.15 - 0.4 * t) * (0.08 + 0.92 * sstep(0.3, 0.7, t)); // thin out the bulge end so it does not wash the core
+    let size = 0.4 + rnd() * 0.5;
+    if (rnd() < 0.05) {
+      col = mix3(col, [1, 1, 1], 0.4);
+      bright *= 1.6;
+      size = 0.9 + rnd() * 0.4;
     }
     c.color.set([col[0] * bright, col[1] * bright, col[2] * bright], i * 3);
     c.data.set([size, rnd(), rnd(), t], i * 4);

@@ -17,7 +17,7 @@ import { PALETTE } from './shared.ts';
 import type { Tier } from './shared.ts';
 import { layoutNodes, linkProgress, nodeOn, spokeProgress } from './constellation.ts';
 import type { Lane } from './constellation.ts';
-import { buildDust, buildGalaxy, buildHaze, buildNewArm, buildNewArmHaze, buildSky, buildStreaks } from './generator.ts';
+import { buildDust, buildGalaxy, buildHaze, buildNewArm, buildSky, buildStreaks } from './generator.ts';
 import type { PointCloud } from './generator.ts';
 import {
   armGrow, bubbleAmt, cometAt, clamp01, coreFlare, destTheta, fixerAt, fixWindow, growAmt, L, lateCam, lateU, launchK, legacyP, lerp,
@@ -31,9 +31,9 @@ import {
 
 const CLEAR = '#05060a';
 const TIER = {
-  high: { stars: 110000, arm: 15000, haze: 44, dust: 280, sky: [5200, 2600, 1100], streaks: 3200, acc: 150, pr: 1.75, bloom: true },
-  medium: { stars: 55000, arm: 8000, haze: 36, dust: 200, sky: [2600, 1300, 600], streaks: 2000, acc: 100, pr: 1.25, bloom: true },
-  low: { stars: 15000, arm: 2600, haze: 22, dust: 120, sky: [900, 500, 250], streaks: 1000, acc: 60, pr: 1, bloom: false },
+  high: { stars: 110000, arm: 5000, haze: 44, dust: 280, sky: [5200, 2600, 1100], streaks: 3200, acc: 150, pr: 1.75, bloom: true },
+  medium: { stars: 55000, arm: 3200, haze: 36, dust: 200, sky: [2600, 1300, 600], streaks: 2000, acc: 100, pr: 1.25, bloom: true },
+  low: { stars: 15000, arm: 2200, haze: 22, dust: 120, sky: [900, 500, 250], streaks: 1000, acc: 60, pr: 1, bloom: false },
 } as const;
 
 export interface NodeInfo {
@@ -153,12 +153,9 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   points(cloudGeometry(buildDust(tcfg.dust)), dustMat, 3);
 
   // The arm the merge adds (grows outward from the core, driven by uGrow).
-  const armMat = sprite(AdditiveBlending, 0, { size: opts.tier === 'low' ? 0.07 : 0.05, rotate: 1, gain: 1.4 });
-  const armHazeMat = sprite(AdditiveBlending, 1, { size: 1, rotate: 1, big: 1, gain: 0.8 });
+  const armMat = sprite(AdditiveBlending, 0, { size: opts.tier === 'low' ? 0.07 : 0.05, rotate: 1, gain: 1.0 });
   const armPts = points(cloudGeometry(buildNewArm(tcfg.arm)), armMat, 2);
-  const armHazePts = points(cloudGeometry(buildNewArmHaze(Math.round(tcfg.haze / 3))), armHazeMat, 1);
   armPts.visible = false;
-  armHazePts.visible = false;
 
   // ---- streaks ----------------------------------------------------------------------------------------------
   const sk = buildStreaks(tcfg.streaks);
@@ -667,12 +664,9 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     const wideSize = 1 + 1.1 * pullOut; // stars are fixed-size in world units: keep them readable from the far camera
     starMat.uniforms.uSize.value *= wideSize;
     armMat.uniforms.uSize.value = starMat.uniforms.uSize.value;
-    armMat.uniforms.uGain.value = shared.uGain.value * 1.0;
+    armMat.uniforms.uGain.value = shared.uGain.value * 0.6;
     armMat.uniforms.uGrow.value = -0.15 + 1.27 * armGrow(m);
-    armHazeMat.uniforms.uGrow.value = armMat.uniforms.uGrow.value;
-    armHazeMat.uniforms.uGain.value = hazeMat.uniforms.uGain.value * 0.3;
     armPts.visible = m > 0.3;
-    armHazePts.visible = armPts.visible;
 
     // constellation
     const on = nodeMat.uniforms.uOn.value as number[];
