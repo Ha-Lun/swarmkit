@@ -14,8 +14,6 @@ const imageUrl = Astro.site ? new URL(image, Astro.site).href : image;
 // canonical: absolute URL of this page on the production origin (set by astro.config.mjs `site`).
 const canonicalUrl = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : Astro.url.pathname;
 
-const favicon =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2l12 7v14l-12 7-12-7V9z' fill='%239aa6b4'/%3E%3C/svg%3E";
 const fonts = ['space-grotesk-latin-500-normal', 'space-grotesk-latin-700-normal', 'jetbrains-mono-latin-400-normal'];
 ---
 <!doctype html>
@@ -43,7 +41,9 @@ const fonts = ['space-grotesk-latin-500-normal', 'space-grotesk-latin-700-normal
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={imageUrl} />
     <meta name="twitter:image:alt" content={imageAlt} />
-    <link rel="icon" href={favicon} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     {fonts.map((f) => <link rel="preload" href={`/fonts/${f}.woff2`} as="font" type="font/woff2" crossorigin />)}
   </head>
   <body>
