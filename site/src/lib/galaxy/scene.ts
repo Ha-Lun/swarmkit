@@ -1,10 +1,11 @@
 // The galaxy flight scene: one camera, driven by scroll progress through sceneState(p). Vanilla three.js.
 // High/medium render through bloom on a black clear (the final pass adds #05060a after tone mapping); low renders
-// direct. All copy and labels are DOM; this file only reports where the
-// constellation nodes land on screen.
+// direct. All copy and labels are DOM; this file only reports where the sun and the planets land on screen.
+// Beats 01-05 are a solar system (system.ts) inside the galaxy: hairline orbits, small crisp planets, a close-up on the
+// planet with a fixer, and the merge spiral into the sun.
 import {
-  ACESFilmicToneMapping, AdditiveBlending, BufferAttribute, BufferGeometry, Color, GLSL3, Group, Mesh,
-  NoBlending, NormalBlending, NoToneMapping, PerspectiveCamera, PlaneGeometry, Points, Scene, ShaderMaterial,
+  ACESFilmicToneMapping, AdditiveBlending, BufferAttribute, BufferGeometry, Color, GLSL3, Mesh,
+  NormalBlending, NoToneMapping, PerspectiveCamera, PlaneGeometry, Points, Scene, ShaderMaterial,
   SRGBColorSpace, Vector2, Vector3, Vector4, WebGLRenderer,
 } from 'three';
 import type { Blending } from 'three';
@@ -15,37 +16,28 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { PALETTE } from './shared.ts';
 import type { Tier } from './shared.ts';
-import { layoutNodes, linkProgress, nodeOn, spokeProgress } from './constellation.ts';
-import type { Lane } from './constellation.ts';
+import type { Lane } from '../run.ts';
+import type { StoryWorker } from './story.ts';
 import { buildDust, buildGalaxy, buildHaze, buildNewArm, buildSky, buildStreaks } from './generator.ts';
 import type { PointCloud } from './generator.ts';
 import {
-  armGrow, bubbleAmt, cometAt, clamp01, coreFlare, destTheta, fixerAt, fixWindow, growAmt, L, lateCam, lateU, launchK, legacyP, lerp,
-  mergeAt, mergeCam, mergeM, pullK, sceneState, ss, starAt, starDest, sweepAngle, sweepRange, sweepTime,
+  armGrow, cometAt, clamp01, closeAmt, closeC, closeView, coreFlare, L, lateU, legacyP, lerp, mergeCam, mergeM, orbitT, pullK,
+  sceneState, shipK, ss, systemView, win,
 } from './path.ts';
 import type { SceneState, V3 } from './path.ts';
+import { buildSystem, flashPhase, launchPos, planetPos, spiralIn, stagger } from './system.ts';
 import {
-  accFrag, accVert, cometVert, nodeFrag, nodeVert, orbFrag, orbVert, ribbonFrag, ribbonVert, ringFrag, ringVert, scanFrag, scanVert,
-  spriteFrag, spriteVert, streakFrag, streakVert, tailFrag, tailVert, trailFrag,
+  bodyFrag, bodyVert, cometVert, fxFrag, fxVert, lineFrag, lineVert, spriteFrag, spriteVert, streakFrag, streakVert, tailFrag, tailVert,
 } from './shaders.ts';
 
 const CLEAR = '#05060a';
 const TIER = {
-  high: { stars: 110000, arm: 5000, haze: 44, dust: 280, sky: [5200, 2600, 1100], streaks: 700, acc: 150, pr: 1.75, bloom: true },
-  medium: { stars: 55000, arm: 3200, haze: 36, dust: 200, sky: [2600, 1300, 600], streaks: 440, acc: 100, pr: 1.25, bloom: true },
-  low: { stars: 15000, arm: 2200, haze: 22, dust: 120, sky: [900, 500, 250], streaks: 230, acc: 60, pr: 1, bloom: false },
+  high: { stars: 110000, arm: 5000, haze: 44, dust: 280, sky: [5200, 2600, 1100], streaks: 700, pr: 1.75, bloom: true },
+  medium: { stars: 55000, arm: 3200, haze: 36, dust: 200, sky: [2600, 1300, 600], streaks: 440, pr: 1.25, bloom: true },
+  low: { stars: 15000, arm: 2200, haze: 22, dust: 120, sky: [900, 500, 250], streaks: 230, pr: 1, bloom: false },
 } as const;
 
-export interface NodeInfo {
-  slug: string;
-  lane: Lane;
-  launchIndex: number;
-  buildIndex: number;
-  failed: boolean;
-  fixer: { slug: string; lane: Lane } | null;
-  reviewed: boolean;
-  mergeIndex: number | null;
-}
+export type NodeInfo = StoryWorker;
 export interface GalaxyFrame {
   /** legacy progress for beats 0-2 (0..1 over the first SPLIT of the page) */
   p: number;
@@ -53,13 +45,15 @@ export interface GalaxyFrame {
   u: number;
   /** merge progress for beat 6 */
   m: number;
+  /** camera blend toward the close-up planet, 0..1 */
+  closeAmt: number;
   state: SceneState;
   /**
-   * CSS px relative to the canvas: x, y, in-front flag, node brightness 0..1, bubble radius in px, status 0..1
-   * (ok green, bad red, rev = reviewed tick). Index 0 is the Opus core, 1..n the workers (launch order), then fixers.
+   * CSS px relative to the canvas: x, y, in-front flag, brightness 0..1, body radius in px, status 0..1
+   * (ok green, bad = failed-verify state red, rev = reviewed tick). Index 0 is the sun (Opus), 1..n the workers in story
+   * order, then the fixers.
    */
   nodes: { x: number; y: number; front: boolean; on: number; rad: number; ok: number; bad: number; rev: number }[];
-  pulseOn: number;
 }
 export interface GalaxyOptions {
   tier: Tier;
@@ -211,264 +205,144 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     vertexShader: tailVert, fragmentShader: tailFrag, glslVersion: GLSL3,
     blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, side: 2,
   }));
-  const tail = new Mesh(tGeo, tailMat);
-  tail.frustumCulled = false;
-  tail.renderOrder = 5;
-  scene.add(tail);
+  const comet2 = new Mesh(tGeo, tailMat);
+  comet2.frustumCulled = false;
+  comet2.renderOrder = 5;
+  scene.add(comet2);
 
-  // ---- constellation (static world positions around the core) -----------------------------------------------
+  // ---- the solar system: sun, planets, hairline orbits, the fixer ------------------------------------------------------
   const nWork = opts.workers.length;
-  const group = new Group();
-  scene.add(group);
   const fixers: { w: number; slug: string; lane: Lane }[] = [];
   opts.workers.forEach((w, i) => { if (w.failed && w.fixer) fixers.push({ w: i, slug: w.fixer.slug, lane: w.fixer.lane }); });
   const nFix = fixers.length;
-  const nodeCount = nWork + 1 + nFix;
-  const nodeGeo = track(new BufferGeometry());
-  const nodePos = new Float32Array(nodeCount * 3);
-  const nodeCol = new Float32Array(nodeCount * 3);
-  const nodeData = new Float32Array(nodeCount * 4);
-  const opus = PALETTE.opus as Rgb;
-  nodeCol.set([opus[0] * 1.2, opus[1] * 1.2, opus[2] * 1.2], 0);
-  nodeData.set([0.5, 0, 0, 0], 0);
-  opts.workers.forEach((w, i) => {
-    const c = NODE_COL[w.lane];
-    nodeCol.set([c[0], c[1], c[2]], (i + 1) * 3);
-    nodeData.set([0.34, i + 1, i * 1.7, 0], (i + 1) * 4);
-  });
-  fixers.forEach((f, k) => {
-    const c = NODE_COL[f.lane];
-    nodeCol.set([c[0], c[1], c[2]], (nWork + 1 + k) * 3);
-    nodeData.set([0.3, nWork + 1 + k, 4.1 + k, 0], (nWork + 1 + k) * 4);
-  });
-  nodeGeo.setAttribute('position', new BufferAttribute(nodePos, 3));
-  nodeGeo.setAttribute('aColor', new BufferAttribute(nodeCol, 3));
-  nodeGeo.setAttribute('aData', new BufferAttribute(nodeData, 4));
-  const pulseU = { uPulseR: { value: 0 }, uPulseOn: { value: 0 } };
-  const nodeMat = track(new ShaderMaterial({
-    uniforms: { uOn: { value: new Array(nodeCount).fill(0) }, uComp: { value: 0 }, uRef: { value: 4.4 }, uScale: shared.uScale, uTime: shared.uTime, uMax: shared.uMax, ...pulseU },
-    vertexShader: nodeVert.replace('uOn[9]', `uOn[${nodeCount}]`), fragmentShader: nodeFrag, glslVersion: GLSL3,
-    blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true,
-  }));
-  const nodes = new Points(nodeGeo, nodeMat);
-  nodes.frustumCulled = false;
-  nodes.renderOrder = 7;
-  group.add(nodes);
-
-  // ribbons: spokes (Opus -> node i), then lane links (node -> next node of the same lane)
-  const SEG = 30;
-  const links: [number, number][] = [];
-  for (let i = 0; i < nWork; i++) {
-    for (let j = i + 1; j < nWork; j++) if (opts.workers[j].lane === opts.workers[i].lane) { links.push([i, j]); break; }
-  }
-  const nLines = nWork + links.length;
-  const vCount = nLines * (SEG + 1) * 2;
-  const rPos = new Float32Array(vCount * 3);
-  const rNext = new Float32Array(vCount * 3);
-  const rCol = new Float32Array(vCount * 3);
-  const rData = new Float32Array(vCount * 4);
-  const rIdx = new Uint32Array(nLines * SEG * 6);
-  const rGeo = track(new BufferGeometry());
-  rGeo.setAttribute('position', new BufferAttribute(rPos, 3));
-  rGeo.setAttribute('aNext', new BufferAttribute(rNext, 3));
-  rGeo.setAttribute('aColor', new BufferAttribute(rCol, 3));
-  rGeo.setAttribute('aData', new BufferAttribute(rData, 4));
-  rGeo.setIndex(new BufferAttribute(rIdx, 1));
-  const rMat = track(new ShaderMaterial({
-    uniforms: {
-      uRes: streakMat.uniforms.uRes, uWidth: { value: 1.7 }, uPR: shared.uPR, uTime: shared.uTime,
-      uProg: { value: new Array(nLines).fill(0) }, ...pulseU,
-    },
-    vertexShader: ribbonVert.replace('uProg[24]', `uProg[${Math.max(1, nLines)}]`), fragmentShader: ribbonFrag, glslVersion: GLSL3,
-    blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, side: 2,
-  }));
-  const ribbons = new Mesh(rGeo, rMat);
-  ribbons.frustumCulled = false;
-  ribbons.renderOrder = 6;
-  group.add(ribbons);
-
-  const ringGeo = track(new PlaneGeometry(16, 16));
-  const ringMat = track(new ShaderMaterial({
-    uniforms: { uR: { value: 0 }, uAlpha: { value: 0 } },
-    vertexShader: ringVert, fragmentShader: ringFrag, glslVersion: GLSL3,
-    blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true,
-  }));
-  const ring = new Mesh(ringGeo, ringMat);
-  ring.frustumCulled = false;
-  ring.renderOrder = 8;
-  ring.visible = false;
-  group.add(ring);
-
-  // ---- late beats: worktree bubbles + planets (one sprite each), accretion dust, launch trails, scan sweep -------------
-  const ORB_R = 1.1; // sprite radius in world units; the bubble is half of it
-  const uA = Array.from({ length: Math.max(1, nWork) }, () => new Vector4());
-  const uB = Array.from({ length: Math.max(1, nWork) }, () => new Vector4());
-  const uC = Array.from({ length: Math.max(1, nWork) }, () => new Vector3());
-  const orbGeo = track(new BufferGeometry());
-  const orbPos = new Float32Array(nWork * 3);
-  const orbCol = new Float32Array(nWork * 3);
-  const orbData = new Float32Array(nWork * 4);
-  opts.workers.forEach((w, i) => { orbCol.set(NODE_COL[w.lane], i * 3); orbData.set([i, ORB_R, 0, 0], i * 4); });
-  orbGeo.setAttribute('position', new BufferAttribute(orbPos, 3));
-  orbGeo.setAttribute('aColor', new BufferAttribute(orbCol, 3));
-  orbGeo.setAttribute('aData', new BufferAttribute(orbData, 4));
-  const orbMat = track(new ShaderMaterial({
-    uniforms: { uScale: shared.uScale, uMax: shared.uMax, uComp: nodeMat.uniforms.uComp, uRef: { value: 11 }, uTime: shared.uTime, uA: { value: uA }, uB: { value: uB } },
-    vertexShader: orbVert.replace('uA[8]', `uA[${Math.max(1, nWork)}]`).replace('uB[8]', `uB[${Math.max(1, nWork)}]`), fragmentShader: orbFrag, glslVersion: GLSL3,
-    blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true,
-  }));
-  const orbs = new Points(orbGeo, orbMat);
-  orbs.frustumCulled = false;
-  orbs.renderOrder = 6;
-  orbs.visible = false;
-  group.add(orbs);
-
-  const per = tcfg.acc;
-  const accN = nWork * per;
-  const accGeo = track(new BufferGeometry());
-  const accPos = new Float32Array(accN * 3);
-  const accCol = new Float32Array(accN * 3);
-  const accData = new Float32Array(accN * 4);
+  const nodeCount = nWork + 1 + nFix; // frame nodes: 0 the sun, 1..n workers (story order), then fixers
+  const SUN_R = 0.14;
+  const PLANET_R = 0.095;
+  const SLOT_R = 0.05;
+  const FIX_R = 0.024;
+  const FX_R = 7.4;
+  const SUN = 0;
+  const FIX0 = 1 + nWork;
+  const SLOT0 = 1 + nWork + nFix;
+  const nBody = 1 + 2 * nWork + nFix;
+  const uP = Array.from({ length: nBody }, () => new Vector4());
+  const uS = Array.from({ length: nBody }, () => new Vector4());
+  const bodyGeo = track(new BufferGeometry());
   {
-    let seed = 7;
-    const rnd = (): number => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
-    for (let i = 0; i < accN; i++) {
-      const w = Math.floor(i / per);
-      const z = rnd() * 2 - 1;
-      const a = rnd() * Math.PI * 2;
-      const rr = Math.sqrt(1 - z * z);
-      accPos.set([rr * Math.cos(a), z, rr * Math.sin(a)], i * 3);
-      accCol.set(NODE_COL[opts.workers[w].lane], i * 3);
-      accData.set([w, rnd(), rnd(), rnd()], i * 4);
+    const bPos = new Float32Array(nBody * 4 * 3);
+    const bCol = new Float32Array(nBody * 4 * 3);
+    const bData = new Float32Array(nBody * 4 * 4);
+    const bIdx = new Uint32Array(nBody * 6);
+    const warm: Rgb = [1.0, 0.7, 0.36];
+    for (let b = 0; b < nBody; b++) {
+      const kind = b === SUN ? 0 : b < FIX0 ? 1 : b < SLOT0 ? 2 : 3;
+      let col: Rgb = warm;
+      if (kind === 1) col = NODE_COL[opts.workers[b - 1].lane];
+      else if (kind === 2) col = NODE_COL[fixers[b - FIX0].lane];
+      else if (kind === 3) col = NODE_COL[opts.workers[b - SLOT0].lane];
+      for (let c = 0; c < 4; c++) {
+        const v = b * 4 + c;
+        bCol.set(col, v * 3);
+        bData.set([b, kind, c % 2 ? 1 : -1, c < 2 ? -1 : 1], v * 4);
+      }
+      bIdx.set([b * 4, b * 4 + 1, b * 4 + 2, b * 4 + 1, b * 4 + 3, b * 4 + 2], b * 6);
     }
+    bodyGeo.setAttribute('position', new BufferAttribute(bPos, 3));
+    bodyGeo.setAttribute('aColor', new BufferAttribute(bCol, 3));
+    bodyGeo.setAttribute('aData', new BufferAttribute(bData, 4));
+    bodyGeo.setIndex(new BufferAttribute(bIdx, 1));
   }
-  accGeo.setAttribute('position', new BufferAttribute(accPos, 3));
-  accGeo.setAttribute('aColor', new BufferAttribute(accCol, 3));
-  accGeo.setAttribute('aData', new BufferAttribute(accData, 4));
-  const accMat = track(new ShaderMaterial({
-    uniforms: { uTime: shared.uTime, uPR: shared.uPR, uC: { value: uC }, uA: { value: uA } },
-    vertexShader: accVert.replace('uC[8]', `uC[${Math.max(1, nWork)}]`).replace('uA[8]', `uA[${Math.max(1, nWork)}]`), fragmentShader: accFrag, glslVersion: GLSL3,
+  const bodyMat = track(new ShaderMaterial({
+    uniforms: { uP: { value: uP }, uS: { value: uS }, uScale: shared.uScale, uPR: shared.uPR, uFlare: { value: 0 } },
+    vertexShader: bodyVert(nBody), fragmentShader: bodyFrag, glslVersion: GLSL3,
     blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true,
   }));
-  const acc = new Points(accGeo, accMat);
-  acc.frustumCulled = false;
-  acc.renderOrder = 6;
-  acc.visible = false;
-  group.add(acc);
+  const bodies = new Mesh(bodyGeo, bodyMat);
+  bodies.frustumCulled = false;
+  bodies.renderOrder = 7;
+  scene.add(bodies);
 
-  // trails: one ribbon per worker launch and per fixer flight, rewritten from the star paths each frame
-  const TSEGS = 22;
-  const nTrails = nWork + nFix;
-  const tV = nTrails * (TSEGS + 1) * 2;
-  const trPos = new Float32Array(tV * 3);
-  const trNext = new Float32Array(tV * 3);
-  const trCol = new Float32Array(tV * 3);
-  const trData = new Float32Array(tV * 4);
-  const trIdx = new Uint32Array(nTrails * TSEGS * 6);
-  for (let li = 0; li < nTrails; li++) {
-    const col = NODE_COL[li < nWork ? opts.workers[li].lane : fixers[li - nWork].lane];
-    for (let sg = 0; sg <= TSEGS; sg++) for (let sd = 0; sd < 2; sd++) {
-      const v = (li * (TSEGS + 1) + sg) * 2 + sd;
-      trCol.set(col, v * 3);
-      trData.set([sg / TSEGS, sd ? 1 : -1, li, 1], v * 4);
+  // ribbons: one orbit hairline per planet, plus the fixer's short tail
+  interface Ribbon { mesh: Mesh; pos: Float32Array; next: Float32Array; geo: BufferGeometry; prog: number[]; al: number[] }
+  function makeRibbon(nLines: number, segs: number, kind: number, width: number, color: (li: number) => Rgb): Ribbon {
+    const vCount = nLines * (segs + 1) * 2;
+    const pos = new Float32Array(vCount * 3);
+    const next = new Float32Array(vCount * 3);
+    const col = new Float32Array(vCount * 3);
+    const data = new Float32Array(vCount * 4);
+    const idx = new Uint32Array(nLines * segs * 6);
+    for (let li = 0; li < nLines; li++) {
+      for (let sg = 0; sg <= segs; sg++) for (let sd = 0; sd < 2; sd++) {
+        const v = (li * (segs + 1) + sg) * 2 + sd;
+        col.set(color(li), v * 3);
+        data.set([sg / segs, sd ? 1 : -1, li, kind], v * 4);
+      }
+      for (let sg = 0; sg < segs; sg++) {
+        const a = (li * (segs + 1) + sg) * 2;
+        idx.set([a, a + 1, a + 2, a + 1, a + 3, a + 2], (li * segs + sg) * 6);
+      }
     }
-    for (let sg = 0; sg < TSEGS; sg++) {
-      const a = (li * (TSEGS + 1) + sg) * 2;
-      trIdx.set([a, a + 1, a + 2, a + 1, a + 3, a + 2], (li * TSEGS + sg) * 6);
-    }
+    const geo = track(new BufferGeometry());
+    geo.setAttribute('position', new BufferAttribute(pos, 3));
+    geo.setAttribute('aNext', new BufferAttribute(next, 3));
+    geo.setAttribute('aColor', new BufferAttribute(col, 3));
+    geo.setAttribute('aData', new BufferAttribute(data, 4));
+    geo.setIndex(new BufferAttribute(idx, 1));
+    const prog = new Array(Math.max(1, nLines)).fill(0) as number[];
+    const al = new Array(Math.max(1, nLines)).fill(0) as number[];
+    const mat = track(new ShaderMaterial({
+      uniforms: { uRes: streakMat.uniforms.uRes, uWidth: { value: width }, uPR: shared.uPR, uProg: { value: prog }, uAl: { value: al } },
+      vertexShader: lineVert(Math.max(1, nLines)), fragmentShader: lineFrag, glslVersion: GLSL3,
+      blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, side: 2,
+    }));
+    const mesh = new Mesh(geo, mat);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 6;
+    scene.add(mesh);
+    return { mesh, pos, next, geo, prog, al };
   }
-  const trGeo = track(new BufferGeometry());
-  trGeo.setAttribute('position', new BufferAttribute(trPos, 3));
-  trGeo.setAttribute('aNext', new BufferAttribute(trNext, 3));
-  trGeo.setAttribute('aColor', new BufferAttribute(trCol, 3));
-  trGeo.setAttribute('aData', new BufferAttribute(trData, 4));
-  trGeo.setIndex(new BufferAttribute(trIdx, 1));
-  const trProg = new Array(Math.max(1, nTrails)).fill(0) as number[];
-  const trailMat = track(new ShaderMaterial({
-    uniforms: { uRes: streakMat.uniforms.uRes, uWidth: { value: 3 }, uPR: shared.uPR, uProg: { value: trProg } },
-    vertexShader: ribbonVert.replace('uProg[24]', `uProg[${Math.max(1, nTrails)}]`), fragmentShader: trailFrag, glslVersion: GLSL3,
-    blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, side: 2,
-  }));
-  const trails = new Mesh(trGeo, trailMat);
-  trails.frustumCulled = false;
-  trails.renderOrder = 6;
-  trails.visible = false;
-  group.add(trails);
+  const SEGO = 128;
+  const FSEG = 16;
+  const laneTint = (l: Lane): Rgb => { const c = NODE_COL[l]; return [c[0] * 0.45 + 0.4, c[1] * 0.45 + 0.4, c[2] * 0.45 + 0.45]; };
+  let sys = buildSystem({ workers: opts.workers }, 1.6);
+  const orbits = makeRibbon(nWork, SEGO, 0, 0.8, (li) => laneTint(opts.workers[Math.min(li, nWork - 1)].lane));
+  const tail = makeRibbon(Math.max(1, nFix), FSEG, 1, 1.1, () => NODE_COL.agy);
+  tail.mesh.visible = nFix > 0;
 
-  const SCAN_R = 8;
-  const scanMat = track(new ShaderMaterial({
-    uniforms: { uAng: { value: 0 }, uVis: { value: 0 }, uR: { value: SCAN_R } },
-    vertexShader: scanVert, fragmentShader: scanFrag, glslVersion: GLSL3,
+  // flat effects in the orbital plane: the approval pulse and the scan arc
+  const fxMat = track(new ShaderMaterial({
+    uniforms: { uPulseR: { value: 0 }, uPulseA: { value: 0 }, uAng: { value: 0 }, uScanVis: { value: 0 }, uR: { value: 6 } },
+    vertexShader: fxVert, fragmentShader: fxFrag, glslVersion: GLSL3,
     blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true,
   }));
-  const scan = new Mesh(track(new PlaneGeometry(SCAN_R * 2, SCAN_R * 2)), scanMat);
-  scan.rotation.x = -Math.PI / 2;
-  scan.frustumCulled = false;
-  scan.renderOrder = 5;
-  scan.visible = false;
-  group.add(scan);
+  const fx = new Mesh(track(new PlaneGeometry(FX_R * 2, FX_R * 2)), fxMat);
+  fx.rotation.x = -Math.PI / 2;
+  fx.frustumCulled = false;
+  fx.renderOrder = 5;
+  scene.add(fx);
 
-  let layout = layoutNodes(opts.workers, 1.6);
-  const dest: V3[] = opts.workers.map(() => [0, 0, 0]);
-  const destAng: number[] = [];
-  let sweepA0 = 0;
-  let sweepA1 = 1;
-  function bakeConstellation(): void {
-    layout = layoutNodes(opts.workers, camera.aspect);
-    opts.workers.forEach((w, i) => { dest[i] = starDest(w.launchIndex, nWork, camera.aspect); {
-      const th = destTheta(w.launchIndex, nWork);
-      let a = Math.atan2(dest[i][2], dest[i][0]);
-      while (a < th - Math.PI) a += Math.PI * 2;
-      while (a > th + Math.PI) a -= Math.PI * 2;
-      destAng[i] = a;
-    } });
-    [sweepA0, sweepA1] = sweepRange(destAng);
-    fixers.forEach((fx, k) => { const d = dest[fx.w]; fixDest[k] = camera.aspect >= 1.2 ? [d[0] - 0.2, d[1] + 1.5, d[2] - 0.5] : [d[0] + 1.5, d[1] + 0.3, d[2] + 0.4]; });
-    nodePos.set([0, 0, 0], 0);
-    layout.forEach((n, i) => nodePos.set(n.pos, (i + 1) * 3));
-    nodeGeo.attributes.position.needsUpdate = true;
-    const ends: { a: [number, number, number]; b: [number, number, number]; col: Rgb; w: number; bow: number }[] = [];
-    layout.forEach((n) => ends.push({ a: [0, 0, 0], b: n.pos, col: NODE_COL[n.lane], w: 1, bow: 0.12 }));
-    links.forEach(([i, j]) => ends.push({ a: layout[i].pos, b: layout[j].pos, col: NODE_COL[layout[i].lane], w: 0.5, bow: 0.18 }));
-    let vi = 0;
-    let ii = 0;
-    ends.forEach((e, li) => {
-      const dx = e.b[0] - e.a[0];
-      const dy = e.b[1] - e.a[1];
-      const dz = e.b[2] - e.a[2];
-      const len = Math.hypot(dx, dy, dz) || 1;
-      // bow perpendicular to the line in the xy plane
-      const nx = -dy / len;
-      const ny = dx / len;
-      const at = (t: number): [number, number, number] => {
-        const s = Math.sin(Math.PI * t) * e.bow * len * (li % 2 ? 1 : -1);
-        return [e.a[0] + dx * t + nx * s, e.a[1] + dy * t + ny * s, e.a[2] + dz * t];
-      };
-      const base = vi;
-      for (let s = 0; s <= SEG; s++) {
-        const t = s / SEG;
-        const p = at(t);
-        const q = at(Math.min(1, t + 1 / SEG));
-        const q2 = s === SEG ? at(1 - 1 / SEG) : q;
-        for (let side = -1; side <= 1; side += 2) {
-          rPos.set(p, vi * 3);
-          rNext.set(s === SEG ? [p[0] + (p[0] - q2[0]), p[1] + (p[1] - q2[1]), p[2] + (p[2] - q2[2])] : q, vi * 3);
-          rCol.set(e.col, vi * 3);
-          rData.set([t, side, li, e.w], vi * 4);
-          vi++;
+  let planetOf: number[] = []; // worker index (story order) -> planet index (launch order)
+  let closeIdx = -1; // planet index of the close-up
+  let rMax = 6;
+  function bakeSystem(): void {
+    sys = buildSystem({ workers: opts.workers }, camera.aspect);
+    planetOf = opts.workers.map((w) => sys.planets.findIndex((p) => p.slug === w.slug));
+    closeIdx = sys.closeUp === null ? -1 : sys.planets.findIndex((p) => p.slug === sys.closeUp);
+    rMax = sys.planets.length ? Math.max(...sys.planets.map((p) => p.orbit)) : 6;
+    sys.planets.forEach((p, li) => {
+      for (let sg = 0; sg <= SEGO; sg++) {
+        const a0 = (sg / SEGO) * Math.PI * 2;
+        const a1 = ((sg + 1) / SEGO) * Math.PI * 2;
+        for (let sd = 0; sd < 2; sd++) {
+          const v = (li * (SEGO + 1) + sg) * 2 + sd;
+          orbits.pos.set([Math.cos(a0) * p.orbit, 0, Math.sin(a0) * p.orbit], v * 3);
+          orbits.next.set([Math.cos(a1) * p.orbit, 0, Math.sin(a1) * p.orbit], v * 3);
         }
       }
-      for (let s = 0; s < SEG; s++) {
-        const a = base + s * 2;
-        rIdx.set([a, a + 1, a + 2, a + 1, a + 3, a + 2], ii);
-        ii += 6;
-      }
     });
-    rGeo.attributes.position.needsUpdate = true;
-    rGeo.attributes.aNext.needsUpdate = true;
-    rGeo.attributes.aColor.needsUpdate = true;
-    rGeo.attributes.aData.needsUpdate = true;
-    rGeo.index!.needsUpdate = true;
+    orbits.geo.attributes.position.needsUpdate = true;
+    orbits.geo.attributes.aNext.needsUpdate = true;
+    fxMat.uniforms.uR.value = rMax + 0.6;
   }
 
   // ---- post -------------------------------------------------------------------------------------------------
@@ -499,7 +373,6 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       renderer.toneMapping = NoToneMapping;
     }
   }
-  void NoBlending;
 
   // ---- loop -------------------------------------------------------------------------------------------------
   let target = 0;
@@ -515,43 +388,24 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   const ptr = { x: 0, y: 0, sx: 0, sy: 0 };
   const tmpV = new Vector3();
   const fwd = new Vector3();
-  const frameOut: GalaxyFrame = { p: 0, u: 0, m: 0, state: sceneState(0), nodes: [], pulseOn: 0 };
+  const frameOut: GalaxyFrame = { p: 0, u: 0, m: 0, closeAmt: 0, state: sceneState(0), nodes: [] };
   for (let i = 0; i < nodeCount; i++) frameOut.nodes.push({ x: 0, y: 0, front: false, on: 0, rad: 0, ok: 0, bad: 0, rev: 0 });
   const right = new Vector3();
   const upV = new Vector3();
   const back = new Vector3();
-  const sp: V3 = [0, 0, 0];
-  const sq: V3 = [0, 0, 0];
-  let lastLate = false;
-  let refOrb = 11;
-  let refStar = 4.4;
-  const retestRank: number[] = [];
-  { let r = 0; opts.workers.forEach((w, i) => { retestRank[i] = w.failed && !w.fixer ? r++ : 0; }); }
   // merge order: the data's merge index (a fixed branch merges as its fixer), unmerged workers last in launch order
   const mergeRank: number[] = [];
   opts.workers
     .map((w, i) => ({ i, key: (w.mergeIndex ?? 1000) + w.launchIndex * 1e-3 }))
     .sort((a, b) => a.key - b.key)
     .forEach((e, r) => { mergeRank[e.i] = r; });
-  const mk: number[] = opts.workers.map(() => 0);
-  const ptsTmp = new Float32Array((TSEGS + 1) * 3);
-  const fixDest: V3[] = fixers.map(() => [0, 0, 0]);
+  const nodeWorld: V3[] = Array.from({ length: nodeCount }, () => [0, 0, 0] as V3);
+  const nodeRad: number[] = new Array(nodeCount).fill(0); // world radius used for the pill offset
+  const nodeOnArr: number[] = new Array(nodeCount).fill(0);
+  const tailPts: V3[] = Array.from({ length: FSEG + 1 }, () => [0, 0, 0] as V3);
   let cssW = 1;
   let cssH = 1;
-
-  function writeTrail(li: number): void {
-    for (let sg = 0; sg <= TSEGS; sg++) {
-      const o = sg < TSEGS ? (sg + 1) * 3 : sg * 3;
-      for (let sd = 0; sd < 2; sd++) {
-        const v = (li * (TSEGS + 1) + sg) * 2 + sd;
-        for (let c = 0; c < 3; c++) {
-          const here = ptsTmp[sg * 3 + c];
-          trPos[v * 3 + c] = here;
-          trNext[v * 3 + c] = sg < TSEGS ? ptsTmp[o + c] : here + (here - ptsTmp[(sg - 1) * 3 + c]);
-        }
-      }
-    }
-  }
+  const ringTilt = (idx: number): number => -0.42 + 0.18 * Math.sin(idx * 2.7); // matches bodyFrag
 
   function renderFrame(nowMs: number): void {
     const dtRaw = Math.max(0, (nowMs - lastMs) / 1000);
@@ -570,33 +424,50 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     const pullOut = ss(0.42, 0.98, m);
     const st = sceneState(pp);
     const t = reduced ? 0 : (nowMs - t0) / 1000;
+    const tt = orbitT(progress); // orbital clock: scroll-driven
     shared.uTime.value = t;
     shared.uSpin.value = st.spin + 0.5 * m;
     const band = ss(0.27, 0.36, pp) * (1 - ss(0.53, 0.6, pp)); // the dive's bright stretch: thin the bulge so the tunnel reads
-    const lg = ss(0, 0.22, u); // the galaxy comes back up behind the late beats
-    // calm: the approach/dive and the plan beat keep the galaxy down so the comet, then the diagram, are the only bright things
+    // the galaxy sits far behind and dim from the dive's end through the merge; it comes back up as the camera pulls out
+    const lg = ss(0.3, 0.72, m);
     const calmDive = ss(0.1, 0.28, pp) * (1 - ss(0.5, 0.58, pp));
     const calmPlan = ss(0.42, 0.6, pp) * (1 - lg);
     const calm = (1 - 0.6 * calmDive) * (1 - 0.93 * calmPlan);
     shared.uGain.value = 1.4 * st.galaxyGain * calm * (1 + 1.5 * lg);
-    shared.uCoreDim.value = (st.coreGain + (0.8 - st.coreGain) * lg) * (1 - 0.7 * pullOut) * (1 - 0.5 * calmPlan); // the bulge steps back so the arms read in the wide shot
+    shared.uCoreDim.value = (st.coreGain + (0.8 - st.coreGain) * lg) * (1 - 0.7 * pullOut) * (1 - 0.5 * calmPlan);
     hazeMat.uniforms.uGain.value = 0.8 * st.galaxyGain * (1 - 0.8 * ss(0.5, 0.62, pp)) * (1 + 2.4 * lg) * (1 - 0.8 * band) * (1 - 0.6 * pullOut) * calm * (1 - 0.6 * calmPlan);
     dustMat.uniforms.uGain.value = (1 + 0.4 * ss(0.5, 0.6, pp)) * (1 - 0.95 * ss(0.14, 0.3, pp) * (1 - lg)) * (1 - 0.85 * calmPlan);
 
-    // camera: aspect pull-back so portrait phones still see the whole galaxy, then pointer parallax
+    // ---- planets: position, launch, build, verify, merge (system.ts does the layout) ----
+    const n = nWork;
+    const planets = sys.planets;
+    const bodyPos: V3[] = planets.map((p) => planetPos(p, tt));
+    const kk: number[] = new Array(planets.length).fill(0);
+    const mk: number[] = new Array(planets.length).fill(0);
+    const fanW = win(L.fan, u);
+    const buildW = win(L.build, u);
+    planets.forEach((p, pi) => {
+      kk[pi] = u > 0 ? stagger(fanW, p.launchIndex, n, 0.6) : 0;
+      if (kk[pi] > 0) bodyPos[pi] = launchPos(p, kk[pi], tt);
+      if (m > 0) {
+        const wi = opts.workers.findIndex((w) => w.slug === p.slug);
+        mk[pi] = pullK(m, mergeRank[wi], n);
+        if (mk[pi] > 0) bodyPos[pi] = spiralIn(p, mk[pi], tt);
+      }
+    });
+    const cronPos: V3 = closeIdx >= 0 ? planetPos(planets[closeIdx], tt) : [0, 0, 0];
+    const cA = closeIdx >= 0 ? closeAmt(u) : 0;
+
+    // ---- camera ----
     const aspect = camera.aspect;
     const fAsp = aspect < 1.1 ? 1 + (1.1 / aspect - 1) * 0.55 : 1;
     const f = (fAsp + (1 + (fAsp - 1) * 0.6 - fAsp) * ss(0.2, 0.5, pp)) * (1 + 0.2 * (1 - ss(0.04, 0.2, pp)));
     ptr.sx += (ptr.x - ptr.sx) * Math.min(1, dt * 3);
     ptr.sy += (ptr.y - ptr.sy) * Math.min(1, dt * 3);
-    const par = reduced ? 0 : 1 - st.diveEnv;
-    // desktop: the constellation sits right of centre so the copy column keeps the left
-    const shiftX = aspect > 1.2 ? -0.5 * ss(0.52, 0.62, pp) : 0;
-    // portrait: the constellation drops below the copy block at the top
-    const shiftY = aspect <= 1.2 ? 0.62 * ss(0.52, 0.62, pp) : 0;
-    const tg: [number, number, number] = [st.target[0] + shiftX, st.target[1] + shiftY, st.target[2]];
-    let cx = tg[0] + (st.cam[0] + shiftX - tg[0]) * f;
-    let cy = tg[1] + (st.cam[1] + shiftY - tg[1]) * f;
+    const par = (reduced ? 0 : 1 - st.diveEnv) * (1 - cA);
+    const tg: [number, number, number] = [st.target[0], st.target[1], st.target[2]];
+    let cx = tg[0] + (st.cam[0] - tg[0]) * f;
+    let cy = tg[1] + (st.cam[1] - tg[1]) * f;
     let cz = tg[2] + (st.cam[2] - tg[2]) * f;
     // portrait hero: closer and more face-on so the galaxy fills the width under the copy
     const pw = clamp01((1.0 - aspect) / 0.35);
@@ -607,23 +478,31 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       cz = lerp(cz, 10.5, hw);
       tg[1] = lerp(tg[1], 1.2, hw);
     }
-    let fov = st.fov;
-    if (u > 0) {
-      const lc = lateCam(u, aspect);
-      const w = ss(0, 0.22, u);
-      cx = lerp(cx, lc.cam[0], w);
-      cy = lerp(cy, lc.cam[1], w);
-      cz = lerp(cz, lc.cam[2], w);
-      tg[0] = lerp(tg[0], lc.target[0], w);
-      tg[1] = lerp(tg[1], lc.target[1], w);
-      tg[2] = lerp(tg[2], lc.target[2], w);
-      fov = lerp(fov, lc.fov, w);
+    const fov = st.fov;
+    // the dive lands in the sun's system; the camera then draws back to the overview
+    const ov = systemView(aspect, rMax);
+    const wSys = ss(0.54, 0.76, pp);
+    if (wSys > 0) {
+      cx = lerp(cx, ov.cam[0], wSys);
+      cy = lerp(cy, ov.cam[1], wSys);
+      cz = lerp(cz, ov.cam[2], wSys);
+      tg[0] = lerp(tg[0], ov.target[0], wSys);
+      tg[1] = lerp(tg[1], ov.target[1], wSys);
+      tg[2] = lerp(tg[2], ov.target[2], wSys);
+    }
+    if (cA > 0) {
+      const cl = closeView(cronPos, aspect);
+      cx = lerp(cx, cl.cam[0], cA);
+      cy = lerp(cy, cl.cam[1], cA);
+      cz = lerp(cz, cl.cam[2], cA);
+      tg[0] = lerp(tg[0], cl.target[0], cA);
+      tg[1] = lerp(tg[1], cl.target[1], cA);
+      tg[2] = lerp(tg[2], cl.target[2], cA);
     }
     if (m > 0) {
-      const mc = mergeCam(m, aspect);
+      const mc = mergeCam(m, aspect, rMax);
       [cx, cy, cz] = mc.cam;
       [tg[0], tg[1], tg[2]] = mc.target;
-      fov = mc.fov;
     }
     camera.position.set(cx + ptr.sx * 0.5 * par, cy + ptr.sy * 0.3 * par, cz);
     camera.up.set(Math.sin(st.roll), Math.cos(st.roll), 0);
@@ -661,7 +540,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     cometMat.uniforms.uVis.value = st.cometVis;
     cometMat.uniforms.uFlash.value = st.flash;
     comet.visible = st.cometVis > 0.002;
-    tail.visible = comet.visible;
+    comet2.visible = comet.visible;
 
     // core flash as the comet lands: a brief gain bump on the bulge
     shared.uGain.value *= 1 + 0.9 * st.flash;
@@ -675,162 +554,173 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     armMat.uniforms.uGrow.value = -0.15 + 1.27 * armGrow(m);
     armPts.visible = m > 0.3;
 
-    // constellation
-    const on = nodeMat.uniforms.uOn.value as number[];
-    on[0] = ss(0.5, 0.6, pp) * (1 + 0.7 * flare);
-    for (let i = 0; i < nWork; i++) on[i + 1] = nodeOn(st.draw, i, nWork) * (st.draw > 0 ? 1 : 0);
-    const prog = rMat.uniforms.uProg.value as number[];
-    for (let i = 0; i < nWork; i++) prog[i] = spokeProgress(st.draw, i, nWork);
-    for (let i = 0; i < links.length; i++) prog[nWork + i] = linkProgress(st.draw);
-    const pulseR = st.pulse * 5.2;
-    pulseU.uPulseR.value = pulseR;
-    pulseU.uPulseOn.value = st.pulse > 0 && st.pulse < 1 ? 1 : 0;
-    ring.visible = st.pulse > 0 && st.pulse < 1;
-    ringMat.uniforms.uR.value = pulseR;
-    ringMat.uniforms.uAlpha.value = Math.sin(Math.PI * Math.min(1, st.pulse)) ** 0.7;
-    ring.lookAt(camera.position);
-    ring.scale.setScalar(1);
+    // ---- the system layer ----
+    const px = shared.uScale.value / shared.uPR.value; // css px per world unit at depth 1
+    const sunA = ss(0.5, 0.56, pp) * (1 - 0.55 * pullOut);
+    const pulseP = st.pulse > 0 && st.pulse < 1 ? st.pulse : 0;
+    const pulseGlow = Math.sin(Math.PI * pulseP) ** 2;
+    uP[SUN].set(0, 0, 0, SUN_R * (1 + 0.3 * flare + 0.1 * pulseGlow));
+    uS[SUN].set(sunA, 0, 0, 0);
+    bodyMat.uniforms.uFlare.value = flare * 0.9 + st.flash * 1.2 + pulseGlow * 0.12;
+    nodeWorld[0] = [0, 0, 0];
+    nodeRad[0] = SUN_R;
+    nodeOnArr[0] = sunA;
 
-    // ---- late beats 3-5 ----
-    const lateOnNow = u > 0;
-    nodeMat.uniforms.uComp.value = lg;
-    const narrow = clamp01((1.2 - aspect) / 0.74);
-    refOrb = 11 * (1 + narrow);
-    refStar = 4.4 * (1 + 0.8 * narrow);
-    orbMat.uniforms.uRef.value = refOrb;
-    nodeMat.uniforms.uRef.value = refStar;
-    for (let i = 0; i < nWork; i++) {
-      const w = opts.workers[i];
-      const slot = layout[i].pos as V3;
-      const k = lateOnNow ? launchK(u, w.launchIndex, nWork) : 0;
-      const grow = growAmt(u, w.buildIndex, nWork);
-      starAt(sp, slot, dest[i], w.launchIndex, k);
-      // merge: fall into the core along an in-spiral, in the data's merge order (gravity: it accelerates)
-      const mkI = m > 0 ? pullK(m, mergeRank[i], nWork) : 0;
-      mk[i] = mkI;
-      if (mkI > 0) mergeAt(sp, dest[i], mkI, i);
-      nodePos[(i + 1) * 3] = sp[0];
-      nodePos[(i + 1) * 3 + 1] = sp[1];
-      nodePos[(i + 1) * 3 + 2] = sp[2];
-      orbPos[i * 3] = sp[0];
-      orbPos[i * 3 + 1] = sp[1];
-      orbPos[i * 3 + 2] = sp[2];
-      uC[i].set(sp[0], sp[1], sp[2]);
-      if (lateOnNow) on[i + 1] = (1 + 0.7 * Math.sin(Math.PI * k) ** 2) * (1 - 0.5 * grow) * (1 - ss(0.5, 0.95, mkI));
-      prog[i] *= 1 - k;
-      // verify
-      const vt = sweepTime(destAng[i], sweepA0, sweepA1);
-      const kk = w.failed ? fixers.findIndex((fx) => fx.w === i) : -1;
-      let okA = 0;
-      let badA = 0;
-      let ph = 0;
-      let kind = 0;
-      let revT = vt + 0.035;
-      if (kk < 0 && !w.failed) {
-        ph = clamp01((u - vt) / 0.05);
-        okA = ss(vt, vt + 0.03, u);
+    const scanS = win(L.scan, u);
+    const scanLen = L.scan[1] - L.scan[0];
+    const TH0 = -Math.PI / 2;
+    const cC = closeC(u);
+    const orbAl = orbits.al;
+    const orbProg = orbits.prog;
+    planets.forEach((p, pi) => {
+      const wi = opts.workers.findIndex((w) => w.slug === p.slug);
+      const w = opts.workers[wi];
+      const draw = clamp01((st.draw - (p.launchIndex / Math.max(1, n)) * 0.4) / 0.6);
+      const k = kk[pi];
+      const mkI = mk[pi];
+      const g = stagger(buildW, p.buildIndex, n, 0.5);
+      // verify: the arc passes -> each planet runs its flashPhase; the close-up planet runs it during the dwell
+      let okV = 0;
+      let redV = 0;
+      let failV = 0;
+      if (u > L.scan[0] || u >= L.dwell[0]) {
+        if (pi === closeIdx) {
+          const fp = flashPhase(p.verify, cC);
+          okV = fp.green;
+          redV = fp.red;
+          failV = ss(0, 0.03, cC) * (1 - ss(0.66, 0.74, cC));
+        } else {
+          const aNow = Math.atan2(bodyPos[pi][2], bodyPos[pi][0]);
+          const rel = (((aNow - TH0) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) / (Math.PI * 2);
+          const uL = clamp01(((scanS - rel) * scanLen) / L.tick);
+          const fp = flashPhase(p.verify, uL);
+          okV = fp.green;
+          redV = fp.red;
+          failV = p.verify.redFlashes > 0 ? ss(0, 0.04, uL) * (1 - ss(0.62, 0.78, uL)) : 0;
+        }
+      }
+      const live = ss(0, 0.05, k) * (1 - ss(0.9, 1, mkI));
+      const ringAmt = g * (1 - ss(0.02, 0.2, mkI));
+      const R = PLANET_R * (1 + 0.3 * g);
+      uP[1 + pi].set(bodyPos[pi][0], bodyPos[pi][1], bodyPos[pi][2], R);
+      uS[1 + pi].set(live, ringAmt, okV, redV);
+      // plan slot: a dim dot on the orbit until the planet lands on it
+      const slotA = ss(0.8, 1, draw) * 0.7 * (1 - ss(0.5, 0.95, k));
+      const sp = planetPos(p, tt);
+      uP[SLOT0 + pi].set(sp[0], sp[1], sp[2], SLOT_R);
+      uS[SLOT0 + pi].set(slotA, 0, 0, 0);
+      orbProg[pi] = draw;
+      orbAl[pi] = 1.2 * ss(0, 0.12, draw) * (1 - ss(0.05, 0.9, mkI)) * (1 - 0.6 * ss(0.4, 0.85, m));
+      // the DOM pill: on the slot until launch, hidden while it flies out, then on the planet
+      const mask = clamp01(1 - ss(0, 0.08, k) + ss(0.5, 0.9, k));
+      const at = k < 0.3 ? sp : bodyPos[pi];
+      nodeWorld[wi + 1] = at;
+      nodeRad[wi + 1] = R * (1 + 0.5 * ringAmt);
+      nodeOnArr[wi + 1] = ss(0.8, 1, draw) * mask * (1 - cA * (pi === closeIdx ? 0 : 1));
+      const fo = frameOut.nodes[wi + 1];
+      fo.ok = okV;
+      fo.bad = failV;
+      fo.rev = w.reviewed ? ss(0.5, 0.95, okV) : 0;
+    });
+    orbits.mesh.visible = n > 0 && st.draw > 0;
+    // the sun's approval pulse and the verify scan arc
+    fxMat.uniforms.uPulseR.value = pulseP * (rMax + 0.8);
+    fxMat.uniforms.uPulseA.value = pulseP > 0 ? Math.sin(Math.PI * pulseP) ** 0.8 * 0.9 : 0;
+    fxMat.uniforms.uAng.value = TH0 + scanS * Math.PI * 2;
+    fxMat.uniforms.uScanVis.value = n > 0 ? ss(L.scan[0] - 0.01, L.scan[0] + 0.005, u) * (1 - ss(L.scan[1] - 0.004, L.scan[1] + 0.012, u)) : 0;
+
+    // the fixer: a small amber spark from outside the system that docks on the close-up planet's ring
+    fixers.forEach((fx2, kf) => {
+      const ni = 1 + n + kf;
+      const isClose = closeIdx >= 0 && fx2.w === opts.workers.findIndex((w) => w.slug === planets[closeIdx].slug);
+      let a = 0;
+      let screenAway = 0;
+      if (isClose) {
+        const kS = shipK(u);
+        const e = 1 - (1 - kS) ** 2.2;
+        const ang = Math.atan2(cronPos[2], cronPos[0]);
+        const S: V3 = [Math.cos(ang + 0.9) * (rMax + 3.5), 1.6, Math.sin(ang + 0.9) * (rMax + 3.5)];
+        const Rc = uP[1 + closeIdx].w;
+        const tilt = ringTilt(closeIdx);
+        const dk = 2.5 * uS[1 + closeIdx].y * Rc;
+        const D: V3 = [0, 1, 2].map((c) => cronPos[c] + (right.getComponent(c) * Math.cos(tilt) + upV.getComponent(c) * Math.sin(tilt)) * dk) as V3;
+        const px2 = (D[2] - S[2]);
+        const pz2 = -(D[0] - S[0]);
+        const pl = Math.hypot(px2, pz2) || 1;
+        const C: V3 = [(S[0] + D[0]) / 2 + (px2 / pl) * 1.3, (S[1] + D[1]) / 2 + 1.1, (S[2] + D[2]) / 2 + (pz2 / pl) * 1.3];
+        const bez = (ee: number, o: V3): void => {
+          const mm = 1 - ee;
+          for (let c = 0; c < 3; c++) o[c] = mm * mm * S[c] + 2 * mm * ee * C[c] + ee * ee * D[c];
+        };
+        const headP: V3 = [0, 0, 0];
+        bez(e, headP);
+        a = ss(0, 0.05, kS) * (1 - ss(0.925, 0.955, u)) * (u >= L.ship[0] ? 1 : 0) * (1 - ss(0.3, 0.9, m) );
+        uP[FIX0 + kf].set(headP[0], headP[1], headP[2], FIX_R);
+        uS[FIX0 + kf].set(a, 0, 0, 0);
+        // tail: the last stretch of the flight
+        for (let s = 0; s <= FSEG; s++) bez(1 - (1 - Math.max(0, kS - 0.14 * (1 - s / FSEG))) ** 2.2, tailPts[s]);
+        for (let s = 0; s <= FSEG; s++) for (let sd = 0; sd < 2; sd++) {
+          const v = (kf * (FSEG + 1) + s) * 2 + sd;
+          const q = tailPts[s];
+          const q2 = s < FSEG ? tailPts[s + 1] : [q[0] + (q[0] - tailPts[s - 1][0]), q[1] + (q[1] - tailPts[s - 1][1]), q[2] + (q[2] - tailPts[s - 1][2])];
+          tail.pos.set(q, v * 3);
+          tail.next.set(q2, v * 3);
+        }
+        tail.geo.attributes.position.needsUpdate = true;
+        tail.geo.attributes.aNext.needsUpdate = true;
+        tail.prog[kf] = 1;
+        tail.al[kf] = a * 0.9 * (1 - ss(0.8, 1, kS));
+        nodeWorld[ni] = headP;
+        screenAway = 1;
+        nodeOnArr[ni] = ss(0.01, 0.06, kS) * (1 - ss(0.88, 0.97, kS)) * (u >= L.ship[0] ? 1 : 0);
       } else {
-        // failed: red at its sweep slot. With a fixer it turns green when the fixer lands; without one its re-test
-        // (a later passing verify in the data) lands right after the sweep.
-        const fb = kk >= 0 ? fixWindow(kk, nFix)[1] : L.sweep[1] + 0.014 + 0.008 * retestRank[i];
-        badA = ss(vt, vt + 0.02, u) * (1 - ss(fb, fb + 0.03, u));
-        okA = ss(fb, fb + 0.03, u);
-        ph = u < fb ? clamp01((u - vt) / 0.05) : clamp01((u - fb) / 0.05);
-        kind = u < fb ? 1 : 0;
-        revT = fb + 0.035;
+        uS[FIX0 + kf].set(0, 0, 0, 0);
+        tail.al[kf] = 0;
+        nodeWorld[ni] = cronPos;
+        nodeOnArr[ni] = 0;
       }
-      uA[i].set(bubbleAmt(u, w.launchIndex, nWork) * (1 - ss(0, 0.3, mkI)), grow * (1 - ss(0.7, 1, mkI)), okA, badA);
-      uB[i].set(ph, kind, ss(0.02, 0.25, mkI), 0);
-      const fo = frameOut.nodes[i + 1];
-      fo.ok = okA;
-      fo.bad = badA;
-      fo.rev = w.reviewed ? ss(revT, revT + 0.02, u) : 0;
-      // launch trail
-      const tl = trProg;
-      tl[i] = lateOnNow && k > 0.001 ? 1 - ss(0.88, 1, k) : 0;
-      if (mkI > 0.002) tl[i] = ss(0.01, 0.1, mkI) * (1 - ss(0.88, 1, mkI));
-      if (mkI > 0.002 && tl[i] > 0) {
-        const m0 = Math.max(0, mkI - 0.45);
-        for (let sg = 0; sg <= TSEGS; sg++) {
-          mergeAt(sq, dest[i], lerp(m0, mkI, sg / TSEGS), i);
-          ptsTmp.set(sq, sg * 3);
-        }
-        writeTrail(i);
-      } else if (tl[i] > 0) {
-        const t0k = Math.max(0, k - 0.5);
-        for (let sg = 0; sg <= TSEGS; sg++) {
-          starAt(sq, slot, dest[i], w.launchIndex, lerp(t0k, k, sg / TSEGS));
-          ptsTmp.set(sq, sg * 3);
-        }
-        writeTrail(i);
-      }
-    }
-    for (let kk = 0; kk < nFix; kk++) {
-      const fx = fixers[kk];
-      const [fa, fb] = fixWindow(kk, nFix);
-      const kf = ss(fa, fb, u);
-      const d = fixDest[kk];
-      fixerAt(sp, d, kf, kk);
-      const mo = mk[fx.w];
-      if (mo > 0) {
-        // the fixer's branch merges as the worker it fixed: it rides the same in-spiral, offset by where it hovered
-        mergeAt(sq, dest[fx.w], mo, fx.w);
-        for (let c = 0; c < 3; c++) sp[c] = sq[c] + (d[c] - dest[fx.w][c]) * (1 - mo);
-      }
-      const ni = nWork + 1 + kk;
-      nodePos[ni * 3] = sp[0];
-      nodePos[ni * 3 + 1] = sp[1];
-      nodePos[ni * 3 + 2] = sp[2];
-      on[ni] = ss(fa - 0.005, fa + 0.01, u) * (1 + 0.5 * Math.sin(Math.PI * kf) ** 2) * (1 - ss(0.4, 0.95, mo));
-      trProg[nWork + kk] = kf > 0.001 ? 1 - ss(0.86, 1, kf) : 0;
-      if (mo > 0) trProg[nWork + kk] = 0;
-      if (trProg[nWork + kk] > 0) {
-        for (let sg = 0; sg <= TSEGS; sg++) {
-          fixerAt(sq, d, lerp(Math.max(0, kf - 0.5), kf, sg / TSEGS), kk);
-          ptsTmp.set(sq, sg * 3);
-        }
-        writeTrail(nWork + kk);
-      }
-      void fx;
-    }
-    for (let i = 0; i < links.length; i++) prog[nWork + i] *= 1 - ss(0.03, 0.1, u);
-    if (lateOnNow || lastLate) {
-      nodeGeo.attributes.position.needsUpdate = true;
-      orbGeo.attributes.position.needsUpdate = true;
-      trGeo.attributes.position.needsUpdate = true;
-      trGeo.attributes.aNext.needsUpdate = true;
-    }
-    lastLate = lateOnNow;
-    orbs.visible = u > L.bubble[0] - 0.01;
-    acc.visible = orbs.visible;
-    trails.visible = u > 0.01;
-    const scanVis = ss(L.sweep[0] - 0.025, L.sweep[0], u) * (1 - ss(L.sweep[1], L.sweep[1] + 0.03, u));
-    scan.visible = nWork > 0 && scanVis > 0.002;
-    scanMat.uniforms.uVis.value = scanVis;
-    scanMat.uniforms.uAng.value = sweepAngle(u, sweepA0, sweepA1);
+      nodeRad[ni] = FIX_R;
+      void screenAway;
+    });
+    tail.mesh.visible = nFix > 0 && u >= L.ship[0];
 
     if (composer) renderer.toneMappingExposure = st.exposure;
-    if (bloom) bloom.strength = 0.45 * st.bloom * (1 - 0.35 * ss(0.5, 0.62, pp) * (1 - lg)) * (opts.tier === 'medium' ? 0.9 : 1) * (1 + 0.12 * flare);
+    // planets and rings stay crisp: the bloom steps back while the system is on screen
+    const sysAmt = sunA * (1 - pullOut);
+    if (bloom) bloom.strength = 0.45 * st.bloom * (1 - 0.35 * ss(0.5, 0.62, pp) * (1 - lg)) * (opts.tier === 'medium' ? 0.9 : 1) * (1 - 0.55 * sysAmt) * (1 + 0.12 * flare);
 
     // project nodes
     camera.updateMatrixWorld();
+    let cronScreen: [number, number] | null = null;
     for (let i = 0; i < nodeCount; i++) {
-      tmpV.set(nodePos[i * 3], nodePos[i * 3 + 1], nodePos[i * 3 + 2]);
+      const wp = nodeWorld[i];
+      tmpV.set(wp[0], wp[1], wp[2]);
       const depth = Math.max(0.1, (tmpV.x - camera.position.x) * fwd.x + (tmpV.y - camera.position.y) * fwd.y + (tmpV.z - camera.position.z) * fwd.z);
       tmpV.project(camera);
       const fo = frameOut.nodes[i];
-      const bubA = i >= 1 && i <= nWork ? uA[i - 1].x : 0;
-      fo.rad = (bubA > 0.02 ? 0.5 * ORB_R : 0.1) * shared.uScale.value / lerp(depth, bubA > 0.02 ? refOrb : refStar, lg) / shared.uPR.value;
+      fo.rad = Math.max(3, nodeRad[i] * px / depth);
       fo.x = (tmpV.x * 0.5 + 0.5) * cssW;
       fo.y = (-tmpV.y * 0.5 + 0.5) * cssH;
       fo.front = tmpV.z > -1 && tmpV.z < 1;
-      fo.on = on[i];
+      fo.on = nodeOnArr[i];
+      if (closeIdx >= 0 && i === opts.workers.findIndex((w) => w.slug === planets[closeIdx].slug) + 1) cronScreen = [fo.x, fo.y];
     }
+    // the fixer's pill hovers on the far side of the ship from the close-up planet, never over it
+    fixers.forEach((fx2, kf) => {
+      const fo = frameOut.nodes[1 + n + kf];
+      if (!cronScreen || fo.on <= 0.01) return;
+      const dx = fo.x - cronScreen[0];
+      const dy = fo.y - cronScreen[1];
+      const l = Math.hypot(dx, dy) || 1;
+      const away = 28 + 0.3 * Math.min(120, l);
+      fo.x += (dx / l) * away;
+      fo.y += (dy / l) * away * 0.6;
+    });
     frameOut.p = pp;
     frameOut.u = u;
     frameOut.m = m;
+    frameOut.closeAmt = cA;
     frameOut.state = st;
-    frameOut.pulseOn = pulseU.uPulseOn.value;
 
     if (composer) {
       try {
@@ -875,7 +765,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     shared.uMax.value = pointMax;
     streakMat.uniforms.uRes.value.set(cssW * pr, cssH * pr);
     tailMat.uniforms.uRes.value.set(cssW * pr, cssH * pr);
-    bakeConstellation();
+    bakeSystem();
     if (reduced || !active) renderFrame(performance.now());
   }
   const onResize = (): void => resize();

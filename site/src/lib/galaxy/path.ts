@@ -8,8 +8,8 @@ export const T = {
   cometIn: [0.10, 0.30],
   dive: [0.30, 0.52],
   core: [0.52, 0.58],
-  draw: [0.58, 0.78],
-  pulse: [0.78, 0.88],
+  draw: [0.60, 0.80], // orbit rings draw in, one per planet
+  pulse: [0.84, 0.95], // the subtle "approved" ring from the sun
 } as const;
 
 export const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
@@ -143,21 +143,75 @@ export function typedChars(p: number, len: number): number {
 // ---- late flight: beats 3-5 (fan-out, build, verify) ---------------------------------------------------------------
 // The pinned track's scroll progress P (0..1) is split in three: P in 0..SPLIT drives the legacy beats 0-2 (sceneState
 // takes p = P / SPLIT), P in SPLIT..LATE_END drives u = 0..1 below (beats 3-5), and P in LATE_END..1 drives the merge
-// beat m = 0..1. (The proportions keep beats 0-5 at the scroll length they had before the merge was added.) After the
-// track the close sections scroll over the final pose (P stays 1). Everything is a pure function of (u|m, worker
-// index), so it scrubs and rewinds.
+// beat m = 0..1. After the track the close sections scroll over the final pose (P stays 1). Everything is a pure
+// function of (u|m, planet), so it scrubs and rewinds.
 export const SPLIT = 0.352;
 export const LATE_END = 0.766;
 export const legacyP = (P: number): number => clamp01(P / SPLIT);
 export const lateU = (P: number): number => clamp01((P - SPLIT) / (LATE_END - SPLIT));
 export const mergeM = (P: number): number => clamp01((P - LATE_END) / (1 - LATE_END));
+/** Orbital clock for the planets: scroll-driven (no autoplay), 0 until the late beats start. */
+export const orbitT = (P: number): number => 4.2 * clamp01((P - SPLIT) / (1 - SPLIT));
 
 export const L = {
-  fan: [0.03, 0.27], // star launches, staggered by launchIndex (stagger share 0.4 of the window)
-  bubble: [0.34, 0.41],
-  build: [0.38, 0.61], // planet accretion, staggered by buildIndex
-  sweep: [0.665, 0.80], // the scan beam crosses every planet once
-  fix: [0.83, 0.925], // fixer stars fly out
+  fan: [0.03, 0.27], // planets launch from the sun, staggered by launch order
+  build: [0.36, 0.61], // worktree rings grow, staggered by build order
+  scan: [0.665, 0.745], // the scan arc sweeps the orbits once
+  tick: 0.03, // u a planet takes to run through its verify flash after the arc passes
+  fly: [0.79, 0.84], // the camera flies in to the close-up planet
+  dwell: [0.84, 0.955], // close-up hold; c = 0..1 drives the planet's flashes and its fixer
+  out: [0.955, 1.0], // and pulls back to the overview
+  ship: [0.8, 0.918], // the fixer's flight from outside the system; it docks at the end
+} as const;
+/** Close-up progress c 0..1 (flashPhase input for the close-up planet). */
+export const closeC = (u: number): number => clamp01((u - L.dwell[0]) / (L.dwell[1] - L.dwell[0]));
+/** Camera blend toward the close-up planet, 0 (overview) .. 1. */
+export const closeAmt = (u: number): number => ss(L.fly[0], L.fly[1], u) * (1 - ss(L.out[0], L.out[1], u));
+/** Fixer flight progress 0..1 (1 = docked). */
+export const shipK = (u: number): number => clamp01((u - L.ship[0]) / (L.ship[1] - L.ship[0]));
+/** u as a 0..1 window position. */
+export const win = (w: readonly [number, number], u: number): number => clamp01((u - w[0]) / (w[1] - w[0]));
+const easeInOut = (t: number): number => t * t * (3 - 2 * t);
+
+export interface LateCam { cam: V3; target: V3; fov: number }
+const TAN25 = Math.tan((25 * Math.PI) / 180);
+/** A camera that sees `focus` from (dist, elev, az) with the focus placed at NDC (offX, offY) on screen. */
+export function viewPose(focus: V3, dist: number, elev: number, az: number, offX: number, offY: number, aspect: number): LateCam {
+  const dir: V3 = [Math.sin(az) * Math.cos(elev), Math.sin(elev), Math.cos(az) * Math.cos(elev)];
+  // forward = -dir; right = normalize(forward x up); up' = right x forward
+  const rl = Math.hypot(dir[2], dir[0]) || 1;
+  const right: V3 = [-dir[2] / rl, 0, dir[0] / rl];
+  const fwd: V3 = [-dir[0], -dir[1], -dir[2]];
+  const up: V3 = [right[1] * fwd[2] - right[2] * fwd[1], right[2] * fwd[0] - right[0] * fwd[2], right[0] * fwd[1] - right[1] * fwd[0]];
+  const hh = dist * TAN25;
+  const hw = hh * aspect;
+  const target: V3 = [0, 1, 2].map((k) => focus[k] - right[k] * offX * hw - up[k] * offY * hh) as V3;
+  const cam: V3 = [0, 1, 2].map((k) => target[k] + dir[k] * dist) as V3;
+  return { cam, target, fov: 50 };
+}
+
+/** The system overview: the sun sits right of the copy column on wide screens, below the copy on portrait. */
+export function systemView(aspect: number, rMax: number, zoom = 1): LateCam {
+  const wide = aspect >= 1.2;
+  const fill = wide ? 0.54 : 0.9;
+  const dist = Math.max(rMax / (fill * TAN25 * aspect), wide ? 11 : 12) * zoom;
+  if (wide) return viewPose([0, 0, 0], dist, 0.49, 0, 0.33 + Math.max(0, 1.6 - aspect) * 0.25, -0.02, aspect);
+  return viewPose([0, 0, 0], dist, 0.7, 0, 0, -0.3, aspect);
+}
+/** Close-up on a planet at `pos` (angle `ang` about the sun): from the tangent side so the sun glows far behind it. */
+export function closeView(pos: V3, aspect: number): LateCam {
+  const ang = Math.atan2(pos[2], pos[0]);
+  const hx = -Math.sin(ang) * 0.82 + Math.cos(ang) * 0.57; // tangent plus a little outward
+  const hz = Math.cos(ang) * 0.82 + Math.sin(ang) * 0.57;
+  const wide = aspect >= 1.2;
+  return viewPose(pos, wide ? 1.9 : 1.75, 0.34, Math.atan2(hx, hz), wide ? 0.3 : 0, wide ? -0.02 : -0.26, aspect);
+}
+
+// ---- beat 5: merge (m) -------------------------------------------------------------------------------------------------
+export const M = {
+  pull: [0.05, 0.6], // planets fall into the sun, staggered by merge order (stagger share 0.5 of the window)
+  arm: [0.5, 0.9], // the new bright arm grows outward from the core
+  cam: [0.42, 0.98], // the camera pulls out to the full galaxy
 } as const;
 
 const stag = (win: readonly [number, number], idx: number, n: number, share = 0.45): [number, number] => {
@@ -166,124 +220,15 @@ const stag = (win: readonly [number, number], idx: number, n: number, share = 0.
   const start = win[0] + len * share * (n > 1 ? idx / (n - 1) : 0);
   return [start, start + dur];
 };
-const easeInOut = (t: number): number => t * t * (3 - 2 * t);
-const easeOut = (t: number): number => 1 - (1 - t) ** 2.4;
-
-/** Unwrapped disc angle of star j's rest point (ascending with j, so the scan beam meets the stars in launch order). */
-export const destTheta = (j: number, n: number): number => (212 + (n > 1 ? j / (n - 1) : 0.5) * 292) * (Math.PI / 180);
-/** Where star j (in launch order of n) comes to rest in the galaxy disc. aspect < 1.2 packs the ring taller than wide. */
-export function starDest(j: number, n: number, aspect: number): V3 {
-  const wide = aspect >= 1.2;
-  const ang = destTheta(j, n);
-  const r = [3.4, 5.4, 3.9, 6.0, 3.5, 5.6, 4.2, 6.1][j % 8] * (wide ? 1 : 0.92);
-  const xs = wide ? 1 : 0.64;
-  const zs = wide ? 1 : 1.3;
-  return [Math.cos(ang) * r * xs, 0.12 * Math.sin(j * 2.1), Math.sin(ang) * r * zs];
-}
-
-/** Launch progress 0..1 of star j. */
-export function launchK(u: number, j: number, n: number): number {
-  const [a, b] = stag(L.fan, j, n, 0.4);
-  return easeOut(clamp01((u - a) / (b - a)));
-}
-/** Position on the launch arc from the constellation slot s to the rest point d, k in 0..1. Writes into out. */
-export function starAt(out: V3, s: V3, d: V3, j: number, k: number): V3 {
-  // quadratic bezier, control lifted over the disc and swung sideways so every launch is a curve, not a line
-  const side = j % 2 ? 1 : -1;
-  const cx = (s[0] + d[0]) * 0.5 - (d[2] - s[2]) * 0.18 * side;
-  const cy = Math.max(s[1], d[1]) + 1.6 + 0.4 * (j % 3);
-  const cz = (s[2] + d[2]) * 0.5 + (d[0] - s[0]) * 0.18 * side;
-  const m = 1 - k;
-  out[0] = m * m * s[0] + 2 * m * k * cx + k * k * d[0];
-  out[1] = m * m * s[1] + 2 * m * k * cy + k * k * d[1];
-  out[2] = m * m * s[2] + 2 * m * k * cz + k * k * d[2];
-  return out;
-}
-export const bubbleAmt = (u: number, j: number, n: number): number => {
-  const [a, b] = stag(L.bubble, j, n, 0.5);
-  return easeInOut(clamp01((u - a) / (b - a)));
-};
-/** Planet accretion 0..1 for the worker with build order bi. */
-export const growAmt = (u: number, bi: number, n: number): number => {
-  const [a, b] = stag(L.build, bi, n, 0.5);
-  return clamp01((u - a) / (b - a));
-};
-/** Sweep: angle range and the time the beam crosses angle theta. */
-export function sweepRange(angles: number[]): [number, number] {
-  return [Math.min(...angles) - 0.32, Math.max(...angles) + 0.32];
-}
-export const sweepAngle = (u: number, a0: number, a1: number): number => a0 + (a1 - a0) * clamp01((u - L.sweep[0]) / (L.sweep[1] - L.sweep[0]));
-export const sweepTime = (theta: number, a0: number, a1: number): number => L.sweep[0] + (L.sweep[1] - L.sweep[0]) * clamp01((theta - a0) / (a1 - a0));
-/** Fixer flight window for the k-th fixer of nf. */
-export function fixWindow(k: number, nf: number): [number, number] {
-  return stag(L.fix, k, nf, 0.35);
-}
-export function fixerAt(out: V3, d: V3, k: number, kk: number): V3 {
-  const side = kk % 2 ? -1 : 1;
-  const cx = d[0] * 0.5 + d[2] * 0.25 * side;
-  const cy = 2.4 + 0.3 * kk;
-  const cz = d[2] * 0.5 - d[0] * 0.25 * side;
-  const m = 1 - k;
-  out[0] = 2 * m * k * cx + k * k * d[0];
-  out[1] = 2 * m * k * cy + k * k * d[1];
-  out[2] = 2 * m * k * cz + k * k * d[2];
-  return out;
-}
-
-export interface LateCam { cam: V3; target: V3; fov: number }
-const KEYS = (wide: boolean): { u: number; cam: V3; tg: V3; fov: number }[] => wide
-  ? [
-    { u: 0.0, cam: [0.4, 9.6, 14.2], tg: [-2.7, -0.7, 0.4], fov: 50 },
-    { u: 0.27, cam: [0.4, 9.6, 14.2], tg: [-2.7, -0.7, 0.4], fov: 50 },
-    { u: 0.6, cam: [-0.6, 7.4, 11.4], tg: [-2.5, -0.6, 0.3], fov: 50 },
-    { u: 1.0, cam: [2.0, 7.9, 11.8], tg: [-2.6, -0.6, 0.2], fov: 50 },
-  ]
-  : [
-    { u: 0.0, cam: [0, 16, 19.5], tg: [0, 3.1, 0.2], fov: 50 },
-    { u: 0.27, cam: [0, 16, 19.5], tg: [0, 3.1, 0.2], fov: 50 },
-    { u: 0.6, cam: [0, 14.2, 17.6], tg: [0, 2.9, 0.2], fov: 50 },
-    { u: 1.0, cam: [1.2, 14.4, 17.8], tg: [0, 3.0, 0.2], fov: 50 },
-  ];
-/** Late camera key pose at u (the caller blends it from the legacy final pose over the first part of the fan-out). */
-export function lateCam(u: number, aspect: number): LateCam {
-  const k = KEYS(aspect >= 1.2);
-  let i = 0;
-  while (i < k.length - 2 && u > k[i + 1].u) i++;
-  const t = easeInOut(clamp01((u - k[i].u) / (k[i + 1].u - k[i].u)));
-  const a = k[i];
-  const b = k[i + 1];
-  const mix = (x: V3, y: V3): V3 => [lerp(x[0], y[0], t), lerp(x[1], y[1], t), lerp(x[2], y[2], t)];
-  return { cam: mix(a.cam, b.cam), target: mix(a.tg, b.tg), fov: lerp(a.fov, b.fov, t) };
-}
-
-// ---- beat 6: merge (m) -------------------------------------------------------------------------------------------------
-export const M = {
-  pull: [0.05, 0.6], // planets fall into the core, staggered by merge order (stagger share 0.5 of the window)
-  arm: [0.5, 0.9], // the new bright arm grows outward from the core
-  cam: [0.42, 0.98], // the camera pulls out to the full galaxy
-} as const;
-
 /** Fall progress 0..1 of the planet with merge rank r of n (gravity: it accelerates). */
 export function pullK(m: number, r: number, n: number): number {
   const [a, b] = stag(M.pull, r, n, 0.5);
   const x = clamp01((m - a) / (b - a));
   return x ** 2.1;
 }
-/** Time (m) the planet with merge rank r of n reaches the core. */
+/** Time (m) the planet with merge rank r of n reaches the sun. */
 export const pullEnd = (r: number, n: number): number => stag(M.pull, r, n, 0.5)[1];
-/** Position on the in-spiral from the rest point d to the core, k in 0..1 (writes out). Curved, ends at the core. */
-export function mergeAt(out: V3, d: V3, k: number, j: number): V3 {
-  const r0 = Math.hypot(d[0], d[2]);
-  const a0 = Math.atan2(d[2], d[0]);
-  const swirl = 1.15 + 0.12 * (j % 4);
-  const a = a0 + swirl * k ** 1.15;
-  const r = r0 * (1 - k) ** 0.92;
-  out[0] = Math.cos(a) * r;
-  out[1] = d[1] * (1 - k) + 0.7 * Math.sin(Math.PI * k) * (j % 2 ? 1 : -0.6) * (1 - 0.4 * k);
-  out[2] = Math.sin(a) * r;
-  return out;
-}
-/** Core flare 0..1 (saturating): a short swell before each arrival, an exponential decay after it. Never reaches 1. */
+/** Sun flare 0..1 (saturating): a short swell before each arrival, an exponential decay after it. Never reaches 1. */
 export function coreFlare(m: number, n: number): number {
   let sum = 0;
   for (let r = 0; r < n; r++) {
@@ -295,27 +240,20 @@ export function coreFlare(m: number, n: number): number {
 /** Growth of the new arm, 0 (not there) .. 1 (full). */
 export const armGrow = (m: number): number => ss(M.arm[0], M.arm[1], m);
 
-const MERGE_KEYS = (wide: boolean): { m: number; cam: V3; tg: V3 }[] => wide
-  ? [
-    { m: 0.0, cam: lateCam(1, 1.6).cam, tg: lateCam(1, 1.6).target },
-    { m: 0.42, cam: [-0.6, 8.2, 12.6], tg: [-3.9, -0.4, 0.2] },
-    { m: 1.0, cam: [0.4, 14.0, 20.0], tg: [-5.6, -0.4, 0.0] },
-  ]
-  : [
-    { m: 0.0, cam: lateCam(1, 0.46).cam, tg: lateCam(1, 0.46).target },
-    { m: 0.42, cam: [0, 12.5, 15.5], tg: [0, 2.2, 0.2] },
-    { m: 1.0, cam: [0, 33, 20], tg: [0, -0.5, 0.0] },
+/** Merge camera at m: starts on the overview, leans in while the planets fall, then pulls out to the whole galaxy. */
+export function mergeCam(m: number, aspect: number, rMax: number): LateCam {
+  const wide = aspect >= 1.2;
+  const a = systemView(aspect, rMax);
+  const k: { m: number; cam: V3; tg: V3 }[] = [
+    { m: 0, cam: a.cam, tg: a.target },
+    { m: 0.42, cam: systemView(aspect, rMax, 0.8).cam, tg: systemView(aspect, rMax, 0.8).target },
+    wide ? { m: 1, cam: [0.4, 14.0, 20.0], tg: [-5.6, -0.4, 0.0] } : { m: 1, cam: [0, 33, 20], tg: [0, -0.5, 0.0] },
   ];
-/** Merge camera at m: starts on the final verify pose, leans in while the planets fall, then pulls out to the whole galaxy. */
-export function mergeCam(m: number, aspect: number): LateCam {
-  const k = MERGE_KEYS(aspect >= 1.2);
   let i = 0;
   while (i < k.length - 2 && m > k[i + 1].m) i++;
   const t = easeInOut(clamp01((m - k[i].m) / (k[i + 1].m - k[i].m)));
-  const a = k[i];
-  const b = k[i + 1];
   const mix = (x: V3, y: V3): V3 => [lerp(x[0], y[0], t), lerp(x[1], y[1], t), lerp(x[2], y[2], t)];
-  return { cam: mix(a.cam, b.cam), target: mix(a.tg, b.tg), fov: 50 };
+  return { cam: mix(k[i].cam, k[i + 1].cam), target: mix(k[i].tg, k[i + 1].tg), fov: 50 };
 }
 
 /** Copy envelope for the merge beat (and the fade-out of the verify copy). */
@@ -336,10 +274,11 @@ export const lateOpacity = {
 export const STATIC_POSE = {
   galaxy: 0.02 * SPLIT,
   core: 0.55 * SPLIT,
-  constellation: 0.92 * SPLIT,
+  constellation: 0.9 * SPLIT,
   fan: SPLIT + 0.3 * (LATE_END - SPLIT),
   build: SPLIT + 0.62 * (LATE_END - SPLIT),
-  verify: LATE_END,
-  merge: LATE_END + 0.5 * (1 - LATE_END),
+  verify: SPLIT + 0.78 * (LATE_END - SPLIT),
+  cron: SPLIT + 0.935 * (LATE_END - SPLIT),
+  merge: LATE_END + 0.3 * (1 - LATE_END),
   close: 1,
 } as const;

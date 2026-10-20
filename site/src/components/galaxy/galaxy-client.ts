@@ -1,5 +1,5 @@
 // Galaxy page client: scroll progress (GSAP ScrollTrigger) -> scene; scene frames -> DOM (copy opacity, typed task,
-// node labels pinned to projected 3D positions). Three.js loads lazily, only when WebGL is available.
+// planet labels pinned to projected 3D positions). Three.js loads lazily, only when WebGL is available.
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { detectTier } from '../../lib/galaxy/shared.ts';
@@ -33,6 +33,7 @@ async function boot(): Promise<void> {
   const fan = sec('fan');
   const build = sec('build');
   const verify = sec('verify');
+  const cron = sec('cron');
   const merge = sec('merge');
   const closeEls = [...root.querySelectorAll<HTMLElement>('[data-close]')];
   const typed = root.querySelector<HTMLElement>('[data-typed]');
@@ -48,7 +49,7 @@ async function boot(): Promise<void> {
     fixer: el.querySelector<HTMLElement>('[data-tag="fixer"]'),
   }));
   const tagBoxes = labelEls.map((el) => el.querySelector<HTMLElement>('.gx-node-tags'));
-  const POSE_ORDER = ['galaxy', 'core', 'constellation', 'fan', 'build', 'verify', 'merge', 'close'] as const;
+  const POSE_ORDER = ['galaxy', 'core', 'constellation', 'fan', 'build', 'verify', 'cron', 'merge', 'close'] as const;
   let pose: keyof typeof STATIC_POSE = 'galaxy';
   const setTag = (el: HTMLElement | null, v: number): boolean => {
     if (!el) return false;
@@ -71,7 +72,7 @@ async function boot(): Promise<void> {
     const u = f.u;
     const mm = f.m;
     const poseI = POSE_ORDER.indexOf(pose);
-    const pillO = live ? beatOpacity.plan(p) * mergeOpacity.verifyOut(mm) : poseI >= 2 && poseI <= 5 ? 1 : 0;
+    const pillO = live ? beatOpacity.plan(p) * mergeOpacity.verifyOut(mm) : poseI >= 2 && poseI <= 6 ? 1 : 0;
     const planO = live ? beatOpacity.plan(p) * lateOpacity.planOut(u) : pose === 'constellation' ? 1 : 0;
     if (live) {
       setOpacity(hero, beatOpacity.hero(p));
@@ -134,7 +135,7 @@ async function boot(): Promise<void> {
       let ey = 0;
       const ws: [HTMLElement | null, number][] = live
         ? [[plan, planO], [fan, lateOpacity.fan(u)], [build, lateOpacity.build(u)], [verify, lateOpacity.verify(u) * mergeOpacity.verifyOut(mm)]]
-        : [[plan, pose === 'constellation' ? 1 : 0], [fan, pose === 'fan' ? 1 : 0], [build, pose === 'build' ? 1 : 0], [verify, pose === 'verify' ? 1 : 0]];
+        : [[plan, pose === 'constellation' ? 1 : 0], [fan, pose === 'fan' ? 1 : 0], [build, pose === 'build' ? 1 : 0], [verify, pose === 'verify' ? 1 : 0], [cron, pose === 'cron' ? 1 : 0]];
       let tw = 0;
       for (const [el, wgt] of ws) {
         const inner = el?.firstElementChild as HTMLElement | null;
@@ -231,7 +232,7 @@ async function boot(): Promise<void> {
 
   if (reduced) {
     html.classList.add('gx-still');
-    const sections: [HTMLElement | null, keyof typeof STATIC_POSE][] = [[hero, 'galaxy'], [task, 'core'], [plan, 'constellation'], [fan, 'fan'], [build, 'build'], [verify, 'verify'], [merge, 'merge'], ...closeEls.map((el): [HTMLElement, keyof typeof STATIC_POSE] => [el, 'close'])];
+    const sections: [HTMLElement | null, keyof typeof STATIC_POSE][] = [[hero, 'galaxy'], [task, 'core'], [plan, 'constellation'], [fan, 'fan'], [build, 'build'], [verify, 'verify'], [cron, 'cron'], [merge, 'merge'], ...closeEls.map((el): [HTMLElement, keyof typeof STATIC_POSE] => [el, 'close'])];
     const io = new IntersectionObserver((entries) => {
       for (const e of entries) {
         if (!e.isIntersecting) continue;

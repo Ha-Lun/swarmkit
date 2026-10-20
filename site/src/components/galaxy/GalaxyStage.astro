@@ -1,7 +1,6 @@
 ---
 // Into the galaxy (homepage, beats 0-7). One fixed canvas, one sticky pin holding all copy as DOM. The copy and the
-// worker labels are real elements; the client pins the labels to the projected 3D positions of the constellation
-// nodes. Without scripting, WebGL or with reduced motion the sections stack as plain full-height compositions.
+// worker labels are real elements; the client pins the labels to the projected 3D positions of the sun and the planets. Without scripting, WebGL or with reduced motion the sections stack as plain full-height compositions.
 import '../../styles/galaxy.css';
 import { loadFeaturedRun } from '../../lib/run.ts';
 import { buildStory } from '../../lib/galaxy/story.ts';
@@ -18,6 +17,7 @@ const names = (xs: string[]): string => (xs.length > 1 ? `${xs.slice(0, -1).join
 const times = (n: number): string => (n === 1 ? 'once' : `${n} times`);
 const byFixer = workers.filter((w) => w.failed && w.fixer);
 const byResume = workers.filter((w) => w.failed && !w.fixer);
+const closeUp = byFixer[0] ?? null; // the planet the camera flies to (same rule as system.ts)
 const verifyNote = [
   ...byFixer.map((w) => `${w.slug} failed its tests ${times(w.failedVerifies)} and was fixed by the ${w.fixer!.lane} fixer ${w.fixer!.slug}.`),
   byResume.length > 0 ? `${names(byResume.map((w) => w.slug))} failed once each and were fixed on resume, with no fixer.` : '',
@@ -30,7 +30,8 @@ const approval = run?.plan_approval;
 const json = JSON.stringify({
   task,
   workers: workers.map((w) => ({
-    slug: w.slug, lane: w.lane, launchIndex: w.launchIndex, buildIndex: w.buildIndex, failed: w.failed, fixer: w.fixer, reviewed: w.reviewed, mergeIndex: w.mergeIndex,
+    slug: w.slug, lane: w.lane, launchIndex: w.launchIndex, buildIndex: w.buildIndex, failedVerifies: w.failedVerifies, resumes: w.resumes,
+    failed: w.failed, fixer: w.fixer, reviewed: w.reviewed, reviewedBy: w.reviewedBy, mergeIndex: w.mergeIndex,
   })),
 }).replace(/</g, '\\u003c');
 ---
@@ -98,6 +99,15 @@ const json = JSON.stringify({
               <p class="gx-cap gx-cap-run">{story.label}</p>
             </div>
           </section>
+          {closeUp && (
+            <section class="gx-beat gx-plan gx-late gx-cron" data-beat="cron" aria-labelledby="gx-cron-title">
+              <div class="gx-plan-inner" data-inner>
+                <p class="gx-kicker gx-num">04</p>
+                <h2 id="gx-cron-title" class="gx-h2">Up close: {closeUp.slug}.</h2>
+                <p class="gx-body">{closeUp.slug} failed its tests {times(closeUp.failedVerifies)}. The {closeUp.fixer!.lane} fixer {closeUp.fixer!.slug} fixed it, and it passed.</p>
+              </div>
+            </section>
+          )}
           <section class="gx-beat gx-plan gx-late" data-beat="merge" aria-labelledby="gx-merge-title">
             <div class="gx-plan-inner" data-inner>
               <p class="gx-kicker gx-num">05</p>

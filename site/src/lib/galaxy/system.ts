@@ -41,7 +41,7 @@ function verifyFor(w: StoryWorker): VerifyPlan {
 
 // Planets in launchIndex order: evenly spaced radii, golden-angle phases,
 // Keplerian speeds. Portrait aspects shrink every orbit toward the sun.
-export function buildSystem(story: Story, aspect: number): { planets: Planet[]; closeUp: string | null } {
+export function buildSystem(story: Pick<Story, 'workers'>, aspect: number): { planets: Planet[]; closeUp: string | null } {
   const n = story.workers.length;
   const ordered = [...story.workers].sort((a, b) => a.launchIndex - b.launchIndex);
   const shrink = aspect < 1 ? Math.max(0.7, aspect + 0.25) : 1;

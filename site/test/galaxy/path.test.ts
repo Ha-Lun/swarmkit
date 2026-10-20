@@ -7,7 +7,7 @@ assert.deepEqual(camRoute(1).map((v) => +v.toFixed(6)), [0, 0.1, 2.9]);
 assert.deepEqual(cometAt(1).map((v) => +v.toFixed(6)), [0, 0, 0]);
 assert.deepEqual(spline([[0, 0, 0], [1, 1, 1]], 0.5), [0.5, 0.5, 0.5]);
 
-// hero: nothing is flying yet; end: camera in the core, constellation fully drawn, pulse done
+// hero: nothing is flying yet; end: camera at the sun, orbit rings fully drawn, pulse done
 const a = sceneState(0);
 assert.equal(a.cometVis, 0);
 assert.equal(a.diveEnv, 0);
@@ -16,7 +16,7 @@ const z = sceneState(1);
 assert.equal(z.draw, 1);
 assert.equal(z.pulse, 1);
 assert.equal(z.cometVis, 0);
-assert.ok(Math.hypot(...z.target) < 1e-9, 'ends looking at the core');
+assert.ok(Math.hypot(...z.target) < 1e-9, 'ends looking at the sun');
 
 // determinism / scrub safety: same p gives the same state
 assert.deepEqual(sceneState(0.37), sceneState(0.37));
