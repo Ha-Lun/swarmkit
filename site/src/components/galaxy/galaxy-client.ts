@@ -47,6 +47,7 @@ async function boot(): Promise<void> {
     rev: el.querySelector<HTMLElement>('[data-tag="rev"]'),
     fixer: el.querySelector<HTMLElement>('[data-tag="fixer"]'),
   }));
+  const tagBoxes = labelEls.map((el) => el.querySelector<HTMLElement>('.gx-node-tags'));
   const POSE_ORDER = ['galaxy', 'core', 'constellation', 'fan', 'build', 'verify', 'merge', 'close'] as const;
   let pose: keyof typeof STATIC_POSE = 'galaxy';
   const setTag = (el: HTMLElement | null, v: number): boolean => {
@@ -95,31 +96,116 @@ async function boot(): Promise<void> {
     // pills sit centred just below their node (and bubble); neighbours that would overlap are pushed apart vertically
     const live2 = live;
     const wide = canvas.clientWidth >= canvas.clientHeight * 1.2;
+    // portrait phones/tablets and short landscape screens: a full overlap solver that also keeps pills inside the viewport
+    const solve = !wide || innerWidth < 768 || innerHeight < 520;
+    labelEls.forEach((el, i) => {
+      const n = f.nodes[i];
+      const t = tagsOf[i];
+      if (live2 || pose !== 'galaxy') {
+        setTag(t.fail, live2 ? n.bad : n.ok + n.bad);
+        setTag(t.fixed, n.ok);
+        setTag(t.rev, n.rev);
+        setTag(t.fixer, u >= 0.6 ? n.on : 0);
+        el.classList.toggle('is-bad', n.bad > 0.5);
+        el.classList.toggle('is-ok', n.ok > 0.5);
+      }
+    });
     const place = labelEls.map((el, i) => {
       const n = f.nodes[i];
       const t = tagsOf[i];
       const w = el.offsetWidth || 120;
-      let tags = 0;
-      if (live2 || pose !== 'galaxy') {
-        if (setTag(t.fail, live2 ? n.bad : n.ok + n.bad)) tags++;
-        if (setTag(t.fixed, n.ok)) tags++;
-        if (setTag(t.rev, n.rev)) tags++;
-        if (setTag(t.fixer, u >= 0.6 ? n.on : 0)) tags++;
-        el.classList.toggle('is-bad', n.bad > 0.5);
-        el.classList.toggle('is-ok', n.ok > 0.5);
-      }
-      const x = n.x - w / 2;
-      const h = 32 + tags * 19;
-      const fixer = wide && el.classList.contains('gx-node-fixer');
+      const tags = [t.fail, t.fixed, t.rev, t.fixer].filter((x) => x && x.style.display === 'inline-block').length;
+      const tb = tagBoxes[i];
+      const tw = tags > 0 && tb ? tb.offsetWidth : 0;
+      const th = tags > 0 && tb ? tb.offsetHeight + 5 : 0;
+      const ph = el.offsetHeight || 26;
+      const fixer = wide && !solve && el.classList.contains('gx-node-fixer');
+      const h = solve ? ph + th : 32 + tags * 19;
+      const W = solve ? Math.max(w, tw) : w;
       const y = fixer ? n.y - 16 - h : n.y + (n.rad || 14) + 8;
-      return { el, i, x, y, w, h };
+      return { el, i, x: n.x - W / 2, y, w: W, pw: w, h };
     });
-    place.sort((a, b) => a.y - b.y);
-    for (let k = 1; k < place.length; k++) {
-      for (let m = k - 1; m >= 0; m--) {
-        const a = place[m];
-        const b = place[k];
-        if (Math.abs(a.x + a.w / 2 - (b.x + b.w / 2)) < (a.w + b.w) / 2 + 6 && b.y - a.y < a.h + 2) b.y = a.y + a.h + 2;
+    if (solve) {
+      const vw = innerWidth;
+      const vh = innerHeight;
+      const M = 8;
+      const topMin = 60;
+      // keep clear of the copy block of whichever beat is showing (opacity-weighted so crossfades do not jump)
+      let ex = 0;
+      let ey = 0;
+      {
+        const ws: [HTMLElement | null, number][] = live
+          ? [[plan, planO], [fan, lateOpacity.fan(u)], [build, lateOpacity.build(u)], [verify, lateOpacity.verify(u) * mergeOpacity.verifyOut(mm)]]
+          : [[plan, pose === 'constellation' ? 1 : 0], [fan, pose === 'fan' ? 1 : 0], [build, pose === 'build' ? 1 : 0], [verify, pose === 'verify' ? 1 : 0]];
+        let tw = 0;
+        for (const [el, wgt] of ws) {
+          const inner = el?.firstElementChild as HTMLElement | null;
+          if (!inner || wgt < 0.01) continue;
+          const r = inner.getBoundingClientRect();
+          ex += wgt * r.right;
+          ey += wgt * Math.max(0, r.bottom);
+          tw += wgt;
+        }
+        if (tw > 0) {
+          ex = ex / tw + M;
+          ey = ey / tw + M;
+        }
+      }
+      const G = 4;
+      // the 3D nodes themselves are obstacles: a pill belongs under its own planet, not over a neighbour's
+      const discs = f.nodes.filter((n) => n.on * pillO > 0.2).map((n) => { const r = Math.max(n.rad, 10) + 2; return { x: n.x - r, y: n.y - r, w: 2 * r, h: 2 * r }; });
+      const order = [...place].sort((a, b) => a.y - b.y);
+      for (let pass = 0; pass < 40; pass++) {
+        let moved = false;
+        for (let k = 0; k < order.length; k++) {
+          const a = order[k];
+          if (a.x < ex && a.y < ey && ey > M) { a.y = ey; moved = true; }
+          for (const o of discs) {
+            if (a.x >= o.x + o.w || o.x >= a.x + a.w || a.y >= o.y + o.h || o.y >= a.y + a.h) continue;
+            moved = true;
+            const dn = o.y + o.h + G - a.y;
+            const up = o.y - G - (a.y + a.h);
+            const dr = o.x + o.w + G - a.x;
+            const dl = o.x - G - (a.x + a.w);
+            const dv = Math.abs(dn) < Math.abs(up) ? dn : up;
+            const dh = Math.abs(dr) < Math.abs(dl) ? dr : dl;
+            if (Math.abs(dh) < Math.abs(dv) * 0.6) a.x += dh; else a.y += dv;
+          }
+          for (let m = 0; m < k; m++) {
+            const b = order[m];
+            const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) + G;
+            const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) + G;
+            if (ox <= 0 || oy <= 0) continue;
+            moved = true;
+            const lower = a.y >= b.y ? a : b;
+            const full = lower.y + oy + lower.h > vh - M; // no room left below: separate sideways
+            if (ox < oy * 0.6 || full) {
+              const d = ox / 2;
+              if (a.x + a.w / 2 < b.x + b.w / 2) { a.x -= d; b.x += d; } else { a.x += d; b.x -= d; }
+            } else if (a.y >= b.y) {
+              a.y += oy;
+            } else {
+              b.y += oy;
+            }
+          }
+          a.x = Math.min(Math.max(a.x, M), Math.max(M, vw - M - a.w));
+          a.y = Math.min(Math.max(a.y, topMin), Math.max(topMin, vh - M - a.h));
+        }
+        if (!moved) break;
+      }
+      place.forEach((q) => {
+        q.x = Math.min(Math.max(q.x, M), Math.max(M, vw - M - q.w));
+        q.y = Math.min(Math.max(q.y, topMin), Math.max(topMin, vh - M - q.h));
+        q.x += (q.w - q.pw) / 2;
+      });
+    } else {
+      place.sort((a, b) => a.y - b.y);
+      for (let k = 1; k < place.length; k++) {
+        for (let m = k - 1; m >= 0; m--) {
+          const a = place[m];
+          const b = place[k];
+          if (Math.abs(a.x + a.w / 2 - (b.x + b.w / 2)) < (a.w + b.w) / 2 + 6 && b.y - a.y < a.h + 2) b.y = a.y + a.h + 2;
+        }
       }
     }
     place.forEach((q) => {

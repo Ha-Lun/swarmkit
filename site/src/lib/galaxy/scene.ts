@@ -660,8 +660,8 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     // core flash as the comet lands: a brief gain bump on the bulge
     shared.uGain.value *= 1 + 0.9 * st.flash;
     // merge: the whole galaxy comes back up as the camera pulls out; the bulge swells with each arrival (saturating, never blown out)
-    shared.uGain.value *= (1 + 0.35 * pullOut) * (1 + 0.28 * flare);
-    const wideSize = 1 + 1.1 * pullOut; // stars are fixed-size in world units: keep them readable from the far camera
+    shared.uGain.value *= (1 + 0.35 * pullOut * (1 + clamp01((1.2 - aspect) / 0.74))) * (1 + 0.28 * flare);
+    const wideSize = (1 + 1.1 * pullOut) * (1 + 0.55 * pullOut * clamp01((1.2 - aspect) / 0.74)); // portrait: the far camera is width-limited, so stars grow more // stars are fixed-size in world units: keep them readable from the far camera
     starMat.uniforms.uSize.value *= wideSize;
     armMat.uniforms.uSize.value = starMat.uniforms.uSize.value;
     armMat.uniforms.uGain.value = shared.uGain.value * 0.6;
@@ -848,11 +848,16 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     renderFrame(nowMs);
   }
 
+  let sizeKey = '';
   function resize(): void {
     if (disposed) return;
     cssW = Math.max(1, canvas.clientWidth || 1);
     cssH = Math.max(1, canvas.clientHeight || 1);
     const pr = Math.min(window.devicePixelRatio || 1, tcfg.pr);
+    // mobile URL-bar show/hide fires 'resize' without changing the (lvh) canvas: skip, resetting the buffer would flicker
+    const key = `${cssW}x${cssH}@${pr}`;
+    if (key === sizeKey) return;
+    sizeKey = key;
     renderer.setPixelRatio(pr);
     renderer.setSize(cssW, cssH, false);
     composer?.setPixelRatio(pr);

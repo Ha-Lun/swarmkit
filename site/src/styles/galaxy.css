@@ -14,9 +14,9 @@ html:has([data-gx]) { background: var(--gx-bg); color-scheme: dark; }
 html:has([data-gx]) body { background: var(--gx-bg); color: var(--gx-ink); font-family: var(--gx-display); margin: 0; }
 
 .gx { position: relative; }
-.gx-canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; z-index: 0; pointer-events: none; }
+.gx-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100vh; height: 100lvh; display: block; z-index: 0; pointer-events: none; }
 .gx-fallback {
-  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  position: fixed; top: 0; left: 0; width: 100%; height: 100vh; height: 100lvh; z-index: 0; pointer-events: none;
   background:
     radial-gradient(38% 34% at 50% 62%, rgba(217, 204, 255, 0.5), rgba(217, 204, 255, 0.12) 45%, transparent 72%),
     radial-gradient(60% 18% at 50% 62%, rgba(46, 230, 200, 0.18), transparent 70%),
@@ -28,10 +28,10 @@ html.gx-live .gx-fallback, html.gx-still .gx-fallback { visibility: hidden; }
 html.gx-nogl .gx-canvas { display: none; }
 
 /* ---- bar ---- */
-.gx-bar { position: fixed; z-index: 5; top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; padding: 20px clamp(16px, 4vw, 48px); }
-.gx-bar a { color: var(--gx-ink); text-decoration: none; font-size: 15px; }
+.gx-bar { position: fixed; z-index: 5; top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; box-sizing: border-box; padding: calc(10px + env(safe-area-inset-top, 0px)) calc(clamp(8px, 3vw, 40px) + env(safe-area-inset-right, 0px)) 10px calc(clamp(8px, 3vw, 40px) + env(safe-area-inset-left, 0px)); }
+.gx-bar a { color: var(--gx-ink); text-decoration: none; font-size: 15px; display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; }
 .gx-wordmark { font-weight: 700; letter-spacing: 0.01em; font-size: 18px !important; }
-.gx-bar nav { display: flex; gap: 24px; }
+.gx-bar nav { display: flex; gap: 8px; }
 .gx-bar nav a { color: var(--gx-muted); }
 .gx-bar nav a:hover { color: var(--gx-ink); }
 
@@ -120,7 +120,7 @@ html.gx-live .gx-node-lane, html.gx-still .gx-node-lane { font-size: 13px; lette
 .gx-install { position: relative; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; margin-top: 28px; padding: 16px; max-width: 30rem; background: #11131c; border: 1px solid rgba(243, 241, 255, 0.22); border-radius: 12px; }
 .gx-install pre { flex: 1 1 16rem; margin: 0; overflow-x: auto; }
 .gx-install code { font-family: var(--gx-mono); font-size: 14px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
-.gx-install-copy { padding: 8px 16px; min-height: 40px; background: var(--gx-ink); border: 1px solid var(--gx-ink); border-radius: 999px; color: var(--gx-bg); font-weight: 600; font-family: var(--gx-mono); font-size: 14px; cursor: pointer; }
+.gx-install-copy { padding: 8px 18px; min-height: 44px; min-width: 64px; background: var(--gx-ink); border: 1px solid var(--gx-ink); border-radius: 999px; color: var(--gx-bg); font-weight: 600; font-family: var(--gx-mono); font-size: 14px; cursor: pointer; }
 .gx-install-copy:hover { background: #fff; }
 .gx-status { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .gx-actions-left { justify-content: flex-start; margin-top: 28px; }
@@ -129,6 +129,7 @@ html.gx-live .gx-node-lane, html.gx-still .gx-node-lane { font-size: 13px; lette
 
 /* ---- live: one sticky pin, copy layered, JS drives opacity ---- */
 html.gx-live .gx-track { height: 2220svh; }
+@supports not (height: 1svh) { html.gx-live .gx-track { height: 2220vh; } html.gx-live .gx-pin { height: 100vh; } }
 html.gx-live .gx-pin { position: sticky; top: 0; height: 100svh; overflow: clip; }
 html.gx-live .gx-beat { position: absolute; inset: 0; min-height: 0; opacity: 0; visibility: hidden; pointer-events: none; }
 html.gx-live .gx-hero { opacity: 1; visibility: visible; }
@@ -150,11 +151,20 @@ html.gx-live .gx-plan-inner, html.gx-still .gx-plan-inner { max-width: 26rem; }
   html.gx-live .gx-hero, html.gx-still .gx-hero { padding-top: clamp(88px, 14svh, 140px); }
   html.gx-live .gx-plan-inner, html.gx-still .gx-plan-inner { max-width: none; }
   .gx-task-line { max-width: none; }
-  .gx-node { font-size: 12px; }
   html.gx-live .gx-track { height: 1960svh; }
-  .gx-close-sec { background: rgba(5, 6, 10, 0.74); }
-  /* the pinned worker pills own the lower screen here; the sentence stays in the DOM and in the stacked layouts */
-  html.gx-live [data-beat='verify'] .gx-cap-note { display: none; }
+  .gx-close-sec { background: rgba(5, 6, 10, 0.5); }
+  .gx-close-sec .gx-h2, .gx-close-sec .gx-small, .gx-close-sec .gx-stat-label { text-shadow: 0 1px 16px rgba(5, 6, 10, 1), 0 0 3px rgba(5, 6, 10, 0.9); }
+  /* late beats: one-line headings and a tighter top so the pinned worker pills keep the lower screen */
+  .gx-late .gx-h2, .gx-plan .gx-h2 { font-size: 1.75rem; margin-bottom: 10px; }
+  html.gx-live .gx-plan, html.gx-still .gx-plan { padding-top: 84px; }
+  .gx-late .gx-cap-note { font-size: 11px; line-height: 1.5; margin-top: 10px; }
+  .gx-late .gx-cap-run { margin-top: 8px; }
+  /* pinned pills: smaller, with the status tags under the name */
+  html.gx-live .gx-node, html.gx-still .gx-node { font-size: 11px; padding: 3px 8px; gap: 6px; }
+  html.gx-live .gx-node-lane, html.gx-still .gx-node-lane { font-size: 10px; letter-spacing: 0.02em; }
+  .gx-node-row { gap: 6px; }
+  html.gx-live .gx-node-tags, html.gx-still .gx-node-tags { top: calc(100% + 3px); }
+  .gx-tag { font-size: 10px; padding: 0 6px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .gx-caret { animation: none; }

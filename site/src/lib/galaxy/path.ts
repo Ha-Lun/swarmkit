@@ -304,7 +304,7 @@ const MERGE_KEYS = (wide: boolean): { m: number; cam: V3; tg: V3 }[] => wide
   : [
     { m: 0.0, cam: lateCam(1, 0.46).cam, tg: lateCam(1, 0.46).target },
     { m: 0.42, cam: [0, 12.5, 15.5], tg: [0, 2.2, 0.2] },
-    { m: 1.0, cam: [0, 40, 24], tg: [0, -1.4, 0.0] },
+    { m: 1.0, cam: [0, 33, 20], tg: [0, -0.5, 0.0] },
   ];
 /** Merge camera at m: starts on the final verify pose, leans in while the planets fall, then pulls out to the whole galaxy. */
 export function mergeCam(m: number, aspect: number): LateCam {
