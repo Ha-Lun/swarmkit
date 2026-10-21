@@ -16,9 +16,7 @@ uniform float uCoreDim;
 uniform float uBig; // 1 = large soft sprites (haze, dust): no energy normalisation
 uniform float uDof; // 0..1 close-up fake depth of field: things far behind the focus plane get bigger and dimmer
 uniform float uFocusD;
-uniform float uNear; // >0: fade by view distance (the nebula gas): nothing fills the screen when the camera flies through it
-uniform float uCollapse; // 0..1: the nebula knot (points within ~0.9 of the origin) pulls into a point and brightens (ignition)
-uniform float uKnot; // 0..1 brightness of the knot points (fades out after the ignition flash)
+uniform float uNear; // >0: fade by view distance (the nebula stars): nothing fills the screen when the camera flies through it
 uniform vec4 uCopyMask; // NDC ellipse cx, cy, rx, ry that dims this cloud (the close-up headline column)
 uniform float uCopyAmt;
 uniform float uForm; // 0..1 supernova formation: each star flies from the core to its place (inner first) while swirling in; 1 = untouched
@@ -31,11 +29,6 @@ out float vA;
 
 void main() {
   vec3 p = position;
-  float kn = 0.0;
-  if (uCollapse > 0.0 || uKnot < 1.0) {
-    kn = 1.0 - smoothstep(0.7, 0.95, length(p));
-    p *= 1.0 - 0.94 * uCollapse * kn;
-  }
   float fa = 1.0;
   float spark = 0.0;
   if (uForm < 1.0) {
@@ -74,7 +67,6 @@ void main() {
   }
   a *= smoothstep(0.12, 1.2, depth);
   if (uNear > 0.0) a *= smoothstep(uNear * 0.3, uNear, depth);
-  if (kn > 0.0) { a *= mix(1.0, uKnot, kn) * (1.0 + 0.8 * uCollapse * kn) * (1.0 - 0.45 * (1.0 - uCollapse) * kn); size *= 1.0 - 0.75 * uCollapse * kn; }
   if (uCopyAmt > 0.0) {
     vec2 nd = (gl_Position.xy / max(gl_Position.w, 1e-3) - uCopyMask.xy) / uCopyMask.zw;
     a *= 1.0 - 0.9 * uCopyAmt * (1.0 - smoothstep(0.75, 1.25, length(nd)));
