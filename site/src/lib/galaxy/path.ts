@@ -239,7 +239,7 @@ export function coreFlare(m: number, n: number): number {
   return 1 - Math.exp(-sum * 1.1);
 }
 /** Galaxy formation 0 (everything at the core) .. 1 (every star on its final arm). Monotonic. */
-export const formK = (m: number): number => ss(M.form[0], M.form[1], m);
+export const formK = (m: number): number => 1 - (1 - clamp01((m - M.form[0]) / (M.form[1] - M.form[0]))) ** 1.7; // explosive start (thrown out), soft landing
 /** Sun swell 0..1 before the burst (the star bloats as the last planets arrive). */
 export const sunSwell = (m: number): number => ss(0.3, M.burst[0], m) * (1 - ss(M.burst[0], M.burst[0] + 0.03, m));
 /** The system (sun, glow pool, orbit ribbons) is present 1 .. gone 0 across the burst. */
@@ -256,7 +256,7 @@ export function mergeCam(m: number, aspect: number, rMax: number): LateCam {
   const a = systemView(aspect, rMax);
   const offX = wide ? 0.33 + Math.max(0, 1.6 - aspect) * 0.25 : 0;
   const dist = wide ? Math.max(25, 10 / (TAN25 * aspect * (0.92 - offX))) : Math.max(52, 10 / (TAN25 * aspect * 0.9)); // galaxy radius is 10
-  const fin = viewPose([0, 0, 0], dist, 0.78, 0, offX, wide ? -0.02 : -0.28, aspect);
+  const fin = viewPose([0, 0, 0], dist, 0.84, 0, offX, wide ? -0.02 : -0.28, aspect);
   const k: { m: number; cam: V3; tg: V3 }[] = [
     { m: 0, cam: a.cam, tg: a.target },
     { m: 0.42, cam: systemView(aspect, rMax, 0.8).cam, tg: systemView(aspect, rMax, 0.8).target },

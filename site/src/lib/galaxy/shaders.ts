@@ -23,6 +23,7 @@ uniform float uKnot; // 0..1 brightness of the knot points (fades out after the 
 uniform vec4 uCopyMask; // NDC ellipse cx, cy, rx, ry that dims this cloud (the close-up headline column)
 uniform float uCopyAmt;
 uniform float uForm; // 0..1 supernova formation: each star flies from the core to its place (inner first) while swirling in; 1 = untouched
+uniform float uSpark; // >0: the debris leaving the supernova core is hot and streaky at first, then settles into the arm
 uniform float uClearR; // >0: clean black around the origin — brightness fades in from uClearR*0.5 out to uClearR (the system beats)
 in vec3 aColor;
 in vec4 aData;
@@ -37,8 +38,9 @@ void main() {
     p *= 1.0 - 0.94 * uCollapse * kn;
   }
   float fa = 1.0;
+  float spark = 0.0;
   if (uForm < 1.0) {
-    float d = 0.42 * clamp(length(p.xz) * 0.1, 0.0, 1.0) + 0.2 * aData.y; // inner stars land first, with per-star jitter
+    float d = 0.34 * clamp(length(p.xz) * 0.1, 0.0, 1.0) + 0.1 * aData.y; // inner stars land first, with per-star jitter
     float k = clamp(uForm * 1.65 - d, 0.0, 1.0);
     float e = 1.0 - pow(1.0 - k, 3.0); // thrown out fast, settling softly
     float sw = (1.0 - k) * (1.0 - k) * 2.8; // spin-up: the debris swirls into its arm
@@ -47,6 +49,9 @@ void main() {
     p *= e;
     p.xz = mat2(cs, sn, -sn, cs) * p.xz;
     fa = smoothstep(0.0, 0.1, k) * (1.0 + 3.0 * k * (1.0 - k));
+    // sparks: a tenth of the outer stars are thrown out hot and streaky (the bulge never gets this boost, it would stack into a white-out)
+    spark = uSpark * step(aData.z, 0.1) * smoothstep(1.5, 4.0, length(position.xz)) * pow(1.0 - k, 2.0) * smoothstep(0.0, 0.06, k);
+    fa *= 1.0 + 9.0 * spark;
   }
   float r = length(p.xz);
   if (uRotate > 0.5) {
@@ -61,6 +66,7 @@ void main() {
   float tw = 1.0 + 0.28 * sin(uTime * (0.7 + aData.z * 2.2) + aData.y * 40.0);
   float size = uPx > 0.0 ? aData.x * uPx * uPR : aData.x * uSize * uScale / depth;
   float a = uGain * tw * fa * smoothstep(aData.w - 0.12, aData.w, uGrow);
+  size *= 1.0 + 1.6 * spark;
   if (uBig < 0.5 && uPx <= 0.0) {
     a /= 1.0 + pow(size / (16.0 * uPR), 2.0); // keep energy when a star is close to the lens
     a *= 1.0 - (1.0 - uCoreDim) * exp(-r * r * 0.35);
@@ -90,7 +96,7 @@ void main() {
 `;
 
 export const spriteFrag = /* glsl */ `
-uniform float uMode; // 0 star, 1 haze, 2 dust
+uniform float uMode; // 0 star, 1 haze, 2 dust, 3 hot point core (steep falloff, no flat disc)
 in vec3 vC;
 in float vA;
 out vec4 fragColor;
@@ -99,6 +105,12 @@ void main() {
   vec2 q = gl_PointCoord - 0.5;
   float d = length(q) * 2.0;
   if (d > 1.0) discard;
+  if (uMode > 2.5) {
+    float edge3 = 1.0 - smoothstep(0.55, 1.0, d);
+    vec3 rgb = (vec3(1.0, 0.96, 1.0) * exp(-d * 16.0) + vC * vec3(0.7, 0.45, 1.0) * exp(-d * 4.5) * 0.28) * edge3 * vA;
+    fragColor = vec4(rgb, 1.0);
+    return;
+  }
   float edge = 1.0 - smoothstep(0.55, 1.0, d);
   if (uMode > 1.5) {
     fragColor = vec4(0.0, 0.0, 0.0, exp(-d * d * 2.4) * edge * vC.x * vA);
@@ -675,11 +687,13 @@ void main() {
     col += vec3(0.84, 0.78, 1.0) * (line * 0.3 + soft) * uPulseA;
   }
   if (uShockA > 0.001) {
-    // the supernova shock: one crisp hairline ring with a soft shoulder behind it
+    // the supernova shock: one crisp hairline ring, brightest on its leading edge, with a soft glowing shoulder behind it
     float aa = max(fwidth(r), 1e-4);
-    float line = 1.0 - smoothstep(0.0, 1.6 * aa, abs(r - uShockR));
-    float soft = exp(-pow((r - uShockR) / 0.35, 2.0)) * 0.1 + step(r, uShockR) * exp(-(uShockR - r) / 0.9) * 0.025;
-    col += vec3(0.9, 0.84, 1.0) * (line * 0.42 + soft) * uShockA;
+    float dr = r - uShockR;
+    float line = 1.0 - smoothstep(0.0, 1.6 * aa, abs(dr));
+    float lead = exp(-pow(dr / 0.2, 2.0)) * (dr > 0.0 ? 1.0 : 0.0) + exp(-pow(dr / 0.2, 2.0)) * (dr <= 0.0 ? 0.55 : 0.0);
+    float trail = step(r, uShockR) * exp(dr / 0.55);
+    col += mix(vec3(0.62, 0.55, 1.0), vec3(1.0, 0.95, 1.0), smoothstep(-0.6, 0.0, dr)) * (line * 0.55 + lead * 0.3 + trail * 0.05) * uShockA;
   }
   if (uScanVis > 0.001) {
     float th = atan(-vP.y, vP.x);

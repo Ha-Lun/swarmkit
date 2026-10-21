@@ -41,7 +41,7 @@ const ARM_SEQ = [0, 2, 0, 2, 1, 3];
 /** Lane blend 0 (teal) .. 1 (amber): varies smoothly with azimuth and radius, so lanes flow into each other. */
 const laneMix = (a: number, t: number): number => 0.5 + 0.42 * Math.sin(a - 0.5 + 2.2 * t);
 /** Arm lateral spread (world units) at normalised radius t. */
-const armSigma = (t: number): number => GALAXY_R * (0.012 + 0.032 * t);
+const armSigma = (t: number): number => GALAXY_R * (0.016 + 0.042 * t);
 /** Spurs: a few short, faint branches that leave a dominant arm. */
 const SPURS = Array.from({ length: 5 }, (_, i) => ({
   arm: (i % 2) * 2,
@@ -63,8 +63,8 @@ export function buildGalaxy(count: number, seed = 11): PointCloud {
   const nArms = Math.round(count * 0.62);
   // small HII-style clusters: each sits on one arm at a fixed radius and lateral offset
   const knots = Array.from({ length: 60 }, () => ({ t: 0.14 + rnd() ** 1.2 * 0.8, arm: pickArm(rnd()), lat: gauss() * 0.8 }));
-  const nBulge = Math.round(count * 0.17);
-  const nDisc = Math.round(count * 0.14);
+  const nBulge = Math.round(count * 0.15);
+  const nDisc = Math.round(count * 0.2);
   const nHalo = Math.round(count * 0.025);
   for (let i = 0; i < count; i++) {
     let x = 0;
@@ -106,7 +106,7 @@ export function buildGalaxy(count: number, seed = 11): PointCloud {
       col = mix3(col, tint, sstep(0.3, 0.62, t));
       const dustSide = off < -sigma * 0.5 ? 1 - 0.55 * sstep(0.5, 2, -off / sigma) : 1;
       const young = rnd() < 0.04;
-      bright = (0.55 + rnd() * 0.6) * (1.1 - 0.5 * t) * (spur ? 0.8 : 1) * dustSide * (weak && !clumped ? 0.5 : 1) * (0.3 + 0.7 * sstep(0.05, 0.3, t));
+      bright = (0.42 + rnd() * 0.5) * (1.1 - 0.5 * t) * (spur ? 0.8 : 1) * dustSide * (weak && !clumped ? 0.5 : 1) * (0.07 + 0.93 * sstep(0.14, 0.46, t));
       if (clumped) {
         col = mix3(PINK, [1, 1, 1], 0.3);
         bright = (0.6 + rnd() * 0.5) * (1.1 - 0.4 * t);
@@ -117,7 +117,7 @@ export function buildGalaxy(count: number, seed = 11): PointCloud {
         size = 1.4 + rnd() * 0.5;
       } else size = 0.55 + rnd() * 0.7;
     } else if (i < nArms + nBulge) {
-      const rr = Math.abs(gauss()) * 0.62 + 0.03;
+      const rr = Math.abs(gauss()) * 0.85 + 0.03;
       const th = Math.acos(2 * rnd() - 1);
       const ph = rnd() * Math.PI * 2;
       x = rr * Math.sin(th) * Math.cos(ph);
@@ -125,7 +125,7 @@ export function buildGalaxy(count: number, seed = 11): PointCloud {
       y = rr * Math.cos(th) * 0.62;
       const k = rnd();
       col = mix3(mix3(CORE, [1, 0.92, 0.85], 0.5), WARM, 0.25 + 0.6 * k);
-      bright = (0.12 + rnd() * 0.22) * (1.0 - 0.4 * Math.min(1, rr / 1.4));
+      bright = (0.18 + rnd() * 0.3) * (1.0 - 0.4 * Math.min(1, rr / 1.8));
       size = 0.5 + rnd() * 0.6;
     } else if (i < nArms + nBulge + nDisc) {
       const t = Math.min(1, -Math.log(1 - rnd() * 0.97) * 0.3);
@@ -134,7 +134,7 @@ export function buildGalaxy(count: number, seed = 11): PointCloud {
       z = Math.sin(ang) * t * GALAXY_R;
       y = gauss() * (0.04 + 0.16 * Math.exp(-t * 2.2));
       col = mix3(CORE, DEEP, sstep(0.05, 0.6, t));
-      bright = (0.1 + rnd() * 0.2) * (1 - 0.5 * t);
+      bright = (0.14 + rnd() * 0.26) * (1 - 0.45 * t);
       size = 0.5 + rnd() * 0.5;
     } else if (i < nArms + nBulge + nDisc + nHalo) {
       const rr = GALAXY_R * (0.2 + rnd() * 0.9);
@@ -214,10 +214,23 @@ export function buildNewArm(count: number, seed = 31): PointCloud {
 /** Large, faint, coloured sprites over the arms and around the bulge. Used sparingly. */
 export function buildHaze(count: number, seed = 5): PointCloud {
   const rnd = mulberry32(seed);
-  const c = cloud(count);
+  const nDisc = Math.round(count * 2.6); // extra soft sprites over the whole disc: the galaxy reads as a lit disc, not just two ribbons
+  const c = cloud(count + nDisc);
+  for (let j = 0; j < nDisc; j++) {
+    const k = count + j;
+    const t = 0.05 + 0.8 * Math.sqrt(rnd());
+    const ang = rnd() * Math.PI * 2;
+    c.position[k * 3] = Math.cos(ang) * t * GALAXY_R;
+    c.position[k * 3 + 1] = (rnd() - 0.5) * 0.3;
+    c.position[k * 3 + 2] = Math.sin(ang) * t * GALAXY_R;
+    const col = mix3(PALETTE.opus as RGB, mix3(mix3(PALETTE.opencode as RGB, PALETTE.agy as RGB, laneMix(ang, t)), [0.82, 0.9, 1], 0.4), sstep(0.05, 0.5, t));
+    const b = 0.016 * (1.3 - t);
+    c.color.set([col[0] * b, col[1] * b, col[2] * b], k * 3);
+    c.data.set([2.2 + rnd() * 2.8, rnd(), rnd(), 0], k * 4);
+  }
   for (let i = 0; i < count; i++) {
     const arm = ARM_SEQ[i % ARM_SEQ.length];
-    const nearCore = i < 6;
+    const nearCore = i < 10;
     const t = nearCore ? 0.04 + rnd() * 0.1 : 0.14 + rnd() * 0.78;
     const ang = arm * (Math.PI * 2 / ARMS) + armTwist(t) + (rnd() - 0.5) * 0.25;
     const r = t * GALAXY_R;
@@ -225,7 +238,7 @@ export function buildHaze(count: number, seed = 5): PointCloud {
     c.position[i * 3 + 1] = (rnd() - 0.5) * 0.4;
     c.position[i * 3 + 2] = Math.sin(ang) * r;
     const col = nearCore ? (PALETTE.opus as RGB) : mix3(mix3(PALETTE.opencode as RGB, PALETTE.agy as RGB, laneMix(ang, t)), [0.82, 0.9, 1], 0.35);
-    const b = nearCore ? 0.035 : 0.035 + rnd() * 0.03;
+    const b = nearCore ? 0.028 : 0.035 + rnd() * 0.03;
     c.color.set([col[0] * b, col[1] * b, col[2] * b], i * 3);
     c.data.set([nearCore ? 4.5 + rnd() * 2 : 3 + rnd() * 4, rnd(), rnd(), 0], i * 4);
   }
