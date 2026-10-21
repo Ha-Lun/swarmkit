@@ -12,7 +12,7 @@
 // sharp (both in node_modules; sharp encodes the WebP with a lossy alpha). GPU=0 renders the same frames on swiftshader, slowly.
 //
 //   CHROME=/path/to/chrome PLAYWRIGHT_CORE=/dir/with/node_modules node scripts/render-nebula.mjs [all|hero|cube|moments|preview]
-//   GPU=0 to use swiftshader; QUALITY=draft|final (default final); OUT=dir (default public/nebula); Q=78 AQ=60 (webp colour and
+//   GPU=0 to use swiftshader; QUALITY=draft|final (default final); OUT=dir (default public/nebula); Q=82 AQ=72 (webp colour and
 //   alpha quality); HW=2048 CUBE_N=1024 (high-set sizes; the low set is half); QA_DIR=dir also writes the tonemapped composite there.
 //   ROLL=90 renders the hero rolled 90 degrees about the view axis (a streak that stays vertical on screen is the renderer's).
 // Deterministic: fixed seeds, Halton sub-pixel jitter, integer hashes.
@@ -27,7 +27,7 @@ const mode = process.argv[2] || 'all';
 const draft = (process.env.QUALITY || 'final') === 'draft' || mode === 'preview';
 const OUT = resolve(process.env.OUT || join(root, 'public/nebula'));
 mkdirSync(OUT, { recursive: true });
-const Q = process.env.Q || '78';
+const Q = process.env.Q || '82';
 const roll = ((+process.env.ROLL || 0) * Math.PI) / 180;
 
 const { loadFeaturedRun } = await import(join(root, 'src/lib/run.ts'));
@@ -125,7 +125,7 @@ const cubeStars = [...bgAll];
 }
 
 const cfg = {
-  lobes: gen.LOBES, rim: gen.RIM, knotR: gen.KNOT_R, teal: PALETTE.opencode, amber: PALETTE.agy, vh: 9, bubble, heroStars, cubeStars, dither: process.env.DITHER !== undefined ? +process.env.DITHER : 0.5, alphaDither: process.env.ADITHER === '1', comp: !!process.env.QA_DIR,
+  lobes: gen.LOBES, rim: gen.RIM, knotR: gen.KNOT_R, teal: PALETTE.opencode, amber: PALETTE.agy, vh: 9, bubble, heroStars, cubeStars, dither: process.env.DITHER !== undefined ? +process.env.DITHER : 0.5, alphaDither: process.env.ADITHER !== '0', comp: !!process.env.QA_DIR,
 };
 
 // ---- the server: serves the render page and receives the raw RGBA frames ------------------------------
@@ -138,7 +138,7 @@ function outPath(name) { return join(name.includes('-comp-') && QA ? QA : OUT, `
 // frames arrive as raw straight-alpha RGBA8. sharp (libwebp) encodes them: lossy colour (Q) and lossy alpha (AQ); the alpha
 // channel is most of the bytes at lossless, and the soft gas does not need it exact. ffmpeg cannot set the alpha quality.
 const sharp = createRequire(join(root, 'x.js'))('sharp');
-const AQ = +process.env.AQ || 80;
+const AQ = +process.env.AQ || 72;
 function startEncode(name, w, h) {
   const chunks = [];
   const opaque = /-(cube|comp)-/.test(name);
@@ -216,7 +216,7 @@ const manifest = {
   approach: {}, bubble: {},
 };
 const heroJob = (extra) => ({
-  name: 'approach', cam: hero.cam, target: hero.target, fov: hero.fov, roll, bounds: HERO_BOUNDS, gain: 0.38, expo: 1, detail: process.env.DETAIL !== undefined ? +process.env.DETAIL : 1.8, knot: process.env.KNOT !== undefined ? +process.env.KNOT : 1.3, dust: process.env.DUST !== undefined ? +process.env.DUST : 1.5, ...extra,
+  name: 'approach', cam: hero.cam, target: hero.target, fov: hero.fov, roll, bounds: HERO_BOUNDS, gain: 0.38, expo: 1, detail: process.env.DETAIL !== undefined ? +process.env.DETAIL : 1.0, knot: process.env.KNOT !== undefined ? +process.env.KNOT : 1.3, rim: process.env.RIM !== undefined ? +process.env.RIM : 2.5, dust: process.env.DUST !== undefined ? +process.env.DUST : 2.2, ...extra,
 });
 let mom = null;
 if (mode === 'all' || mode === 'moments' || mode === 'hero' || mode === 'cube' || mode === 'preview') {
@@ -241,7 +241,7 @@ if (mode === 'all' || mode === 'hero' || mode === 'preview') {
 if (mode === 'all' || mode === 'cube' || mode === 'preview') {
   const faces = process.env.FACES ? process.env.FACES.split(',').map(Number) : [0, 1, 2, 3, 4, 5];
   for (const face of faces) {
-    const r = await page.evaluate((j) => window.nebula.face(j), { name: 'bubble', face, N: cubeN, gain: +process.env.CGAIN || 0.1, expo: 1, low: !draft, detail: process.env.CDETAIL !== undefined ? +process.env.CDETAIL : 1, ...quality.cube });
+    const r = await page.evaluate((j) => window.nebula.face(j), { name: 'bubble', face, N: cubeN, gain: +process.env.CGAIN || 0.1, expo: 1, low: !draft, detail: process.env.CDETAIL !== undefined ? +process.env.CDETAIL : 1, rim: process.env.CRIM !== undefined ? +process.env.CRIM : 4, ...quality.cube });
     console.log('face', JSON.stringify(r));
   }
 }

@@ -86,6 +86,17 @@ float fbm(vec3 p, int oct) {
   }
   return s / n;
 }
+// low-gain fbm: large coherent forms with only a little small structure on them
+float sfbm(vec3 p, int oct, float gain) {
+  float s = 0.0, a = 1.0, n = 0.0;
+  for (int i = 0; i < 5; i++) {
+    if (i >= oct) break;
+    s += a * noise(p); n += a;
+    p = ROT * p * 2.03 + vec3(11.7, 3.1, 7.3);
+    a *= gain;
+  }
+  return s / n;
+}
 // ridged multifractal: thin bright ridges (filaments), each octave weighted by the last so detail gathers on the ridges
 float ridged(vec3 p, int oct) {
   float s = 0.0, a = 0.55, n = 0.0, w = 1.0;
@@ -100,11 +111,13 @@ float ridged(vec3 p, int oct) {
   }
   return s / n;
 }
+#define FILW 0.0
 vec4 fieldSrc(vec3 p, float bias, out vec3 qo) {
   qo = p;
   float r = length(p);
-  vec3 w = vec3(noise(p * 0.42 + 3.0), noise(p * 0.42 + 17.0), noise(p * 0.42 + 41.0)) - 0.5;
-  vec3 pw = p + w * 3.2;
+  // a gentle warp only: large coherent structures, not swirls
+  vec3 w = vec3(noise(p * 0.34 + 3.0), noise(p * 0.34 + 17.0), noise(p * 0.34 + 41.0)) - 0.5;
+  vec3 pw = p + w * 1.0;
   float env = bias, hue = bias * 0.5;
   for (int k = 0; k < ${cfg.lobes.length}; k++) {
     vec3 d = (pw - LC[k]) / LS[k];
@@ -113,21 +126,28 @@ vec4 fieldSrc(vec3 p, float bias, out vec3 qo) {
   }
   if (env < 0.015 && uOut == 0) return vec4(0.0);
   hue /= env;
-  vec3 w2 = vec3(fbm(pw * 1.3 + 5.0, 3), fbm(pw * 1.3 + 23.0, 3), fbm(pw * 1.3 + 61.0, 3)) - 0.5;
-  vec3 pw2 = pw + w2 * 1.1;
-  // a gentle stretch along a warped direction to the star: structure streams toward it but fans and curls
-  vec3 rdir = normalize(p / max(r, 0.05) + w2 * 2.6 + 1e-4);
-  vec3 q = pw2 - rdir * dot(pw2, rdir) * 0.14;
+  vec3 w2 = vec3(fbm(pw * 1.1 + 5.0, 2), fbm(pw * 1.1 + 23.0, 2), fbm(pw * 1.1 + 61.0, 2)) - 0.5;
+  vec3 pw2 = pw + w2 * 0.4;
+  // structure is compressed along the direction to the star in noise space, so cliffs and pillars are elongated toward it
+  vec3 rdir = normalize(p / max(r, 0.05) + w2 * 0.5 + 1e-4);
+  float sq = 0.3 * smoothstep(2.0, 6.0, r);
+  vec3 q = pw2 - rdir * dot(pw2, rdir) * sq;
   qo = q;
   if (uOut == 1) return vec4(0.0);
-  float f1 = fbm(q * 1.15, 3);
+  float big = sfbm(q * 0.36 + 7.0, 3, 0.3);
+  float bil = 1.0 - abs(2.0 * sfbm(q * 0.52 + 19.0, 3, 0.3) - 1.0);
+  float f1 = 0.5 + 2.6 * (0.8 * (big - 0.5) + 0.2 * (bil * bil - 0.35));
+  float cl = smoothstep(0.52, 0.55, f1);              // wall / cliff body, sharp edge
+  float edgeB = exp(-pow((f1 - 0.55) / 0.07, 2.0));   // the ionised skin of the walls
   float fil = smoothstep(0.22, 0.75, ridged(ROT * q * 1.5 + 9.0, 3));
-  float det = fbm(q * 2.6 + 13.0, 2);
-  float gas = env * (0.1 + 1.5 * smoothstep(0.4, 0.74, f1) * (0.45 + 0.95 * fil) + 0.9 * fil * smoothstep(0.2, 0.6, f1));
-  gas *= 0.3 + 1.5 * det * det * 1.6 * 0.8;
-  float lane = pow(1.0 - abs(2.0 * noise(q * 0.85 + 53.0) - 1.0), 7.0);
-  float lane2 = pow(1.0 - abs(2.0 * fbm(q * 2.2 + 77.0, 2) - 1.0), 6.0);
-  float dust = (smoothstep(0.56, 0.78, fbm(q * 0.9 + 31.0, 3)) * 1.4 + lane * 1.8 + lane2 * 0.9 * smoothstep(0.4, 0.7, f1)) * smoothstep(0.15, 0.7, env);
+  float gas = env * (0.09 + 0.3 * smoothstep(0.3, 0.62, big)
+    + 1.7 * cl * (0.3 + 0.7 * smoothstep(0.56, 0.9, f1))
+    + FILW * fil * edgeB);
+  float dbig = sfbm(q * 0.7 + 31.0, 3, 0.32);
+  float lane = pow(1.0 - abs(2.0 * noise(q * 0.7 + 53.0) - 1.0), 24.0);
+  float glob = smoothstep(0.64, 0.665, sfbm(q * 1.6 + 91.0, 3, 0.3)) * smoothstep(0.35, 0.56, f1);
+  float dust = (smoothstep(0.545, 0.57, dbig) * 3.4 + lane * 1.6 + glob * 4.0) * smoothstep(0.15, 0.7, env);
+  gas *= 1.0 - 0.8 * smoothstep(0.4, 1.8, dust);      // dust displaces the glow: silhouettes with lit rims
   float bell = smoothstep(0.25, 0.5, hue) * (1.0 - smoothstep(0.5, 0.75, hue));
   float rimK = 1.0 - smoothstep(0.08, 0.7, env);
   float vio = 1.0 - (1.0 - 0.75 * bell) * (1.0 - 0.5 * rimK);
@@ -208,6 +228,7 @@ uniform float uCollapse;
 uniform float uKnot;
 uniform int uBubble;
 uniform float uDet;          // analytic fine-detail amplitude
+uniform float uRim;          // rim-light strength
 uniform float uDust;         // dust absorption coefficient (the live march uses 3.4 on a blurred 160^3 bake)
 uniform int uMoment;         // 1: accumulate (sum w*coord, sum w) per slab instead of colour (centroids of the layers)
 uniform vec3 uTeal, uAmber;
@@ -303,6 +324,20 @@ void main() {
         vec3 col = vec3(0.0);
         float sig = 0.0;
         if (g > 0.003 || du > 0.008) {
+          // gradient of the glow: surfaces whose density rises away from the star face it, and are lit
+          vec3 gr = vec3(0.0);
+          float gl = 0.0, rim = 0.0;
+          if (gB > 0.02) {
+            const float h = 0.14;
+            vec3 pc = p * (0.5 / uVH) + 0.5;
+            float k = 0.5 / uVH * h;
+            float xp = texture(uVol, pc + vec3(k, 0, 0)).r, xm = texture(uVol, pc - vec3(k, 0, 0)).r;
+            float yp = texture(uVol, pc + vec3(0, k, 0)).r, ym = texture(uVol, pc - vec3(0, k, 0)).r;
+            float zp = texture(uVol, pc + vec3(0, 0, k)).r, zm = texture(uVol, pc - vec3(0, 0, k)).r;
+            gr = 4.0 * vec3(xp * xp - xm * xm, yp * yp - ym * ym, zp * zp - zm * zm) / (2.0 * h);
+            gl = length(gr);
+            rim = max(dot(gr, p / max(r, 0.05)), 0.0);
+          }
           if (uDet > 0.0) {
             vec3 ps = p;
             float pxw = tc * uPixAng;
@@ -314,7 +349,7 @@ void main() {
             }
             vec3 q = ps + texture(uWarp, ps * (0.5 / uWH) + 0.5).xyz;
             float fr = fineRatio(q, pxw);
-            g *= mix(1.0, fr, uDet * smoothstep(0.02, 0.15, gB));
+            g *= mix(1.0, fr, uDet * smoothstep(0.05, 0.5, gl) * smoothstep(0.02, 0.15, gB));
           }
           float lit, wall;
           if (uBubble == 0) {
@@ -326,21 +361,20 @@ void main() {
             wall = exp(-pow((d - 0.25) / 0.7, 2.0));
           }
           vec3 base = mix(mix(uTeal, uAmber, s.b), RIMC, s.a);
-          base = mix(base, vec3(0.9, 0.97, 1.0), 0.3 * lit + 0.25 * wall);
-          float front = 0.0, scat = 0.0;
-          if (g > 0.03 && r > 0.3) {
+          base = mix(base, vec3(0.9, 0.97, 1.0), 0.12 * lit + 0.12 * wall);
+          float scat = 0.0;
+          if (g > 0.03 && r > 0.3 && uBubble == 0) {
             vec3 dir = p / r;
-            vec4 sS = texture(uVol, (p - dir * 0.5) * (0.5 / uVH) + 0.5);
-            front = clamp((gB - sS.r * sS.r * 4.0) * 1.6, 0.0, 1.0);
-            if (uBubble == 0) {
-              float hg = 0.6975 / pow(1.3025 - 1.1 * dot(dir, -rd), 1.5);
-              scat = hg * 0.12 / (1.0 + pow(r / 5.0, 2.0));
-            }
+            float hg = 0.6975 / pow(1.3025 - 1.1 * dot(dir, -rd), 1.5);
+            scat = hg * 0.12 / (1.0 + pow(r / 5.0, 2.0));
           }
-          float em = g * (0.5 + 1.2 * lit + 2.8 * wall * (1.0 + 0.85 * uWall))
-            + g * g * (0.28 + 0.9 * (lit + wall))
+          float starL = 1.0 / (1.0 + pow(r / (uBubble == 0 ? 6.0 : 7.0), 2.0));
+          float rimE = min(rim * uRim * (0.35 + starL) , 6.0);
+          float em = g * (0.22 + 0.7 * lit + 1.6 * wall * (1.0 + 0.5 * uWall))
+            + g * g * (0.12 + 0.35 * (lit + wall))
             + g * scat
-            + g * front * (0.5 + 1.6 * lit) * 0.8;
+            + rimE;
+          base = mix(base, vec3(0.8, 1.0, 1.0), clamp(rimE * 0.12, 0.0, 0.25));
           col = base * em;
           // the young star's light clears the dust around the knot
           if (uBubble == 0) du *= smoothstep(1.0, 3.8, r);

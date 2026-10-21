@@ -41,12 +41,12 @@
      "high": "approach-L0-2048.webp",
      "low": "approach-L0-1024.webp"
     },
-    "depth": 21.533,
+    "depth": 21.591,
     "slab": [
      null,
      20.6
     ],
-    "planeHeight": 20.082
+    "planeHeight": 20.1363
    },
    {
     "index": 1,
@@ -55,12 +55,12 @@
      "high": "approach-L1-2048.webp",
      "low": "approach-L1-1024.webp"
     },
-    "depth": 18.377,
+    "depth": 18.212,
     "slab": [
      20.6,
      17.4
     ],
-    "planeHeight": 17.1391
+    "planeHeight": 16.985
    },
    {
     "index": 2,
@@ -69,12 +69,12 @@
      "high": "approach-L2-2048.webp",
      "low": "approach-L2-1024.webp"
     },
-    "depth": 15.797,
+    "depth": 15.685,
     "slab": [
      17.4,
      14.6
     ],
-    "planeHeight": 14.7325
+    "planeHeight": 14.6281
    },
    {
     "index": 3,
@@ -83,12 +83,12 @@
      "high": "approach-L3-2048.webp",
      "low": "approach-L3-1024.webp"
     },
-    "depth": 13.065,
+    "depth": 12.855,
     "slab": [
      14.6,
      11.6
     ],
-    "planeHeight": 12.185
+    "planeHeight": 11.9883
    },
    {
     "index": 4,
@@ -97,12 +97,12 @@
      "high": "approach-L4-2048.webp",
      "low": "approach-L4-1024.webp"
     },
-    "depth": 10.576,
+    "depth": 10.641,
     "slab": [
      11.6,
      null
     ],
-    "planeHeight": 9.8631
+    "planeHeight": 9.9235
    }
   ],
   "depthNote": "depth = emission-weighted view-space distance along the camera forward axis (not ray length). A camera-facing plane at that depth with height 2*depth*tan(fov/2) and width height*aspect reproduces the layer exactly from the hero camera. Order far -> near, composite premultiplied over."
@@ -150,54 +150,54 @@
     "low": "bubble-shell-{face}-384.webp"
    },
    "rgba": true,
-   "radius": 8.534,
-   "farRadius": 9.364,
+   "radius": 8.433,
+   "farRadius": 9.43,
    "note": "the inner wall slab (r < split) as its own RGBA cube; over-composite on the opaque cube. radius = emission-weighted distance from the origin."
   }
  },
  "files": {
-  "approach-L0-1024.webp": 85184,
-  "approach-L0-2048.webp": 233900,
-  "approach-L1-1024.webp": 91098,
-  "approach-L1-2048.webp": 254050,
-  "approach-L2-1024.webp": 116698,
-  "approach-L2-2048.webp": 317310,
-  "approach-L3-1024.webp": 107122,
-  "approach-L3-2048.webp": 294104,
-  "approach-L4-1024.webp": 87204,
-  "approach-L4-2048.webp": 237870,
-  "bubble-cube-nx-384.webp": 9572,
-  "bubble-cube-nx-768.webp": 22412,
-  "bubble-cube-ny-384.webp": 10722,
-  "bubble-cube-ny-768.webp": 22624,
-  "bubble-cube-nz-384.webp": 10514,
-  "bubble-cube-nz-768.webp": 24096,
-  "bubble-cube-px-384.webp": 10520,
-  "bubble-cube-px-768.webp": 22892,
-  "bubble-cube-py-384.webp": 10320,
-  "bubble-cube-py-768.webp": 23274,
-  "bubble-cube-pz-384.webp": 9768,
-  "bubble-cube-pz-768.webp": 22098,
-  "bubble-shell-nx-384.webp": 67734,
-  "bubble-shell-nx-768.webp": 196920,
-  "bubble-shell-ny-384.webp": 59678,
-  "bubble-shell-ny-768.webp": 168428,
-  "bubble-shell-nz-384.webp": 67686,
-  "bubble-shell-nz-768.webp": 192722,
-  "bubble-shell-px-384.webp": 63932,
-  "bubble-shell-px-768.webp": 179630,
-  "bubble-shell-py-384.webp": 65910,
-  "bubble-shell-py-768.webp": 188256,
-  "bubble-shell-pz-384.webp": 66100,
-  "bubble-shell-pz-768.webp": 185810
+  "approach-L0-1024.webp": 60192,
+  "approach-L0-2048.webp": 154068,
+  "approach-L1-1024.webp": 53166,
+  "approach-L1-2048.webp": 139252,
+  "approach-L2-1024.webp": 66564,
+  "approach-L2-2048.webp": 172822,
+  "approach-L3-1024.webp": 57978,
+  "approach-L3-2048.webp": 150792,
+  "approach-L4-1024.webp": 51016,
+  "approach-L4-2048.webp": 141562,
+  "bubble-cube-nx-384.webp": 6672,
+  "bubble-cube-nx-768.webp": 15044,
+  "bubble-cube-ny-384.webp": 9306,
+  "bubble-cube-ny-768.webp": 19054,
+  "bubble-cube-nz-384.webp": 6378,
+  "bubble-cube-nz-768.webp": 14286,
+  "bubble-cube-px-384.webp": 7444,
+  "bubble-cube-px-768.webp": 16044,
+  "bubble-cube-py-384.webp": 9188,
+  "bubble-cube-py-768.webp": 18978,
+  "bubble-cube-pz-384.webp": 7146,
+  "bubble-cube-pz-768.webp": 15610,
+  "bubble-shell-nx-384.webp": 34810,
+  "bubble-shell-nx-768.webp": 87040,
+  "bubble-shell-ny-384.webp": 35672,
+  "bubble-shell-ny-768.webp": 89480,
+  "bubble-shell-nz-384.webp": 33256,
+  "bubble-shell-nz-768.webp": 83738,
+  "bubble-shell-px-384.webp": 33406,
+  "bubble-shell-px-768.webp": 83524,
+  "bubble-shell-py-384.webp": 36896,
+  "bubble-shell-py-768.webp": 93428,
+  "bubble-shell-pz-384.webp": 36016,
+  "bubble-shell-pz-768.webp": 90960
  },
  "totals": {
-  "highBytes": 2586396,
-  "lowBytes": 939762
+  "highBytes": 1385682,
+  "lowBytes": 545106
  },
  "render": {
   "gpu": "ANGLE (NVIDIA Corporation, NVIDIA GeForce GTX 970M/PCIe/SSE2, OpenGL ES 3.2)",
-  "minutes": 5.5,
+  "minutes": 5.1,
   "heroFrames": 64,
   "heroSteps": 512,
   "cubeFrames": 32,

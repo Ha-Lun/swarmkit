@@ -199,6 +199,7 @@ function marchImage(j, vh) {
   gl.uniform1f(u.uDet, j.detail ?? 1);
   gl.uniform1i(u.uMoment, j.moment ? 1 : 0);
   gl.uniform1f(u.uDust, j.dust ?? 2.0);
+  gl.uniform1f(u.uRim, j.rim ?? 1.0);
   gl.uniform3f(u.uTeal, ...CFG.teal);
   gl.uniform3f(u.uAmber, ...CFG.amber);
   gl.enable(gl.BLEND);
@@ -498,7 +499,7 @@ const api = {
     const N = j.N;
     const slabs = marchImage({
       W: N, H: N, face: j.face, cam: [0, 0, 0], frames: j.frames, steps: j.steps, tile: j.tile, tileH: j.tileH, nSlab: 2, slabMode: 1, bounds: [b.split],
-      gain: j.gain, bubble: 1, cavR: b.rc, wall: 1, collapse: 1, knot: 0, tMin: b.rc - 0.6, detail: j.detail, fwdSlab: [0, 0, 1],
+      gain: j.gain, rim: j.rim, bubble: 1, cavR: b.rc, wall: 1, collapse: 1, knot: 0, tMin: b.rc - 0.6, detail: j.detail, fwdSlab: [0, 0, 1],
     }, b.vh);
     const layers = slabs.slice().reverse(); // far, shell
     const stars = [];
