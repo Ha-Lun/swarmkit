@@ -2,6 +2,12 @@
 
 The showcase site is being rebuilt as "SwarmKit City": a scroll-scrubbed miniature-city 3D scene that replays one real `lead-dev-hybrid` run (the city is the codebase). The old honeycomb-globe site is archived in `docs/archive/`. The site was removed from `main` on 2026-10-18 (commit 206bf6f) and lives on branch `showcase`, where Vercel deploys production (https://swarmkit-site.vercel.app). The City was released on 2026-10-17 (main bc0170f); the Galaxy replaced it on 2026-10-20.
 
+## 2026-10-21 (galaxy round H, branch site/nebula)
+- Owner feedback: open on a nebula, explode into a galaxy at the merge, orbits less flat. Work on branch `site/nebula` (worktree `.worktrees/site-nebula`), not yet merged into `showcase`.
+- Nebula opening: the comet dives into the nebula's knot, which ignites the sun. Orbits: tilted, depth-shaded, lane-coloured trails, dust belts. Merge: supernova burst and shock ring; the debris forms the spiral galaxy. Merge copy now ends "Everything lands as one."
+- Checks: tests 17/17, astro check clean, build OK, homepage JS 225 KB gz; hero buttons click-tested at 390 and 1440.
+- Follow-ups: owner review (art-direction round 43); real-phone fps; per-frame allocations in the belt drift (tilt() per point); burst timing constants are split between scene.ts and path.ts.
+
 ## 2026-10-20 (galaxy released)
 - The Galaxy replaces the City as the homepage (branch `site/galaxy` merged into `showcase`).
 - Round F: procedural photoreal sun, gas/ice-giant planets and 3D ringlets, a smoother two-armed galaxy, no streak particles or grain.
