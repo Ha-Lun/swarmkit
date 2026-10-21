@@ -1,0 +1,206 @@
+{
+ "version": 1,
+ "generator": "site/scripts/render-nebula.mjs",
+ "encoding": "WebP, display-referred: sRGB-encoded straight alpha (decode to linear, multiply by alpha, blend premultiplied in linear). Layer colour was tonemapped (ACES, exposure 1) per pixel before splitting, so over-compositing the layers far to near equals the tonemapped frame.",
+ "approach": {
+  "camera": {
+   "position": [
+    0,
+    7.6,
+    15.2
+   ],
+   "target": [
+    0,
+    3,
+    0
+   ],
+   "fov": 50,
+   "aspect": 1.6,
+   "up": [
+    0,
+    1,
+    0
+   ],
+   "note": "vertical fov; hero pose = sceneState(0)"
+  },
+  "sizes": {
+   "high": [
+    2048,
+    1280
+   ],
+   "low": [
+    1024,
+    640
+   ]
+  },
+  "layers": [
+   {
+    "index": 0,
+    "role": "far gas and starfield",
+    "file": {
+     "high": "approach-L0-2048.webp",
+     "low": "approach-L0-1024.webp"
+    },
+    "depth": 21.533,
+    "slab": [
+     null,
+     20.6
+    ],
+    "planeHeight": 20.082
+   },
+   {
+    "index": 1,
+    "role": "mid lobe (far)",
+    "file": {
+     "high": "approach-L1-2048.webp",
+     "low": "approach-L1-1024.webp"
+    },
+    "depth": 18.377,
+    "slab": [
+     20.6,
+     17.4
+    ],
+    "planeHeight": 17.1391
+   },
+   {
+    "index": 2,
+    "role": "mid lobe (near)",
+    "file": {
+     "high": "approach-L2-2048.webp",
+     "low": "approach-L2-1024.webp"
+    },
+    "depth": 15.797,
+    "slab": [
+     17.4,
+     14.6
+    ],
+    "planeHeight": 14.7325
+   },
+   {
+    "index": 3,
+    "role": "near wisps",
+    "file": {
+     "high": "approach-L3-2048.webp",
+     "low": "approach-L3-1024.webp"
+    },
+    "depth": 13.065,
+    "slab": [
+     14.6,
+     11.6
+    ],
+    "planeHeight": 12.185
+   },
+   {
+    "index": 4,
+    "role": "foreground dust and near gas",
+    "file": {
+     "high": "approach-L4-2048.webp",
+     "low": "approach-L4-1024.webp"
+    },
+    "depth": 10.576,
+    "slab": [
+     11.6,
+     null
+    ],
+    "planeHeight": 9.8631
+   }
+  ],
+  "depthNote": "depth = emission-weighted view-space distance along the camera forward axis (not ray length). A camera-facing plane at that depth with height 2*depth*tan(fov/2) and width height*aspect reproduces the layer exactly from the hero camera. Order far -> near, composite premultiplied over."
+ },
+ "bubble": {
+  "origin": [
+   0,
+   0,
+   0
+  ],
+  "cavityRadius": 8.334011944576002,
+  "rMax": 6.734011944576001,
+  "nurseryExtent": 6.034011944576001,
+  "wall": {
+   "thickness": 3.6,
+   "split": 9.034011944576001
+  },
+  "cube": {
+   "order": [
+    "px",
+    "nx",
+    "py",
+    "ny",
+    "pz",
+    "nz"
+   ],
+   "sizes": {
+    "high": 768,
+    "low": 384
+   },
+   "file": {
+    "high": "bubble-cube-{face}-768.webp",
+    "low": "bubble-cube-{face}-384.webp"
+   },
+   "opaque": true,
+   "convention": "built for THREE.CubeTexture / scene.background (three flips x): load [px,nx,py,ny,pz,nz] as-is."
+  },
+  "shell": {
+   "sizes": {
+    "high": 768,
+    "low": 384
+   },
+   "file": {
+    "high": "bubble-shell-{face}-768.webp",
+    "low": "bubble-shell-{face}-384.webp"
+   },
+   "rgba": true,
+   "radius": 8.534,
+   "farRadius": 9.364,
+   "note": "the inner wall slab (r < split) as its own RGBA cube; over-composite on the opaque cube. radius = emission-weighted distance from the origin."
+  }
+ },
+ "files": {
+  "approach-L0-1024.webp": 85184,
+  "approach-L0-2048.webp": 233900,
+  "approach-L1-1024.webp": 91098,
+  "approach-L1-2048.webp": 254050,
+  "approach-L2-1024.webp": 116698,
+  "approach-L2-2048.webp": 317310,
+  "approach-L3-1024.webp": 107122,
+  "approach-L3-2048.webp": 294104,
+  "approach-L4-1024.webp": 87204,
+  "approach-L4-2048.webp": 237870,
+  "bubble-cube-nx-384.webp": 9572,
+  "bubble-cube-nx-768.webp": 22412,
+  "bubble-cube-ny-384.webp": 10722,
+  "bubble-cube-ny-768.webp": 22624,
+  "bubble-cube-nz-384.webp": 10514,
+  "bubble-cube-nz-768.webp": 24096,
+  "bubble-cube-px-384.webp": 10520,
+  "bubble-cube-px-768.webp": 22892,
+  "bubble-cube-py-384.webp": 10320,
+  "bubble-cube-py-768.webp": 23274,
+  "bubble-cube-pz-384.webp": 9768,
+  "bubble-cube-pz-768.webp": 22098,
+  "bubble-shell-nx-384.webp": 67734,
+  "bubble-shell-nx-768.webp": 196920,
+  "bubble-shell-ny-384.webp": 59678,
+  "bubble-shell-ny-768.webp": 168428,
+  "bubble-shell-nz-384.webp": 67686,
+  "bubble-shell-nz-768.webp": 192722,
+  "bubble-shell-px-384.webp": 63932,
+  "bubble-shell-px-768.webp": 179630,
+  "bubble-shell-py-384.webp": 65910,
+  "bubble-shell-py-768.webp": 188256,
+  "bubble-shell-pz-384.webp": 66100,
+  "bubble-shell-pz-768.webp": 185810
+ },
+ "totals": {
+  "highBytes": 2586396,
+  "lowBytes": 939762
+ },
+ "render": {
+  "gpu": "ANGLE (NVIDIA Corporation, NVIDIA GeForce GTX 970M/PCIe/SSE2, OpenGL ES 3.2)",
+  "minutes": 5.5,
+  "heroFrames": 64,
+  "heroSteps": 512,
+  "cubeFrames": 32,
+  "cubeSteps": 384
+ }
+}
