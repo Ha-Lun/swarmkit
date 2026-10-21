@@ -16,6 +16,7 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { PALETTE } from './shared.ts';
 import { createNebulaVolume, MAX_KNOTS } from './nebula-volume.ts';
+import { createNebulaLayers } from './nebula-layers.ts';
 import type { Tier } from './shared.ts';
 import type { Lane } from '../run.ts';
 import type { StoryWorker } from './story.ts';
@@ -146,6 +147,13 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   // The nebula gas: ray-marched volume (reduced-res target, composited before the planets), see nebula-volume.ts.
   const nebVol = createNebulaVolume(opts.tier, renderer);
   scene.add(nebVol.object3d);
+  // The pre-rendered nebula (layers + bubble cube): lazy after the hero paints; the volume fills in until it is ready and for the dive.
+  const sceneT0 = performance.now();
+  const nebLayers = createNebulaLayers(opts.tier, renderer, {
+    portrait: canvas.clientWidth < canvas.clientHeight,
+    onReady: () => { if (!disposed && (reduced || !active)) renderFrame(performance.now()); },
+  });
+  scene.add(nebLayers.object3d);
   // Galaxy: stars, haze (additive), dust (alpha)
   const starMat = sprite(AdditiveBlending, 0, { size: opts.tier === 'low' ? 0.07 : 0.05, rotate: 1 });
   starMat.uniforms.uSpark.value = 1;
@@ -617,9 +625,14 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     fwd.copy(back).negate();
     // nebula volume: full through hero, comet and dive (the knot collapses at the ignition flash), then the dimmed remnant around the
     // star's cavity; the shock ring widens the cavity past the sky and the gas is gone by the end of the burst. Low renders direct, so lift it.
+    // the pre-rendered layers cover the hero/comet and the plan beats; the live volume is the dive, the ignition and the fallback
+    nebLayers.update(camera, { pp, m, copyAmt: ss(0.45, 0.55, pp), copyMask: volMask.value, exposure: composer ? st.exposure * (1 + 0.3 * burstFlash(m)) : 1 });
+    const volWait = nebLayers.ready || pp > 0.1 || performance.now() - sceneT0 > 2200 ? 1 : 0; // hero: give the images a moment before baking the fallback
+    const volA = (1 - nebLayers.cover) * volWait;
     nebVol.render(renderer, camera, {
       time: t,
-      gain: 0.38 * nebRem * nebulaDip(pp) * (1 - 0.3 * band) * (1 - 0.35 * nebPortrait) * (opts.tier === 'low' ? 1.5 : 1),
+      vol: volA,
+      gain: volA * 0.38 * nebRem * nebulaDip(pp) * (1 - 0.3 * band) * (1 - 0.35 * nebPortrait) * (opts.tier === 'low' ? 1.5 : 1),
       knots: { n: Math.min(nWork, MAX_KNOTS), p: starKnot, c: starKnotC, a: starKnotA, gain: 0.7 * (1 - nebBlow) * (1 + 0.5 * nebPortrait) },
       cavR: Math.max(cavityR(pp, rMax), camera.position.length() * 1.45 * ss(0.512, 0.545, pp) * (1 - ss(0.6, 0.66, pp)), shockK(m) * (rMax + 1.2) * 2.4),
       collapse: ss(0.4, 0.512, pp),
@@ -950,6 +963,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     else volMask.value.set(0, 0.55, 1.5, 0.5);
     const dbs = renderer.getDrawingBufferSize(new Vector2());
     nebVol.resize(dbs.x, dbs.y);
+    nebLayers.resize(dbs.x, dbs.y);
     // the close-up headline column: wider than the nebula mask so planets and ribbons near the copy step back too
     if (camera.aspect >= 1.2) copyMask.value.set(-0.55, 0.1, 0.8, 1.05);
     else copyMask.value.set(0, 0.6, 1.6, 0.6);
@@ -980,6 +994,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       if (raf) cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
       nebVol.dispose();
+      nebLayers.dispose();
       for (const p of passes) p.dispose?.();
       composer?.dispose();
       for (const d of disposables) d.dispose();

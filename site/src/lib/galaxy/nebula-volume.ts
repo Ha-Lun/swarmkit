@@ -8,22 +8,24 @@
 // while the view is still (history blend, reset on any camera/param change); during motion only a 3x3 edge-aware filter.
 // The result is composited premultiplied before the stars-and-planets pass, so dust darkens the deep field behind it.
 // After ignition the star carves a cavity (density removed inside uCavR, a lit wall at its edge). No assets, no sprites.
-// After ignition the star carves a cavity (density removed inside uCavR, a lit wall at its edge). No assets, no sprites.
+// Round K: the hero and the plan beats are the pre-rendered layers and bubble cube (nebula-layers.ts). This volume only runs for the
+// dive and the ignition (and as the fallback while those images load): a cheap march, no spike stars. Outside that window it
+// skips the march (vol = 0) and only draws the star-forming knots and cocoons, which are analytic.
 import {
-  AdditiveBlending, BufferAttribute, BufferGeometry, ClampToEdgeWrapping, CustomBlending, GLSL3, Group, HalfFloatType,
-  LinearFilter, Matrix3, Matrix4, Mesh, NoBlending, OneFactor, OneMinusSrcAlphaFactor, OrthographicCamera, Points, Scene,
+  BufferAttribute, BufferGeometry, ClampToEdgeWrapping, CustomBlending, GLSL3, Group, HalfFloatType,
+  LinearFilter, Matrix3, Matrix4, Mesh, NoBlending, OneFactor, OneMinusSrcAlphaFactor, OrthographicCamera, Scene,
   ShaderMaterial, UnsignedByteType, Vector2, Vector3, Vector4, WebGL3DRenderTarget, WebGLRenderTarget,
 } from 'three';
 import type { Object3D, PerspectiveCamera, WebGLRenderer } from 'three';
-import { buildSpikeStars, KNOT_R, LOBES, RIM } from './generator.ts';
+import { KNOT_R, LOBES, RIM } from './generator.ts';
 import { PALETTE, type Tier } from './shared.ts';
 
 /** Per tier: ray steps, edge-detail octaves, baked volume size, bake slices per frame, converge frames, max drawing-buffer pixel
  *  ratio (cap) and a scale on the drawing buffer (the march target; 1 = full resolution). */
 const QUALITY = {
-  high: { steps: 64, detail: 2, vol: 160, slices: 10, frames: 16, dprCap: 1.5, scale: 1 },
-  medium: { steps: 40, detail: 1, vol: 128, slices: 8, frames: 12, dprCap: 99, scale: 0.75 },
-  low: { steps: 24, detail: 0, vol: 128, slices: 6, frames: 8, dprCap: 99, scale: 0.7 },
+  high: { steps: 48, detail: 1, vol: 160, slices: 10, frames: 12, dprCap: 1.25, scale: 0.8 },
+  medium: { steps: 32, detail: 1, vol: 128, slices: 8, frames: 10, dprCap: 99, scale: 0.65 },
+  low: { steps: 24, detail: 0, vol: 128, slices: 6, frames: 8, dprCap: 99, scale: 0.6 },
 } as const;
 /** Half extent of the baked cube in world units (the lobes end within ~8.9 of the origin). */
 const VH = 9;
@@ -31,6 +33,7 @@ const VH = 9;
 export interface VolumeParams {
   time: number; // idle clock in seconds (unused: the baked field is static, so a still view converges and costs nothing)
   gain: number; // overall emission
+  vol: number; // 0..1 how much of the gas is marched (0 = knots and cocoons only, no bake, no march)
   cavR: number; // world radius of the star-carved bubble (0 = none)
   collapse: number; // 0..1: the knot contracts to a point and brightens (ignition)
   knot: number; // 0..1: knot brightness
@@ -400,42 +403,6 @@ void main() {
 }
 `;
 
-// a few bright young stars with small six-point diffraction spikes (three crossed lines), additive, crisp core
-const spikeVert = /* glsl */ `
-uniform float uPx;
-uniform float uGain;
-in vec3 aColor;
-in float aSize;
-out vec3 vC;
-void main() {
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  gl_Position = projectionMatrix * mv;
-  gl_PointSize = aSize * uPx;
-  // near-faded by view distance so the camera can fly through them
-  vC = aColor * uGain * smoothstep(0.8, 2.4, -mv.z);
-}
-`;
-const spikeFrag = /* glsl */ `
-precision highp float;
-in vec3 vC;
-out vec4 outColor;
-void main() {
-  vec2 q = (gl_PointCoord - 0.5) * 2.0;
-  float d = length(q);
-  if (d > 1.0) discard;
-  float core = exp(-d * d * 220.0) + 0.18 * exp(-d * d * 26.0);
-  float sp = 0.0;
-  for (int k = 0; k < 3; k++) {
-    float a = 0.3 + float(k) * 1.0471976;
-    vec2 t = vec2(cos(a), sin(a));
-    float al = abs(dot(q, t));
-    float pe = abs(q.x * t.y - q.y * t.x);
-    sp += exp(-pe * pe * 2600.0) * exp(-al * 4.2) * (1.0 - smoothstep(0.7, 1.0, al));
-  }
-  outColor = vec4(vC * (core + 0.34 * sp), 1.0);
-}
-`;
-
 const compVert = /* glsl */ `
 out vec2 vUv;
 out vec2 vNdc;
@@ -506,24 +473,8 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
   quad.frustumCulled = false;
   quad.renderOrder = 0.5; // after the deep-field shells (dust darkens them), before the planets, rings and fx
 
-  // the brightest young stars with diffraction spikes (subtle; fewer on the lower tiers)
-  const sp = buildSpikeStars(tier === 'high' ? 24 : tier === 'medium' ? 16 : 10);
-  const spGeo = new BufferGeometry();
-  spGeo.setAttribute('position', new BufferAttribute(sp.position, 3));
-  spGeo.setAttribute('aColor', new BufferAttribute(sp.color, 3));
-  const size = new Float32Array(sp.count);
-  for (let i = 0; i < sp.count; i++) size[i] = sp.data[i * 4];
-  spGeo.setAttribute('aSize', new BufferAttribute(size, 1));
-  const spMat = new ShaderMaterial({
-    uniforms: { uPx: { value: 1 }, uGain: { value: 0 } },
-    vertexShader: spikeVert, fragmentShader: spikeFrag, glslVersion: GLSL3,
-    blending: AdditiveBlending, depthTest: false, depthWrite: false, transparent: true,
-  });
-  const spPts = new Points(spGeo, spMat);
-  spPts.frustumCulled = false;
-  spPts.renderOrder = 2;
   const group = new Group();
-  group.add(quad, spPts);
+  group.add(quad);
 
   const t0 = performance.now();
   let slice = 0; // next slice to bake
@@ -565,12 +516,10 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
       // bake after the DOM hero has painted (a few frames and 350 ms), a few slices per frame
       nCalls++;
       // (reduced motion draws on demand, not per frame: bake all at once and show it without a fade)
-      if (slice < q.vol && (p.still || (nCalls > 3 && performance.now() - t0 > 350))) bakeChunk(rend, p.still ? q.vol : q.slices);
-      const ramp = readyAt ? (p.still ? 1 : Math.min(1, (performance.now() - readyAt) / 700)) : 0;
+      if (p.vol > 0.002 && slice < q.vol && (p.still || (nCalls > 3 && performance.now() - t0 > 350))) bakeChunk(rend, p.still ? q.vol : q.slices);
+      const ramp = readyAt && p.vol > 0.002 ? (p.still ? 1 : Math.min(1, (performance.now() - readyAt) / 700)) : 0;
       comp.uniforms.uCopyAmt.value = p.copyAmt;
       comp.uniforms.uCopyMask.value.copy(p.copyMask);
-      spMat.uniforms.uGain.value = Math.min(1, p.gain / 0.3) * 0.62 * ramp;
-      spPts.visible = ramp > 0;
       const u = march.uniforms;
       // The scene sways the camera a hair at idle, which would restart the accumulation forever. Hold the pose the volume was
       // last marched from until the camera leaves it by about a pixel (position 0.012, rotation 0.0006), so a view that is
@@ -630,13 +579,10 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
       rts[1].setSize(rw, rh);
       march.uniforms.uRes.value.set(rw, rh);
       comp.uniforms.uTexel.value.set(1 / rw, 1 / rh);
-      spMat.uniforms.uPx.value = pr;
       sig = '';
     },
     dispose() {
       geo.dispose();
-      spGeo.dispose();
-      spMat.dispose();
       march.dispose();
       bake.dispose();
       comp.dispose();
