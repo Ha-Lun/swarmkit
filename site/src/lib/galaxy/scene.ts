@@ -15,16 +15,16 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { mulberry32, PALETTE } from './shared.ts';
-import { createBackdrop } from './backdrop.ts';
+import { createNebulaVolume } from './nebula-volume.ts';
 import type { Tier } from './shared.ts';
 import type { Lane } from '../run.ts';
 import type { StoryWorker } from './story.ts';
 import {
-  buildDust, buildGalaxy, buildHaze, buildNebula, buildNebulaDust, buildNebulaStars, buildNewArm, buildSky,
+  buildDust, buildGalaxy, buildHaze, buildNebulaStars, buildNewArm, buildSky,
 } from './generator.ts';
 import type { PointCloud } from './generator.ts';
 import {
-  burstFlash, cometAt, clamp01, closeAmt, closeC, closeView, coreFlare, L, lateU, legacyP, lerp, M, formK, mergeCam, mergeM, shockAlpha, shockK, sunSwell, systemLeft, orbitT, pullK,
+  burstFlash, cavityR, cometAt, clamp01, closeAmt, closeC, closeView, coreFlare, L, lateU, legacyP, lerp, M, formK, mergeCam, mergeM, shockAlpha, shockK, sunSwell, systemLeft, orbitT, pullK,
   sceneState, shipK, ss, systemView, verifyU, waveF, waveR, win,
 } from './path.ts';
 import type { SceneState, V3 } from './path.ts';
@@ -35,10 +35,10 @@ import {
 
 const CLEAR = '#05060a';
 const TIER = {
-  // neb: gas sprites, dark-lane sprites, young stars; gasPx caps the gas sprite size in device px (overdraw on phones)
-  high: { stars: 110000, arm: 5000, haze: 44, dust: 280, sky: [5200, 2600, 1100], pr: 1.75, bloom: true, neb: [900, 190, 2600], gasPx: 420 },
-  medium: { stars: 55000, arm: 3200, haze: 36, dust: 200, sky: [2600, 1300, 600], pr: 1.25, bloom: true, neb: [600, 130, 1600], gasPx: 320 },
-  low: { stars: 15000, arm: 2200, haze: 22, dust: 120, sky: [900, 500, 250], pr: 1, bloom: false, neb: [560, 110, 900], gasPx: 300 },
+  // neb: young stars in the nebula (the gas is the ray-marched volume, nebula-volume.ts)
+  high: { stars: 110000, arm: 5000, haze: 44, dust: 280, sky: [5200, 2600, 1100], pr: 1.75, bloom: true, neb: 2600 },
+  medium: { stars: 55000, arm: 3200, haze: 36, dust: 200, sky: [2600, 1300, 600], pr: 1.25, bloom: true, neb: 1600 },
+  low: { stars: 15000, arm: 2200, haze: 22, dust: 120, sky: [900, 500, 250], pr: 1, bloom: false, neb: 900 },
 } as const;
 
 export type NodeInfo = StoryWorker;
@@ -110,6 +110,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     uTime: { value: 0 }, uSpin: { value: 0 }, uScale: { value: 800 }, uPR: { value: 1 }, uGain: { value: 1.4 },
     uCoreDim: { value: 1 }, uMax: { value: pointMax }, uDof: { value: 0 }, uFocusD: { value: 2 },
   };
+  const volMask = { value: new Vector4(-0.6, 0, 0.5, 0.95) }; // NDC ellipse that keeps the nebula dim behind the copy column (set in resize)
   const copyMask = { value: new Vector4(-0.6, 0, 0.5, 0.95) }; // NDC ellipse of the close-up headline column (set in resize)
   const sprite = (blending: Blending, mode: number, o: { size?: number; rotate?: number; px?: number; big?: number; gain?: number }): ShaderMaterial => {
     const m = new ShaderMaterial({
@@ -118,7 +119,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
         ...(o.gain !== undefined ? { uGain: { value: o.gain } } : {}),
         uSize: { value: o.size ?? 0.05 }, uRotate: { value: o.rotate ?? 0 }, uPx: { value: o.px ?? 0 },
         uBig: { value: o.big ?? 0 }, uMode: { value: mode }, uForm: { value: 1 }, uSpark: { value: 0 }, uClearR: { value: 0 },
-        uNear: { value: 0 }, uCollapse: { value: 0 }, uKnot: { value: 1 }, uCopyMask: copyMask, uCopyAmt: { value: 0 },
+        uNear: { value: 0 }, uCopyMask: copyMask, uCopyAmt: { value: 0 },
       },
       vertexShader: spriteVert, fragmentShader: spriteFrag, glslVersion: GLSL3,
       blending, depthWrite: false, depthTest: false, transparent: true,
@@ -142,10 +143,9 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     skyMats.push(m);
     points(cloudGeometry(buildSky(n, r[0], r[1], 100 + i)), m, 0);
   });
-  // Far procedural backdrop (Milky-Way band + nebulae): drawn first, additive, faded in for the system beats.
-  const backdrop = createBackdrop(opts.tier);
-  scene.add(backdrop.object3d);
-  const bdMat = (backdrop.object3d as Mesh).material as ShaderMaterial;
+  // The nebula gas: ray-marched volume (reduced-res target, composited before the planets), see nebula-volume.ts.
+  const nebVol = createNebulaVolume(opts.tier, renderer);
+  scene.add(nebVol.object3d);
   // Galaxy: stars, haze (additive), dust (alpha)
   const starMat = sprite(AdditiveBlending, 0, { size: opts.tier === 'low' ? 0.07 : 0.05, rotate: 1 });
   starMat.uniforms.uSpark.value = 1;
@@ -155,23 +155,12 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   const dustMat = sprite(NormalBlending, 2, { size: 1, rotate: 1, big: 1, gain: 1 });
   const dustPts = points(cloudGeometry(buildDust(tcfg.dust)), dustMat, 3);
 
-  // Emission nebula (the opening): gas (additive, mode 1), dark lanes (alpha, mode 2), young stars (mode 0). Own gains and
-  // core-dim, no differential rotation, near-faded by view distance so the camera can fly through the gas.
-  const nebMat = (blending: Blending, mode: number, size: number, near: number, maxPx: number): ShaderMaterial => {
-    const m = sprite(blending, mode, { size, rotate: 0, big: mode === 0 ? 0 : 1, gain: 0 });
-    m.uniforms.uCoreDim = { value: 1 };
-    m.uniforms.uMax = { value: Math.min(pointMax, maxPx) };
-    m.uniforms.uNear = { value: near };
-    return m;
-  };
-  const nebGasMat = nebMat(AdditiveBlending, 1, 0.55, 4.5, tcfg.gasPx);
-  const nebGasPts = points(cloudGeometry(buildNebula(tcfg.neb[0])), nebGasMat, 1);
-  const nebDustMat = nebMat(NormalBlending, 2, 0.5, 4, tcfg.gasPx);
-  const nebDustPts = points(cloudGeometry(buildNebulaDust(tcfg.neb[1])), nebDustMat, 3);
-  const nebStarMat = nebMat(AdditiveBlending, 0, opts.tier === 'low' ? 0.07 : 0.05, 0.8, pointMax);
-  const nebStarPts = points(cloudGeometry(buildNebulaStars(tcfg.neb[2])), nebStarMat, 2);
-  const nebMats = [nebGasMat, nebDustMat, nebStarMat];
-  const nebPts = [nebGasPts, nebDustPts, nebStarPts];
+  // Young stars embedded in the nebula (crisp points; the gas itself is the volume). Own gain, no differential rotation,
+  // near-faded by view distance so the camera can fly through them.
+  const nebStarMat = sprite(AdditiveBlending, 0, { size: opts.tier === 'low' ? 0.07 : 0.05, rotate: 0, gain: 0 });
+  nebStarMat.uniforms.uCoreDim = { value: 1 };
+  nebStarMat.uniforms.uNear = { value: 0.8 };
+  const nebStarPts = points(cloudGeometry(buildNebulaStars(tcfg.neb)), nebStarMat, 2);
 
   // The arm the merge adds (hidden until the merge brings it in).
   const armMat = sprite(AdditiveBlending, 0, { size: opts.tier === 'low' ? 0.07 : 0.05, rotate: 1, gain: 1.0 });
@@ -521,21 +510,12 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     dustMat.uniforms.uClearR.value = clearR;
     // the nebula: full through the hero, comet and dive; the knot contracts to a point and brightens, the flash, then the gas thins to a faint
     // remnant behind the system and goes out as the merge brings the galaxy up
-    const nebRem = (1 - 0.88 * ss(0.5, 0.66, pp)) * (1 - ss(0.05, 0.4, m));
-    for (const np of nebPts) np.visible = nebRem > 0.002; // gone after the merge: skip the draw
-    const nebExp = 1 - 0.3 * band; // exposure already dips in the dive; keep the gas structured, not flat
-    const nebPortrait = clamp01((1.0 - camera.aspect) / 0.35); // phones: fewer, smaller sprites per screen area, so lift the gas
-    nebGasMat.uniforms.uGain.value = 0.55 * nebRem * nebExp * (1 + 1.6 * nebPortrait);
-    nebGasMat.uniforms.uSize.value = 0.55 * (1 + 0.55 * nebPortrait); // phones: the gas sprites cover more of the narrow view
+    const nebBlow = ss(M.burst[0], M.burst[1], m); // the supernova's shock ring sweeps the remnant away within the burst
+    const nebRem = (1 - 0.62 * ss(0.5, 0.66, pp)) * (1 - nebBlow);
+    nebStarPts.visible = nebRem > 0.002;
+    const nebPortrait = clamp01((1.0 - camera.aspect) / 0.35); // phones: fewer stars and less gas per screen area, so lift both
     nebStarMat.uniforms.uGain.value = 1.0 * nebRem * (1 - 0.3 * band) * (1 + 0.7 * nebPortrait);
-    nebDustMat.uniforms.uGain.value = 1.6 * nebRem;
-    const collapse = ss(0.4, 0.512, pp);
-    const knotFade = 1 - ss(0.515, 0.545, pp);
-    for (const nm of nebMats) {
-      nm.uniforms.uClearR.value = clearR;
-      nm.uniforms.uCollapse.value = collapse;
-      nm.uniforms.uKnot.value = knotFade;
-    }
+    nebStarMat.uniforms.uClearR.value = clearR;
 
     // ---- planets: position, launch, build, verify, merge (system.ts does the layout) ----
     const n = nWork;
@@ -622,9 +602,17 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     camera.updateMatrixWorld();
     camera.matrixWorld.extractBasis(right, upV, back);
     fwd.copy(back).negate();
-    // backdrop: system beats at full, nothing during the galaxy/dive beats, a moderate level for the merged galaxy; the low tier renders direct (no OutputPass), so lift it
-    const bdAmt = ss(0.5, 0.6, pp) * (1 - 0.55 * lg) * (opts.tier === 'low' ? 1.7 : 1);
-    backdrop.update(camera, t, bdAmt);
+    // nebula volume: full through hero, comet and dive (the knot collapses at the ignition flash), then the dimmed remnant around the
+    // star's cavity; the shock ring widens the cavity past the sky and the gas is gone by the end of the burst. Low renders direct, so lift it.
+    nebVol.render(renderer, camera, {
+      time: t,
+      gain: 0.38 * nebRem * (1 - 0.3 * band) * (1 - 0.35 * nebPortrait) * (opts.tier === 'low' ? 1.5 : 1),
+      cavR: Math.max(cavityR(pp, rMax), shockK(m) * (rMax + 1.2) * 2.4),
+      collapse: ss(0.4, 0.512, pp),
+      knot: 1 - ss(0.515, 0.545, pp),
+      copyAmt: ss(0.45, 0.55, pp),
+      copyMask: volMask.value,
+    });
     shared.uFocusD.value = Math.max(0.5, (cronPos[0] - camera.position.x) * fwd.x + (cronPos[1] - camera.position.y) * fwd.y + (cronPos[2] - camera.position.z) * fwd.z);
     orbits.mat.uniforms.uFocus.value.set(cronPos[0], cronPos[1], cronPos[2]);
     starMat.uniforms.uSize.value = (opts.tier === 'low' ? 0.07 : 0.05) * (1 + 0.3 * hw) * (1 - 0.6 * band) * (1 - 0.45 * calmPlan);
@@ -907,8 +895,10 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     tailMat.uniforms.uRes.value.set(cssW * pr, cssH * pr);
     bakeSystem();
     // keep the copy readable over the backdrop: the left column on wide screens, the top band on portrait
-    if (camera.aspect >= 1.2) bdMat.uniforms.uCopyMask.value.set(-0.6, 0, 0.5, 0.95);
-    else bdMat.uniforms.uCopyMask.value.set(0, 0.55, 1.5, 0.5);
+    if (camera.aspect >= 1.2) volMask.value.set(-0.6, 0, 0.5, 0.95);
+    else volMask.value.set(0, 0.55, 1.5, 0.5);
+    const dbs = renderer.getDrawingBufferSize(new Vector2());
+    nebVol.resize(dbs.x, dbs.y);
     // the close-up headline column: wider than the backdrop mask so planets and ribbons near the copy step back too
     if (camera.aspect >= 1.2) copyMask.value.set(-0.55, 0.1, 0.8, 1.05);
     else copyMask.value.set(0, 0.6, 1.6, 0.6);
@@ -938,7 +928,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       disposed = true;
       if (raf) cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
-      backdrop.dispose();
+      nebVol.dispose();
       for (const p of passes) p.dispose?.();
       composer?.dispose();
       for (const d of disposables) d.dispose();

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { beatOpacity, camRoute, cometAt, sceneState, spline, typedChars, T } from '../../src/lib/galaxy/path.ts';
+import { beatOpacity, camRoute, cavityR, cometAt, sceneState, spline, typedChars, T } from '../../src/lib/galaxy/path.ts';
 
 // spline passes through its end points
 assert.deepEqual(camRoute(0).map((v) => +v.toFixed(6)), [0, 7.6, 15.2]);
@@ -45,3 +45,16 @@ assert.ok(worst <= 0.11, `copy gap ${worst}`);
 assert.equal(typedChars(0, 66), 0);
 assert.equal(typedChars(0.5, 66), 66);
 assert.ok(T.pulse[0] > T.draw[1] - 1e-9);
+
+// the star-carved cavity: closed through the dive, open past the outer orbit after ignition, monotone
+{
+  assert.equal(cavityR(0, 6), 0);
+  assert.equal(cavityR(0.51, 6), 0);
+  assert.ok(cavityR(1, 6) > 6, 'clears the outermost orbit');
+  let prev = 0;
+  for (let i = 0; i <= 100; i++) {
+    const r = cavityR(i / 100, 6);
+    assert.ok(r >= prev - 1e-12);
+    prev = r;
+  }
+}
