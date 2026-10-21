@@ -894,12 +894,12 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     lineRes.value.set(cssW * pr, cssH * pr);
     tailMat.uniforms.uRes.value.set(cssW * pr, cssH * pr);
     bakeSystem();
-    // keep the copy readable over the backdrop: the left column on wide screens, the top band on portrait
+    // keep the nebula dim behind the copy: the left column on wide screens, the top band on portrait
     if (camera.aspect >= 1.2) volMask.value.set(-0.6, 0, 0.5, 0.95);
     else volMask.value.set(0, 0.55, 1.5, 0.5);
     const dbs = renderer.getDrawingBufferSize(new Vector2());
     nebVol.resize(dbs.x, dbs.y);
-    // the close-up headline column: wider than the backdrop mask so planets and ribbons near the copy step back too
+    // the close-up headline column: wider than the nebula mask so planets and ribbons near the copy step back too
     if (camera.aspect >= 1.2) copyMask.value.set(-0.55, 0.1, 0.8, 1.05);
     else copyMask.value.set(0, 0.6, 1.6, 0.6);
     if (reduced || !active) renderFrame(performance.now());

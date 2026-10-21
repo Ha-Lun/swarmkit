@@ -7,6 +7,8 @@ The showcase site is being rebuilt as "SwarmKit City": a scroll-scrubbed miniatu
 - Nebula opening: the comet dives into the nebula's knot, which ignites the sun. Orbits: tilted, depth-shaded, lane-coloured trails, dust belts. Merge: supernova burst and shock ring; the debris forms the spiral galaxy. Merge copy now ends "Everything lands as one."
 - Checks: tests 17/17, astro check clean, build OK, homepage JS 225 KB gz; hero buttons click-tested at 390 and 1440.
 - Follow-ups: owner review (art-direction round 43); real-phone fps; per-frame allocations in the belt drift (tilt() per point); burst timing constants are split between scene.ts and path.ts.
+- Round I (same day, owner review): the nebula is now a ray-marched volume (no sprites); ignition clears a dark bubble and the system sits in the nebula remnant; the Milky-Way band (`backdrop.ts`) is gone; the verify step is a wave that lights the rings one by one; rings are continuous. Art-direction round 44 pending the owner's check.
+- Follow-up: measure the volume pass on a real phone (high/medium re-march every frame because of the idle drift; low tier and reduced motion only on change); ignition/cavity timing constants are duplicated between scene.ts and path.ts.
 
 ## 2026-10-20 (galaxy released)
 - The Galaxy replaces the City as the homepage (branch `site/galaxy` merged into `showcase`).

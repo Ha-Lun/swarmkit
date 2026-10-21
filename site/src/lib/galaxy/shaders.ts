@@ -553,7 +553,6 @@ out float vSide;
 out float vProg;
 out float vAl;
 out float vK;
-out float vAng;
 out float vRad;
 out float vBlur;
 out float vDepth;
@@ -597,7 +596,6 @@ void main() {
     vec2 nd = (ca.xy / max(ca.w, 1e-3) - uCopyMask.xy) / uCopyMask.zw;
     vAl *= 1.0 - 0.92 * uCopyAmt * (1.0 - smoothstep(0.75, 1.25, length(nd)));
   }
-  vAng = uAng[li];
   vRad = length(position);
   vBlur = blur;
   vK = aData.w;
@@ -618,7 +616,6 @@ in float vSide;
 in float vProg;
 in float vAl;
 in float vK;
-in float vAng;
 in float vRad;
 in float vBlur;
 in float vDepth;

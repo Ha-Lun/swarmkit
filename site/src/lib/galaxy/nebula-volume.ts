@@ -192,7 +192,7 @@ in vec2 vUv;
 in vec2 vNdc;
 out vec4 outColor;
 void main() {
-  // 12 bilinear taps over ~4x4 texels: dissolves the per-pixel step jitter and the low-res blockiness
+  // 9 bilinear taps (1 centre + 8 ring) over ~4x4 texels: dissolves the per-pixel step jitter and the low-res blockiness
   vec2 o = uTexel;
   vec4 s = texture(tVol, vUv) * 2.0;
   for (int i = 0; i < 8; i++) {
@@ -268,7 +268,7 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
       // the low tier freezes the idle drift so an unchanged view is never re-marched
       const time = tier === 'low' ? 0 : p.time;
       const e = camera.matrixWorld.elements;
-      const s = `${e[12].toFixed(4)},${e[13].toFixed(4)},${e[14].toFixed(4)},${e[0].toFixed(4)},${e[1].toFixed(4)},${e[2].toFixed(4)},${e[4].toFixed(4)},${e[5].toFixed(4)},${e[6].toFixed(4)},${camera.fov},${camera.aspect},${time.toFixed(3)},${p.gain.toFixed(4)},${p.cavR.toFixed(4)},${p.collapse.toFixed(4)},${p.knot.toFixed(4)},${rt.width}`;
+      const s = `${e[12].toFixed(4)},${e[13].toFixed(4)},${e[14].toFixed(4)},${e[0].toFixed(4)},${e[1].toFixed(4)},${e[2].toFixed(4)},${e[4].toFixed(4)},${e[5].toFixed(4)},${e[6].toFixed(4)},${camera.fov},${camera.aspect},${time.toFixed(3)},${p.gain.toFixed(4)},${p.cavR.toFixed(4)},${p.collapse.toFixed(4)},${p.knot.toFixed(4)}`;
       if (s === sig) return;
       sig = s;
       u.uCamRot.value.setFromMatrix4(camera.matrixWorld);
