@@ -283,7 +283,6 @@ async function boot(): Promise<void> {
     html.classList.add('gx-nogl');
     return;
   }
-  (window as unknown as { __gx?: GalaxyScene }).__gx = scene;
 
   if (reduced) {
     html.classList.add('gx-still');

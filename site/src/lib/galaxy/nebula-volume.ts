@@ -3,9 +3,8 @@
 // 7-8 octave ridged multifractal filaments/pillars stretched toward the knot and dark dust lanes, written slice by slice
 // into a 3D texture (RGBA8: sqrt gas, dust, palette mix, violet fraction).
 // MARCH: a full-screen pass rebuilds each pixel's world ray and takes one trilinear fetch per step (Beer-Lambert absorption,
-// emission ~ density^2, an ionisation front facing the star, a forward single-scatter term, 1-2 octaves of fine 3D detail
-// noise only on density edges). No blur: step start jitter (IGN, rotated per frame) is converged by temporal accumulation
-// while the view is still (history blend, reset on any camera/param change); during motion only a 3x3 edge-aware filter.
+// emission ~ density^2, an ionisation front facing the star, a forward single-scatter term). Deterministic: fixed step start, no
+// per-pixel jitter, no blur, so one pass per view change and nothing to converge. Bicubic upsample in the composite.
 // The result is composited premultiplied before the stars-and-planets pass, so dust darkens the deep field behind it.
 // After ignition the star carves a cavity (density removed inside uCavR, a lit wall at its edge). No assets, no sprites.
 // Round K: the hero and the plan beats are the pre-rendered layers and bubble cube (nebula-layers.ts). This volume only runs for the
@@ -20,18 +19,19 @@ import type { Object3D, PerspectiveCamera, WebGLRenderer } from 'three';
 import { KNOT_R, LOBES, RIM } from './generator.ts';
 import { PALETTE, type Tier } from './shared.ts';
 
-/** Per tier: ray steps, edge-detail octaves, baked volume size, bake slices per frame, converge frames, max drawing-buffer pixel
- *  ratio (cap) and a scale on the drawing buffer (the march target; 1 = full resolution). */
+/** Per tier: ray steps, baked volume size, bake slices per frame, and a scale on the drawing buffer (the march target; 1 = full
+ *  resolution). */
+/** Highest pixel ratio the march target follows on the high tier (the others use the drawing buffer as is). */
+const HIGH_DPR_CAP = 1.25;
 const QUALITY = {
-  high: { steps: 96, still: 48, detail: 1, vol: 160, slices: 10, frames: 12, dprCap: 1.25, scale: 0.66 },
-  medium: { steps: 96, still: 32, detail: 1, vol: 128, slices: 8, frames: 10, dprCap: 99, scale: 0.55 },
-  low: { steps: 64, still: 24, detail: 0, vol: 128, slices: 6, frames: 8, dprCap: 99, scale: 0.5 },
+  high: { steps: 96, vol: 160, slices: 10, scale: 0.66 },
+  medium: { steps: 96, vol: 128, slices: 8, scale: 0.55 },
+  low: { steps: 64, vol: 128, slices: 6, scale: 0.5 },
 } as const;
 /** Half extent of the baked cube in world units (the lobes end within ~8.9 of the origin). */
 const VH = 9;
 
 export interface VolumeParams {
-  time: number; // idle clock in seconds (unused: the baked field is static, so a still view converges and costs nothing)
   gain: number; // overall emission
   vol: number; // 0..1 how much of the gas is marched (0 = knots and cocoons only, no bake, no march)
   cavR: number; // world radius of the star-carved bubble (0 = none)
@@ -40,7 +40,7 @@ export interface VolumeParams {
   copyAmt: number; // 0..1: dim the copy column
   wall?: number; // 0..1: Opus lights the bubble walls (a gentle ramp of the cavity-wall emission; 0 = as carved)
   copyMask: Vector4; // NDC ellipse cx, cy, rx, ry
-  /** Render one frame (reduced motion): converge in this call instead of over the next frames. */
+  /** Render one frame (reduced motion): bake every slice in this call instead of over the next frames. */
   still?: boolean;
   /** Star-forming knots (density pockets of the same gas, integrated in closed form): per star three vec4s.
    *  p = position + glow 0..1 (pulse included), c = tint + ignition 0..1, a = bipolar axis + cocoon build 0..1. */
@@ -193,20 +193,13 @@ precision highp float;
 precision highp int;
 precision highp sampler3D;
 uniform sampler3D uVol;
-uniform sampler2D uHist;
-uniform vec2 uRes;
-uniform float uAlpha;
-uniform float uFrame;
 uniform float uBaked;
-uniform float uDetAmp;
-uniform int uDetOct;
 uniform vec3 uCamPos;
 uniform float uGain;
 uniform float uCavR;
 uniform float uCollapse;
 uniform float uKnot;
 uniform int uSteps;
-uniform float uMove; // 1: the view is moving: stable sample positions (no per-pixel jitter, no sub-step detail), so nothing shimmers
 uniform vec3 uTeal;
 uniform vec3 uAmber;
 uniform vec4 uKp[${MAX_KNOTS}];
@@ -219,21 +212,6 @@ in vec3 vDir;
 out vec4 outColor;
 ${lobeConsts()}
 ${NOISE}
-
-// per-pixel offset for the ray start: a white integer hash stepped by the golden ratio each frame (a converging low-discrepancy
-// sequence per pixel; the 3x3 filter smooths it while moving, the accumulation resolves it when still)
-float ign(vec2 px) {
-  // IGN repeats every ~15 px horizontally (0.0671 per px), which reads as vertical bands once the gas is sharp: use an integer
-  // hash (white per pixel, no lattice) and step it by the golden ratio each frame, so the accumulated offsets stay stratified
-  uvec2 v = uvec2(px) * 1664525u + 1013904223u;
-  v.x += v.y * 1664525u;
-  v.y += v.x * 1664525u;
-  v ^= v >> 16u;
-  v.x += v.y * 1664525u;
-  v.y += v.x * 1664525u;
-  v ^= v >> 16u;
-  return fract(float(v.x >> 8u) * (1.0 / 16777216.0) + uFrame * 0.61803399);
-}
 
 // Line integral of an anisotropic gaussian density blob along the ray o + t rd, in closed form (no marching, so no step
 // noise on a feature smaller than a step). Frame (e1, e2, ax), sigmas sg. tc = the ray parameter of the closest approach.
@@ -290,8 +268,7 @@ vec4 shade() {
   float t1 = min(min(tf.x, tf.y), tf.z);
   if (t1 <= t0) return vec4(kcol, 0.0);
   float dt = (t1 - t0) / float(uSteps);
-  float t = t0 + dt * (uMove > 0.5 ? 0.5 : ign(gl_FragCoord.xy));
-  float detK = uMove > 0.5 ? 0.0 : uDetAmp * clamp(0.35 / dt, 0.25, 1.0);
+  float t = t0 + dt * 0.5;
   float invV = 0.5 / VH;
 
   vec3 acc = vec3(0.0);
@@ -309,15 +286,6 @@ vec4 shade() {
     vec3 col = vec3(0.0);
     float sig = 0.0;
     if (g > 0.004 || du > 0.01) {
-      // fine detail below the baked resolution, carved only where the density is in a mid band (the edges of the clouds and lanes)
-      if (detK > 0.0) {
-        float dn = 1.0 - abs(2.0 * noise(p * 4.3 + 7.0) - 1.0);
-        if (uDetOct > 1) dn = dn * 0.62 + 0.38 * (1.0 - abs(2.0 * noise(p * 9.7 + 19.0) - 1.0));
-        float eg = smoothstep(0.03, 0.2, gB) * (1.0 - smoothstep(0.7, 1.8, gB));
-        float ed = smoothstep(0.1, 0.5, du) * (1.0 - smoothstep(1.6, 3.2, du));
-        g *= 1.0 + (dn - 0.5) * 2.2 * detK * eg;
-        du *= 1.0 + (0.5 - dn) * 2.0 * detK * ed;
-      }
       // the carved cavity: no gas inside, a lit wall at its edge
       float cav = smoothstep(uCavR * 0.72, uCavR * 1.22 + 0.001, r);
       float wall = uCavR > 0.01 ? exp(-pow((r - uCavR - 0.35) / 0.9, 2.0)) : 0.0;
@@ -355,17 +323,13 @@ vec4 shade() {
 }
 
 void main() {
-  vec4 cur = shade();
-  if (uAlpha < 1.0) cur = mix(texture(uHist, gl_FragCoord.xy / uRes), cur, uAlpha);
-  outColor = cur;
+  outColor = shade();
 }
 `;
 
 const compFrag = /* glsl */ `
 precision highp float;
 uniform sampler2D tVol;
-uniform vec2 uTexel;
-uniform float uConv;
 uniform float uCopyAmt;
 uniform vec4 uCopyMask;
 in vec2 vUv;
@@ -396,24 +360,6 @@ vec4 bicubic(vec2 uv) {
 }
 void main() {
   vec4 s = bicubic(vUv);
-  if (uConv < 0.999) {
-    // moving: a 3x3 edge-aware (bilateral on luminance and alpha) average; fades out as the accumulation converges
-    float lc = lum(s);
-    vec4 sum = s;
-    float ws = 1.0;
-    for (int j = -1; j <= 1; j++) {
-      for (int i = -1; i <= 1; i++) {
-        if (i == 0 && j == 0) continue;
-        vec4 n = texture(tVol, vUv + vec2(float(i), float(j)) * uTexel);
-        float ln = lum(n);
-        float d = abs(lc - ln) / (lc + ln + 0.03) + abs(s.a - n.a) * 1.5;
-        float w = (i == 0 || j == 0 ? 1.0 : 0.7) * exp(-d * d * 16.0);
-        sum += n * w;
-        ws += w;
-      }
-    }
-    s = mix(sum / ws, s, uConv);
-  }
   if (uCopyMask.z > 0.0) {
     vec2 e = (vNdc - uCopyMask.xy) / uCopyMask.zw;
     s.rgb *= mix(1.0, mix(0.12, 1.0, smoothstep(0.6, 1.2, length(e))), uCopyAmt);
@@ -445,9 +391,7 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
     type: half ? HalfFloatType : UnsignedByteType, depthBuffer: false, stencilBuffer: false,
     minFilter: LinearFilter, magFilter: LinearFilter, generateMipmaps: false,
   } as const;
-  // two full-resolution targets: the march blends against the other one (history), the composite reads the newest
-  const rts = [new WebGLRenderTarget(2, 2, rtOpts), new WebGLRenderTarget(2, 2, rtOpts)];
-  let cur = 0;
+  const rt = new WebGLRenderTarget(2, 2, rtOpts);
   // the baked volume
   const vol = new WebGL3DRenderTarget(q.vol, q.vol, q.vol, {
     type: UnsignedByteType, depthBuffer: false, stencilBuffer: false, minFilter: LinearFilter, magFilter: LinearFilter, generateMipmaps: false,
@@ -467,15 +411,13 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
   const march = new ShaderMaterial({
     uniforms: {
       uInvProj: { value: new Matrix4() }, uCamRot: { value: new Matrix3() }, uCamPos: { value: new Vector3() },
-      uVol: { value: vol.texture }, uHist: { value: rts[1].texture }, uRes: { value: new Vector2(2, 2) },
-      uAlpha: { value: 1 }, uFrame: { value: 0 }, uBaked: { value: 0 }, uDetAmp: { value: tier === 'high' ? 0.9 : tier === 'medium' ? 0.7 : 0 },
-      uDetOct: { value: q.detail },
+      uVol: { value: vol.texture }, uBaked: { value: 0 },
       uKp: { value: Array.from({ length: MAX_KNOTS }, () => new Vector4()) },
       uKc: { value: Array.from({ length: MAX_KNOTS }, () => new Vector4()) },
       uKa: { value: Array.from({ length: MAX_KNOTS }, () => new Vector4(0, 1, 0, 0)) },
       uKn: { value: 0 }, uKGain: { value: 0 }, uWall: { value: 0 },
       uGain: { value: 0 }, uCavR: { value: 0 }, uCollapse: { value: 0 }, uKnot: { value: 1 },
-      uSteps: { value: q.steps }, uMove: { value: 0 },
+      uSteps: { value: q.steps },
       uTeal: { value: PALETTE.opencode }, uAmber: { value: PALETTE.agy },
     },
     vertexShader: vert, fragmentShader: marchFrag, glslVersion: GLSL3,
@@ -487,7 +429,7 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
   marchScene.add(marchMesh);
 
   const comp = new ShaderMaterial({
-    uniforms: { tVol: { value: rts[0].texture }, uRes: { value: new Vector2(2, 2) }, uTexel: { value: new Vector2(1, 1) }, uConv: { value: 1 }, uCopyAmt: { value: 0 }, uCopyMask: { value: new Vector4() } },
+    uniforms: { tVol: { value: rt.texture }, uRes: { value: new Vector2(2, 2) }, uCopyAmt: { value: 0 }, uCopyMask: { value: new Vector4() } },
     vertexShader: compVert, fragmentShader: compFrag, glslVersion: GLSL3,
     transparent: true, blending: CustomBlending, blendSrc: OneFactor, blendDst: OneMinusSrcAlphaFactor,
     depthTest: false, depthWrite: false,
@@ -503,15 +445,7 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
   let slice = 0; // next slice to bake
   let readyAt = 0; // performance.now() when the bake finished
   let nCalls = 0;
-  let acc = 0; // frames accumulated for the current view
-  let moving = false; // the last pass was the stable-sample march of a moving view
   let sig = '';
-  const held: number[] = new Array(16).fill(0);
-  let hasHeld = false;
-  const heldM = new Matrix4();
-  // Round K4: the march is deterministic (no per-pixel jitter, no sub-step detail) whether the view moves or rests, so there is no grain
-  // to converge and no pop when the camera stops: one pass per change. (The jitter path stays in the shader, selected by uMove = 0.)
-  const converge = 1;
   function bakeChunk(rend: WebGLRenderer, n: number): void {
     const prev = rend.getRenderTarget();
     const end = Math.min(q.vol, slice + n);
@@ -522,15 +456,6 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
     }
     rend.setRenderTarget(prev);
     if (slice >= q.vol) readyAt = performance.now();
-  }
-  function pass(rend: WebGLRenderer, alpha: number, frame: number): void {
-    const w = 1 - cur;
-    march.uniforms.uHist.value = rts[cur].texture;
-    march.uniforms.uAlpha.value = alpha;
-    march.uniforms.uFrame.value = frame;
-    rend.setRenderTarget(rts[w]);
-    rend.render(marchScene, dummyCam);
-    cur = w;
   }
   return {
     object3d: group,
@@ -547,66 +472,39 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
       comp.uniforms.uCopyAmt.value = p.copyAmt;
       comp.uniforms.uCopyMask.value.copy(p.copyMask);
       const u = march.uniforms;
-      // The scene sways the camera a hair at idle, which would restart the accumulation forever. Hold the pose the volume was
-      // last marched from until the camera leaves it by about a pixel (position 0.012, rotation 0.0006), so a view that is
-      // still, or drifting at idle, converges between steps; scrolling moves past the threshold every frame.
-      const cw = camera.matrixWorld.elements;
-      let dev = 0;
-      for (const k of [12, 13, 14]) dev = Math.max(dev, Math.abs(cw[k] - held[k]) / 0.012);
-      for (const k of [0, 1, 2, 4, 5, 6, 8, 9, 10]) dev = Math.max(dev, Math.abs(cw[k] - held[k]) / 0.0006);
-      if (dev > 1 || !hasHeld) {
-        for (let k = 0; k < 16; k++) held[k] = cw[k];
-        hasHeld = true;
-      }
-      const e = held;
+      const e = camera.matrixWorld.elements;
       const s = `${e[12].toFixed(4)},${e[13].toFixed(4)},${e[14].toFixed(4)},${e[0].toFixed(4)},${e[1].toFixed(4)},${e[2].toFixed(4)},${e[4].toFixed(4)},${e[5].toFixed(4)},${e[6].toFixed(4)},${camera.fov},${camera.aspect},${p.gain.toFixed(4)},${p.cavR.toFixed(4)},${p.collapse.toFixed(4)},${p.knot.toFixed(4)},${(p.wall ?? 0).toFixed(3)},${ramp.toFixed(3)}`
         + (kn ? `|${kn.n},${kn.gain.toFixed(4)},${kn.p.slice(0, kn.n).map((v, i) => `${v.x.toFixed(3)},${v.y.toFixed(3)},${v.z.toFixed(3)},${v.w.toFixed(3)},${kn.c[i].w.toFixed(3)},${kn.a[i].w.toFixed(3)}`).join(';')}` : '');
-      const changed = s !== sig;
-      if (!changed && acc >= converge) return; // converged: a still view costs nothing
-      if (changed) {
-        sig = s;
-        acc = 0;
-        moving = true;
-        heldM.fromArray(held);
-        u.uCamRot.value.setFromMatrix4(heldM);
-        u.uInvProj.value.copy(camera.projectionMatrixInverse);
-        u.uCamPos.value.setFromMatrixPosition(heldM);
-        u.uGain.value = p.gain;
-        u.uCavR.value = p.cavR;
-        u.uCollapse.value = p.collapse;
-        u.uKnot.value = p.knot;
-        u.uWall.value = p.wall ?? 0;
-        u.uBaked.value = ramp;
-        const nk = kn ? Math.min(kn.n, MAX_KNOTS) : 0;
-        u.uKn.value = nk;
-        u.uKGain.value = kn ? kn.gain : 0;
-        for (let i = 0; i < nk; i++) {
-          (u.uKp.value as Vector4[])[i].copy(kn!.p[i]);
-          (u.uKc.value as Vector4[])[i].copy(kn!.c[i]);
-          (u.uKa.value as Vector4[])[i].copy(kn!.a[i]);
-        }
+      if (s === sig) return; // nothing changed: a still view costs nothing
+      sig = s;
+      u.uCamRot.value.setFromMatrix4(camera.matrixWorld);
+      u.uInvProj.value.copy(camera.projectionMatrixInverse);
+      u.uCamPos.value.setFromMatrixPosition(camera.matrixWorld);
+      u.uGain.value = p.gain;
+      u.uCavR.value = p.cavR;
+      u.uCollapse.value = p.collapse;
+      u.uKnot.value = p.knot;
+      u.uWall.value = p.wall ?? 0;
+      u.uBaked.value = ramp;
+      const nk = kn ? Math.min(kn.n, MAX_KNOTS) : 0;
+      u.uKn.value = nk;
+      u.uKGain.value = kn ? kn.gain : 0;
+      for (let i = 0; i < nk; i++) {
+        (u.uKp.value as Vector4[])[i].copy(kn!.p[i]);
+        (u.uKc.value as Vector4[])[i].copy(kn!.c[i]);
+        (u.uKa.value as Vector4[])[i].copy(kn!.a[i]);
       }
       const prev = rend.getRenderTarget();
-      const n = 1;
-      u.uMove.value = moving ? 1 : 0;
-      u.uSteps.value = moving ? q.steps : q.still;
-      for (let k = 0; k < n; k++) {
-        pass(rend, acc === 0 ? 1 : Math.max(1 / (acc + 1), half ? 0 : 0.25), acc);
-        acc++;
-      }
+      rend.setRenderTarget(rt);
+      rend.render(marchScene, dummyCam);
       rend.setRenderTarget(prev);
-      comp.uniforms.tVol.value = rts[cur].texture;
-      comp.uniforms.uConv.value = moving ? 1 : Math.min(1, (acc - 1) / Math.max(1, converge * 0.5));
     },
     resize(w, h) {
       const pr = renderer.getPixelRatio();
-      const sc = Math.min(1, q.dprCap / pr) * q.scale;
+      const sc = (tier === 'high' ? Math.min(1, HIGH_DPR_CAP / pr) : 1) * q.scale;
       const rw = Math.max(2, Math.round(w * sc));
       const rh = Math.max(2, Math.round(h * sc));
-      rts[0].setSize(rw, rh);
-      rts[1].setSize(rw, rh);
-      march.uniforms.uRes.value.set(rw, rh);
-      comp.uniforms.uTexel.value.set(1 / rw, 1 / rh);
+      rt.setSize(rw, rh);
       comp.uniforms.uRes.value.set(rw, rh);
       sig = '';
     },
@@ -615,8 +513,7 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
       march.dispose();
       bake.dispose();
       comp.dispose();
-      rts[0].dispose();
-      rts[1].dispose();
+      rt.dispose();
       vol.dispose();
     },
   };

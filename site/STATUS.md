@@ -2,6 +2,13 @@
 
 The showcase site is being rebuilt as "SwarmKit City": a scroll-scrubbed miniature-city 3D scene that replays one real `lead-dev-hybrid` run (the city is the codebase). The old honeycomb-globe site is archived in `docs/archive/`. The site was removed from `main` on 2026-10-18 (commit 206bf6f) and lives on branch `showcase`, where Vercel deploys production (https://swarmkit-site.vercel.app). The City was released on 2026-10-17 (main bc0170f); the Galaxy replaced it on 2026-10-20.
 
+## 2026-10-21 (galaxy rounds J-K released)
+- Shipped (owner said "release"): the orbits are replaced by a star nursery (knots, threads, ignition, cocoons, test pulses, cron sputter fed by the fixer, cluster infall); labels say what each worker built and which helper ran it, with an honest no-subagents line and a legend; grain-free dive; dramatic supernova; bigger final galaxy.
+- The nebula is pre-rendered offline on the GPU as parallax layers plus a quiet bubble remnant (`scripts/render-nebula.mjs`, output in `public/nebula`). Re-run from `site/`: `PLAYWRIGHT_CORE=/home/ha-lun/projects/clavis node scripts/render-nebula.mjs all`. It needs a GPU Chromium; on this machine that means the NVIDIA PRIME env vars (`__NV_PRIME_RENDER_OFFLOAD=1`, `__GLX_VENDOR_LIBRARY_NAME=nvidia`, `__EGL_VENDOR_LIBRARY_FILENAMES`) and `--use-gl=angle --use-angle=gl-egl`.
+- Release-review fixes: the layer fade is time-based and instant under reduced motion (it used to stall at ~4% there); the dead jitter/accumulation path of the live volume is removed; `createGalaxy` disposes the renderer if setup throws; the `__gx` debug hook is gone.
+- Checks: tests pass, astro check clean, build OK, JS ~279 KB gz.
+- Follow-ups: real-phone fps; the dive is still the live volume (soft, with a faint vertical texture); burst peak brightness; the bubble cube faces are only 768 px.
+
 ## 2026-10-21 (galaxy round H, branch site/nebula)
 - Owner feedback: open on a nebula, explode into a galaxy at the merge, orbits less flat. Work on branch `site/nebula` (worktree `.worktrees/site-nebula`), not yet merged into `showcase`.
 - Nebula opening: the comet dives into the nebula's knot, which ignites the sun. Orbits: tilted, depth-shaded, lane-coloured trails, dust belts. Merge: supernova burst and shock ring; the debris forms the spiral galaxy. Merge copy now ends "Everything lands as one."

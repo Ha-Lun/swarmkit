@@ -87,13 +87,24 @@ function cloudGeometry(c: PointCloud): BufferGeometry {
 
 /** Throws if WebGL2 is unavailable (the caller then shows the fallback). */
 export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): GalaxyScene {
-  const tcfg = TIER[opts.tier];
-  const reduced = opts.reducedMotion;
   const renderer = new WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
   if (!renderer.capabilities.isWebGL2) {
     renderer.dispose();
     throw new Error('galaxy: WebGL2 unavailable');
   }
+  // anything that throws while the scene is built (a shader, a texture, the nebula) must not leak the WebGL context
+  try {
+    return setUpGalaxy(canvas, opts, renderer);
+  } catch (e) {
+    renderer.dispose();
+    renderer.forceContextLoss();
+    throw e;
+  }
+}
+
+function setUpGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions, renderer: WebGLRenderer): GalaxyScene {
+  const tcfg = TIER[opts.tier];
+  const reduced = opts.reducedMotion;
   const bloomTier = tcfg.bloom;
   renderer.setClearColor(new Color(CLEAR), 1);
   renderer.toneMapping = bloomTier ? ACESFilmicToneMapping : NoToneMapping;
@@ -151,6 +162,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   const sceneT0 = performance.now();
   const nebLayers = createNebulaLayers(opts.tier, renderer, {
     portrait: canvas.clientWidth < canvas.clientHeight,
+    reduced,
     onReady: () => { if (!disposed && (reduced || !active)) renderFrame(performance.now()); },
   });
   scene.add(nebLayers.object3d);
@@ -664,7 +676,6 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     const volWait = nebLayers.ready || pp > 0.1 || performance.now() - sceneT0 > 2200 ? 1 : 0; // hero: give the images a moment before baking the fallback
     const volA = (1 - nebLayers.cover) * volWait;
     nebVol.render(renderer, camera, {
-      time: t,
       vol: volA,
       gain: volA * 0.38 * nebRem * nebulaDip(pp) * (1 - 0.3 * band) * (1 - 0.35 * nebPortrait) * (opts.tier === 'low' ? 1.5 : 1),
       knots: { n: Math.min(nWork, MAX_KNOTS), p: starKnot, c: starKnotC, a: starKnotA, gain: 0.7 * (1 - nebBlow) * (1 + 0.5 * nebPortrait) },

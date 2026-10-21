@@ -4,10 +4,10 @@
 // All layers are drawn premultiplied, far to near, into one half-float target in display-referred linear colour (exactly how the
 // offline renderer composited them); a single full-screen quad then puts that target into the scene, applying the inverse of
 // the scene's ACES curve so the tone-mapping pass lands back on the rendered pixels (the quad is a straight write on the
-// non-tone-mapped low tier). Textures load lazily after the hero has painted: low set on the low tier, portrait and save-data.
+// non-tone-mapped low tier). Textures load lazily after the hero has painted: the approach layers use the low set on a low-tier landscape screen or save-data, the bubble cube on the low tier, portrait or save-data.
 import {
   BackSide, BufferAttribute, BufferGeometry, CubeTexture, CustomBlending, DoubleSide, GLSL3, Group, HalfFloatType, LinearFilter,
-  LinearMipmapLinearFilter, Matrix4, Mesh, NoBlending, OneFactor, OneMinusSrcAlphaFactor, OrthographicCamera, PlaneGeometry,
+  LinearMipmapLinearFilter, Matrix4, Mesh, OneFactor, OneMinusSrcAlphaFactor, PlaneGeometry,
   Quaternion, Scene, ShaderMaterial, SphereGeometry, SRGBColorSpace, Texture, UnsignedByteType, Vector2, Vector3, Vector4, WebGLRenderTarget,
 } from 'three';
 import type { PerspectiveCamera, WebGLRenderer } from 'three';
@@ -202,7 +202,7 @@ const loadImage = (url: string): Promise<HTMLImageElement> => new Promise((res, 
   im.src = url;
 });
 
-export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { portrait: boolean; onReady?: () => void }): NebulaLayers {
+export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { portrait: boolean; reduced?: boolean; onReady?: () => void }): NebulaLayers {
   const toneMapped = tier !== 'low';
   const half = renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float');
   const rt = new WebGLRenderTarget(2, 2, {
@@ -213,7 +213,6 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
   const rtRes = new Vector2(2, 2);
   const clearZone = new Vector4(0, 0, 0.7, 0.55);
   const axis = new Vector3(0, 0, -1);
-  const dummyCam = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
   const geo = new BufferGeometry();
   geo.setAttribute('position', new BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
   const comp = new ShaderMaterial({
@@ -231,7 +230,7 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
   const blend = { blending: CustomBlending, blendSrc: OneFactor, blendDst: OneMinusSrcAlphaFactor } as const;
   const owned: { dispose(): void }[] = [geo, rt, comp];
   let manifest: Manifest | null = null;
-  let planes: { mesh: Mesh; mat: ShaderMaterial; depth: number; base: Vector3; h: number }[] = [];
+  let planes: { mesh: Mesh; mat: ShaderMaterial; depth: number; h: number }[] = [];
   let approachReady = false;
   let bubbleReady = false;
   let far: Mesh | null = null;
@@ -245,13 +244,13 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
   const heroUp = new Vector3();
   let aspectKey = 0;
   const saveData = !!(navigator as { connection?: { saveData?: boolean } }).connection?.saveData;
-  // phones: the low approach set is blotchy when stretched over a portrait screen, so they take the high approach layers (~0.76 MB);
-  // the bubble is dim and distant, the low cube is plenty
-  const set: 'high' | 'low' = tier === 'low' || opts.portrait || saveData ? 'low' : 'high';
+  // approach layers: the low set is blotchy when stretched over a portrait screen, so portrait (phones) keeps the high set (~0.76 MB)
+  // unless save-data is on; a low-tier landscape screen takes the low set
   const setApproach: 'high' | 'low' = saveData || (tier === 'low' && !opts.portrait) ? 'low' : 'high';
+  // bubble cube: dim and distant, so the low cube is plenty on the low tier, portrait and save-data
+  const setCube: 'high' | 'low' = tier === 'low' || opts.portrait || saveData ? 'low' : 'high';
   const upQueue: Texture[] = []; // textures still to upload to the GPU: one per frame, no hitch
   const out = { object3d: group, cover: 0 } as NebulaLayers & { cover: number };
-  let t0 = 0;
 
   function placePlanes(aspect: number): void {
     if (!manifest) return;
@@ -299,7 +298,7 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
       layerScene.add(mesh);
       owned.push(tex, mat);
       upQueue.push(tex);
-      return { mesh, mat, depth: l.depth, base: new Vector3(), h: l.planeHeight };
+      return { mesh, mat, depth: l.depth, h: l.planeHeight };
     });
     placePlanes(cam.aspect);
     approachReady = true;
@@ -307,7 +306,7 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
     // the bubble is only needed at the ignition: load it after the approach, without blocking
     const b = manifest.bubble;
     const mk = (files: { high: string; low: string }): Promise<CubeTexture> => Promise.all(
-      b.cube.order.map((f) => loadImage(BASE + files[set].replace('{face}', f))),
+      b.cube.order.map((f) => loadImage(BASE + files[setCube].replace('{face}', f))),
     ).then((ims) => {
       const ct = new CubeTexture(ims);
       ct.colorSpace = SRGBColorSpace;
@@ -346,7 +345,6 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
 
   const start = (): void => {
     if (disposed) return;
-    t0 = performance.now();
     load().catch(() => { /* stay on the live volume */ });
   };
   // after the hero has painted: next idle slot, but not later than 1.2 s
@@ -354,6 +352,7 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
   const startTimer = window.setTimeout(() => (ric ? ric(start, { timeout: 1200 }) : start()), 400);
 
   let ramp = 0;
+  let rampAt = 0; // performance.now() of the previous update while loading (the fade is time-based, not per frame)
   let sig = '';
   const tmp = new Vector3();
   out.update = (camera, p) => {
@@ -363,7 +362,14 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
     const blow = ss(M.burst[0] - 0.004, M.burst[1] + 0.03, m); // scale and fade: the remnant is carried out and gone just after the burst
     const shred = ss(M.burst[0] - 0.004, M.burst[0] + 0.05, m); // the tearing is quick: it must read inside the flash
     const buE = bubbleReady ? ss(0.535, 0.62, pp) * (1 - ss(M.burst[0] + 0.01, M.burst[1] + 0.04, m)) : 0;
-    ramp = approachReady || bubbleReady ? Math.min(1, ramp + 0.04) : 0; // fade the whole thing in over ~0.6 s once loaded (and it re-fades if still)
+    // fade the whole thing in over ~0.6 s once loaded; reduced motion renders on demand (one frame at load), so it shows at once
+    if (!(approachReady || bubbleReady)) ramp = 0;
+    else if (opts.reduced) ramp = 1;
+    else {
+      const now = performance.now();
+      ramp = Math.min(1, ramp + (rampAt ? Math.min(100, now - rampAt) : 16) / 600);
+      rampAt = now;
+    }
     const k = ramp < 1 && !renderer.xr?.isPresenting ? ss(0, 1, ramp) : 1;
     out.cover = Math.max(apE, buE) * k;
     const on = out.cover > 0.002;
@@ -372,14 +378,12 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
     const up = upQueue.shift();
     if (up) renderer.initTexture(up);
     // approach planes: fade by distance to the plane along the hero axis, so none can fill the screen as a flat card
-    const cs = heroPos.clone();
     for (const pl of planes) {
       tmp.copy(pl.mesh.position).sub(camera.position);
       const d = tmp.dot(heroFwd);
       pl.mat.uniforms.uFade.value = apE * k * ss(1.2, 4.5, d);
       pl.mesh.visible = pl.mat.uniforms.uFade.value > 0.002;
     }
-    void cs;
     if (Math.abs(camera.aspect - aspectKey) > 1e-3) placePlanes(camera.aspect);
     // bubble: Opus is the origin; it swells out and fades across the burst (blow-away)
     const bs = 1 + 1.6 * blow;
@@ -432,7 +436,5 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
     for (const o of owned) o.dispose();
   };
   Object.defineProperty(out, 'ready', { get: () => approachReady });
-  void t0;
-  void NoBlending;
   return out;
 }
