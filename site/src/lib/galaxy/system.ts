@@ -49,19 +49,22 @@ export function buildSystem(story: Pick<Story, 'workers'>, aspect: number): { pl
   const shrink = aspect < 1 ? Math.max(0.7, aspect + 0.25) : 1;
   const radii = ordered.map((_, i) => (R0 + (R1 - R0) * (n > 1 ? i / (n - 1) : 0)) * shrink);
   const rMax = Math.max(...radii);
-  const planets: Planet[] = ordered.map((w, i) => ({
-    slug: w.slug,
-    lane: w.lane,
-    orbit: radii[i],
-    phase: (((-0.6 + i * GOLDEN) % TAU) + TAU) % TAU,
-    speed: 0.15 * (rMax / radii[i]) ** 1.5,
-    incl: (i % 2 === 0 ? 1 : -1) * (0.5 + 2.5 * (i * 0.618034 + 0.31 - Math.floor(i * 0.618034 + 0.31))) * Math.PI / 180,
-    node: ((i * GOLDEN * 1.7) % TAU + TAU) % TAU,
-    launchIndex: w.launchIndex,
-    buildIndex: w.buildIndex,
-    mergeIndex: w.mergeIndex,
-    verify: verifyFor(w),
-  }));
+  const planets: Planet[] = ordered.map((w, i) => {
+    const f = i * 0.618034 + 0.31;
+    return {
+      slug: w.slug,
+      lane: w.lane,
+      orbit: radii[i],
+      phase: (((-0.6 + i * GOLDEN) % TAU) + TAU) % TAU,
+      speed: 0.15 * (rMax / radii[i]) ** 1.5,
+      incl: (i % 2 === 0 ? 1 : -1) * (0.5 + 2.5 * (f - Math.floor(f))) * Math.PI / 180,
+      node: ((i * GOLDEN * 1.7) % TAU + TAU) % TAU,
+      launchIndex: w.launchIndex,
+      buildIndex: w.buildIndex,
+      mergeIndex: w.mergeIndex,
+      verify: verifyFor(w),
+    };
+  });
   const troubled = planets.find((p) => p.verify.resolution === 'fixer');
   return { planets, closeUp: troubled !== undefined ? troubled.slug : null };
 }

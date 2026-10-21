@@ -14,7 +14,6 @@ uniform float uPx; // >0: fixed pixel size (deep field)
 uniform float uPR;
 uniform float uCoreDim;
 uniform float uBig; // 1 = large soft sprites (haze, dust): no energy normalisation
-uniform float uGrow; // grows a cloud outward from the core: points with aData.w = t appear once uGrow passes t
 uniform float uDof; // 0..1 close-up fake depth of field: things far behind the focus plane get bigger and dimmer
 uniform float uFocusD;
 uniform float uNear; // >0: fade by view distance (the nebula gas): nothing fills the screen when the camera flies through it
@@ -65,7 +64,7 @@ void main() {
   float depth = max(-mv.z, 0.01);
   float tw = 1.0 + 0.28 * sin(uTime * (0.7 + aData.z * 2.2) + aData.y * 40.0);
   float size = uPx > 0.0 ? aData.x * uPx * uPR : aData.x * uSize * uScale / depth;
-  float a = uGain * tw * fa * smoothstep(aData.w - 0.12, aData.w, uGrow);
+  float a = uGain * tw * fa;
   size *= 1.0 + 1.6 * spark;
   if (uBig < 0.5 && uPx <= 0.0) {
     a /= 1.0 + pow(size / (16.0 * uPR), 2.0); // keep energy when a star is close to the lens
@@ -627,9 +626,9 @@ in vec3 vCol;
 out vec4 fragColor;
 void main() {
   float across = exp(-vSide * vSide * 2.6 / (1.0 + 1.6 * vBlur)) / (1.0 + 1.6 * vBlur);
-  vec3 col;
   float a;
   if (vK < 0.5) {
+    vec3 col;
     float shown = 1.0 - smoothstep(vProg - 0.012, vProg, vT);
     if (shown <= 0.0) discard;
     float head = vProg < 0.999 ? exp(-pow((vT - vProg) * 16.0, 2.0)) : 0.0;
@@ -642,7 +641,7 @@ void main() {
     float base = 0.13 * rad * (0.45 + 0.75 * dash) * shim;
     vec3 ring = mix(vCol, vec3(1.0), 0.55);
     vec3 tr = mix(vCol, vec3(1.0), 0.1);
-    col = (ring * base + tr * (vTrail * 0.8 * rad + head * 0.7)) ;
+    col = (ring * base + tr * (vTrail * 0.8 * rad + head * 0.7));
     a = across * shown * vAl * vDepth;
     fragColor = vec4(col * a, 1.0);
     return;
@@ -691,7 +690,7 @@ void main() {
     float aa = max(fwidth(r), 1e-4);
     float dr = r - uShockR;
     float line = 1.0 - smoothstep(0.0, 1.6 * aa, abs(dr));
-    float lead = exp(-pow(dr / 0.2, 2.0)) * (dr > 0.0 ? 1.0 : 0.0) + exp(-pow(dr / 0.2, 2.0)) * (dr <= 0.0 ? 0.55 : 0.0);
+    float lead = exp(-pow(dr / 0.2, 2.0)) * (dr > 0.0 ? 1.0 : 0.55);
     float trail = step(r, uShockR) * exp(dr / 0.55);
     col += mix(vec3(0.62, 0.55, 1.0), vec3(1.0, 0.95, 1.0), smoothstep(-0.6, 0.0, dr)) * (line * 0.55 + lead * 0.3 + trail * 0.05) * uShockA;
   }

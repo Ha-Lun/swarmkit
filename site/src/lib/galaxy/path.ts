@@ -212,7 +212,6 @@ export const M = {
   pull: [0.05, 0.6], // planets fall into the sun, staggered by merge order (stagger share 0.5 of the window)
   burst: [0.58, 0.68], // the sun swells and bursts: white flash plus one expanding shock ring; the system is gone by the end
   form: [0.6, 0.95], // the debris flies out from the core and swirls into the spiral galaxy
-  cam: [0.42, 0.98], // the camera pulls out to the full galaxy
 } as const;
 
 const stag = (win: readonly [number, number], idx: number, n: number, share = 0.45): [number, number] => {

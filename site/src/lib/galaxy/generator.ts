@@ -5,6 +5,11 @@ import { mulberry32, PALETTE } from './shared.ts';
 export const GALAXY_R = 10;
 type RGB = [number, number, number];
 
+const gauss = (rnd: () => number): number => {
+  const u = Math.max(1e-6, rnd());
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd());
+};
+
 export interface PointCloud {
   count: number;
   position: Float32Array; // count*3
@@ -53,16 +58,12 @@ const PINK: RGB = [1, 0.72, 0.88]; // HII region
 
 export function buildGalaxy(count: number, seed = 11): PointCloud {
   const rnd = mulberry32(seed);
-  const gauss = (): number => {
-    const u = Math.max(1e-6, rnd());
-    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd());
-  };
   const c = cloud(count);
   const TEAL = PALETTE.opencode as RGB;
   const AMBER = PALETTE.agy as RGB;
   const nArms = Math.round(count * 0.62);
   // small HII-style clusters: each sits on one arm at a fixed radius and lateral offset
-  const knots = Array.from({ length: 60 }, () => ({ t: 0.14 + rnd() ** 1.2 * 0.8, arm: pickArm(rnd()), lat: gauss() * 0.8 }));
+  const knots = Array.from({ length: 60 }, () => ({ t: 0.14 + rnd() ** 1.2 * 0.8, arm: pickArm(rnd()), lat: gauss(rnd) * 0.8 }));
   const nBulge = Math.round(count * 0.15);
   const nDisc = Math.round(count * 0.2);
   const nHalo = Math.round(count * 0.025);
@@ -80,7 +81,7 @@ export function buildGalaxy(count: number, seed = 11): PointCloud {
       const kn = knots[Math.floor(rnd() * knots.length)];
       const u = rnd();
       const t0 = Math.min(1, -Math.log(1 - u * (1 - Math.exp(-1.9))) / 1.9 * 1.05 + 0.02);
-      let t = clumped ? Math.min(1, Math.max(0.03, kn.t + gauss() * 0.004)) : t0;
+      let t = clumped ? Math.min(1, Math.max(0.03, kn.t + gauss(rnd) * 0.004)) : t0;
       let spurAng = 0;
       let armI = clumped ? kn.arm : arm;
       if (spur) {
@@ -93,12 +94,12 @@ export function buildGalaxy(count: number, seed = 11): PointCloud {
       const weak = armI === 1 || armI === 3;
       const sigma = armSigma(t) * (spur ? 0.8 : 1) * (clumped ? 0.35 : 1) * (weak ? 2.6 : 1); // weak arms are diffuse feathering, not arms
       // off < 0 is the trailing (inner) edge, where the dust lane sits: thin the stars there
-      const off = clumped ? kn.lat * armSigma(t) + gauss() * sigma : gauss() * sigma + (rnd() ** 4) * (rnd() < 0.5 ? -1 : 1) * sigma * 2.5;
-      const r = t * GALAXY_R + gauss() * 0.05;
+      const off = clumped ? kn.lat * armSigma(t) + gauss(rnd) * sigma : gauss(rnd) * sigma + (rnd() ** 4) * (rnd() < 0.5 ? -1 : 1) * sigma * 2.5;
+      const r = t * GALAXY_R + gauss(rnd) * 0.05;
       const a2 = ang + off / Math.max(r, 0.5);
-      x = Math.cos(a2) * (r + gauss() * sigma * 0.5);
-      z = Math.sin(a2) * (r + gauss() * sigma * 0.5);
-      y = gauss() * (0.05 + 0.2 * Math.exp(-t * 2.4)); // flat disc, no warp
+      x = Math.cos(a2) * (r + gauss(rnd) * sigma * 0.5);
+      z = Math.sin(a2) * (r + gauss(rnd) * sigma * 0.5);
+      y = gauss(rnd) * (0.05 + 0.2 * Math.exp(-t * 2.4)); // flat disc, no warp
       // lane colour flows with azimuth and radius; outer arms go bluish-white with only a tint of the lane
       const lanec = mix3(TEAL, AMBER, Math.min(1, Math.max(0, laneMix(a2, t) + (rnd() - 0.5) * 0.2)));
       const tint = mix3(lanec, [0.82, 0.9, 1], 0.2 + 0.4 * sstep(0.45, 1, t));
@@ -117,7 +118,7 @@ export function buildGalaxy(count: number, seed = 11): PointCloud {
         size = 1.4 + rnd() * 0.5;
       } else size = 0.55 + rnd() * 0.7;
     } else if (i < nArms + nBulge) {
-      const rr = Math.abs(gauss()) * 0.85 + 0.03;
+      const rr = Math.abs(gauss(rnd)) * 0.85 + 0.03;
       const th = Math.acos(2 * rnd() - 1);
       const ph = rnd() * Math.PI * 2;
       x = rr * Math.sin(th) * Math.cos(ph);
@@ -132,7 +133,7 @@ export function buildGalaxy(count: number, seed = 11): PointCloud {
       const ang = rnd() * Math.PI * 2;
       x = Math.cos(ang) * t * GALAXY_R;
       z = Math.sin(ang) * t * GALAXY_R;
-      y = gauss() * (0.04 + 0.16 * Math.exp(-t * 2.2));
+      y = gauss(rnd) * (0.04 + 0.16 * Math.exp(-t * 2.2));
       col = mix3(CORE, DEEP, sstep(0.05, 0.6, t));
       bright = (0.14 + rnd() * 0.26) * (1 - 0.45 * t);
       size = 0.5 + rnd() * 0.5;
@@ -152,7 +153,7 @@ export function buildGalaxy(count: number, seed = 11): PointCloud {
       const ang = rnd() * Math.PI * 2;
       x = Math.cos(ang) * t * GALAXY_R * 1.1;
       z = Math.sin(ang) * t * GALAXY_R * 1.1;
-      y = gauss() * 0.3;
+      y = gauss(rnd) * 0.3;
       col = mix3([0.85, 0.9, 1], WARM, rnd());
       bright = 0.3 + rnd() * 0.5;
       size = 0.5 + rnd() * 0.6;
@@ -176,13 +177,9 @@ const NEW_ARM_SLOT = 1.5; // between the weak arm 1 and the dominant arm 2
 const MINT: RGB = [0.62, 1, 0.8]; // verified, merged green-white
 
 /** The arm the merge adds: a bright, slightly thinner spiral between two existing arms, tinted by both lanes with mint
- *  highlights. data.w = normalised radius t, so the vertex shader can grow it outward from the core (uGrow). */
+ *  highlights. data.w = normalised radius t. */
 export function buildNewArm(count: number, seed = 31): PointCloud {
   const rnd = mulberry32(seed);
-  const gauss = (): number => {
-    const u = Math.max(1e-6, rnd());
-    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd());
-  };
   const c = cloud(count);
   const TEAL = PALETTE.opencode as RGB;
   const AMBER = PALETTE.agy as RGB;
@@ -190,11 +187,11 @@ export function buildNewArm(count: number, seed = 31): PointCloud {
     const t = Math.min(1, 0.1 + Math.sqrt(rnd()) * 0.9); // denser toward the rim, where the arm should read
     const ang = NEW_ARM_SLOT * (Math.PI * 2 / ARMS) + armTwist(t);
     const sigma = armSigma(t) * 0.75;
-    const off = gauss() * sigma + (rnd() ** 4) * (rnd() < 0.5 ? -1 : 1) * sigma * 2;
-    const r = t * GALAXY_R + gauss() * 0.05;
+    const off = gauss(rnd) * sigma + (rnd() ** 4) * (rnd() < 0.5 ? -1 : 1) * sigma * 2;
+    const r = t * GALAXY_R + gauss(rnd) * 0.05;
     const a2 = ang + off / Math.max(r, 0.5);
     c.position[i * 3] = Math.cos(a2) * r;
-    c.position[i * 3 + 1] = gauss() * (0.05 + 0.18 * Math.exp(-t * 2.4));
+    c.position[i * 3 + 1] = gauss(rnd) * (0.05 + 0.18 * Math.exp(-t * 2.4));
     c.position[i * 3 + 2] = Math.sin(a2) * r;
     const tint = mix3(mix3(TEAL, AMBER, Math.min(1, Math.max(0, laneMix(a2, t)))), MINT, 0.2 + 0.25 * rnd());
     let col = mix3(CORE, tint, sstep(0.05, 0.4, t));
@@ -345,10 +342,6 @@ const warp = (p: V3, amp: number): void => {
  *  points within KNOT_R of the origin, white-violet, brighter (up to b 0.12). LINEAR, magnitude = brightness. */
 export function buildNebula(count: number, seed = 21): PointCloud {
   const rnd = mulberry32(seed);
-  const gauss = (): number => {
-    const u = Math.max(1e-6, rnd());
-    return Math.max(-2.5, Math.min(2.5, Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd())));
-  };
   const c = cloud(count);
   const TEAL = PALETTE.opencode as RGB;
   const AMBER = PALETTE.agy as RGB;
@@ -384,9 +377,9 @@ export function buildNebula(count: number, seed = 21): PointCloud {
       // rejection-sample toward fbm ridges: the filaments and pillars
       for (let t = 0; t < 3; t++) {
         lobe = LOBES[Math.floor(rnd() * LOBES.length)];
-        gx = gauss();
-        gy = gauss();
-        gz = gauss();
+        gx = Math.max(-2.5, Math.min(2.5, gauss(rnd)));
+        gy = Math.max(-2.5, Math.min(2.5, gauss(rnd)));
+        gz = Math.max(-2.5, Math.min(2.5, gauss(rnd)));
         p[0] = lobe.c[0] + gx * lobe.s[0];
         p[1] = lobe.c[1] + gy * lobe.s[1];
         p[2] = lobe.c[2] + gz * lobe.s[2];
@@ -448,10 +441,6 @@ export function buildNebula(count: number, seed = 21): PointCloud {
  *  knot — every point is kept beyond 1.2 from the origin. */
 export function buildNebulaDust(count: number, seed = 23): PointCloud {
   const rnd = mulberry32(seed);
-  const gauss = (): number => {
-    const u = Math.max(1e-6, rnd());
-    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd());
-  };
   const c = cloud(count);
   // end to end through the volume, the mid control pulling the lane through the gas
   const lane = (): { a: V3; m: V3; b: V3 } => {
@@ -482,9 +471,9 @@ export function buildNebulaDust(count: number, seed = 23): PointCloud {
     for (let tries = 0; tries < 8; tries++) {
       const t = rnd();
       const u = 1 - t;
-      x = u * u * ln.a[0] + 2 * u * t * ln.m[0] + t * t * ln.b[0] + gauss() * 0.35;
-      y = u * u * ln.a[1] + 2 * u * t * ln.m[1] + t * t * ln.b[1] + gauss() * 0.35;
-      z = u * u * ln.a[2] + 2 * u * t * ln.m[2] + t * t * ln.b[2] + gauss() * 0.35;
+      x = u * u * ln.a[0] + 2 * u * t * ln.m[0] + t * t * ln.b[0] + gauss(rnd) * 0.35;
+      y = u * u * ln.a[1] + 2 * u * t * ln.m[1] + t * t * ln.b[1] + gauss(rnd) * 0.35;
+      z = u * u * ln.a[2] + 2 * u * t * ln.m[2] + t * t * ln.b[2] + gauss(rnd) * 0.35;
       r = Math.hypot(x, y, z);
       if (r > 1.25) break;
     }
@@ -507,18 +496,14 @@ export function buildNebulaDust(count: number, seed = 23): PointCloud {
  *  data.x = size factor 0.6..1.6. */
 export function buildNebulaStars(count: number, seed = 25): PointCloud {
   const rnd = mulberry32(seed);
-  const gauss = (): number => {
-    const u = Math.max(1e-6, rnd());
-    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd());
-  };
   const c = cloud(count);
   const BLUE: RGB = [0.7, 0.82, 1];
   for (let i = 0; i < count; i++) {
     const lobe = LOBES[Math.floor(rnd() * LOBES.length)];
     const k = 0.45; // tighter than the gas sigma
-    const x = lobe.c[0] + gauss() * lobe.s[0] * k;
-    const y = lobe.c[1] + gauss() * lobe.s[1] * k;
-    const z = lobe.c[2] + gauss() * lobe.s[2] * k;
+    const x = lobe.c[0] + gauss(rnd) * lobe.s[0] * k;
+    const y = lobe.c[1] + gauss(rnd) * lobe.s[1] * k;
+    const z = lobe.c[2] + gauss(rnd) * lobe.s[2] * k;
     const warm = rnd() < 0.12;
     const col = warm ? mix3(BLUE, WARM, 0.5 + rnd() * 0.5) : mix3(BLUE, [1, 1, 1], rnd() * 0.3);
     const b = 0.2 + rnd() ** 3; // 0.2..1.2, long tail

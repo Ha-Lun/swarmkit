@@ -117,7 +117,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
         ...shared,
         ...(o.gain !== undefined ? { uGain: { value: o.gain } } : {}),
         uSize: { value: o.size ?? 0.05 }, uRotate: { value: o.rotate ?? 0 }, uPx: { value: o.px ?? 0 },
-        uBig: { value: o.big ?? 0 }, uMode: { value: mode }, uGrow: { value: 2 }, uForm: { value: 1 }, uSpark: { value: 0 }, uClearR: { value: 0 },
+        uBig: { value: o.big ?? 0 }, uMode: { value: mode }, uForm: { value: 1 }, uSpark: { value: 0 }, uClearR: { value: 0 },
         uNear: { value: 0 }, uCollapse: { value: 0 }, uKnot: { value: 1 }, uCopyMask: copyMask, uCopyAmt: { value: 0 },
       },
       vertexShader: spriteVert, fragmentShader: spriteFrag, glslVersion: GLSL3,
@@ -148,6 +148,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   const bdMat = (backdrop.object3d as Mesh).material as ShaderMaterial;
   // Galaxy: stars, haze (additive), dust (alpha)
   const starMat = sprite(AdditiveBlending, 0, { size: opts.tier === 'low' ? 0.07 : 0.05, rotate: 1 });
+  starMat.uniforms.uSpark.value = 1;
   const starPts = points(cloudGeometry(buildGalaxy(tcfg.stars)), starMat, 2);
   const hazeMat = sprite(AdditiveBlending, 1, { size: 1, rotate: 1, big: 1, gain: 0.8 });
   const hazePts = points(cloudGeometry(buildHaze(tcfg.haze)), hazeMat, 1);
@@ -164,15 +165,17 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     return m;
   };
   const nebGasMat = nebMat(AdditiveBlending, 1, 0.55, 4.5, tcfg.gasPx);
-  points(cloudGeometry(buildNebula(tcfg.neb[0])), nebGasMat, 1);
+  const nebGasPts = points(cloudGeometry(buildNebula(tcfg.neb[0])), nebGasMat, 1);
   const nebDustMat = nebMat(NormalBlending, 2, 0.5, 4, tcfg.gasPx);
-  points(cloudGeometry(buildNebulaDust(tcfg.neb[1])), nebDustMat, 3);
+  const nebDustPts = points(cloudGeometry(buildNebulaDust(tcfg.neb[1])), nebDustMat, 3);
   const nebStarMat = nebMat(AdditiveBlending, 0, opts.tier === 'low' ? 0.07 : 0.05, 0.8, pointMax);
-  points(cloudGeometry(buildNebulaStars(tcfg.neb[2])), nebStarMat, 2);
+  const nebStarPts = points(cloudGeometry(buildNebulaStars(tcfg.neb[2])), nebStarMat, 2);
   const nebMats = [nebGasMat, nebDustMat, nebStarMat];
+  const nebPts = [nebGasPts, nebDustPts, nebStarPts];
 
-  // The arm the merge adds (grows outward from the core, driven by uGrow).
+  // The arm the merge adds (hidden until the merge brings it in).
   const armMat = sprite(AdditiveBlending, 0, { size: opts.tier === 'low' ? 0.07 : 0.05, rotate: 1, gain: 1.0 });
+  armMat.uniforms.uSpark.value = 1;
   const armPts = points(cloudGeometry(buildNewArm(tcfg.arm)), armMat, 2);
   armPts.visible = false;
 
@@ -496,22 +499,19 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     const calm = (1 - 0.6 * calmDive) * (1 - 0.84 * calmPlan) * (1 - 0.5 * ss(0.5, 0.58, pp) * (1 - lg));
     // the spiral galaxy exists only after the supernova (the page opens on the nebula): hidden until the burst, then each star flies out of the core (uForm)
     const fK = formK(m);
-    const galOn = 1;
     const galVis = fK > 0.001;
     for (const gm of [starMat, hazeMat, dustMat, armMat]) gm.uniforms.uForm.value = fK;
-    starMat.uniforms.uSpark.value = 1;
-    armMat.uniforms.uSpark.value = 1;
     const fin = ss(0.45, 1.0, m); // the finished galaxy: lifts out of the system-beat dimming (gain chains tuned for the dive) back to the hero look
     const mixTo = (v: number, to: number): number => v + (to - v) * fin;
     starPts.visible = galVis;
     hazePts.visible = galVis;
     dustPts.visible = galVis;
-    shared.uGain.value = 1.4 * mixTo(st.galaxyGain, 0.5) * calm * (1 + 1.5 * lg) * galOn;
+    shared.uGain.value = 1.4 * mixTo(st.galaxyGain, 0.5) * calm * (1 + 1.5 * lg);
     shared.uCoreDim.value = mixTo((st.coreGain + (0.8 - st.coreGain) * lg) * (1 - 0.7 * pullOut) * (1 - 0.5 * calmPlan), 0.6);
-    hazeMat.uniforms.uGain.value = galOn * 0.8 * mixTo(st.galaxyGain * (1 - 0.8 * ss(0.5, 0.62, pp)) * (1 + 2.4 * lg) * (1 - 0.6 * pullOut), 1.0) * (1 - 0.8 * band) * calm * (1 - 0.6 * calmPlan);
+    hazeMat.uniforms.uGain.value = 0.8 * mixTo(st.galaxyGain * (1 - 0.8 * ss(0.5, 0.62, pp)) * (1 + 2.4 * lg) * (1 - 0.6 * pullOut), 1.0) * (1 - 0.8 * band) * calm * (1 - 0.6 * calmPlan);
     hazeMat.uniforms.uSize.value = 1 + 0.7 * ss(0.5, 1, m); // the far camera shrinks the soft sprites: keep the disc light as wide on screen as in the near hero view
     hazeMat.uniforms.uGain.value *= ss(0.2, 0.8, fK); // the soft disc light arrives with the stars, not stacked on the core
-    dustMat.uniforms.uGain.value = galOn * (1 + 0.4 * ss(0.5, 0.6, pp)) * (1 - 0.95 * ss(0.14, 0.3, pp) * (1 - lg)) * (1 - 0.85 * calmPlan);
+    dustMat.uniforms.uGain.value = (1 + 0.4 * ss(0.5, 0.6, pp)) * (1 - 0.95 * ss(0.14, 0.3, pp) * (1 - lg)) * (1 - 0.85 * calmPlan);
     dustMat.uniforms.uGain.value *= 1 - 0.55 * clamp01((1.0 - camera.aspect) / 0.35) * ss(0.45, 1, m); // phones: the far camera makes each dust sprite a big black smear
     // late beats: clean black around the sun so the system reads against it; the full field returns as the merge camera pulls out
     const clearR = Math.max((2.6 + 3 * (1 - ss(0.56, 0.62, pp))) * ss(0.5, 0.55, pp), 2.6 * ss(0, 0.05, u)) * (1 - ss(M.burst[0], M.burst[1], m)); // also clean around the sun at the core beat
@@ -521,6 +521,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     // the nebula: full through the hero, comet and dive; the knot contracts to a point and brightens, the flash, then the gas thins to a faint
     // remnant behind the system and goes out as the merge brings the galaxy up
     const nebRem = (1 - 0.88 * ss(0.5, 0.66, pp)) * (1 - ss(0.05, 0.4, m));
+    for (const np of nebPts) np.visible = nebRem > 0.002; // gone after the merge: skip the draw
     const nebExp = 1 - 0.3 * band; // exposure already dips in the dive; keep the gas structured, not flat
     const nebPortrait = clamp01((1.0 - camera.aspect) / 0.35); // phones: fewer, smaller sprites per screen area, so lift the gas
     nebGasMat.uniforms.uGain.value = 0.55 * nebRem * nebExp * (1 + 1.6 * nebPortrait);
@@ -644,15 +645,14 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     // core flash as the comet lands: a brief gain bump on the bulge
     shared.uGain.value *= 1 + 0.9 * st.flash;
     // merge: the whole galaxy comes back up as the camera pulls out; the bulge swells with each arrival (saturating, never blown out)
-    const sparse = (opts.tier === 'low' ? 1 : 0.15) * clamp01((1.2 - aspect) / 0.74); // portrait + few stars (phones): the far camera is width-limited, so stars grow and brighten
     const portraitK = clamp01((1.2 - aspect) / 0.74); // phones: the far final camera is width-limited
+    const sparse = (opts.tier === 'low' ? 1 : 0.15) * portraitK; // portrait + few stars (phones): the far camera is width-limited, so stars grow and brighten
     shared.uGain.value *= Math.min(1.15 + 0.7 * portraitK, 1 + 0.35 * pullOut * (1 + sparse)) * (1 + 0.28 * flare) * (0.35 + 0.65 * ss(0.12, 0.55, fK)); // while the debris is still packed near the core it stacks additively: hold it down until it spreads; the pull-out brightening is capped: the far core stays a core, not a blob
     const wideSize = Math.min(1.4 + 1.3 * portraitK, (1 + 1.1 * pullOut) * (1 + 0.55 * pullOut * sparse + 0.9 * pullOut * portraitK)); // stars are fixed-size in world units: keep them readable from the far camera, boost capped
     starMat.uniforms.uSize.value *= wideSize;
     armMat.uniforms.uSize.value = starMat.uniforms.uSize.value;
     armMat.uniforms.uGain.value = shared.uGain.value * 0.45; // the new arm sits below the original field: never an over-bright crescent
     armPts.visible = galVis;
-    armMat.uniforms.uGain.value *= galOn;
 
     // ---- the system layer ----
     const px = shared.uScale.value / shared.uPR.value; // css px per world unit at depth 1
@@ -735,12 +735,12 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     });
     orbits.mesh.visible = n > 0 && st.draw > 0;
     orbits.mat.uniforms.uIdle.value = idleOn;
-    belt.visible = orbits.mesh.visible;
     orbits.mat.uniforms.uCopyAmt.value = cA;
     beltMat.uniforms.uCopyAmt.value = cA;
+    let envMax = 0;
+    for (let i = 0; i < n; i++) envMax = Math.max(envMax, orbAl[i]);
+    belt.visible = orbits.mesh.visible && envMax > 0.002;
     if (belt.visible) {
-      let envMax = 0;
-      for (let i = 0; i < n; i++) envMax = Math.max(envMax, orbAl[i]);
       beltMat.uniforms.uGain.value = 0.55 * envMax;
       driftBelts(tt);
     }
