@@ -24,7 +24,7 @@ import {
 } from './generator.ts';
 import type { PointCloud } from './generator.ts';
 import {
-  armGrow, cometAt, clamp01, closeAmt, closeC, closeView, coreFlare, L, lateU, legacyP, lerp, mergeCam, mergeM, orbitT, pullK,
+  burstFlash, cometAt, clamp01, closeAmt, closeC, closeView, coreFlare, L, lateU, legacyP, lerp, M, formK, mergeCam, mergeM, shockAlpha, shockK, sunSwell, systemLeft, orbitT, pullK,
   sceneState, shipK, ss, systemView, win,
 } from './path.ts';
 import type { SceneState, V3 } from './path.ts';
@@ -117,7 +117,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
         ...shared,
         ...(o.gain !== undefined ? { uGain: { value: o.gain } } : {}),
         uSize: { value: o.size ?? 0.05 }, uRotate: { value: o.rotate ?? 0 }, uPx: { value: o.px ?? 0 },
-        uBig: { value: o.big ?? 0 }, uMode: { value: mode }, uGrow: { value: 2 }, uClearR: { value: 0 },
+        uBig: { value: o.big ?? 0 }, uMode: { value: mode }, uGrow: { value: 2 }, uForm: { value: 1 }, uClearR: { value: 0 },
         uNear: { value: 0 }, uCollapse: { value: 0 }, uKnot: { value: 1 }, uCopyMask: copyMask, uCopyAmt: { value: 0 },
       },
       vertexShader: spriteVert, fragmentShader: spriteFrag, glslVersion: GLSL3,
@@ -269,7 +269,9 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   // the sun's soft lens glow: one big warm sprite (no cross, no spikes), own gain, never core-dimmed
   const haloGeo = track(new BufferGeometry());
   haloGeo.setAttribute('position', new BufferAttribute(new Float32Array(3), 3));
-  haloGeo.setAttribute('aColor', new BufferAttribute(new Float32Array([1.0, 0.62, 0.3]), 3));
+  const haloCol = new Float32Array([1.0, 0.62, 0.3]);
+  const haloColAttr = new BufferAttribute(haloCol, 3);
+  haloGeo.setAttribute('aColor', haloColAttr);
   haloGeo.setAttribute('aData', new BufferAttribute(new Float32Array([1, 0.3, 0.3, 0]), 4));
   const haloMat = sprite(AdditiveBlending, 1, { size: 2.8, big: 1, gain: 0 });
   haloMat.uniforms.uCoreDim = { value: 1 };
@@ -326,7 +328,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
 
   // flat effects in the orbital plane: the approval pulse and the scan arc
   const fxMat = track(new ShaderMaterial({
-    uniforms: { uPool: { value: 0 }, uPulseR: { value: 0 }, uPulseA: { value: 0 }, uAng: { value: 0 }, uScanVis: { value: 0 }, uR: { value: 6 } },
+    uniforms: { uPool: { value: 0 }, uPulseR: { value: 0 }, uPulseA: { value: 0 }, uShockR: { value: 0 }, uShockA: { value: 0 }, uAng: { value: 0 }, uScanVis: { value: 0 }, uR: { value: 6 } },
     vertexShader: fxVert, fragmentShader: fxFrag, glslVersion: GLSL3,
     blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true,
   }));
@@ -484,9 +486,11 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     const calmDive = ss(0.1, 0.28, pp) * (1 - ss(0.5, 0.58, pp));
     const calmPlan = ss(0.4, 0.56, pp) * (1 - lg);
     const calm = (1 - 0.6 * calmDive) * (1 - 0.84 * calmPlan) * (1 - 0.5 * ss(0.5, 0.58, pp) * (1 - lg));
-    // the spiral galaxy exists only in the merge beat (the page opens on the nebula): hidden until m > 0, eased in over the first quarter
-    const galOn = ss(0, 0.25, m);
-    const galVis = m > 0.001;
+    // the spiral galaxy exists only after the supernova (the page opens on the nebula): hidden until the burst, then each star flies out of the core (uForm)
+    const fK = formK(m);
+    const galOn = 1;
+    const galVis = fK > 0.001;
+    for (const gm of [starMat, hazeMat, dustMat, armMat]) gm.uniforms.uForm.value = fK;
     starPts.visible = galVis;
     hazePts.visible = galVis;
     dustPts.visible = galVis;
@@ -495,7 +499,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     hazeMat.uniforms.uGain.value = galOn * 0.8 * st.galaxyGain * (1 - 0.8 * ss(0.5, 0.62, pp)) * (1 + 2.4 * lg) * (1 - 0.8 * band) * (1 - 0.6 * pullOut) * calm * (1 - 0.6 * calmPlan);
     dustMat.uniforms.uGain.value = galOn * (1 + 0.4 * ss(0.5, 0.6, pp)) * (1 - 0.95 * ss(0.14, 0.3, pp) * (1 - lg)) * (1 - 0.85 * calmPlan);
     // late beats: clean black around the sun so the system reads against it; the full field returns as the merge camera pulls out
-    const clearR = Math.max((2.6 + 3 * (1 - ss(0.56, 0.62, pp))) * ss(0.5, 0.55, pp), 2.6 * ss(0, 0.05, u)) * (1 - ss(0.4, 0.9, m)); // also clean around the sun at the core beat
+    const clearR = Math.max((2.6 + 3 * (1 - ss(0.56, 0.62, pp))) * ss(0.5, 0.55, pp), 2.6 * ss(0, 0.05, u)) * (1 - ss(M.burst[0], M.burst[1], m)); // also clean around the sun at the core beat
     starMat.uniforms.uClearR.value = clearR;
     hazeMat.uniforms.uClearR.value = clearR;
     dustMat.uniforms.uClearR.value = clearR;
@@ -625,21 +629,21 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     shared.uGain.value *= 1 + 0.9 * st.flash;
     // merge: the whole galaxy comes back up as the camera pulls out; the bulge swells with each arrival (saturating, never blown out)
     const sparse = (opts.tier === 'low' ? 1 : 0.15) * clamp01((1.2 - aspect) / 0.74); // portrait + few stars (phones): the far camera is width-limited, so stars grow and brighten
-    shared.uGain.value *= Math.min(1.15, 1 + 0.35 * pullOut * (1 + sparse)) * (1 + 0.28 * flare); // the pull-out brightening is capped: the far core stays a core, not a blob
-    const wideSize = Math.min(1.4, (1 + 1.1 * pullOut) * (1 + 0.55 * pullOut * sparse)); // stars are fixed-size in world units: keep them readable from the far camera, boost capped
+    const portraitK = clamp01((1.2 - aspect) / 0.74); // phones: the far final camera is width-limited
+    shared.uGain.value *= Math.min(1.15 + 0.7 * portraitK, 1 + 0.35 * pullOut * (1 + sparse)) * (1 + 0.28 * flare); // the pull-out brightening is capped: the far core stays a core, not a blob
+    const wideSize = Math.min(1.4 + 1.3 * portraitK, (1 + 1.1 * pullOut) * (1 + 0.55 * pullOut * sparse + 0.9 * pullOut * portraitK)); // stars are fixed-size in world units: keep them readable from the far camera, boost capped
     starMat.uniforms.uSize.value *= wideSize;
     armMat.uniforms.uSize.value = starMat.uniforms.uSize.value;
     armMat.uniforms.uGain.value = shared.uGain.value * 0.45; // the new arm sits below the original field: never an over-bright crescent
-    armMat.uniforms.uGrow.value = -0.15 + 1.27 * armGrow(m);
-    armPts.visible = m > 0.3;
+    armPts.visible = galVis;
     armMat.uniforms.uGain.value *= galOn;
 
     // ---- the system layer ----
     const px = shared.uScale.value / shared.uPR.value; // css px per world unit at depth 1
-    const sunA = ss(0.5, 0.56, pp) * (1 - 0.55 * pullOut) * (1 - 0.7 * cA) * (1 - ss(0.6, 0.9, m)); // gone entirely by merge 0.9: the merged galaxy owns the origin
+    const sunA = ss(0.5, 0.56, pp) * (1 - 0.55 * pullOut) * (1 - 0.7 * cA) * systemLeft(m); // gone by the end of the burst: the merged galaxy owns the origin
     const pulseP = st.pulse > 0 && st.pulse < 1 ? st.pulse : 0;
     const pulseGlow = Math.sin(Math.PI * pulseP) ** 2;
-    uP[SUN].set(0, 0, 0, SUN_R * (1 + 0.3 * flare + 0.1 * pulseGlow));
+    uP[SUN].set(0, 0, 0, SUN_R * (1 + 0.3 * flare + 0.1 * pulseGlow + 1.6 * sunSwell(m)));
     uS[SUN].set(sunA * (1 + 2.6 * cA), 0, 0, 0); // behind the close-up copy the far sun is lifted back to a blazing star (the dimming above only guards the pill and the bloom)
     bodyMat.uniforms.uSpin.value = tt;
     bodyMat.uniforms.uFlare.value = flare * 0.9 + st.flash * 0.5 + pulseGlow * 0.12;
@@ -701,7 +705,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       uS[SLOT0 + pi].set(slotA, 0, 0, 0);
       orbProg[pi] = draw;
       orbits.ang[pi] = p.phase + p.speed * tt;
-      orbAl[pi] = 1.2 * ss(0, 0.12, draw) * (1 - ss(0.05, 0.9, mkI)) * (1 - 0.6 * ss(0.4, 0.85, m));
+      orbAl[pi] = 1.2 * ss(0, 0.12, draw) * (1 - ss(0.05, 0.9, mkI)) * (1 - 0.6 * ss(0.4, 0.85, m)) * systemLeft(m);
       // the DOM pill: on the slot until launch, hidden while it flies out, then on the planet
       const mask = clamp01(1 - ss(0, 0.08, k) + ss(0.5, 0.9, k));
       const at = k < 0.3 ? sp : bodyPos[pi];
@@ -726,8 +730,17 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     }
     // the sun's approval pulse and the verify scan arc
     const elev = Math.abs(camera.position.y) / Math.max(0.01, camera.position.length());
-    fxMat.uniforms.uPool.value = ss(0.5, 0.56, pp) * ss(0.14, 0.5, elev) * (1 - 0.6 * pullOut) * (1 - ss(0.6, 0.9, m)) * (1 - 0.3 * cA);
-    haloMat.uniforms.uGain.value = 0.17 * sunA * (1 + 1.6 * cA) + 1.1 * st.flash; // + the ignition flash
+    fxMat.uniforms.uPool.value = ss(0.5, 0.56, pp) * ss(0.14, 0.5, elev) * (1 - 0.6 * pullOut) * systemLeft(m) * (1 - 0.3 * cA);
+    hazeMat.uniforms.uGain.value *= 1 + 1.6 * portraitK * pullOut; // the haze carries the disc on phones
+    const bf = burstFlash(m);
+    haloMat.uniforms.uGain.value = 0.17 * sunA * (1 + 1.6 * cA) * (1 + 2.5 * sunSwell(m)) + 1.1 * st.flash + 1.05 * bf; // + the ignition flash and the supernova flash
+    haloMat.uniforms.uSize.value = 2.8 * (1 + 1.5 * bf + 0.8 * sunSwell(m));
+    haloCol[0] = 1 - 0.2 * bf;
+    haloCol[1] = 0.62 + 0.1 * bf;
+    haloCol[2] = 0.3 + 0.7 * bf;
+    haloColAttr.needsUpdate = true;
+    fxMat.uniforms.uShockR.value = shockK(m) * (rMax + 1.2);
+    fxMat.uniforms.uShockA.value = shockAlpha(m);
     fxMat.uniforms.uPulseR.value = pulseP * (rMax + 0.8);
     fxMat.uniforms.uPulseA.value = pulseP > 0 ? Math.sin(Math.PI * pulseP) ** 0.8 * 0.9 : 0;
     fxMat.uniforms.uAng.value = TH0 + scanS * Math.PI * 2;

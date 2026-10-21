@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  armGrow, closeAmt, closeC, closeView, coreFlare, L, LATE_END, lateOpacity, lateU, legacyP, M, mergeCam, mergeM, mergeOpacity,
+  burstFlash, formK, closeAmt, closeC, closeView, coreFlare, L, LATE_END, lateOpacity, lateU, legacyP, M, mergeCam, mergeM, mergeOpacity,
   orbitT, pullEnd, pullK, shipK, SPLIT, STATIC_POSE, systemView, viewPose, win,
 } from '../../src/lib/galaxy/path.ts';
 import type { V3 } from '../../src/lib/galaxy/path.ts';
@@ -91,8 +91,19 @@ for (let i = 0; i <= 2000; i++) peak = Math.max(peak, coreFlare(i / 2000, n));
 assert.ok(peak > 0.3 && peak < 0.95, `flare peak ${peak}`);
 assert.ok(coreFlare(1, n) < 0.05 && coreFlare(0, n) < 0.01);
 assert.equal(coreFlare(0.5, 0), 0);
-assert.equal(armGrow(0), 0);
-assert.equal(armGrow(1), 1);
+// supernova: burst then formation, ordered, inside the merge; formK is a monotonic 0..1
+assert.ok(M.pull[0] < M.burst[0] && M.burst[0] < M.burst[1] && M.burst[1] < M.form[1] && M.form[1] <= 1, 'burst and form are ordered');
+assert.ok(M.form[0] >= M.burst[0] && M.form[0] < M.form[1] && M.form[0] > 0 && M.burst[0] > M.pull[0], 'form starts at the burst');
+assert.equal(formK(0), 0);
+assert.equal(formK(1), 1);
+for (let i = 1; i <= 500; i++) assert.ok(formK(i / 500) >= formK((i - 1) / 500), 'formK is monotonic');
+assert.ok(burstFlash(0) === 0 && burstFlash(1) === 0 && burstFlash((M.burst[0] + 0.02)) > 0.9, 'flash peaks in the burst and is gone at the ends');
+// the final merge view sits at about 42 deg elevation, wide and portrait
+for (const asp of [1.6, 0.46]) {
+  const c = mergeCam(1, asp, 6);
+  const el = (Math.atan2(c.cam[1] - c.target[1], Math.hypot(c.cam[0] - c.target[0], c.cam[2] - c.target[2])) * 180) / Math.PI;
+  assert.ok(el > 35 && el < 50, `final elevation ${el} at aspect ${asp}`);
+}
 
 // copy handover: no long empty stretch through the late beats
 let gap = 0;

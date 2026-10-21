@@ -210,7 +210,8 @@ export function closeView(pos: V3, aspect: number): LateCam {
 // ---- beat 5: merge (m) -------------------------------------------------------------------------------------------------
 export const M = {
   pull: [0.05, 0.6], // planets fall into the sun, staggered by merge order (stagger share 0.5 of the window)
-  arm: [0.5, 0.9], // the new bright arm grows outward from the core
+  burst: [0.58, 0.68], // the sun swells and bursts: white flash plus one expanding shock ring; the system is gone by the end
+  form: [0.6, 0.95], // the debris flies out from the core and swirls into the spiral galaxy
   cam: [0.42, 0.98], // the camera pulls out to the full galaxy
 } as const;
 
@@ -237,17 +238,29 @@ export function coreFlare(m: number, n: number): number {
   }
   return 1 - Math.exp(-sum * 1.1);
 }
-/** Growth of the new arm, 0 (not there) .. 1 (full). */
-export const armGrow = (m: number): number => ss(M.arm[0], M.arm[1], m);
+/** Galaxy formation 0 (everything at the core) .. 1 (every star on its final arm). Monotonic. */
+export const formK = (m: number): number => ss(M.form[0], M.form[1], m);
+/** Sun swell 0..1 before the burst (the star bloats as the last planets arrive). */
+export const sunSwell = (m: number): number => ss(0.3, M.burst[0], m) * (1 - ss(M.burst[0], M.burst[0] + 0.03, m));
+/** The system (sun, glow pool, orbit ribbons) is present 1 .. gone 0 across the burst. */
+export const systemLeft = (m: number): number => 1 - ss(M.burst[0] + 0.01, M.burst[1], m);
+/** White-violet flash 0..1: a quick rise at the burst start, then a smooth fall. */
+export const burstFlash = (m: number): number => ss(M.burst[0] - 0.005, M.burst[0] + 0.02, m) * (1 - ss(M.burst[0] + 0.02, M.burst[1] + 0.07, m));
+/** Shock ring progress 0..1 (ease-out) and its alpha. */
+export const shockK = (m: number): number => 1 - (1 - clamp01((m - M.burst[0] - 0.01) / (M.burst[1] + 0.08 - M.burst[0]))) ** 2.2;
+export const shockAlpha = (m: number): number => ss(M.burst[0] + 0.005, M.burst[0] + 0.03, m) * (1 - ss(M.burst[0] + 0.05, M.burst[1] + 0.08, m));
 
 /** Merge camera at m: starts on the overview, leans in while the planets fall, then pulls out to the whole galaxy. */
 export function mergeCam(m: number, aspect: number, rMax: number): LateCam {
   const wide = aspect >= 1.2;
   const a = systemView(aspect, rMax);
+  const offX = wide ? 0.33 + Math.max(0, 1.6 - aspect) * 0.25 : 0;
+  const dist = wide ? Math.max(25, 10 / (TAN25 * aspect * (0.92 - offX))) : Math.max(52, 10 / (TAN25 * aspect * 0.9)); // galaxy radius is 10
+  const fin = viewPose([0, 0, 0], dist, 0.78, 0, offX, wide ? -0.02 : -0.28, aspect);
   const k: { m: number; cam: V3; tg: V3 }[] = [
     { m: 0, cam: a.cam, tg: a.target },
     { m: 0.42, cam: systemView(aspect, rMax, 0.8).cam, tg: systemView(aspect, rMax, 0.8).target },
-    wide ? { m: 1, cam: [0.4, 10.5, 21.5], tg: [-5.6, -0.4, 0.0] } : { m: 1, cam: [0, 29, 38], tg: [0, -0.5, 0.0] }, // inclined like the hero (about 25-35 deg), never face-on; portrait pulled back so the whole disc fits
+    { m: 1, cam: fin.cam, tg: fin.target }, // inclined about 42 deg like M51 (never edge-on, never face-on); far enough that the whole disc and both arms read
   ];
   let i = 0;
   while (i < k.length - 2 && m > k[i + 1].m) i++;

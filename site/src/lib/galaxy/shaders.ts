@@ -22,6 +22,7 @@ uniform float uCollapse; // 0..1: the nebula knot (points within ~0.9 of the ori
 uniform float uKnot; // 0..1 brightness of the knot points (fades out after the ignition flash)
 uniform vec4 uCopyMask; // NDC ellipse cx, cy, rx, ry that dims this cloud (the close-up headline column)
 uniform float uCopyAmt;
+uniform float uForm; // 0..1 supernova formation: each star flies from the core to its place (inner first) while swirling in; 1 = untouched
 uniform float uClearR; // >0: clean black around the origin — brightness fades in from uClearR*0.5 out to uClearR (the system beats)
 in vec3 aColor;
 in vec4 aData;
@@ -35,6 +36,18 @@ void main() {
     kn = 1.0 - smoothstep(0.7, 0.95, length(p));
     p *= 1.0 - 0.94 * uCollapse * kn;
   }
+  float fa = 1.0;
+  if (uForm < 1.0) {
+    float d = 0.42 * clamp(length(p.xz) * 0.1, 0.0, 1.0) + 0.2 * aData.y; // inner stars land first, with per-star jitter
+    float k = clamp(uForm * 1.65 - d, 0.0, 1.0);
+    float e = 1.0 - pow(1.0 - k, 3.0); // thrown out fast, settling softly
+    float sw = (1.0 - k) * (1.0 - k) * 2.8; // spin-up: the debris swirls into its arm
+    float cs = cos(sw);
+    float sn = sin(sw);
+    p *= e;
+    p.xz = mat2(cs, sn, -sn, cs) * p.xz;
+    fa = smoothstep(0.0, 0.1, k) * (1.0 + 3.0 * k * (1.0 - k));
+  }
   float r = length(p.xz);
   if (uRotate > 0.5) {
     float ang = uTime * 0.026 * (1.0 + 1.6 * exp(-r * 0.3)) + uSpin * (1.0 + 1.1 * exp(-r * 0.25));
@@ -47,7 +60,7 @@ void main() {
   float depth = max(-mv.z, 0.01);
   float tw = 1.0 + 0.28 * sin(uTime * (0.7 + aData.z * 2.2) + aData.y * 40.0);
   float size = uPx > 0.0 ? aData.x * uPx * uPR : aData.x * uSize * uScale / depth;
-  float a = uGain * tw * smoothstep(aData.w - 0.12, aData.w, uGrow);
+  float a = uGain * tw * fa * smoothstep(aData.w - 0.12, aData.w, uGrow);
   if (uBig < 0.5 && uPx <= 0.0) {
     a /= 1.0 + pow(size / (16.0 * uPR), 2.0); // keep energy when a star is close to the lens
     a *= 1.0 - (1.0 - uCoreDim) * exp(-r * r * 0.35);
@@ -639,6 +652,8 @@ export const fxFrag = /* glsl */ `
 uniform float uPool;
 uniform float uPulseR;
 uniform float uPulseA;
+uniform float uShockR;
+uniform float uShockA;
 uniform float uAng;
 uniform float uScanVis;
 uniform float uR;
@@ -658,6 +673,13 @@ void main() {
     float line = 1.0 - smoothstep(0.0, 1.5 * aa, abs(r - uPulseR));
     float soft = exp(-pow((r - uPulseR) / 0.09, 2.0)) * 0.1;
     col += vec3(0.84, 0.78, 1.0) * (line * 0.3 + soft) * uPulseA;
+  }
+  if (uShockA > 0.001) {
+    // the supernova shock: one crisp hairline ring with a soft shoulder behind it
+    float aa = max(fwidth(r), 1e-4);
+    float line = 1.0 - smoothstep(0.0, 1.6 * aa, abs(r - uShockR));
+    float soft = exp(-pow((r - uShockR) / 0.35, 2.0)) * 0.1 + step(r, uShockR) * exp(-(uShockR - r) / 0.9) * 0.025;
+    col += vec3(0.9, 0.84, 1.0) * (line * 0.42 + soft) * uShockA;
   }
   if (uScanVis > 0.001) {
     float th = atan(-vP.y, vP.x);
