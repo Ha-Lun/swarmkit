@@ -8,13 +8,17 @@
 import {
   BackSide, BufferAttribute, BufferGeometry, CubeTexture, CustomBlending, DoubleSide, GLSL3, Group, HalfFloatType, LinearFilter,
   LinearMipmapLinearFilter, Matrix4, Mesh, NoBlending, OneFactor, OneMinusSrcAlphaFactor, OrthographicCamera, PlaneGeometry,
-  Quaternion, Scene, ShaderMaterial, SphereGeometry, SRGBColorSpace, Texture, UnsignedByteType, Vector3, Vector4, WebGLRenderTarget,
+  Quaternion, Scene, ShaderMaterial, SphereGeometry, SRGBColorSpace, Texture, UnsignedByteType, Vector2, Vector3, Vector4, WebGLRenderTarget,
 } from 'three';
 import type { PerspectiveCamera, WebGLRenderer } from 'three';
 import { clamp01, M, ss } from './path.ts';
 import type { Tier } from './shared.ts';
 
 const BASE = '/nebula/';
+const BUBBLE_GAIN = { far: 0.13, shell: 0.15 };
+/** hero: the planes are drawn this much larger (about the nebula's upper rim) so the soft lower/side feather falls outside the viewport */
+const HERO_GROW = 1.3;
+const HERO_ANCHOR = 0.31; // NDC y of the cloud's upper rim in the hero frame
 
 interface Manifest {
   approach: {
@@ -92,13 +96,29 @@ precision highp float;
 uniform samplerCube uCube;
 uniform float uFade;
 uniform float uFlip;
+uniform vec2 uRes;
+uniform vec4 uCopyMask;
+uniform float uCopyAmt;
+uniform vec4 uClear; // xy: the cluster centre in NDC, z: radius (NDC height units), w: how far the clear zone dims
 in vec3 vP;
 out vec4 outColor;
 void main() {
   vec3 d = normalize(vP);
   vec4 t = texture(uCube, vec3(uFlip * d.x, d.y, d.z));
-  float a = t.a * uFade;
-  outColor = vec4(t.rgb * a, a);
+  // grade the cream/beige toward the palette: keep the luminance, tint it teal -> violet by direction, a little amber in the highlights
+  float l = dot(t.rgb, vec3(0.2126, 0.7152, 0.0722));
+  float h = 0.5 + 0.5 * sin(d.x * 2.3 + d.y * 1.7 + d.z * 1.1);
+  vec3 tint = mix(vec3(0.20, 0.78, 0.72), vec3(0.58, 0.40, 0.92), h);
+  tint = mix(tint, vec3(1.0, 0.72, 0.38), 0.18 * smoothstep(0.25, 0.7, l));
+  vec3 c = mix(t.rgb, l * tint * 1.5, 0.78);
+  vec2 n = gl_FragCoord.xy / uRes * 2.0 - 1.0;
+  // the copy column stays dark, and a soft clear zone keeps the stars and threads of the cluster against near-black
+  float k = 1.0;
+  if (uCopyMask.z > 0.0) k = mix(1.0, mix(0.05, 1.0, smoothstep(0.6, 1.3, length((n - uCopyMask.xy) / uCopyMask.zw))), uCopyAmt);
+  vec2 cd = (n - uClear.xy) * vec2(uRes.x / uRes.y, 1.0);
+  k *= 1.0 - uClear.w * (1.0 - smoothstep(0.15, 1.0, length(cd) / max(uClear.z, 0.01)));
+  float a = t.a * uFade * k;
+  outColor = vec4(c * a, a);
 }
 `;
 
@@ -154,6 +174,8 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
     minFilter: LinearFilter, magFilter: LinearFilter, generateMipmaps: false,
   });
   const layerScene = new Scene();
+  const rtRes = new Vector2(2, 2);
+  const clearZone = new Vector4(0, 0, 0.7, 0.55);
   const dummyCam = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
   const geo = new BufferGeometry();
   geo.setAttribute('position', new BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
@@ -183,18 +205,26 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
   const heroFwd = new Vector3();
   const heroPos = new Vector3();
   const heroQ = new Quaternion();
+  const heroUp = new Vector3();
   let aspectKey = 0;
-  const set: 'high' | 'low' = tier === 'low' || opts.portrait || (navigator as { connection?: { saveData?: boolean } }).connection?.saveData ? 'low' : 'high';
+  const saveData = !!(navigator as { connection?: { saveData?: boolean } }).connection?.saveData;
+  // phones: the low approach set is blotchy when stretched over a portrait screen, so they take the high approach layers (~0.76 MB);
+  // the bubble is dim and distant, the low cube is plenty
+  const set: 'high' | 'low' = tier === 'low' || opts.portrait || saveData ? 'low' : 'high';
+  const setApproach: 'high' | 'low' = saveData || (tier === 'low' && !opts.portrait) ? 'low' : 'high';
   const upQueue: Texture[] = []; // textures still to upload to the GPU: one per frame, no hitch
   const out = { object3d: group, cover: 0 } as NebulaLayers & { cover: number };
   let t0 = 0;
 
   function placePlanes(aspect: number): void {
     if (!manifest) return;
-    const s = Math.max(1, aspect / manifest.approach.camera.aspect); // ultrawide: grow the plane away along the hero ray (same look from the hero pose)
+    const s = Math.max(1, aspect / manifest.approach.camera.aspect);
+    const grow = aspect < 1.1 ? 1.15 : HERO_GROW; // portrait already fills the width, so it only needs the lower feather pushed past the bottom
+    // ultrawide: grow the plane away along the hero ray (same look from the hero pose)
     for (const pl of planes) {
       pl.mesh.position.copy(heroPos).addScaledVector(heroFwd, pl.depth * s);
-      pl.mesh.scale.set(pl.h * s * manifest.approach.camera.aspect, pl.h * s, 1);
+      pl.mesh.scale.set(pl.h * s * grow * manifest.approach.camera.aspect, pl.h * s * grow, 1);
+      pl.mesh.position.addScaledVector(heroUp, -HERO_ANCHOR * (grow - 1) * pl.h * s * 0.5);
     }
     aspectKey = aspect;
   }
@@ -208,8 +238,9 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
     heroFwd.fromArray(cam.target).sub(heroPos).normalize();
     const right = new Vector3().crossVectors(heroFwd, new Vector3().fromArray(cam.up)).normalize();
     const up = new Vector3().crossVectors(right, heroFwd);
+    heroUp.copy(up);
     heroQ.setFromRotationMatrix(new Matrix4().makeBasis(right, up, heroFwd.clone().negate()));
-    const imgs = await Promise.all(manifest.approach.layers.map((l) => loadImage(BASE + l.file[set])));
+    const imgs = await Promise.all(manifest.approach.layers.map((l) => loadImage(BASE + l.file[setApproach])));
     if (disposed) return;
     const pg = new PlaneGeometry(1, 1);
     owned.push(pg);
@@ -257,7 +288,7 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
     }
     const sphere = (tex: CubeTexture, r: number, order: number): [Mesh, ShaderMaterial] => {
       const mat = new ShaderMaterial({
-        uniforms: { uCube: { value: tex }, uFade: { value: 0 }, uFlip: { value: -1 } }, vertexShader: vertSphere, fragmentShader: fragSphere,
+        uniforms: { uCube: { value: tex }, uFade: { value: 0 }, uFlip: { value: 1 }, uRes: { value: rtRes }, uCopyMask: { value: new Vector4() }, uCopyAmt: { value: 0 }, uClear: { value: clearZone } }, vertexShader: vertSphere, fragmentShader: fragSphere,
         glslVersion: GLSL3, ...blend, transparent: true, depthTest: false, depthWrite: false, side: BackSide,
       });
       const g = new SphereGeometry(r, 64, 40);
@@ -322,8 +353,16 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
       const inside = Math.max(1, (camera.position.length() * 1.25) / manifest!.bubble.shell.farRadius);
       far.scale.setScalar(bs * inside);
       shell.scale.setScalar((1 + 0.9 * blow) * inside);
-      farMat.uniforms.uFade.value = f * 0.78; // the offline gain is lower than the live one: dimmed, not re-baked
-      shellMat.uniforms.uFade.value = f * 0.78;
+      // a dim, distant remnant behind the nursery (~0.15 of the hero's brightness), not a backdrop that competes with it
+      farMat.uniforms.uFade.value = f * BUBBLE_GAIN.far;
+      shellMat.uniforms.uFade.value = f * BUBBLE_GAIN.shell;
+      tmp.set(0, 0, 0).project(camera);
+      clearZone.x = tmp.x;
+      clearZone.y = tmp.y;
+      for (const m of [farMat, shellMat]) {
+        m.uniforms.uCopyAmt.value = p.copyAmt;
+        m.uniforms.uCopyMask.value.copy(p.copyMask);
+      }
     }
     // pointless to redraw when nothing moved
     const e = camera.matrixWorld.elements;
@@ -343,6 +382,7 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
   out.resize = (w, h) => {
     const sc = Math.min(1, 2560 / w) * (tier === 'low' ? 0.7 : tier === 'medium' ? 0.85 : 1);
     rt.setSize(Math.max(2, Math.round(w * sc)), Math.max(2, Math.round(h * sc)));
+    rtRes.set(rt.width, rt.height);
     sig = '';
   };
   out.dispose = () => {
