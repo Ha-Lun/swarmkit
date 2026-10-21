@@ -270,3 +270,200 @@ export function buildSky(count: number, rMin: number, rMax: number, seed: number
   }
   return c;
 }
+
+// --- Emission nebula -----------------------------------------------------------------
+// The page opens on this instead of the galaxy: a lumpy 3D gas volume with a bright dense knot at the
+// origin (the comet's target, where a star ignites), dark dust lanes and young stars embedded in the gas.
+
+/** Overall extent of the nebula, in world units. */
+export const NEBULA_R = 9;
+type V3 = [number, number, number];
+type Lobe = { c: V3; s: V3; m: number }; // centre, anisotropic sigma, teal..amber emission mix
+/** Five fixed lumpy lobes, placed so the volume is asymmetric in every axis (no disc, no rotational symmetry). */
+const LOBES: Lobe[] = [
+  { c: [-3.2, 1.6, -2.2], s: [2.3, 1.7, 2.0], m: 0.15 },
+  { c: [2.9, -1.3, -3.1], s: [2.1, 1.9, 2.3], m: 0.8 },
+  { c: [0.7, 2.7, 2.7], s: [1.8, 1.6, 1.9], m: 0.4 },
+  { c: [-1.7, -2.5, 3.3], s: [2.2, 1.5, 1.8], m: 0.6 },
+  { c: [4.3, 0.9, 1.7], s: [1.6, 1.4, 1.7], m: 0.3 },
+];
+const RIM: RGB = [0.85, 0.45, 1.0]; // magenta-violet emission toward the lobe edges
+const KNOT_R = 0.8; // the bright dense knot at the origin the comet dives into
+
+/** Cheap deterministic 3D value noise: hashed integer lattice, trilinear with a smooth ramp. */
+const n3 = (x: number, y: number, z: number): number => {
+  let h = (Math.imul(x, 374761393) ^ Math.imul(y, 668265263) ^ Math.imul(z, 1440662683)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+};
+const vnoise = (x: number, y: number, z: number): number => {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const iz = Math.floor(z);
+  const fx = x - ix;
+  const fy = y - iy;
+  const fz = z - iz;
+  const ux = fx * fx * (3 - 2 * fx);
+  const uy = fy * fy * (3 - 2 * fy);
+  const uz = fz * fz * (3 - 2 * fz);
+  const l = (a: number, b: number, t: number): number => a + (b - a) * t;
+  return l(
+    l(l(n3(ix, iy, iz), n3(ix + 1, iy, iz), ux), l(n3(ix, iy + 1, iz), n3(ix + 1, iy + 1, iz), ux), uy),
+    l(l(n3(ix, iy, iz + 1), n3(ix + 1, iy, iz + 1), ux), l(n3(ix, iy + 1, iz + 1), n3(ix + 1, iy + 1, iz + 1), ux), uy),
+    uz,
+  );
+};
+/** Two octaves of value noise, 0..1. */
+const fbm = (x: number, y: number, z: number): number =>
+  0.65 * vnoise(x, y, z) + 0.35 * vnoise(x * 2.3 + 13.7, y * 2.3 + 71.1, z * 2.3 + 29.3);
+/** Displace a sampled gas point by per-axis fbm (coherent, so clumping reads as filaments and pillars). */
+const warp = (p: V3, amp: number): void => {
+  const dx = (fbm(p[0] + 19.1, p[1] + 47.2, p[2] + 12.9) - 0.5) * 2 * amp;
+  const dy = (fbm(p[0] - 23.3, p[1] + 8.7, p[2] + 41.1) - 0.5) * 2 * amp;
+  const dz = (fbm(p[0] + 5.5, p[1] + 29.8, p[2] - 17.7) - 0.5) * 2 * amp;
+  p[0] += dx;
+  p[1] += dy;
+  p[2] += dz;
+};
+
+/** The emission nebula gas: 5 overlapping anisotropic gaussian lobes of large soft sprites (haze mode like
+ *  buildHaze, data.x = sprite size 2..7), displaced by value-noise fbm into filaments and pillars. Per-lobe
+ *  teal/amber emission with a magenta-violet rim toward the lobe edges, plus the bright dense knot: 8% of
+ *  points within KNOT_R of the origin, white-violet, brighter (up to b 0.12). LINEAR, magnitude = brightness. */
+export function buildNebula(count: number, seed = 21): PointCloud {
+  const rnd = mulberry32(seed);
+  const gauss = (): number => {
+    const u = Math.max(1e-6, rnd());
+    return Math.max(-2.5, Math.min(2.5, Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd())));
+  };
+  const c = cloud(count);
+  const TEAL = PALETTE.opencode as RGB;
+  const AMBER = PALETTE.agy as RGB;
+  const OPUS = PALETTE.opus as RGB;
+  const nKnot = Math.round(count * 0.08);
+  const lim2 = (NEBULA_R * 1.3) ** 2; // hard bound for the extreme gaussian tail
+  for (let i = 0; i < count; i++) {
+    let x: number;
+    let y: number;
+    let z: number;
+    let col: RGB;
+    let b: number;
+    let size: number;
+    if (i < nKnot) {
+      // the knot: a dense hot ball at the origin, where the star will ignite
+      const r = KNOT_R * Math.cbrt(rnd());
+      const th = Math.acos(2 * rnd() - 1);
+      const ph = rnd() * Math.PI * 2;
+      x = r * Math.sin(th) * Math.cos(ph);
+      y = r * Math.cos(th);
+      z = r * Math.sin(th) * Math.sin(ph);
+      col = mix3(OPUS, [1, 1, 1], 0.3 + rnd() * 0.35);
+      b = 0.07 + rnd() * 0.05;
+      size = 2 + rnd() * 3;
+    } else {
+      const lobe = LOBES[Math.floor(rnd() * LOBES.length)];
+      const gx = gauss();
+      const gy = gauss();
+      const gz = gauss();
+      const p: V3 = [lobe.c[0] + gx * lobe.s[0], lobe.c[1] + gy * lobe.s[1], lobe.c[2] + gz * lobe.s[2]];
+      warp(p, 1.0);
+      x = p[0];
+      y = p[1];
+      z = p[2];
+      const r2 = x * x + y * y + z * z;
+      if (r2 > lim2) {
+        const k = Math.sqrt(lim2 / r2);
+        x *= k;
+        y *= k;
+        z *= k;
+      }
+      const emit = mix3(TEAL, AMBER, Math.min(1, Math.max(0, lobe.m + (rnd() - 0.5) * 0.2)));
+      col = mix3(emit, RIM, 0.5 * sstep(1.2, 6.5, gx * gx + gy * gy + gz * gz));
+      b = 0.03 + rnd() * 0.04;
+      size = 3 + rnd() * 4;
+    }
+    c.position[i * 3] = x;
+    c.position[i * 3 + 1] = y;
+    c.position[i * 3 + 2] = z;
+    c.color.set([col[0] * b, col[1] * b, col[2] * b], i * 3);
+    c.data.set([size, rnd(), rnd(), 0], i * 4);
+  }
+  return c;
+}
+
+/** Dark dust for the nebula (alpha mode like buildDust, alpha in colour.x): faint near-black sprites along 3
+ *  curved lanes (seeded quadratic Béziers with small jitter) that cut through the lobes but never cover the
+ *  knot — every point is kept beyond 1.2 from the origin. */
+export function buildNebulaDust(count: number, seed = 23): PointCloud {
+  const rnd = mulberry32(seed);
+  const gauss = (): number => {
+    const u = Math.max(1e-6, rnd());
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd());
+  };
+  const c = cloud(count);
+  // end to end through the volume, the mid control pulling the lane through the gas
+  const lane = (): { a: V3; m: V3; b: V3 } => {
+    const pt = (rMin: number, rMax: number): V3 => {
+      const r = rMin + (rMax - rMin) * rnd();
+      const th = Math.acos(2 * rnd() - 1);
+      const ph = rnd() * Math.PI * 2;
+      return [r * Math.sin(th) * Math.cos(ph), r * Math.cos(th) * 0.85, r * Math.sin(th) * Math.sin(ph)];
+    };
+    return { a: pt(6.5, 8.5), m: pt(2.0, 5.5), b: pt(6.5, 8.5) };
+  };
+  const lanes = [lane(), lane(), lane()];
+  for (let i = 0; i < count; i++) {
+    const ln = lanes[i % 3];
+    let x = 0;
+    let y = 0;
+    let z = 0;
+    let r = 0;
+    for (let tries = 0; tries < 8; tries++) {
+      const t = rnd();
+      const u = 1 - t;
+      x = u * u * ln.a[0] + 2 * u * t * ln.m[0] + t * t * ln.b[0] + gauss() * 0.35;
+      y = u * u * ln.a[1] + 2 * u * t * ln.m[1] + t * t * ln.b[1] + gauss() * 0.35;
+      z = u * u * ln.a[2] + 2 * u * t * ln.m[2] + t * t * ln.b[2] + gauss() * 0.35;
+      r = Math.hypot(x, y, z);
+      if (r > 1.25) break;
+    }
+    if (r <= 1.25) {
+      const k = 1.3 / Math.max(r, 1e-6); // never cover the knot
+      x *= k;
+      y *= k;
+      z *= k;
+    }
+    c.position.set([x, y, z], i * 3);
+    const a = 0.06 + rnd() * 0.1;
+    c.color.set([a, 0, 0], i * 3);
+    c.data.set([1.2 + rnd() * 1.6, rnd(), rnd(), 0], i * 4);
+  }
+  return c;
+}
+
+/** Young stars embedded in the gas (star sprite mode like buildGalaxy): sampled on a lobe, then a tighter
+ *  gaussian so they sit inside it. Mostly blue-white, a few warm; brightness 0.2..1.2 with a long faint tail.
+ *  data.x = size factor 0.6..1.6. */
+export function buildNebulaStars(count: number, seed = 25): PointCloud {
+  const rnd = mulberry32(seed);
+  const gauss = (): number => {
+    const u = Math.max(1e-6, rnd());
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd());
+  };
+  const c = cloud(count);
+  const BLUE: RGB = [0.7, 0.82, 1];
+  for (let i = 0; i < count; i++) {
+    const lobe = LOBES[Math.floor(rnd() * LOBES.length)];
+    const k = 0.45; // tighter than the gas sigma
+    const x = lobe.c[0] + gauss() * lobe.s[0] * k;
+    const y = lobe.c[1] + gauss() * lobe.s[1] * k;
+    const z = lobe.c[2] + gauss() * lobe.s[2] * k;
+    const warm = rnd() < 0.12;
+    const col = warm ? mix3(BLUE, WARM, 0.5 + rnd() * 0.5) : mix3(BLUE, [1, 1, 1], rnd() * 0.3);
+    const b = 0.2 + rnd() ** 3; // 0.2..1.2, long tail
+    c.position.set([x, y, z], i * 3);
+    c.color.set([col[0] * b, col[1] * b, col[2] * b], i * 3);
+    c.data.set([0.6 + rnd(), rnd(), rnd(), 0], i * 4);
+  }
+  return c;
+}
