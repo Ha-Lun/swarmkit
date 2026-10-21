@@ -23,7 +23,7 @@ import { PALETTE, type Tier } from './shared.ts';
 const QUALITY = {
   high: { steps: 64, detail: 2, vol: 160, slices: 10, frames: 16, dprCap: 1.5, scale: 1 },
   medium: { steps: 40, detail: 1, vol: 128, slices: 8, frames: 12, dprCap: 99, scale: 0.75 },
-  low: { steps: 24, detail: 0, vol: 96, slices: 6, frames: 8, dprCap: 99, scale: 0.7 },
+  low: { steps: 24, detail: 0, vol: 128, slices: 6, frames: 8, dprCap: 99, scale: 0.7 },
 } as const;
 /** Half extent of the baked cube in world units (the lobes end within ~8.9 of the origin). */
 const VH = 9;
@@ -79,10 +79,18 @@ void main() {
 
 
 const NOISE = /* glsl */ `
+// integer lattice hash (pcg3d, Jarzynski & Olano): the old product-of-fract hash correlated along the lattice axes, which
+// showed up as long vertical streaks in the gas
 float hash(vec3 p) {
-  p = fract(p * 0.3183099 + 0.1);
-  p *= 17.0;
-  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+  uvec3 v = uvec3(ivec3(floor(p)) + 32768) * 1664525u + 1013904223u;
+  v.x += v.y * v.z;
+  v.y += v.z * v.x;
+  v.z += v.x * v.y;
+  v ^= v >> 16u;
+  v.x += v.y * v.z;
+  v.y += v.z * v.x;
+  v.z += v.x * v.y;
+  return float(v.x >> 8u) * (1.0 / 16777216.0);
 }
 float noise(vec3 x) {
   vec3 i = floor(x);
@@ -157,10 +165,12 @@ void main() {
   vec3 w2 = vec3(fbm(pw * 1.3 + 5.0, 3), fbm(pw * 1.3 + 23.0, 3), fbm(pw * 1.3 + 61.0, 3)) - 0.5;
   vec3 pw2 = pw + w2 * 1.1;
   // pillars: stretch the noise domain along the direction to the star, so structure streams toward it
-  vec3 rdir = p / max(r, 0.05);
-  vec3 q = pw2 - rdir * dot(pw2, rdir) * 0.5;
+  // (a gentle stretch along a direction that is itself warped, so the streaks fan and curl instead of running parallel;
+  // the ridge domain is rotated so no octave lines up with a view axis)
+  vec3 rdir = normalize(p / max(r, 0.05) + w2 * 2.6 + 1e-4);
+  vec3 q = pw2 - rdir * dot(pw2, rdir) * 0.14;
   float f1 = fbm(q * 1.15, 3);
-  float fil = smoothstep(0.22, 0.75, ridged(q * 1.5 + 9.0, 4));
+  float fil = smoothstep(0.22, 0.75, ridged(ROT * q * 1.5 + 9.0, 4));
   float det = fbm(q * 2.6 + 13.0, 2);
   float gas = env * (0.1 + 1.5 * smoothstep(0.4, 0.74, f1) * (0.45 + 0.95 * fil) + 0.9 * fil * smoothstep(0.2, 0.6, f1));
   gas *= 0.3 + 1.5 * det * det * 1.6 * 0.8;
@@ -206,13 +216,19 @@ out vec4 outColor;
 ${lobeConsts()}
 ${NOISE}
 
-// per-pixel offset for the ray start: interleaved gradient noise (Jimenez), rotated by the golden ratio each frame so the
-// accumulated frames sample different depths (a converging low-discrepancy sequence per pixel)
-// (frame 0 keeps the pure IGN pattern, which the 3x3 filter handles best; later frames add a per-pixel white offset so the
-// residual after accumulating is unstructured instead of IGN stripes)
+// per-pixel offset for the ray start: a white integer hash stepped by the golden ratio each frame (a converging low-discrepancy
+// sequence per pixel; the 3x3 filter smooths it while moving, the accumulation resolves it when still)
 float ign(vec2 px) {
-  float w = fract(sin(dot(px, vec2(12.9898, 78.233))) * 43758.5453);
-  return fract(52.9829189 * fract(dot(px, vec2(0.06711056, 0.00583715))) + uFrame * 0.61803399 + w * step(0.5, uFrame));
+  // IGN repeats every ~15 px horizontally (0.0671 per px), which reads as vertical bands once the gas is sharp: use an integer
+  // hash (white per pixel, no lattice) and step it by the golden ratio each frame, so the accumulated offsets stay stratified
+  uvec2 v = uvec2(px) * 1664525u + 1013904223u;
+  v.x += v.y * 1664525u;
+  v.y += v.x * 1664525u;
+  v ^= v >> 16u;
+  v.x += v.y * 1664525u;
+  v.y += v.x * 1664525u;
+  v ^= v >> 16u;
+  return fract(float(v.x >> 8u) * (1.0 / 16777216.0) + uFrame * 0.61803399);
 }
 
 // Line integral of an anisotropic gaussian density blob along the ray o + t rd, in closed form (no marching, so no step
@@ -365,7 +381,7 @@ void main() {
         vec4 n = texture(tVol, vUv + vec2(float(i), float(j)) * uTexel);
         float ln = lum(n);
         float d = abs(lc - ln) / (lc + ln + 0.03) + abs(s.a - n.a) * 1.5;
-        float w = (i == 0 || j == 0 ? 1.0 : 0.7) * exp(-d * d * 36.0);
+        float w = (i == 0 || j == 0 ? 1.0 : 0.7) * exp(-d * d * 16.0);
         sum += n * w;
         ws += w;
       }

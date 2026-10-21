@@ -866,7 +866,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     if (composer) renderer.toneMappingExposure = st.exposure * (1 + 0.3 * burstFlash(m));
     // planets and rings stay crisp: the bloom steps back while the system is on screen
     const sysAmt = sunA * (1 - pullOut);
-    if (bloom) bloom.strength = 0.45 * st.bloom * (1 - 0.35 * ss(0.5, 0.62, pp) * (1 - lg)) * (opts.tier === 'medium' ? 0.9 : 1) * (1 - 0.55 * sysAmt) * (1 - 0.6 * cA) * (1 + 0.12 * flare) * (1 + 1.0 * burstFlash(m));
+    if (bloom) bloom.strength = 0.45 * st.bloom * (1 - 0.35 * ss(0.5, 0.62, pp) * (1 - lg)) * (opts.tier === 'medium' ? 0.9 : 1) * (1 - 0.55 * sysAmt) * (1 - 0.85 * cA) * (1 + 0.12 * flare) * (1 + 1.0 * burstFlash(m));
 
     // project nodes
     camera.updateMatrixWorld();

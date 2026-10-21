@@ -100,7 +100,10 @@ async function boot(): Promise<void> {
     // Each worker pill sits on the far side of its star, radially outward from Opus (node 0); Opus's own pill sits just below it.
     // A rectangle solver then separates overlaps, keeps pills clear of the copy block and inside the viewport, and a leader line
     // (CSS vars, drawn by .gx-node::after) ties each pill to its star.
-    const vw = html.clientWidth; // excludes the scrollbar
+    // the pills live in a fixed inset-0 box: that box is the visible area (html.clientWidth can read wider than it, e.g. with a
+    // classic scrollbar, so a pill clamped to it would be clipped at the right edge)
+    const box = labelEls[0]?.parentElement;
+    const vw = Math.min(html.clientWidth, box?.clientWidth || Infinity, innerWidth);
     const vh = innerHeight;
     const phone = vw < 768;
     const M = 9;
@@ -243,6 +246,10 @@ async function boot(): Promise<void> {
         if (Math.abs(x - q.l - (q.W - q.pw) / 2) < 0.3) x = q.l + (q.W - q.pw) / 2;
         if (Math.abs(y - q.t) < 0.3) y = q.t;
       }
+      // the smoothing lags the solved position (and a pill that just expanded is wider than it was): never let it leave the viewport
+      const ov = (q.W - q.pw) / 2;
+      x = Math.min(Math.max(x, M + ov), Math.max(M + ov, vw - M - q.pw - ov));
+      y = Math.min(Math.max(y, topMin), Math.max(topMin, vh - M - q.H));
       pos[q.i] = { x, y };
       seenNow.add(q.i);
       // leader: from the star's rim to the nearest point of the pill, drawn by a 100px-wide ::after scaled and rotated

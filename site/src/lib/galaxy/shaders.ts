@@ -323,12 +323,12 @@ void main() {
       sy = mix(sy * (1.0 + 0.18 * ok), vec3(1.0, 0.1, 0.05) * (0.45 + 0.6 * temp), 0.92 * bad);
       vec3 stT = mix(lane, vec3(0.3, 1.0, 0.55), 0.4 * ok);
       stT = mix(stT, vec3(1.0, 0.1, 0.06), bad);
-      vec3 cy = mix(vec3(1.0), stT, 0.7 + 0.3 * bad) * coronaE * (d > 1.0 ? 0.42 : 0.3) * (1.0 - 0.28 * ok) * (1.0 - 0.6 * vS.w);
+      vec3 cy = mix(vec3(1.0), stT, 0.7 + 0.3 * bad) * coronaE * (d > 1.0 ? 0.42 : 0.3) * (1.0 - 0.28 * ok) * (1.0 - 0.82 * vS.w);
       // ignition: a short flash that blooms out of the star and settles, as the thread of light lands
       float fl = 4.0 * ign * (1.0 - ign);
       cy += mix(vec3(1.0), lane, 0.6) * (1.05 * exp(-d * 0.55) + 0.3 * exp(-d * 0.16)) * fl;
       // the star's own glow while it builds (a soft lane-coloured halo, steady)
-      cy += stT * (0.1 + 0.16 * bld) * exp(-d * 0.42) * ign * (1.0 - 0.6 * vS.w);
+      cy += stT * (0.1 + 0.16 * bld) * exp(-d * 0.42) * ign * (1.0 - 0.9 * vS.w);
       c = sy * disc * ign + cy * (1.0 - 0.5 * disc);
       fade = 1.0 - smoothstep(8.0, 13.0, d);
       // jet frame: q.y along the disc axis (screen angle vA.x), q.x across
