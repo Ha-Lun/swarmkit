@@ -191,21 +191,23 @@ void main() {
 `;
 
 /**
- * The solar system's bodies: one camera-facing quad each (not point sprites, so there is no point-size limit in the
- * close-up). kind 0 sun, 1 planet (solid core, small halo, hairline worktree ring), 2 fixer spark, 3 plan slot (dim dot).
- * uP = world centre + radius, uS = alpha, ring growth, ok (green), red.
+ * The bodies: one camera-facing quad each (not point sprites, so there is no point-size limit in the close-up).
+ * kind 0 Opus (the sun), 1 young star (a protostar in its cocoon: small star, faint accretion disc, two short jets),
+ * 2 fixer spark. uP = world centre + radius, uS = alpha, unused, ok (green), red,
+ * uA = jet axis angle on screen, disc ellipse ratio (|axis . view|), ignition 0..1, build 0..1.
  */
 export const bodyVert = (n: number): string => /* glsl */ `
 uniform vec4 uP[${n}];
 uniform vec4 uS[${n}];
+uniform vec4 uA[${n}];
 uniform float uScale; // device px per world unit at depth 1
 uniform float uPR;
 in vec4 aData; // index, kind, corner x, corner y
 in vec3 aColor;
 out vec2 vP;
 out vec3 vC;
-out vec3 vL;
 out vec4 vS;
+out vec4 vA;
 out float vKind;
 out float vIdx;
 out float vRpx;
@@ -217,17 +219,16 @@ void main() {
   vec4 mc = modelViewMatrix * vec4(pr.xyz, 1.0);
   float depth = max(-mc.z, 0.05);
   float r = pr.w;
-  if (kind > 1.5 && kind < 2.5) r = max(r, 2.0 * uPR * depth / uScale);
-  if (kind > 2.5) r = max(r, 1.5 * uPR * depth / uScale);
-  float ext = kind < 0.5 ? 9.0 : (kind < 1.5 ? 3.4 : (kind < 2.5 ? 7.0 : 3.0));
-  vec4 sunV = modelViewMatrix * vec4(uP[0].xyz, 1.0);
-  vL = normalize(sunV.xyz - mc.xyz);
+  if (kind > 1.5) r = max(r, 2.0 * uPR * depth / uScale);
+  if (kind > 0.5 && kind < 1.5) r = max(r, 1.6 * uPR * depth / uScale);
+  float ext = kind < 0.5 ? 9.0 : (kind < 1.5 ? 18.0 : 7.0);
   mc.xy += aData.zw * ext * r;
   gl_Position = projectionMatrix * mc;
   if (s.x < 0.002) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
   vP = aData.zw * ext;
   vC = aColor;
   vS = s;
+  vA = uA[i];
   vKind = kind;
   vIdx = aData.x;
   vRpx = r * uScale / depth; // body radius in device px: detail fades in with it
@@ -235,20 +236,18 @@ void main() {
 `;
 
 /**
- * Body shading, all procedural. Planets: sphere normal rebuilt per pixel, spun by the scroll clock (uSpin), 3D noise.
- * agy = gas giants (bands, domain-warped turbulence, storm ovals); opencode = ice giants (soft banding, haze, dark spot).
- * Rings are a real plane (ray-plane in the impostor) that shadows and is shadowed. Sun: limb darkening, granulation,
- * smooth corona. `oct` = noise octave cap per tier.
+ * Body shading, all procedural. Opus: limb darkening, granulation, smooth corona. Young star: the same star shading at a
+ * small radius, lane tinted, a brief ignition flash, a faint thin accretion disc (tilted ellipse) and two short bipolar jets
+ * along the disc axis. Everything is smooth radial/gaussian falloff (no speckle).
  */
-export const bodyFrag = (oct: number): string => /* glsl */ `
-#define OCT ${oct}
+export const bodyFrag = (): string => /* glsl */ `
 uniform float uFlare;
 uniform float uSpin; // scroll-driven rotation clock
 uniform float uTime; // wall seconds for idle motion (0 under reduced motion)
 in vec2 vP;
 in vec3 vC;
-in vec3 vL;
 in vec4 vS;
+in vec4 vA;
 in float vKind;
 in float vIdx;
 in float vRpx;
@@ -268,48 +267,22 @@ float vn(vec3 p) {
     mix(mix(h31(i + vec3(0, 0, 1)), h31(i + vec3(1, 0, 1)), f.x), mix(h31(i + vec3(0, 1, 1)), h31(i + vec3(1, 1, 1)), f.x), f.y),
     f.z);
 }
-float fbm(vec3 p, int nOct) {
-  float a = 0.5;
-  float s = 0.0;
-  float tot = 0.0;
-  for (int i = 0; i < OCT; i++) {
-    if (i >= nOct) break;
-    s += a * vn(p);
-    tot += a;
-    p = p * 2.03 + vec3(17.1, 3.7, 9.2);
-    a *= 0.5;
-  }
-  return s / tot;
-}
-float ringDen(float r, float sd, float det) {
-  float x = r * 46.0;
-  float broad = vn(vec3(x * 0.3, sd, 1.0));
-  float mid = vn(vec3(x * 1.1, sd, 5.0));
-  float fine = vn(vec3(x * 3.6, sd, 7.0));
-  float ultra = mix(0.5, vn(vec3(x * 14.0, sd, 9.0)), det);
-  float n = 0.42 * broad + 0.3 * mid + 0.19 * fine + 0.09 * ultra;
-  float dens = smoothstep(0.2, 0.78, n);
-  dens *= 0.7 + 0.3 * (0.5 + 0.5 * sin(x * 4.0 + 3.0 * mid + sd)); // many thin ringlets
-  dens = 0.06 + dens;
-  dens *= 1.0 - 0.96 * (1.0 - smoothstep(0.0, 0.04, abs(r - (0.58 + 0.04 * sin(sd * 5.0)))));
-  dens *= 1.0 - 0.8 * (1.0 - smoothstep(0.0, 0.014, abs(r - 0.86)));
-  dens *= 0.22 + 0.78 * smoothstep(0.0, 0.3, r);
-  dens *= smoothstep(0.0, 0.03, r) * (1.0 - smoothstep(0.94, 1.0, r));
-  return clamp(dens, 0.0, 1.0);
-}
 
 void main() {
   float d = length(vP);
   float aa = max(fwidth(d), 1e-4) * 0.9;
   vec3 col = vec3(0.0);
   float det = smoothstep(14.0, 80.0, vRpx);
-  int nOct = vRpx < 14.0 ? 2 : (vRpx < 45.0 ? min(3, OCT) : OCT);
-  if (vKind < 0.5) {
-    // sun: hot emissive disc (white-yellow core, orange limb), boiling granulation, slow prominences, breathing corona
+  if (vKind < 1.5) {
+    // star: hot emissive disc (white-yellow core, orange limb), boiling granulation, slow prominences, breathing corona.
+    // kind 1 (young star) is the same body in the lane tint, with a small corona, its ignition flash, disc and jets.
+    float young = step(0.5, vKind);
+    float ign = young > 0.5 ? vA.z : 1.0;
+    float bld = vA.w;
     float disc = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, d);
     float mu = sqrt(max(0.0, 1.0 - d * d));
-    float cs = cos(uSpin * 0.35 + uTime * 0.02);
-    float sn = sin(uSpin * 0.35 + uTime * 0.02);
+    float cs = cos(uSpin * 0.35 + uTime * 0.02 + vIdx);
+    float sn = sin(uSpin * 0.35 + uTime * 0.02 + vIdx);
     vec3 N = vec3(vP, mu);
     vec3 p3 = vec3(N.x * cs + N.z * sn, N.y, -N.x * sn + N.z * cs);
     float tb = uTime * 0.11;
@@ -327,200 +300,66 @@ void main() {
     surf *= 0.6 + 1.7 * temp * temp;
     float rr = max(d - 1.0, 0.0);
     float a = atan(vP.y, vP.x);
-    float breath = 1.0 + 0.07 * sin(uTime * 0.55) + 0.04 * sin(uTime * 0.97 + 1.3);
-    // streamers: broad slow lobes, faded in with distance so nothing spikes at the limb
+    float breath = 1.0 + 0.07 * sin(uTime * 0.55 + vIdx) + 0.04 * sin(uTime * 0.97 + 1.3);
     float lobes = 0.5 + 0.5 * (0.6 * sin(a * 2.0 + uSpin * 0.2 + uTime * 0.03 + 1.0) + 0.4 * sin(a * 3.0 - uSpin * 0.15 - uTime * 0.025 + 2.0));
     float streak = lobes * lobes * exp(-rr * (0.7 - 0.15 * uFlare)) * (0.12 + 0.3 * uFlare);
     float coronaE = (0.95 * exp(-rr * 6.0) + (0.22 + 0.35 * uFlare) * exp(-rr * 1.5) + (0.05 + 0.22 * uFlare) * exp(-rr * 0.5) + streak * smoothstep(0.0, 0.8, rr)) * breath;
-    // faint prominences: slow arcs of plasma just above the limb
     float pn = vn(vec3(cos(a) * 2.2, sin(a) * 2.2, uTime * 0.06 + uSpin * 0.2));
     float prom = smoothstep(0.55, 0.85, pn) * exp(-rr * 11.0) * 0.5 * smoothstep(0.0, 0.02, rr) * (0.4 + 0.6 * det);
     vec3 corona = mix(vec3(1.0, 0.4, 0.1), vec3(1.0, 0.76, 0.42), exp(-rr * 2.0)) * coronaE * (d > 1.0 ? 1.0 : 0.55);
     corona += vec3(1.0, 0.35, 0.12) * prom;
-    vec3 c = surf * disc + corona * (1.0 - 0.6 * disc);
+    vec3 c;
+    float fade;
+    if (young < 0.5) {
+      c = surf * disc + corona * (1.0 - 0.6 * disc);
+      fade = 1.0 - smoothstep(6.5, 9.0, d);
+    } else {
+      // lane tint: a white-hot core, the lane colour toward the limb and in the corona
+      vec3 lane = mix(vC, vec3(1.0), 0.28);
+      vec3 sy = surf * mix(vec3(1.0), lane * 1.15, 0.62);
+      float ok = clamp(vS.z, 0.0, 1.0);
+      float bad = clamp(vS.w, 0.0, 1.0);
+      vec3 stT = mix(lane, vec3(0.3, 1.0, 0.55), ok);
+      stT = mix(stT, vec3(1.0, 0.22, 0.18), bad);
+      vec3 cy = mix(vec3(1.0), stT, 0.7) * coronaE * (d > 1.0 ? 0.42 : 0.3);
+      // ignition: a short flash that blooms out of the star and settles, as the thread of light lands
+      float fl = 4.0 * ign * (1.0 - ign);
+      cy += mix(vec3(1.0), lane, 0.45) * (1.5 * exp(-d * 0.55) + 0.4 * exp(-d * 0.16)) * fl;
+      // the star's own glow while it builds (a soft lane-coloured halo, steady)
+      cy += stT * (0.1 + 0.16 * bld) * exp(-d * 0.42) * ign;
+      c = sy * disc * ign + cy * (1.0 - 0.5 * disc);
+      fade = 1.0 - smoothstep(8.0, 13.0, d);
+      // jet frame: q.y along the disc axis (screen angle vA.x), q.x across
+      float ca = cos(vA.x);
+      float sa = sin(vA.x);
+      vec2 q = vec2(dot(vP, vec2(sa, -ca)), dot(vP, vec2(ca, sa)));
+      float ratio = clamp(vA.y, 0.16, 1.0);
+      float proj = sqrt(max(0.0, 1.0 - vA.y * vA.y)); // the axis foreshortens when it points at the camera
+      float b3 = smoothstep(0.0, 0.5, bld) * ign;
+      // accretion disc: a thin tilted ring of light, soft edges, a few gentle ringlets
+      float rho = length(vec2(q.x, q.y / ratio));
+      float dd = smoothstep(1.7, 2.3, rho) * (1.0 - smoothstep(3.6, 5.2, rho));
+      dd *= 0.8 + 0.2 * sin(rho * 3.4 + vIdx * 2.0);
+      vec3 discC = mix(lane, vec3(1.0, 0.82, 0.62), 0.45) * dd * (0.34 / (0.45 + 0.28 * rho)) * b3;
+      // two short bipolar jets along the axis: tapered beams that fade with distance
+      float ay = abs(q.y);
+      float jl = (3.2 + 8.0 * bld) * (0.35 + 0.65 * proj);
+      float w = 0.17 + 0.03 * ay;
+      float beam = exp(-pow(q.x / w, 2.0)) + 0.22 * exp(-pow(q.x / (w * 3.4), 2.0));
+      float along = smoothstep(1.1, 2.0, ay) * exp(-ay / (0.55 * jl)) * (1.0 - smoothstep(0.85 * jl, 1.3 * jl, ay));
+      float beads = 1.0 + 0.16 * sin(ay * 1.9 - uTime * 0.7 + vIdx);
+      vec3 jetC = mix(lane, vec3(1.0), 0.4) * beam * along * beads * 0.5 * b3 * (0.5 + 0.5 * proj);
+      c += discC + jetC;
+    }
     c = vec3(1.0) - exp(-c);
-    col = c * (1.0 - smoothstep(6.5, 9.0, d)) * vS.x;
-  } else if (vKind < 1.5) {
-    float disc = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, d);
-    float gas = step(vC.b, vC.r); // agy amber = gas giant, opencode teal = ice giant
-    float sd = vIdx * 1.713;
-    float tilt = -0.42 + 0.18 * sin(vIdx * 2.7); // ringTilt() in scene.ts
-    float ratio = 0.34 + 0.05 * sin(vIdx * 1.9);
-    float ca = cos(tilt);
-    float sa = sin(tilt);
-    mat2 R = mat2(ca, -sa, sa, ca);
-    vec2 q = R * vP;
-    float sinP = sqrt(1.0 - ratio * ratio);
-    vec3 pole = vec3(0.0, sinP, ratio); // spin axis = ring-plane normal, in the tilted screen frame
-    vec3 e2 = vec3(0.0, ratio, -sinP);
-    vec3 Lq = vec3(R * vL.xy, vL.z);
-    vec3 stT = mix(vC, vec3(0.3, 1.0, 0.55), vS.z);
-    stT = mix(stT, vec3(1.0, 0.22, 0.18), clamp(vS.w, 0.0, 1.0));
-    float stat = clamp(vS.z + vS.w, 0.0, 1.0);
-    vec3 outc = vec3(0.0);
-
-    // ring plane
-    float ringA = 0.0;
-    vec3 ringC = vec3(0.0);
-    vec3 rbase = mix(vec3(0.9, 0.82, 0.7), vC, 0.2); // icy grey-beige, a hint of lane tint
-    float ringFront = 1.0;
-    float gr = vS.y;
-    if (gr > 0.002) {
-      float rin = 1.18;
-      float rout = rin + 1.35 * gr;
-      float zr = -sinP * q.y / ratio;
-      vec3 P = vec3(q, zr);
-      float rho = length(P);
-      float rn = (rho - rin) / (rout - rin);
-      if (rn > 0.0 && rn < 1.0) {
-        float dens = ringDen(rn, sd, det);
-        float pl = dot(pole, Lq);
-        // planet shadow on the ring
-        float b = dot(P, Lq);
-        float disc2 = b * b - (dot(P, P) - 1.0);
-        float shadow = (b < 0.0 && disc2 > 0.0) ? smoothstep(0.0, 0.12, disc2) : 0.0;
-        float lit = (0.3 + 0.7 * abs(pl)) * (1.0 - 0.93 * shadow);
-        float fs = pow(max(0.0, -Lq.z), 2.2) * pow(1.0 - dens, 1.4) * (1.0 - 0.9 * shadow); // forward scatter: thin parts glow when backlit
-        bool sunSide = pl * ratio > 0.0;
-        float refl = sunSide ? lit : 0.2 * lit + 0.9 * (1.0 - dens) * (1.0 - 0.9 * shadow) * (0.3 + 0.7 * abs(pl));
-        vec3 base = mix(rbase, vec3(0.62, 0.56, 0.5), 0.5 * smoothstep(0.55, 0.62, rn) * (1.0 - smoothstep(0.62, 0.7, rn)));
-        base *= 0.7 + 0.6 * vn(vec3(rn * 9.0, sd, 3.0));
-        ringC = base * (refl * 0.8 + fs * 1.8);
-        ringA = clamp(dens * 0.8, 0.0, 1.0) * smoothstep(0.0, 0.2, gr);
-        ringFront = (zr > 0.0 || d > 1.0) ? 1.0 : 0.0;
-        ringA *= ringFront;
-        float nearHalf = step(0.0, zr);
-        ringFront = nearHalf; // near half composites over the planet, far half only shows outside the disc
-      }
-    }
-
-    if (disc > 0.0 || d < 1.05) {
-      float mu = sqrt(max(0.0, 1.0 - d * d));
-      vec3 N = vec3(q, mu);
-      float lat = dot(N, pole);
-      float u = N.x;
-      float v = dot(N, e2);
-      float spin = uSpin * (0.42 + 0.2 * sin(sd * 3.0)) + sd * 2.0 + uTime * (0.012 + 0.006 * sin(sd * 2.0));
-      float cs = cos(spin);
-      float sn = sin(spin);
-      vec3 p3 = vec3(u * cs - v * sn, u * sn + v * cs, lat);
-      vec3 sdv = vec3(sd, sd * 0.7, sd * 1.3);
-      vec3 c;
-      float spec = 0.0;
-      if (gas > 0.5) {
-        float n1 = fbm(vec3(p3.xy * 1.9, lat * 6.5) + sdv, nOct);
-        float turb = 0.5 + 0.9 * det;
-        float ph = lat * (5.2 + 1.6 * sin(sd)) + (n1 - 0.5) * 1.7 * turb + 0.4 * sin(lat * 3.0 + sd);
-        float bnd = 0.5 + 0.5 * sin(ph * 6.2832 * 0.5);
-        bnd = smoothstep(0.22, 0.78, bnd + (n1 - 0.5) * 0.25);
-        float fine = mix(0.5, fbm(vec3(p3.xy * 3.2, lat * 20.0) + sdv * 2.0, nOct), det);
-        vec3 belt = vC * vec3(0.5, 0.3, 0.2) * 0.75;
-        vec3 zone = mix(vC, vec3(1.0, 0.88, 0.64), 0.55);
-        c = mix(belt, zone, bnd);
-        c *= 0.78 + 0.5 * fine;
-        // drifting cloud layer: differential rotation, stretched along the bands
-        float dr = uTime * (0.025 + 0.03 * (1.0 - abs(lat)));
-        float cdr = cos(dr);
-        float sdr = sin(dr);
-        vec2 cp = vec2(p3.x * cdr - p3.y * sdr, p3.x * sdr + p3.y * cdr);
-        float cl = fbm(vec3(cp * 3.4, lat * 9.0) + sdv * 3.0 + vec3(0.0, 0.0, uTime * 0.02), min(nOct, 3));
-        c = mix(c, vec3(1.0, 0.92, 0.78), smoothstep(0.5, 0.75, cl) * 0.2475 * (0.3 + 0.7 * det));
-        c *= mix(1.0, 0.62, smoothstep(0.68, 1.0, abs(lat)));
-        for (int k = 0; k < 3; k++) {
-          float h1 = h31(vec3(vIdx, float(k), 7.1));
-          float h2 = h31(vec3(vIdx, float(k), 13.7));
-          float la = (h2 - 0.5) * 1.1;
-          float lo = h1 * 6.2832;
-          float rl = sqrt(max(0.0, 1.0 - la * la));
-          vec3 cd = vec3(cos(lo) * rl, sin(lo) * rl, la);
-          vec3 dd = p3 - cd;
-          float sz = k == 0 ? 1.0 : 0.55;
-          float r2 = pow(length(dd.xy) / (0.26 * sz), 2.0) + pow(dd.z / (0.1 * sz), 2.0);
-          float storm = exp(-r2 * 1.4) * (k == 0 ? 1.0 : 0.65) * step(0.0, dot(p3, cd));
-          vec3 sc = k == 1 ? vec3(0.95, 0.9, 0.8) : vec3(0.82, 0.34, 0.18) * vC.r;
-          c = mix(c, sc, storm * 0.75);
-          c += 0.12 * vC * exp(-pow(sqrt(r2) - 1.15, 2.0) * 6.0) * det;
-        }
-      } else {
-        float n1 = fbm(vec3(p3.xy * 1.6, lat * 4.0) + sdv, nOct);
-        float ph = lat * 3.3 + (n1 - 0.5) * 0.9 + 0.3 * sin(sd);
-        float bnd = 0.5 + 0.5 * sin(ph * 3.1416);
-        vec3 deep = vC * vec3(0.3, 0.65, 1.15) * 0.42;
-        vec3 pale = mix(vC, vec3(0.6, 0.98, 1.0), 0.28);
-        c = mix(deep, pale, 0.08 + 0.85 * smoothstep(0.15, 0.85, bnd));
-        float dri = uTime * 0.03;
-        float cdi = cos(dri);
-        float sdi = sin(dri);
-        vec2 cpi = vec2(p3.x * cdi - p3.y * sdi, p3.x * sdi + p3.y * cdi);
-        float cir2 = det * fbm(vec3(cpi * 2.6, lat * 11.0) + sdv * 2.0 + 4.0 + vec3(0.0, 0.0, uTime * 0.02), nOct);
-        c = mix(c, vec3(0.82, 1.0, 1.0), smoothstep(0.52, 0.72, cir2) * 0.38);
-        c = mix(c, pale * 1.05, smoothstep(0.6, 1.0, abs(lat)) * 0.3);
-        float la = (h31(vec3(vIdx, 3.0, 2.0)) - 0.5) * 0.9;
-        float lo = h31(vec3(vIdx, 5.0, 2.0)) * 6.2832;
-        float rl = sqrt(max(0.0, 1.0 - la * la));
-        vec3 dd = p3 - vec3(cos(lo) * rl, sin(lo) * rl, la);
-        float r2 = pow(length(dd.xy) / 0.24, 2.0) + pow(dd.z / 0.11, 2.0);
-        c *= 1.0 - 0.45 * exp(-r2 * 1.6) * (0.4 + 0.6 * det);
-      }
-      float diff = dot(N, Lq);
-      float lam = clamp((diff + 0.1) / 1.1, 0.0, 1.0);
-      float lit = pow(lam, 1.05);
-      // ring shadow on the planet: march from the surface toward the sun to the ring plane
-      float rs = 0.0;
-      if (gr > 0.002) {
-        float pL = dot(pole, Lq);
-        float sT = -dot(pole, N) / (abs(pL) < 1e-3 ? 1e-3 : pL);
-        if (sT > 0.0) {
-          vec3 H = N + sT * Lq;
-          float rn2 = (length(H) - 1.18) / (1.35 * gr);
-          if (rn2 > 0.0 && rn2 < 1.0) rs = ringDen(rn2, sd, 0.0) * 0.85 * smoothstep(0.0, 0.2, gr);
-        }
-      }
-      float scat = exp(-pow(diff / 0.17, 2.0)) * 0.3;
-      vec3 scatC = mix(vC, vec3(1.0, 0.5, 0.3), 0.45);
-      vec3 body = c * lit * 1.15 * (1.0 - rs) + scatC * scat * smoothstep(-0.25, 0.05, diff) * 0.55;
-      // small on screen: blend toward a soft, lane-coloured, mostly lit disc (gibbous) so the lane reads
-      float small = 1.0 - smoothstep(14.0, 48.0, vRpx);
-      float soft = pow(clamp((diff + 0.7) / 1.7, 0.0, 1.0), 0.9);
-      body = mix(body, c * soft * 1.05 + vC * 0.08 * small, small * 0.8);
-      float night = 1.0 - smoothstep(-0.15, 0.35, diff);
-      float rshine = smoothstep(0.0, 0.3, gr) * 0.05;
-      body += (vC * 0.014 * (0.5 + c) + c * rbase * rshine + scatC * 0.012) * night; // night side: ring-shine and scattered light
-      float fres = pow(1.0 - mu, 4.5);
-      vec3 atm = mix(vC, vec3(0.6, 0.88, 1.0), (1.0 - gas) * 0.45 + 0.1);
-      atm = mix(atm, stT, 0.75 * stat);
-      body += atm * fres * (0.03 + 0.62 * pow(clamp(diff * 0.8 + 0.4, 0.0, 1.0), 1.3)) * (1.0 + 0.6 * stat);
-      vec3 Hh = normalize(Lq + vec3(0.0, 0.0, 1.0));
-      spec = (pow(max(dot(N, Hh), 0.0), 70.0) * 0.3 + pow(max(dot(N, Hh), 0.0), 14.0) * 0.04) * (1.0 - gas) * lit;
-      body += vec3(0.8, 0.97, 1.0) * spec;
-      outc = body * disc;
-    }
-    // atmosphere glow outside the limb: lane tinted, status tint when verifying; lit side brighter
-    float lb = 0.5 + 0.5 * dot(vP / max(d, 1e-3), vL.xy / max(length(vL.xy), 1e-3)) * min(1.0, length(vL.xy) * 1.3 + 0.2);
-    float halo = exp(-max(d - 1.0, 0.0) * 26.0) * (1.0 - disc) * (0.028 + 0.1 * vS.w + 0.07 * vS.z) * (0.3 + 0.9 * lb);
-    outc += mix(vC, stT, stat) * halo;
-    // composite the ring: near half over, far half behind (only visible off the disc)
-    float aR = ringA;
-    if (ringFront < 0.5) aR *= (1.0 - disc);
-    outc = outc * (1.0 - aR) + ringC * aR;
-    col = outc * vS.x;
-  } else if (vKind < 2.5) {
+    col = c * fade * vS.x;
+  } else {
     // fixer: a small amber spark
     float core = exp(-d * d * 3.5);
     float halo = 0.22 * exp(-d * 0.8);
     vec3 c = mix(vC, vec3(1.0, 0.95, 0.85), core * 0.55) * (core * 1.1 + halo);
     c = vec3(1.0) - exp(-c * 1.3);
     col = c * (1.0 - smoothstep(4.5, 7.0, d)) * vS.x;
-  } else {
-    // plan slot: a dim dot on the orbit
-    float disc = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, d);
-    // a marker: small core, soft halo, and a faint ring that breathes outward (idle only: uTime is 0 under reduced motion)
-    float on = step(0.0001, uTime);
-    float cyc = fract(uTime * 0.32 + vIdx * 0.37);
-    float pulse = on * (1.0 - cyc) * exp(-pow((d - (1.0 + 1.7 * cyc)) * 3.2, 2.0));
-    float breathe = 1.0 + on * 0.25 * sin(uTime * 1.9 + vIdx * 2.3);
-    float halo = exp(-d * d * 0.9) * 0.3 * breathe;
-    col = vC * (disc * 0.8 + halo + 0.35 * pulse) * (1.0 - smoothstep(2.4, 3.0, d)) * vS.x;
   }
   float dn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
   col += (dn - 0.5) / 255.0 * step(0.002, dot(col, vec3(1.0)));
@@ -529,9 +368,8 @@ void main() {
 `;
 
 /**
- * Orbit hairlines and the fixer's short tail: screen-space ribbons, drawn on by uProg[line], dimmed by uAl[line].
- * Orbits carry a depth cue (near side thicker/brighter, far side finer/dimmer, dimmed where they cross the sun's glow),
- * a lane-coloured light trail behind the planet, and a continuous fine base with a very slow idle brightness drift (uIdle 0 = off).
+ * Light threads from Opus to the young stars and the fixer's short tail: screen-space ribbons, drawn on by uProg[line]
+ * (the head's travel 0..1), dimmed by uAl[line].
  */
 export const lineVert = (n: number): string => /* glsl */ `
 uniform vec2 uRes;
@@ -539,110 +377,70 @@ uniform float uWidth;
 uniform float uPR;
 uniform float uProg[${n}];
 uniform float uAl[${n}];
-uniform float uAng[${n}]; // each orbit's planet angle (rad), idle drift included
-uniform vec3 uFocus; // the close-up planet
+uniform vec3 uFocus; // the close-up star
 uniform float uDof;
-uniform vec4 uCopyMask; // NDC ellipse that dims orbit hairlines behind the close-up headline
+uniform vec4 uCopyMask; // NDC ellipse that dims threads behind the close-up headline
 uniform float uCopyAmt;
-uniform float uWave; // verify wave front in ring-rank space (ring i is hit at i + 0.5); < 0 = off
 in vec3 aNext;
 in vec3 aColor;
-in vec4 aData; // t, side, line, kind (0 orbit, 1 tail)
+in vec4 aData; // t, side, line, kind (0 thread, 1 tail)
 out float vT;
 out float vSide;
 out float vProg;
 out float vAl;
 out float vK;
-out float vRad;
 out float vBlur;
-out float vDepth;
-out float vTrail;
-out float vWave;
-out float vLi;
 out vec3 vCol;
 void main() {
   float blur = uDof * clamp(length(position - uFocus) / 4.5, 0.0, 1.0);
-  vec4 mvA = modelViewMatrix * vec4(position, 1.0);
-  vec4 ca = projectionMatrix * mvA;
+  vec4 ca = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   vec4 cb = projectionMatrix * modelViewMatrix * vec4(aNext, 1.0);
   vec2 d = (cb.xy / cb.w - ca.xy / ca.w) * uRes * 0.5;
   float l = length(d);
   vec2 dir = l > 1e-4 ? d / l : vec2(1.0, 0.0);
   vec2 perp = vec2(-dir.y, dir.x);
-  bool orbit = aData.w < 0.5;
-  // depth cue: view distance relative to the sun's, eased out in the close-up (where the fake DoF takes over)
-  float near = length(cameraPosition) / max(-mvA.z, 0.05);
-  near = mix(1.0, clamp(near, 0.4, 2.0), orbit ? 1.0 - uDof : 0.0);
-  float dW = pow(near, 1.1);
-  float dB = pow(near, 1.7);
-  // the sun's glow: rings dim where they pass over it in screen space
-  vec4 cs = projectionMatrix * modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-  vec2 sd = (ca.xy / ca.w - cs.xy / cs.w) * uRes * 0.5 / (uRes.y * 0.5);
-  float glow = exp(-dot(sd, sd) / 0.045);
-  int li = int(aData.z + 0.5);
-  float behind = mod(uAng[li] - aData.x * 6.2831853, 6.2831853);
-  float trail = orbit && behind < 1.5 ? pow(1.0 - behind / 1.5, 2.2) * smoothstep(0.0, 0.05, behind) : 0.0;
-  // the verify wave: a ring flares as the front crosses it (sharp leading edge, long settle)
-  float wd = uWave - (aData.z + 0.5);
-  float wave = orbit && uWave > 0.0 ? (wd < 0.0 ? exp(-pow(wd / 0.32, 2.0)) : exp(-wd / 0.8) * exp(-pow(wd / 2.4, 2.0))) : 0.0;
-  float wpx = uWidth * uPR * (orbit ? clamp(dW, 0.6, 1.7) * (1.0 + 0.9 * trail + 0.8 * wave) : 1.6 * aData.x) * (1.0 + 2.2 * blur);
+  bool thread = aData.w < 0.5;
+  float wpx = uWidth * uPR * (thread ? 1.0 : 1.6 * aData.x) * (1.0 + 2.2 * blur);
   vec2 off = perp * aData.y * wpx / (uRes * 0.5);
   gl_Position = ca + vec4(off * ca.w, 0.0, 0.0);
+  int li = int(aData.z + 0.5);
   vT = aData.x;
   vSide = aData.y;
   vProg = uProg[li];
   vAl = uAl[li];
-  if (orbit && uCopyAmt > 0.0) {
+  if (thread && uCopyAmt > 0.0) {
     vec2 nd = (ca.xy / max(ca.w, 1e-3) - uCopyMask.xy) / uCopyMask.zw;
     vAl *= 1.0 - 0.92 * uCopyAmt * (1.0 - smoothstep(0.75, 1.25, length(nd)));
   }
-  vRad = length(position);
   vBlur = blur;
   vK = aData.w;
   vCol = aColor;
-  vTrail = trail;
-  vWave = wave;
-  vLi = aData.z;
-  vDepth = orbit ? clamp(dB, 0.3, 1.5) * (1.0 - 0.7 * glow) : 1.0;
   if (vAl < 0.002) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
 }
 `;
 export const lineFrag = /* glsl */ `
-uniform float uTime;
-uniform float uIdle;
-uniform float uWave;
 in float vT;
 in float vSide;
 in float vProg;
 in float vAl;
 in float vK;
-in float vRad;
 in float vBlur;
-in float vDepth;
-in float vTrail;
-in float vWave;
-in float vLi;
 in vec3 vCol;
 out vec4 fragColor;
 void main() {
   float across = exp(-vSide * vSide * 2.6 / (1.0 + 1.6 * vBlur)) / (1.0 + 1.6 * vBlur);
   float a;
   if (vK < 0.5) {
-    vec3 col;
-    float shown = 1.0 - smoothstep(vProg - 0.012, vProg, vT);
-    if (shown <= 0.0) discard;
-    float head = vProg < 0.999 ? exp(-pow((vT - vProg) * 16.0, 2.0)) : 0.0;
-    float rad = 1.5 / (1.0 + 0.2 * vRad); // brighter near the sun, fading outward
-    // continuous fine base; a very slow, gentle brightness drift along the ring (idle only)
-    float drift = 1.0 + uIdle * 0.22 * sin(vT * 6.2831853 - uTime * 0.12 + vLi * 1.7);
-    float base = 0.1 * rad * drift;
-    // the verify wave: the ring lights up in its lane colour, brightest in an arc that travels round it
-    float arc = cos(6.2831853 * (vT - uWave * 0.3) + vLi * 2.1);
-    vec3 ring = mix(vCol, vec3(1.0), 0.55);
-    vec3 tr = mix(vCol, vec3(1.0), 0.1);
-    col = (ring * base + tr * (vTrail * 0.8 * rad + head * 0.7)) + mix(vCol, vec3(1.0), 0.45) * (vWave * 1.25 * (0.5 + 0.5 * arc) * (0.6 + 0.4 * rad));
-    a = across * shown * vAl * vDepth;
-    fragColor = vec4(col * a, 1.0);
+    // a thread of light: drawn behind its travelling head, brighter toward the head; once landed (vProg = 1) a steady filament
+    bool flying = vProg < 0.999;
+    float shown = flying ? 1.0 - smoothstep(vProg, vProg + 0.025, vT) : 1.0;
+    float head = flying ? exp(-pow((vT - vProg) * 22.0, 2.0)) : 0.0;
+    float trail = flying ? 0.3 + 0.7 * smoothstep(vProg - 0.45, vProg, vT) : 1.0;
+    float ends = smoothstep(0.0, 0.07, vT);
+    vec3 body = mix(vCol, vec3(1.0), 0.3) * 0.5 * trail;
+    vec3 tip = mix(vCol, vec3(1.0), 0.75) * head * 1.5;
+    a = across * shown * ends;
+    fragColor = vec4((body * vAl + tip) * a, 1.0);
     return;
   }
   a = across * pow(vT, 1.7) * vAl;
@@ -650,7 +448,7 @@ void main() {
 }
 `;
 
-/** Flat effects in the orbital plane: the sun's approval pulse (one hairline ring) and the verify wave halo. */
+/** Flat effects: Opus's approval pulse (one soft expanding ring, facing the camera) and the supernova shock ring (in the galaxy plane). */
 export const fxVert = /* glsl */ `
 out vec2 vP;
 void main() {
@@ -659,30 +457,20 @@ void main() {
 }
 `;
 export const fxFrag = /* glsl */ `
-uniform float uPool;
 uniform float uPulseR;
 uniform float uPulseA;
 uniform float uShockR;
 uniform float uShockA;
-uniform float uWaveR;
-uniform float uWaveA;
-uniform float uR;
 in vec2 vP;
 out vec4 fragColor;
 void main() {
   float r = length(vP);
   vec3 col = vec3(0.0);
-  if (uPool > 0.001) {
-    // a very soft warm glow pool in the orbital plane around the sun; fades to nothing before the plane's edge
-    float pool = 0.075 * exp(-r / 1.2) + 0.03 * exp(-r / 3.4);
-    pool *= 1.0 - smoothstep(uR - 2.2, uR, r);
-    col += vec3(1.0, 0.66, 0.34) * pool * uPool;
-  }
   if (uPulseA > 0.001) {
-    float aa = max(fwidth(r), 1e-4);
-    float line = 1.0 - smoothstep(0.0, 1.5 * aa, abs(r - uPulseR));
-    float soft = exp(-pow((r - uPulseR) / 0.09, 2.0)) * 0.1;
-    col += vec3(0.84, 0.78, 1.0) * (line * 0.3 + soft) * uPulseA;
+    // a soft violet front with a faint trailing glow, no hairline
+    float dr = r - uPulseR;
+    float front = exp(-pow(dr / 0.32, 2.0)) * 0.1 + (dr < 0.0 ? exp(dr / 1.2) * 0.02 : 0.0);
+    col += vec3(0.8, 0.74, 1.0) * front * uPulseA;
   }
   if (uShockA > 0.001) {
     // the supernova shock: one crisp hairline ring, brightest on its leading edge, with a soft glowing shoulder behind it
@@ -692,12 +480,6 @@ void main() {
     float lead = exp(-pow(dr / 0.2, 2.0)) * (dr > 0.0 ? 1.0 : 0.55);
     float trail = step(r, uShockR) * exp(dr / 0.55);
     col += mix(vec3(0.62, 0.55, 1.0), vec3(1.0, 0.95, 1.0), smoothstep(-0.6, 0.0, dr)) * (line * 0.55 + lead * 0.3 + trail * 0.05) * uShockA;
-  }
-  if (uWaveA > 0.001) {
-    // the verify wave's body: a faint soft halo behind the front, in the orbital plane, never past the outer ring (uR - 0.6)
-    float dr = r - uWaveR;
-    float halo = exp(-pow(dr / 0.3, 2.0)) * 0.06 + (dr < 0.0 ? exp(dr / 1.1) * 0.022 : 0.0);
-    col += vec3(0.6, 0.9, 1.0) * halo * uWaveA * (1.0 - smoothstep(uR - 0.75, uR - 0.58, r));
   }
   float dn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
   col += dn / 255.0 * step(0.002, dot(col, vec3(1.0)));

@@ -29,7 +29,13 @@ export interface VolumeParams {
   knot: number; // 0..1: knot brightness
   copyAmt: number; // 0..1: dim the copy column
   copyMask: Vector4; // NDC ellipse cx, cy, rx, ry
+  /** Star-forming knots (density pockets of the same gas, integrated in closed form): per star three vec4s.
+   *  p = position + glow 0..1 (pulse included), c = tint + ignition 0..1, a = bipolar axis + cocoon build 0..1. */
+  knots?: { n: number; p: Vector4[]; c: Vector4[]; a: Vector4[]; gain: number };
 }
+
+/** Most knots the shader carries (a story with more workers shows the first MAX_KNOTS). */
+export const MAX_KNOTS = 24;
 
 export interface NebulaVolume {
   /** Composite quad: add to the scene. */
@@ -74,6 +80,11 @@ uniform int uSteps;
 uniform int uOct;
 uniform vec3 uTeal;
 uniform vec3 uAmber;
+uniform vec4 uKp[${MAX_KNOTS}];
+uniform vec4 uKc[${MAX_KNOTS}];
+uniform vec4 uKa[${MAX_KNOTS}];
+uniform int uKn;
+uniform float uKGain;
 in vec3 vDir;
 out vec4 outColor;
 ${lobeConsts()}
@@ -109,17 +120,60 @@ float fbm(vec3 p) {
 // mostly high-frequency, so the separable Gaussian below removes it instead of aliasing it into a visible texture
 float ign(vec2 px) { return fract(52.9829189 * fract(dot(px, vec2(0.06711056, 0.00583715)))); }
 
+// Line integral of an anisotropic gaussian density blob along the ray o + t rd, in closed form (no marching, so no step
+// noise on a feature smaller than a step). Frame (e1, e2, ax), sigmas sg. tc = the ray parameter of the closest approach.
+float blob(vec3 o, vec3 rd, vec3 c, vec3 e1, vec3 e2, vec3 ax, vec3 sg, out float tc) {
+  vec3 q = o - c;
+  vec3 g = vec3(dot(q, e1), dot(q, e2), dot(q, ax)) / sg;
+  vec3 v = vec3(dot(rd, e1), dot(rd, e2), dot(rd, ax)) / sg;
+  float vv = dot(v, v);
+  tc = -dot(g, v) / vv;
+  float m2 = dot(g, g) - dot(g, v) * dot(g, v) / vv;
+  return 2.5066283 * inversesqrt(vv) * exp(-0.5 * m2) * step(0.0, tc);
+}
+
 void main() {
   vec3 rd = normalize(vDir);
   // ray against the bounding sphere of the nebula
   float b = dot(uCamPos, rd);
   float c = dot(uCamPos, uCamPos) - NEB_R * NEB_R;
   float disc = b * b - c;
-  if (disc <= 0.0) { outColor = vec4(0.0); return; }
+  vec3 kcol = vec3(0.0);
+  vec3 kdrift = vec3(uTime * 0.018, uTime * 0.007, uTime * 0.012);
+  for (int k = 0; k < ${MAX_KNOTS}; k++) {
+    if (k >= uKn) break;
+    vec4 kp = uKp[k];
+    vec4 kc = uKc[k];
+    vec4 ka = uKa[k];
+    if (kp.w < 0.002 && kc.w < 0.002) continue;
+    float ign = kc.w;
+    float built = ka.w;
+    vec3 ax = normalize(ka.xyz);
+    vec3 e1 = normalize(cross(ax, abs(ax.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+    vec3 e2 = cross(ax, e1);
+    // the cocoon: a compact pocket that swells a little when its star lights it, then thins as the star builds
+    float R = 0.15 + 0.05 * ign + 0.03 * built;
+    float tc;
+    float body = blob(uCamPos, rd, kp.xyz, e1, e2, ax, vec3(R, R, R * 1.15), tc);
+    vec3 pc = uCamPos + rd * tc;
+    float mod1 = 0.82 + 0.36 * noise(pc * 2.1 + float(k) * 7.3 + kdrift * 3.0);
+    // bipolar clearing along the axis: the jets carve a narrow hourglass through the cocoon
+    float tc2;
+    float hole = blob(uCamPos, rd, kp.xyz, e1, e2, ax, vec3(0.04 + 0.05 * R, 0.04 + 0.05 * R, R * 1.9), tc2);
+    float dens = max(body * mod1 - hole * 0.95 * built, 0.0);
+    float tc3;
+    float core = blob(uCamPos, rd, kp.xyz, e1, e2, ax, vec3(R * 0.38), tc3);
+    vec3 dust = vec3(0.86, 0.7, 1.0);
+    vec3 lit = mix(dust, mix(kc.rgb, vec3(1.0), 0.28), 0.62 * ign);
+    float glow = kp.w * (1.0 - 0.45 * ign) + 1.4 * ign * (1.0 - 0.5 * built);
+    kcol += lit * dens * glow + mix(lit, vec3(1.0), 0.45) * core * (0.45 * kp.w + 0.9 * ign);
+  }
+  kcol *= uKGain;
+  if (disc <= 0.0) { outColor = vec4(kcol, 0.0); return; }
   float sq = sqrt(disc);
   float t0 = max(0.0, -b - sq);
   float t1 = -b + sq;
-  if (t1 <= t0) { outColor = vec4(0.0); return; }
+  if (t1 <= t0) { outColor = vec4(kcol, 0.0); return; }
   float dt = (t1 - t0) / float(uSteps);
   float t = t0 + dt * ign(gl_FragCoord.xy);
   vec3 drift = vec3(uTime * 0.018, uTime * 0.007, uTime * 0.012);
@@ -180,7 +234,7 @@ void main() {
     acc += T * col * dt;
     T *= exp(-sig * dt);
   }
-  outColor = vec4(acc * uGain, 1.0 - T);
+  outColor = vec4(acc * uGain + kcol, 1.0 - T);
 }
 `;
 
@@ -258,6 +312,10 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
   const march = new ShaderMaterial({
     uniforms: {
       uInvProj: { value: new Matrix4() }, uCamRot: { value: new Matrix3() }, uCamPos: { value: new Vector3() },
+      uKp: { value: Array.from({ length: MAX_KNOTS }, () => new Vector4()) },
+      uKc: { value: Array.from({ length: MAX_KNOTS }, () => new Vector4()) },
+      uKa: { value: Array.from({ length: MAX_KNOTS }, () => new Vector4(0, 1, 0, 0)) },
+      uKn: { value: 0 }, uKGain: { value: 0 },
       uTime: { value: 0 }, uGain: { value: 0 }, uCavR: { value: 0 }, uCollapse: { value: 0 }, uKnot: { value: 1 },
       uSteps: { value: q.steps }, uOct: { value: q.octaves },
       uTeal: { value: PALETTE.opencode }, uAmber: { value: PALETTE.agy },
@@ -295,7 +353,8 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
   return {
     object3d: quad,
     render(rend, camera, p) {
-      const on = p.gain > 0.001;
+      const kn = p.knots;
+      const on = p.gain > 0.001 || (kn !== undefined && kn.n > 0 && kn.gain > 0.001);
       quad.visible = on;
       if (!on) return;
       comp.uniforms.uCopyAmt.value = p.copyAmt;
@@ -304,7 +363,8 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
       // the low tier freezes the idle drift so an unchanged view is never re-marched
       const time = tier === 'low' ? 0 : p.time;
       const e = camera.matrixWorld.elements;
-      const s = `${e[12].toFixed(4)},${e[13].toFixed(4)},${e[14].toFixed(4)},${e[0].toFixed(4)},${e[1].toFixed(4)},${e[2].toFixed(4)},${e[4].toFixed(4)},${e[5].toFixed(4)},${e[6].toFixed(4)},${camera.fov},${camera.aspect},${time.toFixed(3)},${p.gain.toFixed(4)},${p.cavR.toFixed(4)},${p.collapse.toFixed(4)},${p.knot.toFixed(4)}`;
+      const s = `${e[12].toFixed(4)},${e[13].toFixed(4)},${e[14].toFixed(4)},${e[0].toFixed(4)},${e[1].toFixed(4)},${e[2].toFixed(4)},${e[4].toFixed(4)},${e[5].toFixed(4)},${e[6].toFixed(4)},${camera.fov},${camera.aspect},${time.toFixed(3)},${p.gain.toFixed(4)},${p.cavR.toFixed(4)},${p.collapse.toFixed(4)},${p.knot.toFixed(4)}`
+        + (kn ? `|${kn.n},${kn.gain.toFixed(4)},${kn.p.slice(0, kn.n).map((v, i) => `${v.x.toFixed(3)},${v.y.toFixed(3)},${v.z.toFixed(3)},${v.w.toFixed(3)},${kn.c[i].w.toFixed(3)},${kn.a[i].w.toFixed(3)}`).join(';')}` : '');
       if (s === sig) return;
       sig = s;
       u.uCamRot.value.setFromMatrix4(camera.matrixWorld);
@@ -315,6 +375,15 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
       u.uCavR.value = p.cavR;
       u.uCollapse.value = p.collapse;
       u.uKnot.value = p.knot;
+      const kn2 = p.knots;
+      const nk = kn2 ? Math.min(kn2.n, MAX_KNOTS) : 0;
+      u.uKn.value = nk;
+      u.uKGain.value = kn2 ? kn2.gain : 0;
+      for (let i = 0; i < nk; i++) {
+        (u.uKp.value as Vector4[])[i].copy(kn2!.p[i]);
+        (u.uKc.value as Vector4[])[i].copy(kn2!.c[i]);
+        (u.uKa.value as Vector4[])[i].copy(kn2!.a[i]);
+      }
       const prev = rend.getRenderTarget();
       rend.setRenderTarget(rt);
       rend.render(marchScene, dummyCam);

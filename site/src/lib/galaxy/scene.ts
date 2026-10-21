@@ -1,8 +1,8 @@
 // The galaxy flight scene: one camera, driven by scroll progress through sceneState(p). Vanilla three.js.
 // High/medium render through bloom on a black clear (the final pass adds #05060a after tone mapping); low renders
-// direct. All copy and labels are DOM; this file only reports where the sun and the planets land on screen.
-// Beats 01-05 are a solar system (system.ts) inside the galaxy: hairline orbits, small crisp planets, a close-up on the
-// planet with a fixer, and the merge spiral into the sun.
+// direct. All copy and labels are DOM; this file only reports where Opus and the young stars land on screen.
+// Beats 01-05 are a star nursery (nursery.ts) inside the galaxy: knots of gas glow in the bubble Opus carved, threads of light
+// ignite them into protostars, each grows in its own cocoon; a close-up on the star with a fixer, then the merge into Opus.
 import {
   ACESFilmicToneMapping, AdditiveBlending, BufferAttribute, BufferGeometry, Color, GLSL3, Mesh,
   NormalBlending, NoToneMapping, PerspectiveCamera, PlaneGeometry, Points, Scene, ShaderMaterial,
@@ -14,8 +14,8 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { mulberry32, PALETTE } from './shared.ts';
-import { createNebulaVolume } from './nebula-volume.ts';
+import { PALETTE } from './shared.ts';
+import { createNebulaVolume, MAX_KNOTS } from './nebula-volume.ts';
 import type { Tier } from './shared.ts';
 import type { Lane } from '../run.ts';
 import type { StoryWorker } from './story.ts';
@@ -25,10 +25,10 @@ import {
 import type { PointCloud } from './generator.ts';
 import {
   burstFlash, cavityR, nebulaDip, cometAt, clamp01, closeAmt, closeC, closeView, coreFlare, L, lateU, legacyP, lerp, M, formK, mergeCam, mergeM, shockAlpha, shockK, sunSwell, systemLeft, orbitT, pullK,
-  sceneState, shipK, ss, systemView, verifyU, waveF, waveR, win,
+  sceneState, shipK, ss, systemView, win,
 } from './path.ts';
 import type { SceneState, V3 } from './path.ts';
-import { buildSystem, flashPhase, launchPos, planetPos, spiralIn, stagger, tilt } from './system.ts';
+import { buildNursery, cocoonK, flashPhase, igniteK, knotK, threadK, verifyU, VIEW_DIR } from './nursery.ts';
 import {
   bodyFrag, bodyVert, cometVert, fxFrag, fxVert, lineFrag, lineVert, spriteFrag, spriteVert, tailFrag, tailVert,
 } from './shaders.ts';
@@ -206,23 +206,22 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   comet2.renderOrder = 5;
   scene.add(comet2);
 
-  // ---- the solar system: sun, planets, hairline orbits, the fixer ------------------------------------------------------
+  // ---- the star nursery: Opus (the sun), the young stars, light threads, the fixer --------------------------------------
   const nWork = opts.workers.length;
   const fixers: { w: number; slug: string; lane: Lane }[] = [];
   opts.workers.forEach((w, i) => { if (w.failed && w.fixer) fixers.push({ w: i, slug: w.fixer.slug, lane: w.fixer.lane }); });
   const nFix = fixers.length;
   const nodeCount = nWork + 1 + nFix; // frame nodes: 0 the sun, 1..n workers (story order), then fixers
   const SUN_R = 0.11;
-  const PLANET_R = 0.095;
-  const SLOT_R = 0.05;
+  const STAR_R = 0.05;
   const FIX_R = 0.024;
-  const FX_R = 7.4;
+  const FX_R = 10;
   const SUN = 0;
   const FIX0 = 1 + nWork;
-  const SLOT0 = 1 + nWork + nFix;
-  const nBody = 1 + 2 * nWork + nFix;
+  const nBody = 1 + nWork + nFix;
   const uP = Array.from({ length: nBody }, () => new Vector4());
   const uS = Array.from({ length: nBody }, () => new Vector4());
+  const uA = Array.from({ length: nBody }, () => new Vector4());
   const bodyGeo = track(new BufferGeometry());
   {
     const bPos = new Float32Array(nBody * 4 * 3);
@@ -231,11 +230,10 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     const bIdx = new Uint32Array(nBody * 6);
     const warm: Rgb = [1.0, 0.7, 0.36];
     for (let b = 0; b < nBody; b++) {
-      const kind = b === SUN ? 0 : b < FIX0 ? 1 : b < SLOT0 ? 2 : 3;
+      const kind = b === SUN ? 0 : b < FIX0 ? 1 : 2;
       let col: Rgb = warm;
       if (kind === 1) col = NODE_COL[opts.workers[b - 1].lane];
       else if (kind === 2) col = NODE_COL[fixers[b - FIX0].lane];
-      else if (kind === 3) col = NODE_COL[opts.workers[b - SLOT0].lane];
       for (let c = 0; c < 4; c++) {
         const v = b * 4 + c;
         bCol.set(col, v * 3);
@@ -249,8 +247,8 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     bodyGeo.setIndex(new BufferAttribute(bIdx, 1));
   }
   const bodyMat = track(new ShaderMaterial({
-    uniforms: { uP: { value: uP }, uS: { value: uS }, uScale: shared.uScale, uPR: shared.uPR, uFlare: { value: 0 }, uSpin: { value: 0 }, uTime: shared.uTime },
-    vertexShader: bodyVert(nBody), fragmentShader: bodyFrag(opts.tier === 'low' ? 3 : opts.tier === 'medium' ? 4 : 5), glslVersion: GLSL3,
+    uniforms: { uP: { value: uP }, uS: { value: uS }, uA: { value: uA }, uScale: shared.uScale, uPR: shared.uPR, uFlare: { value: 0 }, uSpin: { value: 0 }, uTime: shared.uTime },
+    vertexShader: bodyVert(nBody), fragmentShader: bodyFrag(), glslVersion: GLSL3,
     blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true,
   }));
   const bodies = new Mesh(bodyGeo, bodyMat);
@@ -277,9 +275,9 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   bcoreMat.uniforms.uCoreDim = { value: 1 };
   const bcorePts = points(bcoreGeo, bcoreMat, 5);
 
-  // ribbons: one orbit hairline per planet, plus the fixer's short tail
+  // ribbons: one light thread per young star, plus the fixer's short tail
   const lineRes = { value: new Vector2(1, 1) }; // shared device-px screen size for the ribbon lines
-  interface Ribbon { mesh: Mesh; pos: Float32Array; next: Float32Array; geo: BufferGeometry; prog: number[]; al: number[]; ang: number[]; mat: ShaderMaterial }
+  interface Ribbon { mesh: Mesh; pos: Float32Array; next: Float32Array; geo: BufferGeometry; prog: number[]; al: number[]; mat: ShaderMaterial }
   function makeRibbon(nLines: number, segs: number, kind: number, width: number, color: (li: number) => Rgb): Ribbon {
     const vCount = nLines * (segs + 1) * 2;
     const pos = new Float32Array(vCount * 3);
@@ -306,9 +304,8 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     geo.setIndex(new BufferAttribute(idx, 1));
     const prog = new Array(Math.max(1, nLines)).fill(0) as number[];
     const al = new Array(Math.max(1, nLines)).fill(0) as number[];
-    const ang = new Array(Math.max(1, nLines)).fill(0) as number[];
     const mat = track(new ShaderMaterial({
-      uniforms: { uRes: lineRes, uWidth: { value: width }, uPR: shared.uPR, uProg: { value: prog }, uAl: { value: al }, uAng: { value: ang }, uWave: { value: -1 }, uFocus: { value: new Vector3() }, uDof: shared.uDof, uTime: shared.uTime, uIdle: { value: 1 }, uCopyMask: copyMask, uCopyAmt: { value: 0 } },
+      uniforms: { uRes: lineRes, uWidth: { value: width }, uPR: shared.uPR, uProg: { value: prog }, uAl: { value: al }, uFocus: { value: new Vector3() }, uDof: shared.uDof, uCopyMask: copyMask, uCopyAmt: { value: 0 } },
       vertexShader: lineVert(Math.max(1, nLines)), fragmentShader: lineFrag, glslVersion: GLSL3,
       blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, side: 2,
     }));
@@ -316,19 +313,17 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     mesh.frustumCulled = false;
     mesh.renderOrder = 6;
     scene.add(mesh);
-    return { mesh, pos, next, geo, prog, al, ang, mat };
+    return { mesh, pos, next, geo, prog, al, mat };
   }
-  const SEGO = 128;
+  const THSEG = 64;
   const FSEG = 16;
-  const laneTint = (l: Lane): Rgb => { const c = NODE_COL[l]; return [c[0] * 0.45 + 0.4, c[1] * 0.45 + 0.4, c[2] * 0.45 + 0.45]; };
-  let sys = buildSystem({ workers: opts.workers }, 1.6);
-  const orbits = makeRibbon(nWork, SEGO, 0, 0.8, (li) => NODE_COL[opts.workers[Math.min(li, nWork - 1)].lane]);
+  const threads = makeRibbon(nWork, THSEG, 0, 1.5, (li) => NODE_COL[opts.workers[Math.min(li, nWork - 1)].lane]);
   const tail = makeRibbon(Math.max(1, nFix), FSEG, 1, 1.1, () => NODE_COL.agy);
   tail.mesh.visible = nFix > 0;
 
-  // flat effects in the orbital plane: the approval pulse and the verify wave halo
+  // Opus's approval pulse (a soft expanding ring facing the camera) and the supernova shock ring (galaxy plane)
   const fxMat = track(new ShaderMaterial({
-    uniforms: { uPool: { value: 0 }, uPulseR: { value: 0 }, uPulseA: { value: 0 }, uShockR: { value: 0 }, uShockA: { value: 0 }, uWaveR: { value: 0 }, uWaveA: { value: 0 }, uR: { value: 6 } },
+    uniforms: { uPulseR: { value: 0 }, uPulseA: { value: 0 }, uShockR: { value: 0 }, uShockA: { value: 0 } },
     vertexShader: fxVert, fragmentShader: fxFrag, glslVersion: GLSL3,
     blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true,
   }));
@@ -338,73 +333,61 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   fx.renderOrder = 5;
   scene.add(fx);
 
-  let closeIdx = -1; // planet index of the close-up
-  let rMax = 6;
+  let nur = buildNursery({ workers: opts.workers }, 1.6);
+  let closeIdx = -1; // star index (launch order) of the close-up
+  let rMax = 6; // framing radius: the nursery's extent plus its cocoons
+  const starSlot: number[] = []; // star (launch order) -> index in opts.workers
+  const starAxis: V3[] = []; // bipolar axis (disc normal) of every young star, a varied tilt about the view direction
+  const starKnot: Vector4[] = Array.from({ length: Math.min(nWork, MAX_KNOTS) }, () => new Vector4());
+  const starKnotC: Vector4[] = Array.from({ length: Math.min(nWork, MAX_KNOTS) }, () => new Vector4());
+  const starKnotA: Vector4[] = Array.from({ length: Math.min(nWork, MAX_KNOTS) }, () => new Vector4());
+  const GOLD = 2.399963;
   function bakeSystem(): void {
-    sys = buildSystem({ workers: opts.workers }, camera.aspect);
-    closeIdx = sys.closeUp === null ? -1 : sys.planets.findIndex((p) => p.slug === sys.closeUp);
-    rMax = sys.planets.length ? Math.max(...sys.planets.map((p) => p.orbit)) : 6;
-    sys.planets.forEach((p, li) => {
-      for (let sg = 0; sg <= SEGO; sg++) {
-        const a0 = (sg / SEGO) * Math.PI * 2;
-        const a1 = ((sg + 1) / SEGO) * Math.PI * 2;
+    nur = buildNursery({ workers: opts.workers }, camera.aspect);
+    closeIdx = nur.closeUp === null ? -1 : nur.stars.findIndex((s) => s.slug === nur.closeUp);
+    rMax = nur.stars.length ? nur.extent + 0.7 : 6;
+    // the basis across the view direction (same construction as nursery.ts)
+    const vd = VIEW_DIR;
+    const l1 = Math.hypot(vd[2], vd[0]) || 1;
+    const e1: V3 = [-vd[2] / l1, 0, vd[0] / l1];
+    const e2: V3 = [vd[1] * e1[2] - vd[2] * e1[1], vd[2] * e1[0] - vd[0] * e1[2], vd[0] * e1[1] - vd[1] * e1[0]];
+    nur.stars.forEach((s, i) => {
+      starSlot[i] = opts.workers.findIndex((w) => w.slug === s.slug);
+      const a = 0.9 + i * GOLD * 0.8;
+      const tilt = 0.5 * Math.sin(i * 2.1 + 0.4); // out of the view plane, either way: never along the line of sight
+      const v: V3 = [0, 1, 2].map((k) => Math.cos(a) * e1[k] + Math.sin(a) * e2[k] + tilt * vd[k]) as V3;
+      const l = Math.hypot(v[0], v[1], v[2]) || 1;
+      starAxis[i] = [v[0] / l, v[1] / l, v[2] / l];
+      // the thread: a gentle arc from just off Opus to the star, bowed sideways like a filament of gas
+      const P = s.pos;
+      const bowD: V3 = [s.dir[1] * vd[2] - s.dir[2] * vd[1], s.dir[2] * vd[0] - s.dir[0] * vd[2], s.dir[0] * vd[1] - s.dir[1] * vd[0]];
+      const bl = Math.hypot(bowD[0], bowD[1], bowD[2]) || 1;
+      const bow = 0.16 * Math.hypot(P[0], P[1], P[2]) * (i % 2 === 0 ? 1 : -1);
+      const C: V3 = [P[0] * 0.5 + (bowD[0] / bl) * bow, P[1] * 0.5 + (bowD[1] / bl) * bow, P[2] * 0.5 + (bowD[2] / bl) * bow];
+      const at = (tt: number, o: V3): void => {
+        const k0 = 0.04 + 0.96 * tt; // starts a hair off Opus, ends on the star
+        const m1 = 1 - k0;
+        for (let c = 0; c < 3; c++) o[c] = m1 * m1 * 0 + 2 * m1 * k0 * C[c] + k0 * k0 * P[c];
+      };
+      const li = starSlot[i]; // ribbons follow story order so the label/state arrays line up
+      const p0: V3 = [0, 0, 0];
+      const p1: V3 = [0, 0, 0];
+      for (let sg = 0; sg <= THSEG; sg++) {
+        at(sg / THSEG, p0);
+        at(Math.min(1, (sg + 1) / THSEG), p1);
+        if (sg === THSEG) for (let c = 0; c < 3; c++) p1[c] = p0[c] + (p0[c] - threadPrev[c]);
         for (let sd = 0; sd < 2; sd++) {
-          const v = (li * (SEGO + 1) + sg) * 2 + sd;
-          orbits.pos.set(tilt(p, [Math.cos(a0) * p.orbit, 0, Math.sin(a0) * p.orbit]), v * 3);
-          orbits.next.set(tilt(p, [Math.cos(a1) * p.orbit, 0, Math.sin(a1) * p.orbit]), v * 3);
+          const v2 = (li * (THSEG + 1) + sg) * 2 + sd;
+          threads.pos.set(p0, v2 * 3);
+          threads.next.set(p1, v2 * 3);
         }
+        threadPrev[0] = p0[0]; threadPrev[1] = p0[1]; threadPrev[2] = p0[2];
       }
     });
-    orbits.geo.attributes.position.needsUpdate = true;
-    orbits.geo.attributes.aNext.needsUpdate = true;
-    fxMat.uniforms.uR.value = rMax + 0.6;
-    bakeBelts();
+    threads.geo.attributes.position.needsUpdate = true;
+    threads.geo.attributes.aNext.needsUpdate = true;
   }
-
-  // thin dust belt per orbit: seeded points hugging the (tilted) ring, drifting with the orbital clock; star sprites (mode 0)
-  const beltN = opts.tier === 'high' ? 110 : opts.tier === 'medium' ? 70 : 0; // a hint of volume, not specks; off on low
-  const beltAlloc = Math.max(1, nWork * beltN);
-  const beltPos = new Float32Array(beltAlloc * 3);
-  const beltCol = new Float32Array(beltPos.length);
-  const beltData = new Float32Array(beltAlloc * 4);
-  const beltJit = new Float32Array(beltAlloc * 4); // base angle, radial, vertical, drift factor
-  const beltGeo = new BufferGeometry();
-  beltGeo.setAttribute('position', new BufferAttribute(beltPos, 3));
-  beltGeo.setAttribute('aColor', new BufferAttribute(beltCol, 3));
-  beltGeo.setAttribute('aData', new BufferAttribute(beltData, 4));
-  const beltMat = sprite(AdditiveBlending, 0, { size: 0.016, gain: 0 });
-  const belt = points(beltGeo, beltMat, 6);
-  belt.visible = false;
-  function bakeBelts(): void {
-    const rnd = mulberry32(7741);
-    sys.planets.forEach((p, li) => {
-      const c = laneTint(p.lane);
-      for (let k = 0; k < beltN; k++) {
-        const i = li * beltN + k;
-        const g = (rnd() + rnd() + rnd() - 1.5) / 1.5; // bell-ish jitter in -1..1
-        beltJit.set([rnd() * Math.PI * 2, g * 0.09 * (0.6 + 0.1 * p.orbit), (rnd() - 0.5) * 0.07, 0.6 + rnd() * 0.8], i * 4);
-        const br = 0.35 + rnd() * 0.65;
-        beltCol.set([c[0] * br, c[1] * br, c[2] * br], i * 3);
-        beltData.set([0.45 + rnd() * 0.75, rnd(), rnd(), 0], i * 4);
-      }
-    });
-    beltGeo.attributes.aColor.needsUpdate = true;
-    beltGeo.attributes.aData.needsUpdate = true;
-  }
-  function driftBelts(tt: number): void {
-    sys.planets.forEach((p, li) => {
-      for (let k = 0; k < beltN; k++) {
-        const i = li * beltN + k;
-        const a = beltJit[i * 4] + p.speed * tt * beltJit[i * 4 + 3];
-        const r = p.orbit + beltJit[i * 4 + 1];
-        const v = tilt(p, [Math.cos(a) * r, beltJit[i * 4 + 2], Math.sin(a) * r]);
-        beltPos[i * 3] = v[0];
-        beltPos[i * 3 + 1] = v[1];
-        beltPos[i * 3 + 2] = v[2];
-      }
-    });
-    beltGeo.attributes.position.needsUpdate = true;
-  }
+  const threadPrev: V3 = [0, 0, 0];
 
   // ---- post -------------------------------------------------------------------------------------------------
   let composer: EffectComposer | null = null;
@@ -463,7 +446,6 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   const tailPts: V3[] = Array.from({ length: FSEG + 1 }, () => [0, 0, 0] as V3);
   let cssW = 1;
   let cssH = 1;
-  const ringTilt = (idx: number): number => -0.42 + 0.18 * Math.sin(idx * 2.7); // matches bodyFrag
 
   function renderFrame(nowMs: number): void {
     const dtRaw = Math.max(0, (nowMs - lastMs) / 1000);
@@ -478,7 +460,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     const st = sceneState(pp);
     const t = reduced ? 0 : (nowMs - t0) / 1000;
     const idleOn = reduced ? 0 : 1; // ambient idle motion (owner-allowed): time-based, layered on the scroll; 0 under reduced motion
-    const tt = orbitT(progress) + idleOn * t * 0.11; // orbital clock: scroll-driven plus a slow idle drift (inner planets faster)
+    const tt = orbitT(progress); // scroll-driven rotation clock for the stars' surfaces (the idle motion is uTime in the shaders)
     shared.uTime.value = t;
     shared.uSpin.value = st.spin + 0.5 * m;
     const band = ss(0.27, 0.36, pp) * (1 - ss(0.53, 0.6, pp)); // the dive's bright stretch: thin the bulge so the tunnel reads
@@ -517,26 +499,42 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     nebStarMat.uniforms.uGain.value = 1.0 * nebRem * (1 - 0.3 * band) * (1 + 0.7 * nebPortrait);
     nebStarMat.uniforms.uClearR.value = clearR;
 
-    // ---- planets: position, launch, build, verify, merge (system.ts does the layout) ----
+    // ---- young stars: knots (plan), threads + ignition (fan), cocoon build, verify, merge (nursery.ts does the layout) ----
     const n = nWork;
-    const planets = sys.planets;
-    const bodyPos: V3[] = planets.map((p) => planetPos(p, tt));
-    const kk: number[] = new Array(planets.length).fill(0);
-    const mk: number[] = new Array(planets.length).fill(0);
-    const fanW = win(L.fan, u);
-    const buildW = win(L.build, u);
-    planets.forEach((p, pi) => {
-      kk[pi] = u > 0 ? stagger(fanW, p.launchIndex, n, 0.6) : 0;
-      if (kk[pi] > 0) bodyPos[pi] = launchPos(p, kk[pi], tt);
+    const stars = nur.stars;
+    const starPos: V3[] = stars.map((s) => [s.pos[0], s.pos[1], s.pos[2]] as V3);
+    const kk: number[] = new Array(stars.length).fill(0); // knot glow-in (plan)
+    const thK: number[] = new Array(stars.length).fill(0); // thread travel (fan)
+    const igK: number[] = new Array(stars.length).fill(0); // ignition
+    const cbK: number[] = new Array(stars.length).fill(0); // cocoon build
+    const mk: number[] = new Array(stars.length).fill(0); // merge fall
+    const pulseP = st.pulse > 0 && st.pulse < 1 ? st.pulse : 0;
+    const pulseFront = pulseP * (rMax + 1.0);
+    stars.forEach((s, pi) => {
+      kk[pi] = knotK(pp, s.rank, n);
+      thK[pi] = threadK(u, s.rank, n);
+      igK[pi] = igniteK(u, s.rank, n);
+      cbK[pi] = cocoonK(u, s.buildIndex, n);
       if (m > 0) {
-        const wi = opts.workers.findIndex((w) => w.slug === p.slug);
-        mk[pi] = pullK(m, mergeRank[wi], n);
-        if (mk[pi] > 0) bodyPos[pi] = spiralIn(p, mk[pi], tt);
+        mk[pi] = pullK(m, mergeRank[starSlot[pi]], n);
+        const f = 1 - mk[pi]; // placeholder: the young stars fall straight in toward Opus
+        starPos[pi] = [s.pos[0] * f, s.pos[1] * f, s.pos[2] * f];
       }
     });
-    const cronPos: V3 = closeIdx >= 0 ? planetPos(planets[closeIdx], tt) : [0, 0, 0];
+    const cronPos: V3 = closeIdx >= 0 ? starPos[closeIdx] : [0, 0, 0];
     const cA = closeIdx >= 0 ? closeAmt(u) : 0;
-    shared.uDof.value = cA; // fake depth of field in the close-up: far stars, orbit lines soften with distance from the focus planet
+    shared.uDof.value = cA; // fake depth of field in the close-up: far stars and threads soften with distance from the focus star
+    // the knots are density pockets of the same nebula gas: positions + glow (the pulse from Opus brightens them as it passes), tint + ignition, axis + cocoon
+    stars.forEach((s, pi) => {
+      if (pi >= starKnot.length) return;
+      const r = Math.hypot(s.pos[0], s.pos[1], s.pos[2]);
+      const hit = pulseP > 0 ? Math.exp(-(((pulseFront - r) / 0.9) ** 2)) : 0;
+      const gone = 1 - ss(0, 0.25, mk[pi]);
+      const c = NODE_COL[s.lane];
+      starKnot[pi].set(starPos[pi][0], starPos[pi][1], starPos[pi][2], kk[pi] * (1 + 1.1 * hit) * gone);
+      starKnotC[pi].set(c[0], c[1], c[2], igK[pi] * gone);
+      starKnotA[pi].set(starAxis[pi][0], starAxis[pi][1], starAxis[pi][2], cbK[pi]);
+    });
 
     // ---- camera ----
     const aspect = camera.aspect;
@@ -607,6 +605,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     nebVol.render(renderer, camera, {
       time: t,
       gain: 0.38 * nebRem * nebulaDip(pp) * (1 - 0.3 * band) * (1 - 0.35 * nebPortrait) * (opts.tier === 'low' ? 1.5 : 1),
+      knots: { n: Math.min(nWork, MAX_KNOTS), p: starKnot, c: starKnotC, a: starKnotA, gain: 0.7 * (1 - nebBlow) * (1 + 0.5 * nebPortrait) },
       cavR: Math.max(cavityR(pp, rMax), camera.position.length() * 1.45 * ss(0.512, 0.545, pp) * (1 - ss(0.6, 0.66, pp)), shockK(m) * (rMax + 1.2) * 2.4),
       collapse: ss(0.4, 0.512, pp),
       knot: 1 - ss(0.515, 0.545, pp),
@@ -614,7 +613,6 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       copyMask: volMask.value,
     });
     shared.uFocusD.value = Math.max(0.5, (cronPos[0] - camera.position.x) * fwd.x + (cronPos[1] - camera.position.y) * fwd.y + (cronPos[2] - camera.position.z) * fwd.z);
-    orbits.mat.uniforms.uFocus.value.set(cronPos[0], cronPos[1], cronPos[2]);
     starMat.uniforms.uSize.value = (opts.tier === 'low' ? 0.07 : 0.05) * (1 + 0.3 * hw) * (1 - 0.6 * band) * (1 - 0.45 * calmPlan);
 
     // comet
@@ -643,10 +641,9 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     armMat.uniforms.uGain.value = shared.uGain.value * 0.45; // the new arm sits below the original field: never an over-bright crescent
     armPts.visible = galVis;
 
-    // ---- the system layer ----
+    // ---- the nursery layer ----
     const px = shared.uScale.value / shared.uPR.value; // css px per world unit at depth 1
     const sunA = ss(0.5, 0.56, pp) * (1 - 0.55 * pullOut) * (1 - 0.7 * cA) * systemLeft(m) * (1 - ss(M.burst[0] - 0.006, M.burst[0] + 0.008, m)); // the star body is gone at the burst (the hot point core takes over); gone by the end of the burst: the merged galaxy owns the origin
-    const pulseP = st.pulse > 0 && st.pulse < 1 ? st.pulse : 0;
     const pulseGlow = Math.sin(Math.PI * pulseP) ** 2;
     uP[SUN].set(0, 0, 0, SUN_R * (1 + 0.3 * flare + 0.1 * pulseGlow + 1.6 * sunSwell(m)));
     uS[SUN].set(sunA * (1 + 2.6 * cA), 0, 0, 0); // behind the close-up copy the far sun is lifted back to a blazing star (the dimming above only guards the pill and the bloom)
@@ -656,84 +653,62 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     nodeRad[0] = SUN_R;
     nodeOnArr[0] = sunA * (1 - cA);
 
-    const radii = planets.map((q) => q.orbit).sort((a, b) => a - b);
-    const waveOn = n > 0 && u > L.scan[0];
     const cC = closeC(u);
-    const orbAl = orbits.al;
-    const orbProg = orbits.prog;
-    planets.forEach((p, pi) => {
-      const wi = opts.workers.findIndex((w) => w.slug === p.slug);
+    stars.forEach((s, pi) => {
+      const wi = starSlot[pi];
       const w = opts.workers[wi];
-      const draw = clamp01((st.draw - (p.launchIndex / Math.max(1, n)) * 0.4) / 0.6);
-      const k = kk[pi];
-      const mkI = mk[pi];
-      const g = stagger(buildW, p.buildIndex, n, 0.5);
-      // verify: the wave reaches its ring -> each planet runs its flashPhase; the close-up planet runs it during the dwell
+      // verify: each star runs its flashPhase when its test pulse lands; the close-up star runs it during the dwell
       let okV = 0;
       let redV = 0;
       let failV = 0;
       if (u > L.scan[0] || u >= L.dwell[0]) {
         if (pi === closeIdx) {
-          const fp = flashPhase(p.verify, cC);
+          const fp = flashPhase(s.verify, cC);
           okV = fp.green;
           redV = fp.red;
           failV = ss(0, 0.03, cC) * (1 - ss(0.66, 0.74, cC));
         } else {
-          const rank = radii.indexOf(p.orbit); // the wave reaches the inner rings first
-          const uL = verifyU(u, rank, n);
-          const fp = flashPhase(p.verify, uL);
+          const uL = verifyU(u, s.rank, n);
+          const fp = flashPhase(s.verify, uL);
           okV = fp.green;
           redV = fp.red;
-          failV = p.verify.redFlashes > 0 ? ss(0, 0.04, uL) * (1 - ss(0.62, 0.78, uL)) : 0;
+          failV = s.verify.redFlashes > 0 ? ss(0, 0.04, uL) * (1 - ss(0.62, 0.78, uL)) : 0;
         }
       }
-      // close-up: planets and slot dots inside the headline column step back so the copy reads (the focus planet stays)
+      // close-up: stars inside the headline column step back so the copy reads (the focus star stays)
       let copyDim = 0;
       if (cA > 0 && pi !== closeIdx) {
-        tmpV.set(bodyPos[pi][0], bodyPos[pi][1], bodyPos[pi][2]).project(camera);
+        tmpV.set(starPos[pi][0], starPos[pi][1], starPos[pi][2]).project(camera);
         const nx = (tmpV.x - copyMask.value.x) / copyMask.value.z;
         const ny = (tmpV.y - copyMask.value.y) / copyMask.value.w;
         copyDim = 0.9 * cA * (1 - ss(0.75, 1.25, Math.hypot(nx, ny)));
       }
-      const live = ss(0, 0.05, k) * (1 - ss(0.9, 1, mkI)) * (1 - copyDim);
-      const ringAmt = g * (1 - ss(0.02, 0.2, mkI));
-      const R = PLANET_R * (1 + 0.3 * g);
-      uP[1 + pi].set(bodyPos[pi][0], bodyPos[pi][1], bodyPos[pi][2], R);
-      const nearSun = 1.18 - 0.28 * ((p.orbit - sys.planets[0].orbit) / Math.max(0.01, rMax - sys.planets[0].orbit)); // planets nearer the sun a touch brighter
-      uS[1 + pi].set(live * nearSun * (pi === closeIdx || camera.aspect >= 1.2 ? 1 : 1 - 0.8 * cA), ringAmt, okV, redV);
-      // plan slot: a dim dot on the orbit until the planet lands on it
-      const slotA = ss(0.8, 1, draw) * 0.7 * (1 - ss(0.5, 0.95, k)) * (1 - copyDim);
-      const sp = planetPos(p, tt);
-      uP[SLOT0 + pi].set(sp[0], sp[1], sp[2], SLOT_R);
-      uS[SLOT0 + pi].set(slotA, 0, 0, 0);
-      orbProg[pi] = draw;
-      orbits.ang[pi] = p.phase + p.speed * tt;
-      orbAl[pi] = 1.2 * ss(0, 0.12, draw) * (1 - ss(0.05, 0.9, mkI)) * (1 - 0.6 * ss(0.4, 0.85, m)) * systemLeft(m);
-      // the DOM pill: on the slot until launch, hidden while it flies out, then on the planet
-      const mask = clamp01(1 - ss(0, 0.08, k) + ss(0.5, 0.9, k));
-      const at = k < 0.3 ? sp : bodyPos[pi];
-      nodeWorld[wi + 1] = at;
-      nodeRad[wi + 1] = R * (1 + 0.5 * ringAmt);
-      nodeOnArr[wi + 1] = ss(0.8, 1, draw) * mask * (1 - cA * (pi === closeIdx ? 0 : 1));
+      const live = ss(0, 0.06, igK[pi]) * (1 - ss(0.9, 1, mk[pi])) * (1 - copyDim);
+      const R = STAR_R * (0.8 + 0.2 * igK[pi] + 0.35 * cbK[pi]);
+      // jet axis and disc tilt on screen: the axis projected onto the camera basis
+      const ax = starAxis[pi];
+      const sx = ax[0] * right.x + ax[1] * right.y + ax[2] * right.z;
+      const sy = ax[0] * upV.x + ax[1] * upV.y + ax[2] * upV.z;
+      const sz = ax[0] * back.x + ax[1] * back.y + ax[2] * back.z;
+      uP[1 + wi].set(starPos[pi][0], starPos[pi][1], starPos[pi][2], R);
+      uS[1 + wi].set(live * (pi === closeIdx || camera.aspect >= 1.2 ? 1 : 1 - 0.8 * cA), 0, okV, redV);
+      uA[1 + wi].set(Math.atan2(sy, sx), Math.abs(sz), igK[pi], cbK[pi]);
+      // the thread: a bright head travels out from Opus, then it settles to a faint filament
+      const landed = thK[pi] >= 1;
+      threads.prog[wi] = thK[pi];
+      threads.al[wi] = (landed ? 0.2 + 0.8 * (1 - ss(0, 1, igK[pi])) : ss(0, 0.04, thK[pi])) * (1 - ss(0, 0.2, mk[pi])) * systemLeft(m);
+      // the DOM pill sits under its knot; it names the planned worker from the plan beat on
+      nodeWorld[wi + 1] = starPos[pi];
+      nodeRad[wi + 1] = 0.4 + 0.1 * cbK[pi];
+      nodeOnArr[wi + 1] = ss(0.7, 1, kk[pi]) * (1 - ss(0, 0.2, mk[pi])) * (1 - cA * (pi === closeIdx ? 0 : 1));
       const fo = frameOut.nodes[wi + 1];
       fo.ok = okV;
       fo.bad = failV;
       fo.rev = w.reviewed ? ss(0.5, 0.95, okV) : 0;
     });
-    orbits.mesh.visible = n > 0 && st.draw > 0;
-    orbits.mat.uniforms.uIdle.value = idleOn;
-    orbits.mat.uniforms.uCopyAmt.value = cA;
-    beltMat.uniforms.uCopyAmt.value = cA;
-    let envMax = 0;
-    for (let i = 0; i < n; i++) envMax = Math.max(envMax, orbAl[i]);
-    belt.visible = beltN > 0 && orbits.mesh.visible && envMax > 0.002;
-    if (belt.visible) {
-      beltMat.uniforms.uGain.value = 0.3 * envMax;
-      driftBelts(tt);
-    }
-    // the sun's approval pulse and the verify scan arc
-    const elev = Math.abs(camera.position.y) / Math.max(0.01, camera.position.length());
-    fxMat.uniforms.uPool.value = ss(0.5, 0.56, pp) * ss(0.14, 0.5, elev) * (1 - 0.6 * pullOut) * systemLeft(m) * (1 - 0.3 * cA);
+    threads.mesh.visible = n > 0 && u > 0;
+    threads.mat.uniforms.uCopyAmt.value = cA;
+    threads.mat.uniforms.uFocus.value.set(cronPos[0], cronPos[1], cronPos[2]);
     hazeMat.uniforms.uGain.value *= 1 + 2.6 * portraitK * pullOut;
     hazeMat.uniforms.uSize.value *= 1 + 0.45 * portraitK * pullOut; // the haze carries the disc on phones
     const bf = burstFlash(m);
@@ -750,28 +725,23 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     haloColAttr.needsUpdate = true;
     fxMat.uniforms.uShockR.value = shockK(m) * (rMax + 1.2);
     fxMat.uniforms.uShockA.value = shockAlpha(m);
-    fxMat.uniforms.uPulseR.value = pulseP * (rMax + 0.8);
+    fxMat.uniforms.uPulseR.value = pulseFront;
     fxMat.uniforms.uPulseA.value = pulseP > 0 ? Math.sin(Math.PI * pulseP) ** 0.8 * 0.9 : 0;
-    const wR = waveR(u, radii);
-    orbits.mat.uniforms.uWave.value = waveOn ? waveF(u, n) : -1;
-    fxMat.uniforms.uWaveR.value = wR;
-    fxMat.uniforms.uWaveA.value = waveOn ? ss(0, 0.5, wR) * (1 - ss(0.82, 1, win(L.scan, u))) : 0;
+    // the pulse is a sphere's front seen from the camera (a ring facing it); the shock ring lies in the galaxy plane
+    if (m > 0) fx.rotation.set(-Math.PI / 2, 0, 0);
+    else fx.quaternion.copy(camera.quaternion);
 
-    // the fixer: a small amber spark from outside the system that docks on the close-up planet's ring
+    // the fixer: a small amber spark from outside the nursery that docks on the close-up star
     fixers.forEach((fx2, kf) => {
       const ni = 1 + n + kf;
-      const isClose = closeIdx >= 0 && fx2.w === opts.workers.findIndex((w) => w.slug === planets[closeIdx].slug);
+      const isClose = closeIdx >= 0 && fx2.w === starSlot[closeIdx];
       let a = 0;
-      let screenAway = 0;
       if (isClose) {
         const kS = shipK(u);
         const e = 1 - (1 - kS) ** 2.2;
         const ang = Math.atan2(cronPos[2], cronPos[0]);
         const S: V3 = [Math.cos(ang + 0.9) * (rMax + 3.5), 1.6, Math.sin(ang + 0.9) * (rMax + 3.5)];
-        const Rc = uP[1 + closeIdx].w;
-        const tilt = ringTilt(closeIdx);
-        const dk = 2.5 * uS[1 + closeIdx].y * Rc;
-        const D: V3 = [0, 1, 2].map((c) => cronPos[c] + (right.getComponent(c) * Math.cos(tilt) + upV.getComponent(c) * Math.sin(tilt)) * dk) as V3;
+        const D: V3 = cronPos;
         const px2 = (D[2] - S[2]);
         const pz2 = -(D[0] - S[0]);
         const pl = Math.hypot(px2, pz2) || 1;
@@ -799,7 +769,6 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
         tail.prog[kf] = 1;
         tail.al[kf] = a * 0.9 * (1 - ss(0.8, 1, kS));
         nodeWorld[ni] = headP;
-        screenAway = 1;
         nodeOnArr[ni] = ss(0.01, 0.06, kS) * (1 - ss(0.88, 0.97, kS)) * (u >= L.ship[0] ? 1 : 0);
       } else {
         uS[FIX0 + kf].set(0, 0, 0, 0);
@@ -808,7 +777,6 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
         nodeOnArr[ni] = 0;
       }
       nodeRad[ni] = FIX_R;
-      void screenAway;
     });
     tail.mesh.visible = nFix > 0 && u >= L.ship[0];
 
@@ -831,7 +799,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       fo.y = (-tmpV.y * 0.5 + 0.5) * cssH;
       fo.front = tmpV.z > -1 && tmpV.z < 1;
       fo.on = nodeOnArr[i];
-      if (closeIdx >= 0 && i === opts.workers.findIndex((w) => w.slug === planets[closeIdx].slug) + 1) cronScreen = [fo.x, fo.y];
+      if (closeIdx >= 0 && i === starSlot[closeIdx] + 1) cronScreen = [fo.x, fo.y];
     }
     // the fixer's pill hovers on the far side of the ship from the close-up planet, never over it
     fixers.forEach((_fx, kf) => {
