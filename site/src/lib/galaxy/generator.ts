@@ -304,10 +304,38 @@ export const KNOT_R = 0.8; // the bright dense knot at the origin the comet dive
  *  facing the star) and around the knot; the rest are faint and loosely scattered in the lobes, so the gas never reads as
  *  a sandy sprinkle. Brightness is strongly skewed (about 6% bright, 0.9..2.0; the rest 0.05..0.3).
  *  data.x = size factor (bright ones larger). */
+const SPEC: RGB[] = [[0.62, 0.74, 1], [0.78, 0.87, 1], [1, 1, 1], [1, 0.93, 0.78], [1, 0.8, 0.55], [1, 0.62, 0.4]];
+/** Star colour along a blue-white to orange sequence (u 0..1; hot blue stars are rarer than the cool middle). */
+const starTint = (u: number): RGB => {
+  const f = Math.min(SPEC.length - 1.001, Math.max(0, (u ** 0.8) * (SPEC.length - 1)));
+  const i = Math.floor(f);
+  return mix3(SPEC[i], SPEC[i + 1], f - i);
+};
+
+/** A few of the brightest young stars, drawn with small six-point diffraction spikes (JWST-style): at the lobe fronts and
+ *  around the knot. data.x = sprite size in px at DPR 1; colour carries brightness. */
+export function buildSpikeStars(count: number, seed = 77): PointCloud {
+  const rnd = mulberry32(seed);
+  const c = cloud(count);
+  for (let i = 0; i < count; i++) {
+    const lobe = LOBES[Math.floor(rnd() * LOBES.length)];
+    const near = rnd() < 0.3;
+    const f = 0.3 + rnd() * 0.3;
+    const pos: V3 = near
+      ? [gauss(rnd) * 1.6, gauss(rnd) * 1.6, gauss(rnd) * 1.6]
+      : [lobe.c[0] * (1 - f) + gauss(rnd) * lobe.s[0] * 0.4, lobe.c[1] * (1 - f) + gauss(rnd) * lobe.s[1] * 0.4, lobe.c[2] * (1 - f) + gauss(rnd) * lobe.s[2] * 0.4];
+    const col = starTint(rnd() * 0.75);
+    const b = 0.55 + rnd() ** 2 * 0.9;
+    c.position.set(pos, i * 3);
+    c.color.set([col[0] * b, col[1] * b, col[2] * b], i * 3);
+    c.data.set([16 + b * 22, rnd(), rnd(), 0], i * 4);
+  }
+  return c;
+}
+
 export function buildNebulaStars(count: number, seed = 25): PointCloud {
   const rnd = mulberry32(seed);
   const c = cloud(count);
-  const BLUE: RGB = [0.7, 0.82, 1];
   for (let i = 0; i < count; i++) {
     const lobe = LOBES[Math.floor(rnd() * LOBES.length)];
     const g = rnd();
@@ -328,9 +356,9 @@ export function buildNebulaStars(count: number, seed = 25): PointCloud {
       z = lobe.c[2] + gauss(rnd) * lobe.s[2] * 0.5;
       bright = rnd() < 0.015;
     }
-    const warm = rnd() < 0.12;
-    const col = warm ? mix3(BLUE, WARM, 0.5 + rnd() * 0.5) : mix3(BLUE, [1, 1, 1], rnd() * 0.3);
-    const b = bright ? 0.9 + rnd() * 1.1 : 0.05 + 0.25 * rnd() * rnd();
+    const col = starTint(rnd());
+    // magnitude: a steep power law, so a few are bright and most are faint pinpricks
+    const b = bright ? 0.9 + rnd() * 1.1 : 0.04 + 0.3 * rnd() ** 3;
     c.position.set([x, y, z], i * 3);
     c.color.set([col[0] * b, col[1] * b, col[2] * b], i * 3);
     c.data.set([bright ? 1.3 + rnd() * 0.5 : 0.5 + rnd() * 0.3, rnd(), rnd(), 0], i * 4);

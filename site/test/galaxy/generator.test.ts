@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildGalaxy, buildNewArm, buildNebulaStars, GALAXY_R, KNOT_R, LOBES, NEBULA_R } from '../../src/lib/galaxy/generator.ts';
+import { buildGalaxy, buildNewArm, buildNebulaStars, buildSpikeStars, GALAXY_R, KNOT_R, LOBES, NEBULA_R } from '../../src/lib/galaxy/generator.ts';
 
 const a = buildGalaxy(4000, 3);
 const b = buildGalaxy(4000, 3);
@@ -63,4 +63,14 @@ assert.ok(KNOT_R > 0 && KNOT_R < 2);
 {
   const a = buildNebulaStars(2000);
   for (let i = 0; i < a.count; i++) assert.ok(a.color[i * 3] >= 0 && a.color[i * 3 + 1] >= 0 && a.color[i * 3 + 2] >= 0);
+}
+
+// spike stars: deterministic, finite, bright enough, inside the nebula
+{
+  const a = buildSpikeStars(40);
+  assert.deepEqual(a.position, buildSpikeStars(40).position, 'deterministic');
+  for (let i = 0; i < a.count; i++) {
+    assert.ok(Math.hypot(a.position[i * 3], a.position[i * 3 + 1], a.position[i * 3 + 2]) < NEBULA_R);
+    assert.ok(a.color[i * 3] > 0 && a.color[i * 3 + 2] > 0 && a.data[i * 4] > 10);
+  }
 }

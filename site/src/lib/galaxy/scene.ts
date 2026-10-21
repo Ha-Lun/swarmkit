@@ -627,6 +627,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       copyAmt: ss(0.45, 0.55, pp),
       wall: ss(0.56, 0.75, pp), // Opus lights the bubble walls: a gentle ramp over the plan beat
       copyMask: volMask.value,
+      still: reduced,
     });
     shared.uFocusD.value = Math.max(0.5, (cronPos[0] - camera.position.x) * fwd.x + (cronPos[1] - camera.position.y) * fwd.y + (cronPos[2] - camera.position.z) * fwd.z);
     starMat.uniforms.uSize.value = (opts.tier === 'low' ? 0.07 : 0.05) * (1 + 0.3 * hw) * (1 - 0.6 * band) * (1 - 0.45 * calmPlan);
