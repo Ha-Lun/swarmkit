@@ -19,6 +19,8 @@ export interface Planet {
   orbit: number; // radius, world units
   phase: number; // radians at t=0
   speed: number; // radians per unit t (inner planets faster: orbit^-1.5, outermost 0.15)
+  incl: number; // radians, orbit inclination (0.5..3 deg)
+  node: number; // radians, longitude of the ascending node
   launchIndex: number;
   buildIndex: number;
   mergeIndex: number | null;
@@ -53,6 +55,8 @@ export function buildSystem(story: Pick<Story, 'workers'>, aspect: number): { pl
     orbit: radii[i],
     phase: (((-0.6 + i * GOLDEN) % TAU) + TAU) % TAU,
     speed: 0.15 * (rMax / radii[i]) ** 1.5,
+    incl: (i % 2 === 0 ? 1 : -1) * (0.5 + 2.5 * (i * 0.618034 + 0.31 - Math.floor(i * 0.618034 + 0.31))) * Math.PI / 180,
+    node: ((i * GOLDEN * 1.7) % TAU + TAU) % TAU,
     launchIndex: w.launchIndex,
     buildIndex: w.buildIndex,
     mergeIndex: w.mergeIndex,
@@ -62,10 +66,27 @@ export function buildSystem(story: Pick<Story, 'workers'>, aspect: number): { pl
   return { planets, closeUp: troubled !== undefined ? troubled.slug : null };
 }
 
-// Rest position on the circular orbit in the XZ plane (y = 0).
+// Rotate a point in the orbit's own XZ plane by inclination incl about the
+// line of nodes (unit vector (cos node, 0, sin node) in the XZ plane).
+export function tilt(p: Pick<Planet, 'incl' | 'node'>, v: V3): V3 {
+  if (v[0] === 0 && v[1] === 0 && v[2] === 0) return [0, 0, 0];
+  const kx = Math.cos(p.node);
+  const kz = Math.sin(p.node);
+  const c = Math.cos(p.incl);
+  const s = Math.sin(p.incl);
+  const [x, y, z] = v;
+  const dot = kx * x + kz * z;
+  const cx = -kz * y;
+  const cy = kz * x - kx * z;
+  const cz = kx * y;
+  const fix = (n: number): number => (n === 0 ? 0 : n);
+  return [fix(x * c + cx * s + kx * dot * (1 - c)), fix(y * c + cy * s), fix(z * c + cz * s + kz * dot * (1 - c))];
+}
+
+// Rest position on the circular orbit, tilted by incl about the line of nodes.
 export function planetPos(p: Planet, t: number): V3 {
   const a = p.phase + p.speed * t;
-  return [0 + p.orbit * Math.cos(a), 0, 0 + p.orbit * Math.sin(a)];
+  return tilt(p, [0 + p.orbit * Math.cos(a), 0, 0 + p.orbit * Math.sin(a)]);
 }
 
 // Global progress u in 0..1 mapped to item i of n (smoothstep easing).
@@ -78,8 +99,9 @@ export function stagger(u: number, i: number, n: number, span = 0.6): number {
 // Launch arc: outward spiral from the sun (k=0) to the orbit (k=1).
 export function launchPos(p: Planet, k: number, t: number): V3 {
   const r = p.orbit * easeOutCubic(k);
+  if (r === 0) return [0, 0, 0];
   const a = p.phase + p.speed * t - (1 - k) * 1.2;
-  return [0 + r * Math.cos(a), 0, 0 + r * Math.sin(a)];
+  return tilt(p, [0 + r * Math.cos(a), 0, 0 + r * Math.sin(a)]);
 }
 
 // Merge arc: in-spiral from the orbit (k=0) to the core (k=1).
@@ -87,7 +109,7 @@ export function spiralIn(p: Planet, k: number, t: number): V3 {
   if (k >= 1) return [0, 0, 0];
   const r = p.orbit * (1 - k) ** 1.6;
   const a = p.phase + p.speed * t + k * 2.5;
-  return [0 + r * Math.cos(a), 0, 0 + r * Math.sin(a)];
+  return tilt(p, [0 + r * Math.cos(a), 0, 0 + r * Math.sin(a)]);
 }
 
 // Verify beat: red failure pulses over the first 70% of u, green pass ramp

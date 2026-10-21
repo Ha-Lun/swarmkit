@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { buildStory } from '../../src/lib/galaxy/story.ts';
 import type { Story } from '../../src/lib/galaxy/story.ts';
-import { buildSystem, flashPhase, launchPos, planetPos, spiralIn, stagger } from '../../src/lib/galaxy/system.ts';
+import { buildSystem, flashPhase, launchPos, planetPos, spiralIn, stagger, tilt } from '../../src/lib/galaxy/system.ts';
 import type { FeaturedRun } from '../../src/lib/run.ts';
 
 function loadReal(): FeaturedRun {
@@ -64,13 +64,43 @@ const clean = sys.planets.filter((p) => p.verify.resolution === 'clean');
 assert.equal(clean.length, 5);
 for (const p of clean) assert.equal(p.verify.redFlashes, 0, p.slug);
 
-// planetPos: deterministic, on the orbit, in the XZ plane.
+// planetPos: deterministic, on the tilted orbit.
 for (const p of sys.planets) {
   for (const t of [0, 1.7, 42]) {
     assert.deepEqual(planetPos(p, t), planetPos(p, t), `${p.slug} deterministic`);
     const [x, y, z] = planetPos(p, t);
-    assert.equal(y, 0);
-    assert.ok(Math.abs(Math.hypot(x, z) - p.orbit) < 1e-9, `${p.slug} on orbit`);
+    assert.ok(Math.abs(y) <= p.orbit * Math.sin((3 * Math.PI) / 180) + 1e-9, `${p.slug} within 3 deg`);
+    assert.ok(Math.abs(Math.hypot(x, y, z) - p.orbit) < 1e-9, `${p.slug} on orbit`);
+  }
+}
+
+// incl in 0.5..3 deg, nodes deterministic, orbits not coplanar.
+for (const p of sys.planets) {
+  const deg = (Math.abs(p.incl) * 180) / Math.PI;
+  assert.ok(deg >= 0.5 - 1e-9 && deg <= 3 + 1e-9, `${p.slug} incl ${deg} deg`);
+}
+assert.ok(sys.planets.some((p) => planetPos(p, 1.7)[1] !== 0), 'not coplanar');
+{
+  const again = buildSystem(story, 1.6);
+  for (let i = 0; i < sys.planets.length; i++) {
+    assert.equal(again.planets[i].incl, sys.planets[i].incl, `incl deterministic ${i}`);
+    assert.equal(again.planets[i].node, sys.planets[i].node, `node deterministic ${i}`);
+  }
+}
+
+// tilt: rotation about the line of nodes preserves length and fixes the node line.
+for (const p of sys.planets) {
+  const n: [number, number, number] = [Math.cos(p.node), 0, Math.sin(p.node)];
+  assert.deepEqual(tilt(p, n).map((v) => +v.toFixed(9)), n.map((v) => +v.toFixed(9)), `${p.slug} node line fixed`);
+  let seed = 12345;
+  const rand = (): number => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return (seed / 2147483648) * 2 - 1;
+  };
+  for (let j = 0; j < 20; j++) {
+    const v: [number, number, number] = [rand() * 6, rand() * 6, rand() * 6];
+    const w = tilt(p, v);
+    assert.ok(Math.abs(Math.hypot(...w) - Math.hypot(...v)) < 1e-9, `${p.slug} preserves length`);
   }
 }
 
