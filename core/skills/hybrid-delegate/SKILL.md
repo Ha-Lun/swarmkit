@@ -37,6 +37,8 @@ Everything else in the approved plan goes to a worker.
 
    Cross-review runs on the other lane's default model (agy reviews opencode-written branches, opencode-task reviews agy-written ones). No --model flag.
 
+   Before announcing a worker, run `<cli>-task model [--agent NAME] [--model M]` with the start's flags (read-only, starts nothing); it prints `<model> <effort|none>`, the model the worker will actually run on. Announce that, not a guessed lane default.
+
    The wrapper prints a start banner (slug, model, effort, base, log) on stderr, and `list` shows each task's model, elapsed time and live denied count.
 
    Prompt additions that avoid wasted resumes: tell opencode workers "you are already in the worktree; do not `cd`", give them the exact verify command (`node test/x.test.js`, `npm test -- src/x`), and tell agy workers "file view/search/edit tools only, no shell".
