@@ -281,11 +281,11 @@ type V3 = [number, number, number];
 type Lobe = { c: V3; s: V3; m: number }; // centre, anisotropic sigma, teal..amber emission mix
 /** Five fixed lumpy lobes, placed so the volume is asymmetric in every axis (no disc, no rotational symmetry). */
 const LOBES: Lobe[] = [
-  { c: [-3.2, 1.6, -2.2], s: [2.3, 1.7, 2.0], m: 0.15 },
-  { c: [2.9, -1.3, -3.1], s: [2.1, 1.9, 2.3], m: 0.8 },
-  { c: [0.7, 2.7, 2.7], s: [1.8, 1.6, 1.9], m: 0.4 },
-  { c: [-1.7, -2.5, 3.3], s: [2.2, 1.5, 1.8], m: 0.6 },
-  { c: [4.3, 0.9, 1.7], s: [1.6, 1.4, 1.7], m: 0.3 },
+  { c: [-3.2, 1.6, -2.2], s: [2.3, 1.7, 2.0], m: 0.0 },
+  { c: [2.9, -1.3, -3.1], s: [2.1, 1.9, 2.3], m: 1.0 },
+  { c: [0.7, 2.7, 2.7], s: [1.8, 1.6, 1.9], m: 0.08 },
+  { c: [-1.7, -2.5, 3.3], s: [2.2, 1.5, 1.8], m: 0.95 },
+  { c: [4.3, 0.9, 1.7], s: [1.6, 1.4, 1.7], m: 0.5 },
 ];
 const RIM: RGB = [0.85, 0.45, 1.0]; // magenta-violet emission toward the lobe edges
 const KNOT_R = 0.8; // the bright dense knot at the origin the comet dives into
@@ -350,37 +350,76 @@ export function buildNebula(count: number, seed = 21): PointCloud {
     let b: number;
     let size: number;
     if (i < nKnot) {
-      // the knot: a dense hot ball at the origin, where the star will ignite
-      const r = KNOT_R * Math.cbrt(rnd());
+      // the knot: steep radial falloff, a few tiny very bright sprites at the centre, bigger fainter ones around
+      const u = rnd() ** 1.7;
+      const r = KNOT_R * u;
       const th = Math.acos(2 * rnd() - 1);
       const ph = rnd() * Math.PI * 2;
       x = r * Math.sin(th) * Math.cos(ph);
       y = r * Math.cos(th);
       z = r * Math.sin(th) * Math.sin(ph);
-      col = mix3(OPUS, [1, 0.9, 0.95], 0.1 + rnd() * 0.2);
-      b = 0.07 + rnd() * 0.05;
-      size = 2 + rnd() * 3;
+      col = mix3(mix3(OPUS, [1, 0.88, 0.95], 0.35), [1, 0.78, 0.85], u * 0.5);
+      b = 0.012 + 0.2 * (1 - u) ** 3;
+      size = 0.7 + 3.6 * u;
     } else {
-      const lobe = LOBES[Math.floor(rnd() * LOBES.length)];
-      const gx = gauss();
-      const gy = gauss();
-      const gz = gauss();
-      const p: V3 = [lobe.c[0] + gx * lobe.s[0], lobe.c[1] + gy * lobe.s[1], lobe.c[2] + gz * lobe.s[2]];
-      warp(p, 1.0);
+      let lobe = LOBES[0];
+      let gx = 0;
+      let gy = 0;
+      let gz = 0;
+      let ridge = 0;
+      const p: V3 = [0, 0, 0];
+      // rejection-sample toward fbm ridges: the filaments and pillars
+      for (let t = 0; t < 3; t++) {
+        lobe = LOBES[Math.floor(rnd() * LOBES.length)];
+        gx = gauss();
+        gy = gauss();
+        gz = gauss();
+        p[0] = lobe.c[0] + gx * lobe.s[0];
+        p[1] = lobe.c[1] + gy * lobe.s[1];
+        p[2] = lobe.c[2] + gz * lobe.s[2];
+        warp(p, 1.0);
+        ridge = 1 - Math.abs(2 * fbm(p[0] * 0.9 + 3.1, p[1] * 0.9 + 7.7, p[2] * 0.9 + 1.3) - 1);
+        if (rnd() < 0.25 + 0.75 * ridge * ridge) break;
+      }
       x = p[0];
       y = p[1];
       z = p[2];
-      const r2 = x * x + y * y + z * z;
-      if (r2 > lim2) {
-        const k = Math.sqrt(lim2 / r2);
+      let r2 = x * x + y * y + z * z;
+      // pull outliers inward rather than leaving isolated sprites at the edge
+      const soft2 = (NEBULA_R * 0.78) ** 2;
+      if (r2 > soft2) {
+        const k = Math.sqrt(soft2 / r2) ** 0.5 * 0.97;
         x *= k;
         y *= k;
         z *= k;
+        r2 = x * x + y * y + z * z;
       }
-      const emit = mix3(TEAL, AMBER, Math.min(1, Math.max(0, lobe.m + (rnd() - 0.5) * 0.2)));
-      col = mix3(emit, RIM, 0.5 * sstep(1.2, 6.5, gx * gx + gy * gy + gz * gz));
-      b = 0.03 + rnd() * 0.04;
-      size = 3 + rnd() * 4;
+      const g2 = gx * gx + gy * gy + gz * gz;
+      const hue: RGB = lobe.m > 0.3 && lobe.m < 0.7 ? RIM : mix3(TEAL, AMBER, lobe.m);
+      // ionisation front: the side of the lobe facing the knot is brighter and whiter
+      const lc = Math.hypot(lobe.c[0], lobe.c[1], lobe.c[2]);
+      const facing = -((x - lobe.c[0]) * lobe.c[0] + (y - lobe.c[1]) * lobe.c[1] + (z - lobe.c[2]) * lobe.c[2]) / (lc * 1.9);
+      const front = sstep(0.3, 1.6, facing) * sstep(0.4, 1.6, g2) * (1 - sstep(3, 6, g2));
+      // overlap of teal and amber summing to olive: dim where both are present
+      let wt = 0;
+      let wa = 0;
+      for (const l of LOBES) {
+        const w = Math.exp(-0.5 * (((x - l.c[0]) / l.s[0]) ** 2 + ((y - l.c[1]) / l.s[1]) ** 2 + ((z - l.c[2]) / l.s[2]) ** 2));
+        if (l.m < 0.3) wt += w;
+        else if (l.m > 0.7) wa += w;
+      }
+      const overlap = Math.min(wt, wa) / (Math.max(wt, wa) + 1e-6);
+      col = mix3(hue, RIM, 0.55 * sstep(2.0, 7, g2));
+      col = mix3(col, [1, 0.95, 0.9], 0.35 * front);
+      b = (0.02 + rnd() * 0.03 + 0.12 * front * rnd()) * (1 - 0.75 * overlap) * (0.35 + 2.2 * ridge * ridge * ridge);
+      b *= 1 - 0.8 * sstep(5.5, 8.5, Math.sqrt(r2)) - 0.0;
+      // small sprites on ridges and fronts, big only for the faint outer envelope
+      size = 1.0 + 2.6 * rnd() * (1 - 0.7 * ridge) + 2.0 * sstep(2.5, 5, g2) * (1 - ridge);
+      // a faint wide envelope of big soft sprites binds the filaments into one body
+      if (rnd() < 0.3) {
+        size = 3.8 + rnd() * 3;
+        b = (0.018 + rnd() * 0.016) * (1 - 0.6 * overlap);
+      }
     }
     c.position[i * 3] = x;
     c.position[i * 3 + 1] = y;
@@ -411,9 +450,18 @@ export function buildNebulaDust(count: number, seed = 23): PointCloud {
     };
     return { a: pt(6.5, 8.5), m: pt(2.0, 5.5), b: pt(6.5, 8.5) };
   };
-  const lanes = [lane(), lane(), lane()];
+  // plus lanes along the lobe boundaries (between neighbouring lobe centres, offset outward)
+  const edge = (i: number, j: number): { a: V3; m: V3; b: V3 } => {
+    const A = LOBES[i].c;
+    const B = LOBES[j].c;
+    const mid: V3 = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2, (A[2] + B[2]) / 2];
+    const d = [B[0] - A[0], B[1] - A[1], B[2] - A[2]];
+    const perp: V3 = [-d[2] * 0.35, d[1] * 0.2 + 0.8, d[0] * 0.35];
+    return { a: [A[0] * 1.4 + perp[0], A[1] * 1.4 + perp[1], A[2] * 1.4 + perp[2]], m: [mid[0] + perp[0] * 0.3, mid[1] + perp[1] * 0.3, mid[2] + perp[2] * 0.3], b: [B[0] * 1.4 - perp[0], B[1] * 1.4 - perp[1], B[2] * 1.4 - perp[2]] };
+  };
+  const lanes = [lane(), lane(), lane(), edge(0, 2), edge(1, 3), edge(2, 4)];
   for (let i = 0; i < count; i++) {
-    const ln = lanes[i % 3];
+    const ln = lanes[i % lanes.length];
     let x = 0;
     let y = 0;
     let z = 0;
