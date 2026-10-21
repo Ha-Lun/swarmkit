@@ -335,23 +335,42 @@ void main() {
       float ca = cos(vA.x);
       float sa = sin(vA.x);
       vec2 q = vec2(dot(vP, vec2(sa, -ca)), dot(vP, vec2(ca, sa)));
-      float ratio = clamp(vA.y, 0.16, 1.0);
+      float ratio = clamp(vA.y, 0.2, 1.0);
       float proj = sqrt(max(0.0, 1.0 - vA.y * vA.y)); // the axis foreshortens when it points at the camera
       float b3 = smoothstep(0.0, 0.5, bld) * ign;
-      // accretion disc: a thin tilted ring of light, soft edges, a few gentle ringlets
-      float rho = length(vec2(q.x, q.y / ratio));
-      float dd = smoothstep(1.7, 2.3, rho) * (1.0 - smoothstep(3.6, 5.2, rho));
-      dd *= 0.8 + 0.2 * sin(rho * 3.4 + vIdx * 2.0);
-      vec3 discC = mix(lane, vec3(1.0, 0.82, 0.62), 0.45) * dd * (0.3 / (0.45 + 0.28 * rho)) * b3 * (1.0 - 0.25 * vS.w);
-      // two short bipolar jets along the axis: tapered beams that fade with distance
+      // HH 30 / L1527 look: a flared disc with a dark mid-plane lane, bright inner rim and scattered light on its faces,
+      // a faint hourglass cavity along the axis, and two narrow, tapered, wavy jets with a few knots and a bow shock at the tip.
+      float ax = abs(q.x);
       float ay = abs(q.y);
-      float jl = (2.6 + 5.6 * bld) * (0.4 + 0.6 * proj);
-      float w = 0.24 + 0.07 * ay;
-      float beam = exp(-pow(q.x / w, 2.0)) + 0.22 * exp(-pow(q.x / (w * 3.4), 2.0));
-      float along = smoothstep(1.1, 2.0, ay) * exp(-ay / (0.55 * jl)) * (1.0 - smoothstep(0.85 * jl, 1.3 * jl, ay));
-      float beads = 1.0 + 0.16 * (1.0 - ok) * sin(ay * 1.9 - uTime * 0.7 + vIdx);
-      vec3 jetC = mix(lane, vec3(1.0), 0.4) * beam * along * beads * 0.5 * b3 * (0.5 + 0.5 * proj) * (1.0 - 0.4 * bad);
-      c += discC + jetC;
+      float sgn = q.y < 0.0 ? 1.0 : 0.0;
+      float Rd = 1.8 + 1.9 * bld;
+      float rho = length(vec2(q.x, q.y / ratio));
+      float face = smoothstep(1.2, 1.9, rho) * (1.0 - smoothstep(0.6 * Rd, Rd, rho)); // the disc itself: a soft-edged ellipse
+      float rim = exp(-pow((rho - 1.7) / 0.5, 2.0));
+      float above = max(ay - ratio * sqrt(max(0.0, Rd * Rd - q.x * q.x)), 0.0); // scattered light flaring above and below the disc
+      float flare = exp(-pow(above / (0.16 + 0.1 * ax), 2.0)) * smoothstep(1.2, 2.0, ax) * (1.0 - smoothstep(0.7 * Rd, 1.25 * Rd, ax));
+      float lnm = exp(-pow(q.y / (0.08 + 0.045 * ax), 2.0)); // the dark mid-plane lane, deeper the more edge-on
+      float lobe = (face * (0.3 / (0.5 + 0.45 * rho) + 0.42 * rim) + 0.3 * flare / (0.6 + 0.4 * ax));
+      float sheen = 0.5 + 0.5 * sin(rho * 2.1 + q.y * 1.3 + vIdx * 2.0 + uTime * 0.03);
+      lobe *= (0.82 + 0.18 * sheen) * (1.0 - 0.9 * lnm * (1.0 - 0.7 * ratio));
+      vec3 discC = mix(lane, vec3(1.0, 0.82, 0.62), 0.5) * lobe * 2.0 * b3 * (1.0 - 0.3 * vS.w);
+      // outflow cavity: a faint hourglass, brighter along its walls, fading with distance
+      float wc = 0.55 + 0.62 * pow(ay, 0.85);
+      float cav = (1.0 - smoothstep(0.55 * wc, wc * 1.1, ax)) * smoothstep(1.3, 2.4, ay) * exp(-ay / (1.4 + 2.2 * bld));
+      cav += 0.6 * exp(-pow((ax - wc) / 0.22, 2.0)) * smoothstep(1.3, 2.4, ay) * exp(-ay / (1.1 + 1.6 * bld));
+      vec3 cavC = mix(lane, vec3(1.0, 0.7, 0.55), 0.5) * cav * 0.1 * b3;
+      // jets: narrow beams that taper, wobble a little, break into knots, end in a bow shock
+      float jl = (2.4 + 4.2 * bld) * (0.5 + 0.5 * proj);
+      float wob = 0.09 * sin(ay * 1.7 + vIdx * 3.0 + sgn * 2.0) * min(ay, 3.0) * 0.4;
+      float qx = q.x - wob;
+      float jw = 0.07 + 0.026 * ay;
+      float beam = exp(-pow(qx / jw, 2.0)) + 0.16 * exp(-pow(qx / (jw * 3.2), 2.0));
+      float knots = 0.38 + 0.9 * pow(0.5 + 0.5 * cos((ay - 1.7) * 2.7 + vIdx * 1.7 + sgn * 1.4), 7.0);
+      float bow = 0.5 * exp(-pow((ay - 0.8 * jl) / 0.3, 2.0)) * exp(-pow(qx / (jw * 1.6 + 0.05), 2.0));
+      float along = smoothstep(1.2, 1.9, ay) * exp(-ay / (0.5 * jl)) * (1.0 - smoothstep(0.9 * jl, 1.12 * jl, ay));
+      float beads = 1.0 + 0.12 * (1.0 - ok) * sin(ay * 1.9 - uTime * 0.7 + vIdx);
+      vec3 jetC = mix(vec3(1.0, 0.66, 0.5), lane, 0.4) * (beam * knots * along * beads * 0.75 + bow) * b3 * (0.55 + 0.45 * proj) * (1.0 - 0.4 * bad);
+      c += discC + cavC + jetC;
     }
     c = vec3(1.0) - exp(-c);
     col = c * fade * vS.x;

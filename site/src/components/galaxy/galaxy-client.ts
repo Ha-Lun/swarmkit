@@ -121,6 +121,16 @@ async function boot(): Promise<void> {
       focusKeep = focus;
     }
     labelEls.forEach((el, i) => {
+      const n = f.nodes[i];
+      const t = tagsOf[i];
+      if (live || pose !== 'nebula') {
+        setTag(t.fail, live ? n.bad : n.ok + n.bad);
+        setTag(t.fixed, n.ok);
+        setTag(t.rev, n.rev);
+        setTag(t.fixer, u >= 0.6 ? n.on : 0);
+        el.classList.toggle('is-bad', n.bad > 0.5);
+        el.classList.toggle('is-ok', n.ok > 0.5);
+      }
       el.classList.toggle('is-compact', phone && i !== focus);
     });
     const tagsShown = (i: number): number => [tagsOf[i].fail, tagsOf[i].fixed, tagsOf[i].rev, tagsOf[i].fixer].filter((x) => x && x.style.display === 'inline-block').length;
