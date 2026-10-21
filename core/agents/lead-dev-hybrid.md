@@ -9,6 +9,7 @@ capabilities:
 - delegate
 - bash
 opencode:
+  model: opencode-go/mimo-v2.6-pro
   mode: primary
   temperature: 0.3
   permission:
