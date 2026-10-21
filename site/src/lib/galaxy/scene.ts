@@ -14,7 +14,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { PALETTE } from './shared.ts';
+import { mulberry32, PALETTE } from './shared.ts';
 import { createBackdrop } from './backdrop.ts';
 import type { Tier } from './shared.ts';
 import type { Lane } from '../run.ts';
@@ -26,7 +26,7 @@ import {
   sceneState, shipK, ss, systemView, win,
 } from './path.ts';
 import type { SceneState, V3 } from './path.ts';
-import { buildSystem, flashPhase, launchPos, planetPos, spiralIn, stagger } from './system.ts';
+import { buildSystem, flashPhase, launchPos, planetPos, spiralIn, stagger, tilt } from './system.ts';
 import {
   bodyFrag, bodyVert, cometVert, fxFrag, fxVert, lineFrag, lineVert, spriteFrag, spriteVert, tailFrag, tailVert,
 } from './shaders.ts';
@@ -284,7 +284,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     const al = new Array(Math.max(1, nLines)).fill(0) as number[];
     const ang = new Array(Math.max(1, nLines)).fill(0) as number[];
     const mat = track(new ShaderMaterial({
-      uniforms: { uRes: lineRes, uWidth: { value: width }, uPR: shared.uPR, uProg: { value: prog }, uAl: { value: al }, uAng: { value: ang }, uFocus: { value: new Vector3() }, uDof: shared.uDof },
+      uniforms: { uRes: lineRes, uWidth: { value: width }, uPR: shared.uPR, uProg: { value: prog }, uAl: { value: al }, uAng: { value: ang }, uFocus: { value: new Vector3() }, uDof: shared.uDof, uTime: shared.uTime, uIdle: { value: 1 } },
       vertexShader: lineVert(Math.max(1, nLines)), fragmentShader: lineFrag, glslVersion: GLSL3,
       blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, side: 2,
     }));
@@ -298,7 +298,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   const FSEG = 16;
   const laneTint = (l: Lane): Rgb => { const c = NODE_COL[l]; return [c[0] * 0.45 + 0.4, c[1] * 0.45 + 0.4, c[2] * 0.45 + 0.45]; };
   let sys = buildSystem({ workers: opts.workers }, 1.6);
-  const orbits = makeRibbon(nWork, SEGO, 0, 0.8, (li) => laneTint(opts.workers[Math.min(li, nWork - 1)].lane));
+  const orbits = makeRibbon(nWork, SEGO, 0, 0.8, (li) => NODE_COL[opts.workers[Math.min(li, nWork - 1)].lane]);
   const tail = makeRibbon(Math.max(1, nFix), FSEG, 1, 1.1, () => NODE_COL.agy);
   tail.mesh.visible = nFix > 0;
 
@@ -326,14 +326,59 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
         const a1 = ((sg + 1) / SEGO) * Math.PI * 2;
         for (let sd = 0; sd < 2; sd++) {
           const v = (li * (SEGO + 1) + sg) * 2 + sd;
-          orbits.pos.set([Math.cos(a0) * p.orbit, 0, Math.sin(a0) * p.orbit], v * 3);
-          orbits.next.set([Math.cos(a1) * p.orbit, 0, Math.sin(a1) * p.orbit], v * 3);
+          orbits.pos.set(tilt(p, [Math.cos(a0) * p.orbit, 0, Math.sin(a0) * p.orbit]), v * 3);
+          orbits.next.set(tilt(p, [Math.cos(a1) * p.orbit, 0, Math.sin(a1) * p.orbit]), v * 3);
         }
       }
     });
     orbits.geo.attributes.position.needsUpdate = true;
     orbits.geo.attributes.aNext.needsUpdate = true;
     fxMat.uniforms.uR.value = rMax + 0.6;
+    bakeBelts();
+  }
+
+  // thin dust belt per orbit: seeded points hugging the (tilted) ring, drifting with the orbital clock; star sprites (mode 0)
+  const beltN = opts.tier === 'high' ? 360 : opts.tier === 'medium' ? 240 : 110;
+  const beltPos = new Float32Array(Math.max(1, nWork) * beltN * 3);
+  const beltCol = new Float32Array(beltPos.length);
+  const beltData = new Float32Array(Math.max(1, nWork) * beltN * 4);
+  const beltJit = new Float32Array(Math.max(1, nWork) * beltN * 4); // base angle, radial, vertical, drift factor
+  const beltGeo = new BufferGeometry();
+  beltGeo.setAttribute('position', new BufferAttribute(beltPos, 3));
+  beltGeo.setAttribute('aColor', new BufferAttribute(beltCol, 3));
+  beltGeo.setAttribute('aData', new BufferAttribute(beltData, 4));
+  const beltMat = sprite(AdditiveBlending, 0, { size: 0.016, gain: 0 });
+  const belt = points(beltGeo, beltMat, 6);
+  belt.visible = false;
+  function bakeBelts(): void {
+    const rnd = mulberry32(7741);
+    sys.planets.forEach((p, li) => {
+      const c = laneTint(p.lane);
+      for (let k = 0; k < beltN; k++) {
+        const i = li * beltN + k;
+        const g = (rnd() + rnd() + rnd() - 1.5) / 1.5; // bell-ish jitter in -1..1
+        beltJit.set([rnd() * Math.PI * 2, g * 0.09 * (0.6 + 0.1 * p.orbit), (rnd() - 0.5) * 0.07, 0.6 + rnd() * 0.8], i * 4);
+        const br = 0.35 + rnd() * 0.65;
+        beltCol.set([c[0] * br, c[1] * br, c[2] * br], i * 3);
+        beltData.set([0.45 + rnd() * 0.75, rnd(), rnd(), 0], i * 4);
+      }
+    });
+    beltGeo.attributes.aColor.needsUpdate = true;
+    beltGeo.attributes.aData.needsUpdate = true;
+  }
+  function driftBelts(tt: number): void {
+    sys.planets.forEach((p, li) => {
+      for (let k = 0; k < beltN; k++) {
+        const i = li * beltN + k;
+        const a = beltJit[i * 4] + p.speed * tt * beltJit[i * 4 + 3];
+        const r = p.orbit + beltJit[i * 4 + 1];
+        const v = tilt(p, [Math.cos(a) * r, beltJit[i * 4 + 2], Math.sin(a) * r]);
+        beltPos[i * 3] = v[0];
+        beltPos[i * 3 + 1] = v[1];
+        beltPos[i * 3 + 2] = v[2];
+      }
+    });
+    beltGeo.attributes.position.needsUpdate = true;
   }
 
   // ---- post -------------------------------------------------------------------------------------------------
@@ -617,6 +662,14 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       fo.rev = w.reviewed ? ss(0.5, 0.95, okV) : 0;
     });
     orbits.mesh.visible = n > 0 && st.draw > 0;
+    orbits.mat.uniforms.uIdle.value = idleOn;
+    belt.visible = orbits.mesh.visible;
+    if (belt.visible) {
+      let envMax = 0;
+      for (let i = 0; i < n; i++) envMax = Math.max(envMax, orbAl[i]);
+      beltMat.uniforms.uGain.value = 0.55 * envMax;
+      driftBelts(tt);
+    }
     // the sun's approval pulse and the verify scan arc
     const elev = Math.abs(camera.position.y) / Math.max(0.01, camera.position.length());
     fxMat.uniforms.uPool.value = ss(0.5, 0.56, pp) * ss(0.14, 0.5, elev) * (1 - 0.6 * pullOut) * (1 - ss(0.6, 0.9, m)) * (1 - 0.3 * cA);

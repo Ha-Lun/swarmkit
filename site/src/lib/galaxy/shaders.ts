@@ -482,7 +482,13 @@ void main() {
   } else {
     // plan slot: a dim dot on the orbit
     float disc = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, d);
-    col = vC * (disc * 0.8 + 0.18 * exp(-d * d * 1.2)) * vS.x;
+    // a marker: small core, soft halo, and a faint ring that breathes outward (idle only: uTime is 0 under reduced motion)
+    float on = step(0.0001, uTime);
+    float cyc = fract(uTime * 0.32 + vIdx * 0.37);
+    float pulse = on * (1.0 - cyc) * exp(-pow((d - (1.0 + 1.7 * cyc)) * 3.2, 2.0));
+    float breathe = 1.0 + on * 0.25 * sin(uTime * 1.9 + vIdx * 2.3);
+    float halo = exp(-d * d * 0.9) * 0.3 * breathe;
+    col = vC * (disc * 0.8 + halo + 0.35 * pulse) * (1.0 - smoothstep(2.4, 3.0, d)) * vS.x;
   }
   float dn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
   col += (dn - 0.5) / 255.0 * step(0.002, dot(col, vec3(1.0)));
@@ -490,7 +496,11 @@ void main() {
 }
 `;
 
-/** Orbit hairlines and the fixer's short tail: screen-space ribbons, drawn on by uProg[line], dimmed by uAl[line]. */
+/**
+ * Orbit hairlines and the fixer's short tail: screen-space ribbons, drawn on by uProg[line], dimmed by uAl[line].
+ * Orbits carry a depth cue (near side thicker/brighter, far side finer/dimmer, dimmed where they cross the sun's glow),
+ * a lane-coloured light trail behind the planet, and a faint dashed base with a slow idle shimmer (uIdle 0 = off).
+ */
 export const lineVert = (n: number): string => /* glsl */ `
 uniform vec2 uRes;
 uniform float uWidth;
@@ -511,32 +521,51 @@ out float vK;
 out float vAng;
 out float vRad;
 out float vBlur;
+out float vDepth;
+out float vTrail;
 out vec3 vCol;
 void main() {
   float blur = uDof * clamp(length(position - uFocus) / 4.5, 0.0, 1.0);
-  vec4 ca = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  vec4 mvA = modelViewMatrix * vec4(position, 1.0);
+  vec4 ca = projectionMatrix * mvA;
   vec4 cb = projectionMatrix * modelViewMatrix * vec4(aNext, 1.0);
   vec2 d = (cb.xy / cb.w - ca.xy / ca.w) * uRes * 0.5;
   float l = length(d);
   vec2 dir = l > 1e-4 ? d / l : vec2(1.0, 0.0);
   vec2 perp = vec2(-dir.y, dir.x);
-  float wpx = uWidth * uPR * (aData.w > 0.5 ? 1.6 * aData.x : 1.0) * (1.0 + 2.2 * blur);
+  bool orbit = aData.w < 0.5;
+  // depth cue: view distance relative to the sun's, eased out in the close-up (where the fake DoF takes over)
+  float near = length(cameraPosition) / max(-mvA.z, 0.05);
+  near = mix(1.0, clamp(near, 0.4, 2.0), orbit ? 1.0 - uDof : 0.0);
+  float dW = pow(near, 1.1);
+  float dB = pow(near, 1.7);
+  // the sun's glow: rings dim where they pass over it in screen space
+  vec4 cs = projectionMatrix * modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+  vec2 sd = (ca.xy / ca.w - cs.xy / cs.w) * uRes * 0.5 / (uRes.y * 0.5);
+  float glow = exp(-dot(sd, sd) / 0.045);
+  int li = int(aData.z + 0.5);
+  float behind = mod(uAng[li] - aData.x * 6.2831853, 6.2831853);
+  float trail = orbit && behind < 1.5 ? pow(1.0 - behind / 1.5, 2.2) * smoothstep(0.0, 0.05, behind) : 0.0;
+  float wpx = uWidth * uPR * (orbit ? clamp(dW, 0.6, 1.7) * (1.0 + 0.9 * trail) : 1.6 * aData.x) * (1.0 + 2.2 * blur);
   vec2 off = perp * aData.y * wpx / (uRes * 0.5);
   gl_Position = ca + vec4(off * ca.w, 0.0, 0.0);
-  int li = int(aData.z + 0.5);
   vT = aData.x;
   vSide = aData.y;
   vProg = uProg[li];
   vAl = uAl[li];
   vAng = uAng[li];
-  vRad = length(position.xz);
+  vRad = length(position);
   vBlur = blur;
   vK = aData.w;
   vCol = aColor;
+  vTrail = trail;
+  vDepth = orbit ? clamp(dB, 0.3, 1.5) * (1.0 - 0.7 * glow) : 1.0;
   if (vAl < 0.002) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
 }
 `;
 export const lineFrag = /* glsl */ `
+uniform float uTime;
+uniform float uIdle;
 in float vT;
 in float vSide;
 in float vProg;
@@ -545,23 +574,33 @@ in float vK;
 in float vAng;
 in float vRad;
 in float vBlur;
+in float vDepth;
+in float vTrail;
 in vec3 vCol;
 out vec4 fragColor;
 void main() {
   float across = exp(-vSide * vSide * 2.6 / (1.0 + 1.6 * vBlur)) / (1.0 + 1.6 * vBlur);
+  vec3 col;
   float a;
   if (vK < 0.5) {
     float shown = 1.0 - smoothstep(vProg - 0.012, vProg, vT);
     if (shown <= 0.0) discard;
     float head = vProg < 0.999 ? exp(-pow((vT - vProg) * 16.0, 2.0)) : 0.0;
-    // a comet-like light trail: brightest just behind the planet, fading over ~80 degrees; a faint base keeps the whole orbit readable
-    float behind = mod(vAng - vT * 6.2831853, 6.2831853);
-    float trail = behind < 1.5 ? pow(1.0 - behind / 1.5, 2.2) * smoothstep(0.0, 0.05, behind) : 0.0;
     float rad = 1.5 / (1.0 + 0.2 * vRad); // brighter near the sun, fading outward
-    a = across * shown * (0.17 * rad + head * 0.8 + trail * 0.95 * rad) * vAl;
-  } else {
-    a = across * pow(vT, 1.7) * vAl;
+    // faint dashed base: dash count rounded per orbit so it closes; slow shimmer drifts along the ring (idle only)
+    float dn = floor(vRad * 14.0 + 0.5) * 2.0;
+    float ph = vT * dn - uIdle * uTime * 0.06;
+    float dash = smoothstep(0.35, 0.75, 1.0 - abs(fract(ph) * 2.0 - 1.0));
+    float shim = 1.0 + uIdle * 0.35 * sin(uTime * 0.7 + vT * 18.0 + vRad * 3.0);
+    float base = 0.13 * rad * (0.45 + 0.75 * dash) * shim;
+    vec3 ring = mix(vCol, vec3(1.0), 0.55);
+    vec3 tr = mix(vCol, vec3(1.0), 0.1);
+    col = (ring * base + tr * (vTrail * 0.8 * rad + head * 0.7)) ;
+    a = across * shown * vAl * vDepth;
+    fragColor = vec4(col * a, 1.0);
+    return;
   }
+  a = across * pow(vT, 1.7) * vAl;
   fragColor = vec4(mix(vCol, vec3(1.0), 0.2) * a, 1.0);
 }
 `;
