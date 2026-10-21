@@ -300,25 +300,40 @@ export const LOBES: Lobe[] = [
 export const RIM: RGB = [0.85, 0.45, 1.0]; // magenta-violet emission toward the lobe edges
 export const KNOT_R = 0.8; // the bright dense knot at the origin the comet dives into
 
-/** Young stars embedded in the gas (star sprite mode like buildGalaxy): sampled on a lobe, then a tighter
- *  gaussian so they sit inside it. Mostly blue-white, a few warm; brightness 0.2..1.2 with a long faint tail.
- *  data.x = size factor 0.6..1.6. */
+/** Young stars embedded in the gas: deliberately sparse. A few bright crisp stars cluster at the lobe fronts (the side
+ *  facing the star) and around the knot; the rest are faint and loosely scattered in the lobes, so the gas never reads as
+ *  a sandy sprinkle. Brightness is strongly skewed (about 6% bright, 0.9..2.0; the rest 0.05..0.3).
+ *  data.x = size factor (bright ones larger). */
 export function buildNebulaStars(count: number, seed = 25): PointCloud {
   const rnd = mulberry32(seed);
   const c = cloud(count);
   const BLUE: RGB = [0.7, 0.82, 1];
   for (let i = 0; i < count; i++) {
     const lobe = LOBES[Math.floor(rnd() * LOBES.length)];
-    const k = 0.45; // tighter than the gas sigma
-    const x = lobe.c[0] + gauss(rnd) * lobe.s[0] * k;
-    const y = lobe.c[1] + gauss(rnd) * lobe.s[1] * k;
-    const z = lobe.c[2] + gauss(rnd) * lobe.s[2] * k;
+    const g = rnd();
+    let x: number, y: number, z: number;
+    let bright = false;
+    if (g < 0.2) { // around the knot
+      x = gauss(rnd) * 0.9; y = gauss(rnd) * 0.9; z = gauss(rnd) * 0.9;
+      bright = rnd() < 0.18;
+    } else if (g < 0.55) { // lobe front: pulled toward the star, tight
+      const f = 0.3 + rnd() * 0.25;
+      x = lobe.c[0] * (1 - f) + gauss(rnd) * lobe.s[0] * 0.28;
+      y = lobe.c[1] * (1 - f) + gauss(rnd) * lobe.s[1] * 0.28;
+      z = lobe.c[2] * (1 - f) + gauss(rnd) * lobe.s[2] * 0.28;
+      bright = rnd() < 0.12;
+    } else { // loose, faint
+      x = lobe.c[0] + gauss(rnd) * lobe.s[0] * 0.5;
+      y = lobe.c[1] + gauss(rnd) * lobe.s[1] * 0.5;
+      z = lobe.c[2] + gauss(rnd) * lobe.s[2] * 0.5;
+      bright = rnd() < 0.015;
+    }
     const warm = rnd() < 0.12;
     const col = warm ? mix3(BLUE, WARM, 0.5 + rnd() * 0.5) : mix3(BLUE, [1, 1, 1], rnd() * 0.3);
-    const b = 0.2 + rnd() ** 3; // 0.2..1.2, long tail
+    const b = bright ? 0.9 + rnd() * 1.1 : 0.05 + 0.25 * rnd() * rnd();
     c.position.set([x, y, z], i * 3);
     c.color.set([col[0] * b, col[1] * b, col[2] * b], i * 3);
-    c.data.set([0.6 + rnd(), rnd(), rnd(), 0], i * 4);
+    c.data.set([bright ? 1.3 + rnd() * 0.5 : 0.5 + rnd() * 0.3, rnd(), rnd(), 0], i * 4);
   }
   return c;
 }

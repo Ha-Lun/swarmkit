@@ -2,7 +2,8 @@
 // density field (the LOBES layout from generator.ts, domain-warped and stretched toward the knot into filaments and
 // pillars, dark dust lanes as absorbing density, teal/amber emission per lobe with a violet rim, a bright ionisation
 // front facing the star). Rendered at reduced resolution into a render target, then composited premultiplied before
-// the stars-and-planets pass, so dust darkens the deep field behind it and the composite blurs the step jitter away.
+// the stars-and-planets pass, so dust darkens the deep field behind it; a separable Gaussian (horizontal pass into a second target, vertical in the
+// composite) averages the structured step jitter away.
 // After ignition the star carves a cavity (density removed inside uCavR, a lit wall at its edge). No assets, no sprites.
 import {
   BufferAttribute, BufferGeometry, CustomBlending, GLSL3, HalfFloatType, LinearFilter, Matrix3, Matrix4, Mesh,
@@ -104,8 +105,9 @@ float fbm(vec3 p) {
   }
   return s / n;
 }
-// per-pixel offset for the ray start
-float ign(vec2 px) { vec3 q = fract(vec3(px.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); } // white-noise hash: no directional pattern for the blur to alias
+// per-pixel offset for the ray start: interleaved gradient noise (Jimenez), a low-discrepancy pattern whose error is
+// mostly high-frequency, so the separable Gaussian below removes it instead of aliasing it into a visible texture
+float ign(vec2 px) { return fract(52.9829189 * fract(dot(px, vec2(0.06711056, 0.00583715)))); }
 
 void main() {
   vec3 rd = normalize(vDir);
@@ -182,24 +184,45 @@ void main() {
 }
 `;
 
+// separable Gaussian, 13 taps per pass: horizontal here (march target -> blur target), vertical in the composite
+const blurHFrag = /* glsl */ `
+precision highp float;
+uniform sampler2D tVol;
+uniform vec2 uTexel;
+uniform float uSigma;
+in vec2 vUv;
+out vec4 outColor;
+void main() {
+  vec4 s = vec4(0.0);
+  float wsum = 0.0;
+  for (int i = -6; i <= 6; i++) {
+    float w = exp(-0.5 * float(i * i) / (uSigma * uSigma));
+    s += w * texture(tVol, vUv + vec2(float(i) * uTexel.x, 0.0));
+    wsum += w;
+  }
+  outColor = s / wsum;
+}
+`;
+
 const compFrag = /* glsl */ `
 precision highp float;
 uniform sampler2D tVol;
 uniform vec2 uTexel;
+uniform float uSigma;
 uniform float uCopyAmt;
 uniform vec4 uCopyMask;
 in vec2 vUv;
 in vec2 vNdc;
 out vec4 outColor;
 void main() {
-  // 9 bilinear taps (1 centre + 8 ring) over ~4x4 texels: dissolves the per-pixel step jitter and the low-res blockiness
-  vec2 o = uTexel;
-  vec4 s = texture(tVol, vUv) * 2.0;
-  for (int i = 0; i < 8; i++) {
-    float a = float(i) * 0.7853982 + 0.3927;
-    s += texture(tVol, vUv + vec2(cos(a), sin(a)) * o * (i % 2 == 0 ? 1.0 : 1.9));
+  vec4 s = vec4(0.0);
+  float wsum = 0.0;
+  for (int i = -6; i <= 6; i++) {
+    float w = exp(-0.5 * float(i * i) / (uSigma * uSigma));
+    s += w * texture(tVol, vUv + vec2(0.0, float(i) * uTexel.y));
+    wsum += w;
   }
-  s *= 0.1;
+  s /= wsum;
   if (uCopyMask.z > 0.0) {
     vec2 e = (vNdc - uCopyMask.xy) / uCopyMask.zw;
     s.rgb *= mix(1.0, mix(0.12, 1.0, smoothstep(0.6, 1.2, length(e))), uCopyAmt);
@@ -225,10 +248,13 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
   const geo = new BufferGeometry();
   geo.setAttribute('position', new BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
   const half = renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float');
-  const rt = new WebGLRenderTarget(2, 2, {
+  const rtOpts = {
     type: half ? HalfFloatType : UnsignedByteType, depthBuffer: false, stencilBuffer: false,
     minFilter: LinearFilter, magFilter: LinearFilter, generateMipmaps: false,
-  });
+  } as const;
+  const rt = new WebGLRenderTarget(2, 2, rtOpts); // the march
+  const rtB = new WebGLRenderTarget(2, 2, rtOpts); // after the horizontal blur
+  const sigma = tier === 'low' ? 1.3 : 1.7; // texels
   const march = new ShaderMaterial({
     uniforms: {
       uInvProj: { value: new Matrix4() }, uCamRot: { value: new Matrix3() }, uCamPos: { value: new Vector3() },
@@ -245,8 +271,18 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
   marchScene.add(marchMesh);
   const dummyCam = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
+  const blurH = new ShaderMaterial({
+    uniforms: { tVol: { value: rt.texture }, uTexel: { value: new Vector2(1, 1) }, uSigma: { value: sigma } },
+    vertexShader: compVert, fragmentShader: blurHFrag, glslVersion: GLSL3,
+    blending: NoBlending, depthTest: false, depthWrite: false,
+  });
+  const blurScene = new Scene();
+  const blurMesh = new Mesh(geo, blurH);
+  blurMesh.frustumCulled = false;
+  blurScene.add(blurMesh);
+
   const comp = new ShaderMaterial({
-    uniforms: { tVol: { value: rt.texture }, uTexel: { value: new Vector2(1, 1) }, uCopyAmt: { value: 0 }, uCopyMask: { value: new Vector4() } },
+    uniforms: { tVol: { value: rtB.texture }, uTexel: { value: new Vector2(1, 1) }, uSigma: { value: sigma }, uCopyAmt: { value: 0 }, uCopyMask: { value: new Vector4() } },
     vertexShader: compVert, fragmentShader: compFrag, glslVersion: GLSL3,
     transparent: true, blending: CustomBlending, blendSrc: OneFactor, blendDst: OneMinusSrcAlphaFactor,
     depthTest: false, depthWrite: false,
@@ -282,20 +318,26 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
       const prev = rend.getRenderTarget();
       rend.setRenderTarget(rt);
       rend.render(marchScene, dummyCam);
+      rend.setRenderTarget(rtB);
+      rend.render(blurScene, dummyCam);
       rend.setRenderTarget(prev);
     },
     resize(w, h) {
       const rw = Math.max(2, Math.round(w * q.scale));
       const rh = Math.max(2, Math.round(h * q.scale));
       rt.setSize(rw, rh);
+      rtB.setSize(rw, rh);
+      blurH.uniforms.uTexel.value.set(1 / rw, 1 / rh);
       comp.uniforms.uTexel.value.set(1 / rw, 1 / rh);
       sig = '';
     },
     dispose() {
       geo.dispose();
       march.dispose();
+      blurH.dispose();
       comp.dispose();
       rt.dispose();
+      rtB.dispose();
     },
   };
 }
