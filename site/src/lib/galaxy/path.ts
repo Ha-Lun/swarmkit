@@ -267,7 +267,9 @@ export const systemLeft = (m: number): number => 1 - ss(M.burst[0] + 0.01, M.bur
 export const burstFlash = (m: number): number => ss(M.burst[0] - 0.005, M.burst[0] + 0.02, m) * (1 - ss(M.burst[0] + 0.02, M.burst[1] + 0.07, m));
 /** Radius (world units) of the bubble the new star carves in its nebula: closed until the ignition flash (pp ~0.515), then
  *  opens (ease-out) past the outermost orbit (rMax + pad) by pp ~0.64 and stays. Pure in pp, so it scrubs and rewinds exactly. */
-export const cavityR = (pp: number, rMax: number): number => (rMax + 1.6) * (1 - (1 - ss(0.512, 0.64, pp)) ** 2);
+export const cavityR = (pp: number, rMax: number): number => (rMax + 1.6) * (1 - (1 - ss(0.512, 0.6, pp)) ** 3);
+/** Volume gain multiplier: a short dip around the ignition (pp 0.5-0.6) so the flash reads against dark, not a bright wash. */
+export const nebulaDip = (pp: number): number => 1 - 0.8 * ss(0.49, 0.525, pp) * (1 - ss(0.56, 0.64, pp));
 
 /** Shock ring progress 0..1 (ease-out) and its alpha. */
 export const shockK = (m: number): number => 1 - (1 - clamp01((m - M.burst[0] - 0.01) / (M.burst[1] + 0.08 - M.burst[0]))) ** 2.2;

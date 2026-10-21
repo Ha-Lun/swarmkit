@@ -202,7 +202,7 @@ void main() {
   s *= 0.1;
   if (uCopyMask.z > 0.0) {
     vec2 e = (vNdc - uCopyMask.xy) / uCopyMask.zw;
-    s.rgb *= mix(1.0, mix(0.25, 1.0, smoothstep(0.6, 1.2, length(e))), uCopyAmt);
+    s.rgb *= mix(1.0, mix(0.12, 1.0, smoothstep(0.6, 1.2, length(e))), uCopyAmt);
   }
   float dn = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5;
   s.rgb = max(s.rgb + dn * 0.0015 * smoothstep(0.0, 0.01, max(s.r, max(s.g, s.b))), 0.0);

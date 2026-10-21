@@ -24,7 +24,7 @@ import {
 } from './generator.ts';
 import type { PointCloud } from './generator.ts';
 import {
-  burstFlash, cavityR, cometAt, clamp01, closeAmt, closeC, closeView, coreFlare, L, lateU, legacyP, lerp, M, formK, mergeCam, mergeM, shockAlpha, shockK, sunSwell, systemLeft, orbitT, pullK,
+  burstFlash, cavityR, nebulaDip, cometAt, clamp01, closeAmt, closeC, closeView, coreFlare, L, lateU, legacyP, lerp, M, formK, mergeCam, mergeM, shockAlpha, shockK, sunSwell, systemLeft, orbitT, pullK,
   sceneState, shipK, ss, systemView, verifyU, waveF, waveR, win,
 } from './path.ts';
 import type { SceneState, V3 } from './path.ts';
@@ -606,8 +606,8 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     // star's cavity; the shock ring widens the cavity past the sky and the gas is gone by the end of the burst. Low renders direct, so lift it.
     nebVol.render(renderer, camera, {
       time: t,
-      gain: 0.38 * nebRem * (1 - 0.3 * band) * (1 - 0.35 * nebPortrait) * (opts.tier === 'low' ? 1.5 : 1),
-      cavR: Math.max(cavityR(pp, rMax), shockK(m) * (rMax + 1.2) * 2.4),
+      gain: 0.38 * nebRem * nebulaDip(pp) * (1 - 0.3 * band) * (1 - 0.35 * nebPortrait) * (opts.tier === 'low' ? 1.5 : 1),
+      cavR: Math.max(cavityR(pp, rMax), camera.position.length() * 1.45 * ss(0.512, 0.545, pp) * (1 - ss(0.6, 0.66, pp)), shockK(m) * (rMax + 1.2) * 2.4),
       collapse: ss(0.4, 0.512, pp),
       knot: 1 - ss(0.515, 0.545, pp),
       copyAmt: ss(0.45, 0.55, pp),

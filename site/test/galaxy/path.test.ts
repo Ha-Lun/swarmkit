@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { beatOpacity, camRoute, cavityR, cometAt, sceneState, spline, typedChars, T } from '../../src/lib/galaxy/path.ts';
+import { beatOpacity, camRoute, cavityR, nebulaDip, cometAt, sceneState, spline, typedChars, T } from '../../src/lib/galaxy/path.ts';
 
 // spline passes through its end points
 assert.deepEqual(camRoute(0).map((v) => +v.toFixed(6)), [0, 7.6, 15.2]);
@@ -58,3 +58,9 @@ assert.ok(T.pulse[0] > T.draw[1] - 1e-9);
     prev = r;
   }
 }
+
+// nebulaDip: untouched before ignition and after the remnant settles, dark at the flash; cavity mostly open by pp 0.56
+assert.equal(nebulaDip(0.3), 1);
+assert.equal(nebulaDip(0.7), 1);
+assert.ok(nebulaDip(0.53) < 0.3);
+assert.ok(cavityR(0.56, 6) > 0.8 * cavityR(1, 6));
