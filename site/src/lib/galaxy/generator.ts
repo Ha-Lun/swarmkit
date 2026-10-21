@@ -357,7 +357,7 @@ export function buildNebula(count: number, seed = 21): PointCloud {
       x = r * Math.sin(th) * Math.cos(ph);
       y = r * Math.cos(th);
       z = r * Math.sin(th) * Math.sin(ph);
-      col = mix3(OPUS, [1, 1, 1], 0.3 + rnd() * 0.35);
+      col = mix3(OPUS, [1, 0.9, 0.95], 0.1 + rnd() * 0.2);
       b = 0.07 + rnd() * 0.05;
       size = 2 + rnd() * 3;
     } else {

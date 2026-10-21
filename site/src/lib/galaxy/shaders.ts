@@ -17,6 +17,11 @@ uniform float uBig; // 1 = large soft sprites (haze, dust): no energy normalisat
 uniform float uGrow; // grows a cloud outward from the core: points with aData.w = t appear once uGrow passes t
 uniform float uDof; // 0..1 close-up fake depth of field: things far behind the focus plane get bigger and dimmer
 uniform float uFocusD;
+uniform float uNear; // >0: fade by view distance (the nebula gas): nothing fills the screen when the camera flies through it
+uniform float uCollapse; // 0..1: the nebula knot (points within ~0.9 of the origin) pulls into a point and brightens (ignition)
+uniform float uKnot; // 0..1 brightness of the knot points (fades out after the ignition flash)
+uniform vec4 uCopyMask; // NDC ellipse cx, cy, rx, ry that dims this cloud (the close-up headline column)
+uniform float uCopyAmt;
 uniform float uClearR; // >0: clean black around the origin — brightness fades in from uClearR*0.5 out to uClearR (the system beats)
 in vec3 aColor;
 in vec4 aData;
@@ -25,6 +30,11 @@ out float vA;
 
 void main() {
   vec3 p = position;
+  float kn = 0.0;
+  if (uCollapse > 0.0 || uKnot < 1.0) {
+    kn = 1.0 - smoothstep(0.7, 0.95, length(p));
+    p *= 1.0 - 0.94 * uCollapse * kn;
+  }
   float r = length(p.xz);
   if (uRotate > 0.5) {
     float ang = uTime * 0.026 * (1.0 + 1.6 * exp(-r * 0.3)) + uSpin * (1.0 + 1.1 * exp(-r * 0.25));
@@ -45,6 +55,12 @@ void main() {
     a *= 1.0 - (1.0 - uCoreDim) * exp(-r * r * 0.35);
   }
   a *= smoothstep(0.12, 1.2, depth);
+  if (uNear > 0.0) a *= smoothstep(uNear * 0.3, uNear, depth);
+  if (kn > 0.0) { a *= mix(1.0, uKnot, kn) * (1.0 + 0.8 * uCollapse * kn) * (1.0 - 0.45 * (1.0 - uCollapse) * kn); size *= 1.0 - 0.75 * uCollapse * kn; }
+  if (uCopyAmt > 0.0) {
+    vec2 nd = (gl_Position.xy / max(gl_Position.w, 1e-3) - uCopyMask.xy) / uCopyMask.zw;
+    a *= 1.0 - 0.9 * uCopyAmt * (1.0 - smoothstep(0.75, 1.25, length(nd)));
+  }
   if (uClearR > 0.0) a *= smoothstep(uClearR * 0.5, uClearR, r); // radial clear around the sun (r is the cylindrical radius, rotation-invariant)
   if (uDof > 0.0 && uBig < 0.5) {
     float bl = uDof * smoothstep(uFocusD * 1.6, uFocusD * 14.0, depth);
@@ -510,6 +526,8 @@ uniform float uAl[${n}];
 uniform float uAng[${n}]; // each orbit's planet angle (rad), idle drift included
 uniform vec3 uFocus; // the close-up planet
 uniform float uDof;
+uniform vec4 uCopyMask; // NDC ellipse that dims orbit hairlines behind the close-up headline
+uniform float uCopyAmt;
 in vec3 aNext;
 in vec3 aColor;
 in vec4 aData; // t, side, line, kind (0 orbit, 1 tail)
@@ -553,6 +571,10 @@ void main() {
   vSide = aData.y;
   vProg = uProg[li];
   vAl = uAl[li];
+  if (orbit && uCopyAmt > 0.0) {
+    vec2 nd = (ca.xy / max(ca.w, 1e-3) - uCopyMask.xy) / uCopyMask.zw;
+    vAl *= 1.0 - 0.92 * uCopyAmt * (1.0 - smoothstep(0.75, 1.25, length(nd)));
+  }
   vAng = uAng[li];
   vRad = length(position);
   vBlur = blur;

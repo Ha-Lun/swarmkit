@@ -49,8 +49,8 @@ async function boot(): Promise<void> {
     fixer: el.querySelector<HTMLElement>('[data-tag="fixer"]'),
   }));
   const tagBoxes = labelEls.map((el) => el.querySelector<HTMLElement>('.gx-node-tags'));
-  const POSE_ORDER = ['galaxy', 'core', 'constellation', 'fan', 'build', 'verify', 'cron', 'merge', 'close'] as const;
-  let pose: keyof typeof STATIC_POSE = 'galaxy';
+  const POSE_ORDER = ['nebula', 'core', 'constellation', 'fan', 'build', 'verify', 'cron', 'merge', 'close'] as const;
+  let pose: keyof typeof STATIC_POSE = 'nebula';
   const setTag = (el: HTMLElement | null, v: number): boolean => {
     if (!el) return false;
     const on = v > 0.04;
@@ -101,7 +101,7 @@ async function boot(): Promise<void> {
     labelEls.forEach((el, i) => {
       const n = f.nodes[i];
       const t = tagsOf[i];
-      if (live || pose !== 'galaxy') {
+      if (live || pose !== 'nebula') {
         setTag(t.fail, live ? n.bad : n.ok + n.bad);
         setTag(t.fixed, n.ok);
         setTag(t.rev, n.rev);
@@ -232,7 +232,7 @@ async function boot(): Promise<void> {
 
   if (reduced) {
     html.classList.add('gx-still');
-    const sections: [HTMLElement | null, keyof typeof STATIC_POSE][] = [[hero, 'galaxy'], [task, 'core'], [plan, 'constellation'], [fan, 'fan'], [build, 'build'], [verify, 'verify'], [cron, 'cron'], [merge, 'merge'], ...closeEls.map((el): [HTMLElement, keyof typeof STATIC_POSE] => [el, 'close'])];
+    const sections: [HTMLElement | null, keyof typeof STATIC_POSE][] = [[hero, 'nebula'], [task, 'core'], [plan, 'constellation'], [fan, 'fan'], [build, 'build'], [verify, 'verify'], [cron, 'cron'], [merge, 'merge'], ...closeEls.map((el): [HTMLElement, keyof typeof STATIC_POSE] => [el, 'close'])];
     const io = new IntersectionObserver((entries) => {
       for (const e of entries) {
         if (!e.isIntersecting) continue;
@@ -244,7 +244,7 @@ async function boot(): Promise<void> {
       }
     }, { threshold: 0.55 });
     sections.forEach(([el]) => el && io.observe(el));
-    scene.setProgress(STATIC_POSE.galaxy);
+    scene.setProgress(STATIC_POSE.nebula);
     addEventListener('pagehide', () => { io.disconnect(); scene.dispose(); });
     return;
   }

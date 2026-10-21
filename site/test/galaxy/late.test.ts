@@ -115,7 +115,7 @@ assert.ok(mworst <= 0.08, `merge copy gap ${mworst}`);
 assert.equal(mergeOpacity.copy(1), 0);
 
 // the reduced-motion poses are in scroll order
-const poses = [STATIC_POSE.galaxy, STATIC_POSE.core, STATIC_POSE.constellation, STATIC_POSE.fan, STATIC_POSE.build, STATIC_POSE.verify, STATIC_POSE.cron, STATIC_POSE.merge, STATIC_POSE.close];
+const poses = [STATIC_POSE.nebula, STATIC_POSE.core, STATIC_POSE.constellation, STATIC_POSE.fan, STATIC_POSE.build, STATIC_POSE.verify, STATIC_POSE.cron, STATIC_POSE.merge, STATIC_POSE.close];
 for (let i = 1; i < poses.length; i++) assert.ok(poses[i] > poses[i - 1]);
 // the verify pose is after the scan + ticks, before the fly-in; the cron pose is inside the dwell after the dock
 const uOf = (P: number): number => lateU(P);

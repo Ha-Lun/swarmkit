@@ -272,7 +272,7 @@ export const lateOpacity = {
 
 /** Poses used by the reduced-motion static compositions (page progress P). */
 export const STATIC_POSE = {
-  galaxy: 0.02 * SPLIT,
+  nebula: 0.02 * SPLIT,
   core: 0.55 * SPLIT,
   constellation: 0.9 * SPLIT,
   fan: SPLIT + 0.3 * (LATE_END - SPLIT),
