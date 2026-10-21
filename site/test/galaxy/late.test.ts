@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   burstFlash, formK, closeAmt, closeC, closeView, coreFlare, L, LATE_END, lateOpacity, lateU, legacyP, M, mergeCam, mergeM, mergeOpacity,
-  orbitT, pullEnd, pullK, shipK, SPLIT, STATIC_POSE, systemView, viewPose, win,
+  orbitT, pullEnd, pullK, shipK, SPLIT, STATIC_POSE, systemView, verifyU, viewPose, waveF, waveR, win,
 } from '../../src/lib/galaxy/path.ts';
 import type { V3 } from '../../src/lib/galaxy/path.ts';
 
@@ -132,3 +132,30 @@ for (let i = 1; i < poses.length; i++) assert.ok(poses[i] > poses[i - 1]);
 const uOf = (P: number): number => lateU(P);
 assert.ok(uOf(STATIC_POSE.verify) >= L.scan[1] + L.tick && uOf(STATIC_POSE.verify) < L.fly[0]);
 assert.ok(uOf(STATIC_POSE.cron) > L.ship[1] && uOf(STATIC_POSE.cron) < L.dwell[1]);
+
+// the verify wave: starts at the sun, reaches the outer ring by the end of the scan, never past it, monotonic
+{
+  const radii = [1.6, 2.4, 3.2, 4.0, 4.8, 5.6];
+  const n = radii.length;
+  assert.equal(waveR(L.scan[0], radii), 0);
+  assert.equal(waveR(L.scan[0] - 0.05, radii), 0);
+  assert.equal(waveR(L.scan[1], radii), radii[n - 1]);
+  assert.equal(waveR(1, radii), radii[n - 1]);
+  let prev = -1;
+  for (let i = 0; i <= 200; i++) {
+    const u = L.scan[0] + ((L.scan[1] - L.scan[0]) * i) / 200;
+    const r = waveR(u, radii);
+    assert.ok(r >= prev && r <= radii[n - 1]);
+    prev = r;
+  }
+  assert.ok(waveF(L.scan[1], n) === n);
+  // the rank-based trigger fires inner planets first, and every planet is done within scan + tick
+  for (let rank = 0; rank < n - 1; rank++) {
+    const first = (k: number): number => { let u = L.scan[0]; while (verifyU(u, k, n) <= 0) u += 1e-4; return u; };
+    assert.ok(first(rank) < first(rank + 1));
+  }
+  for (let rank = 0; rank < n; rank++) {
+    assert.equal(verifyU(L.scan[0], rank, n), 0);
+    assert.equal(verifyU(L.scan[1] + L.tick, rank, n), 1);
+  }
+}

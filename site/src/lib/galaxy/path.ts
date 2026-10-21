@@ -156,7 +156,7 @@ export const orbitT = (P: number): number => 4.2 * clamp01((P - SPLIT) / (1 - SP
 export const L = {
   fan: [0.03, 0.27], // planets launch from the sun, staggered by launch order
   build: [0.36, 0.61], // worktree rings grow, staggered by build order
-  scan: [0.665, 0.745], // the scan arc sweeps the orbits once
+  scan: [0.665, 0.745], // the verify wave runs out ring by ring
   tick: 0.03, // u a planet takes to run through its verify flash after the arc passes
   fly: [0.79, 0.84], // the camera flies in to the close-up planet
   dwell: [0.84, 0.955], // close-up hold; c = 0..1 drives the planet's flashes and its fixer
@@ -171,6 +171,26 @@ export const closeAmt = (u: number): number => ss(L.fly[0], L.fly[1], u) * (1 - 
 export const shipK = (u: number): number => clamp01((u - L.ship[0]) / (L.ship[1] - L.ship[0]));
 /** u as a 0..1 window position. */
 export const win = (w: readonly [number, number], u: number): number => clamp01((u - w[0]) / (w[1] - w[0]));
+
+// ---- the verify wave: light leaves the sun and reaches the orbits one after another (inner ring first) --------------
+/** Wave front in ring-rank space: 0 at the start of L.scan, n at its end, ring `rank` is hit at rank + 0.5. Keeps growing past the window so late flashes finish (>= 0, monotonic). */
+export const waveF = (u: number, n: number): number => Math.max(0, ((u - L.scan[0]) / (L.scan[1] - L.scan[0])) * n);
+/** The front's world radius: 0 at the start of L.scan, the outer ring by its end, never beyond it. `radii` ascending. */
+export function waveR(u: number, radii: readonly number[]): number {
+  const n = radii.length;
+  if (n === 0) return 0;
+  const x = Math.min(waveF(u, n), n - 0.5); // ring i sits at rank-space i + 0.5
+  if (x <= 0.5) return radii[0] * (x / 0.5);
+  const i = Math.min(n - 2, Math.floor(x - 0.5));
+  if (i < 0) return radii[0];
+  const f = x - 0.5 - i;
+  return radii[i] + (radii[i + 1] - radii[i]) * f;
+}
+/** A planet's verify progress (flashPhase input): starts when the wave reaches its ring (rank by radius, inner first), runs for L.tick. */
+export const verifyU = (u: number, rank: number, n: number): number => {
+  const hit = L.scan[0] + ((rank + 0.5) / Math.max(1, n)) * (L.scan[1] - L.scan[0]);
+  return clamp01((u - hit) / L.tick);
+};
 const easeInOut = (t: number): number => t * t * (3 - 2 * t);
 
 export interface LateCam { cam: V3; target: V3; fov: number }

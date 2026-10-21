@@ -25,7 +25,7 @@ import {
 import type { PointCloud } from './generator.ts';
 import {
   burstFlash, cometAt, clamp01, closeAmt, closeC, closeView, coreFlare, L, lateU, legacyP, lerp, M, formK, mergeCam, mergeM, shockAlpha, shockK, sunSwell, systemLeft, orbitT, pullK,
-  sceneState, shipK, ss, systemView, win,
+  sceneState, shipK, ss, systemView, verifyU, waveF, waveR, win,
 } from './path.ts';
 import type { SceneState, V3 } from './path.ts';
 import { buildSystem, flashPhase, launchPos, planetPos, spiralIn, stagger, tilt } from './system.ts';
@@ -319,7 +319,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     const al = new Array(Math.max(1, nLines)).fill(0) as number[];
     const ang = new Array(Math.max(1, nLines)).fill(0) as number[];
     const mat = track(new ShaderMaterial({
-      uniforms: { uRes: lineRes, uWidth: { value: width }, uPR: shared.uPR, uProg: { value: prog }, uAl: { value: al }, uAng: { value: ang }, uFocus: { value: new Vector3() }, uDof: shared.uDof, uTime: shared.uTime, uIdle: { value: 1 }, uCopyMask: copyMask, uCopyAmt: { value: 0 } },
+      uniforms: { uRes: lineRes, uWidth: { value: width }, uPR: shared.uPR, uProg: { value: prog }, uAl: { value: al }, uAng: { value: ang }, uWave: { value: -1 }, uFocus: { value: new Vector3() }, uDof: shared.uDof, uTime: shared.uTime, uIdle: { value: 1 }, uCopyMask: copyMask, uCopyAmt: { value: 0 } },
       vertexShader: lineVert(Math.max(1, nLines)), fragmentShader: lineFrag, glslVersion: GLSL3,
       blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, side: 2,
     }));
@@ -337,9 +337,9 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   const tail = makeRibbon(Math.max(1, nFix), FSEG, 1, 1.1, () => NODE_COL.agy);
   tail.mesh.visible = nFix > 0;
 
-  // flat effects in the orbital plane: the approval pulse and the scan arc
+  // flat effects in the orbital plane: the approval pulse and the verify wave halo
   const fxMat = track(new ShaderMaterial({
-    uniforms: { uPool: { value: 0 }, uPulseR: { value: 0 }, uPulseA: { value: 0 }, uShockR: { value: 0 }, uShockA: { value: 0 }, uAng: { value: 0 }, uScanVis: { value: 0 }, uR: { value: 6 } },
+    uniforms: { uPool: { value: 0 }, uPulseR: { value: 0 }, uPulseA: { value: 0 }, uShockR: { value: 0 }, uShockA: { value: 0 }, uWaveR: { value: 0 }, uWaveA: { value: 0 }, uR: { value: 6 } },
     vertexShader: fxVert, fragmentShader: fxFrag, glslVersion: GLSL3,
     blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true,
   }));
@@ -373,11 +373,12 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   }
 
   // thin dust belt per orbit: seeded points hugging the (tilted) ring, drifting with the orbital clock; star sprites (mode 0)
-  const beltN = opts.tier === 'high' ? 360 : opts.tier === 'medium' ? 240 : 110;
-  const beltPos = new Float32Array(Math.max(1, nWork) * beltN * 3);
+  const beltN = opts.tier === 'high' ? 110 : opts.tier === 'medium' ? 70 : 0; // a hint of volume, not specks; off on low
+  const beltAlloc = Math.max(1, nWork * beltN);
+  const beltPos = new Float32Array(beltAlloc * 3);
   const beltCol = new Float32Array(beltPos.length);
-  const beltData = new Float32Array(Math.max(1, nWork) * beltN * 4);
-  const beltJit = new Float32Array(Math.max(1, nWork) * beltN * 4); // base angle, radial, vertical, drift factor
+  const beltData = new Float32Array(beltAlloc * 4);
+  const beltJit = new Float32Array(beltAlloc * 4); // base angle, radial, vertical, drift factor
   const beltGeo = new BufferGeometry();
   beltGeo.setAttribute('position', new BufferAttribute(beltPos, 3));
   beltGeo.setAttribute('aColor', new BufferAttribute(beltCol, 3));
@@ -667,9 +668,8 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     nodeRad[0] = SUN_R;
     nodeOnArr[0] = sunA * (1 - cA);
 
-    const scanS = win(L.scan, u);
-    const scanLen = L.scan[1] - L.scan[0];
-    const TH0 = -Math.PI / 2;
+    const radii = planets.map((q) => q.orbit).sort((a, b) => a - b);
+    const waveOn = n > 0 && u > L.scan[0];
     const cC = closeC(u);
     const orbAl = orbits.al;
     const orbProg = orbits.prog;
@@ -680,7 +680,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       const k = kk[pi];
       const mkI = mk[pi];
       const g = stagger(buildW, p.buildIndex, n, 0.5);
-      // verify: the arc passes -> each planet runs its flashPhase; the close-up planet runs it during the dwell
+      // verify: the wave reaches its ring -> each planet runs its flashPhase; the close-up planet runs it during the dwell
       let okV = 0;
       let redV = 0;
       let failV = 0;
@@ -691,9 +691,8 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
           redV = fp.red;
           failV = ss(0, 0.03, cC) * (1 - ss(0.66, 0.74, cC));
         } else {
-          const aNow = Math.atan2(bodyPos[pi][2], bodyPos[pi][0]);
-          const rel = (((aNow - TH0) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) / (Math.PI * 2);
-          const uL = clamp01(((scanS - rel) * scanLen) / L.tick);
+          const rank = radii.indexOf(p.orbit); // the wave reaches the inner rings first
+          const uL = verifyU(u, rank, n);
           const fp = flashPhase(p.verify, uL);
           okV = fp.green;
           redV = fp.red;
@@ -739,9 +738,9 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     beltMat.uniforms.uCopyAmt.value = cA;
     let envMax = 0;
     for (let i = 0; i < n; i++) envMax = Math.max(envMax, orbAl[i]);
-    belt.visible = orbits.mesh.visible && envMax > 0.002;
+    belt.visible = beltN > 0 && orbits.mesh.visible && envMax > 0.002;
     if (belt.visible) {
-      beltMat.uniforms.uGain.value = 0.55 * envMax;
+      beltMat.uniforms.uGain.value = 0.3 * envMax;
       driftBelts(tt);
     }
     // the sun's approval pulse and the verify scan arc
@@ -765,8 +764,10 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     fxMat.uniforms.uShockA.value = shockAlpha(m);
     fxMat.uniforms.uPulseR.value = pulseP * (rMax + 0.8);
     fxMat.uniforms.uPulseA.value = pulseP > 0 ? Math.sin(Math.PI * pulseP) ** 0.8 * 0.9 : 0;
-    fxMat.uniforms.uAng.value = TH0 + scanS * Math.PI * 2;
-    fxMat.uniforms.uScanVis.value = n > 0 ? ss(L.scan[0] - 0.01, L.scan[0] + 0.005, u) * (1 - ss(L.scan[1] - 0.004, L.scan[1] + 0.012, u)) : 0;
+    const wR = waveR(u, radii);
+    orbits.mat.uniforms.uWave.value = waveOn ? waveF(u, n) : -1;
+    fxMat.uniforms.uWaveR.value = wR;
+    fxMat.uniforms.uWaveA.value = waveOn ? ss(0, 0.5, wR) * (1 - ss(0.82, 1, win(L.scan, u))) : 0;
 
     // the fixer: a small amber spark from outside the system that docks on the close-up planet's ring
     fixers.forEach((fx2, kf) => {

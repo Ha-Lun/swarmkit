@@ -539,7 +539,7 @@ void main() {
 /**
  * Orbit hairlines and the fixer's short tail: screen-space ribbons, drawn on by uProg[line], dimmed by uAl[line].
  * Orbits carry a depth cue (near side thicker/brighter, far side finer/dimmer, dimmed where they cross the sun's glow),
- * a lane-coloured light trail behind the planet, and a faint dashed base with a slow idle shimmer (uIdle 0 = off).
+ * a lane-coloured light trail behind the planet, and a continuous fine base with a very slow idle brightness drift (uIdle 0 = off).
  */
 export const lineVert = (n: number): string => /* glsl */ `
 uniform vec2 uRes;
@@ -552,6 +552,7 @@ uniform vec3 uFocus; // the close-up planet
 uniform float uDof;
 uniform vec4 uCopyMask; // NDC ellipse that dims orbit hairlines behind the close-up headline
 uniform float uCopyAmt;
+uniform float uWave; // verify wave front in ring-rank space (ring i is hit at i + 0.5); < 0 = off
 in vec3 aNext;
 in vec3 aColor;
 in vec4 aData; // t, side, line, kind (0 orbit, 1 tail)
@@ -565,6 +566,8 @@ out float vRad;
 out float vBlur;
 out float vDepth;
 out float vTrail;
+out float vWave;
+out float vLi;
 out vec3 vCol;
 void main() {
   float blur = uDof * clamp(length(position - uFocus) / 4.5, 0.0, 1.0);
@@ -588,7 +591,10 @@ void main() {
   int li = int(aData.z + 0.5);
   float behind = mod(uAng[li] - aData.x * 6.2831853, 6.2831853);
   float trail = orbit && behind < 1.5 ? pow(1.0 - behind / 1.5, 2.2) * smoothstep(0.0, 0.05, behind) : 0.0;
-  float wpx = uWidth * uPR * (orbit ? clamp(dW, 0.6, 1.7) * (1.0 + 0.9 * trail) : 1.6 * aData.x) * (1.0 + 2.2 * blur);
+  // the verify wave: a ring flares as the front crosses it (sharp leading edge, long settle)
+  float wd = uWave - (aData.z + 0.5);
+  float wave = orbit && uWave > 0.0 ? (wd < 0.0 ? exp(-pow(wd / 0.32, 2.0)) : exp(-wd / 0.8) * exp(-pow(wd / 2.4, 2.0))) : 0.0;
+  float wpx = uWidth * uPR * (orbit ? clamp(dW, 0.6, 1.7) * (1.0 + 0.9 * trail + 0.8 * wave) : 1.6 * aData.x) * (1.0 + 2.2 * blur);
   vec2 off = perp * aData.y * wpx / (uRes * 0.5);
   gl_Position = ca + vec4(off * ca.w, 0.0, 0.0);
   vT = aData.x;
@@ -605,6 +611,8 @@ void main() {
   vK = aData.w;
   vCol = aColor;
   vTrail = trail;
+  vWave = wave;
+  vLi = aData.z;
   vDepth = orbit ? clamp(dB, 0.3, 1.5) * (1.0 - 0.7 * glow) : 1.0;
   if (vAl < 0.002) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
 }
@@ -612,6 +620,7 @@ void main() {
 export const lineFrag = /* glsl */ `
 uniform float uTime;
 uniform float uIdle;
+uniform float uWave;
 in float vT;
 in float vSide;
 in float vProg;
@@ -622,6 +631,8 @@ in float vRad;
 in float vBlur;
 in float vDepth;
 in float vTrail;
+in float vWave;
+in float vLi;
 in vec3 vCol;
 out vec4 fragColor;
 void main() {
@@ -633,15 +644,14 @@ void main() {
     if (shown <= 0.0) discard;
     float head = vProg < 0.999 ? exp(-pow((vT - vProg) * 16.0, 2.0)) : 0.0;
     float rad = 1.5 / (1.0 + 0.2 * vRad); // brighter near the sun, fading outward
-    // faint dashed base: dash count rounded per orbit so it closes; slow shimmer drifts along the ring (idle only)
-    float dn = floor(vRad * 14.0 + 0.5) * 2.0;
-    float ph = vT * dn - uIdle * uTime * 0.06;
-    float dash = smoothstep(0.35, 0.75, 1.0 - abs(fract(ph) * 2.0 - 1.0));
-    float shim = 1.0 + uIdle * 0.35 * sin(uTime * 0.7 + vT * 18.0 + vRad * 3.0);
-    float base = 0.13 * rad * (0.45 + 0.75 * dash) * shim;
+    // continuous fine base; a very slow, gentle brightness drift along the ring (idle only)
+    float drift = 1.0 + uIdle * 0.22 * sin(vT * 6.2831853 - uTime * 0.12 + vLi * 1.7);
+    float base = 0.1 * rad * drift;
+    // the verify wave: the ring lights up in its lane colour, brightest in an arc that travels round it
+    float arc = cos(6.2831853 * (vT - uWave * 0.3) + vLi * 2.1);
     vec3 ring = mix(vCol, vec3(1.0), 0.55);
     vec3 tr = mix(vCol, vec3(1.0), 0.1);
-    col = (ring * base + tr * (vTrail * 0.8 * rad + head * 0.7));
+    col = (ring * base + tr * (vTrail * 0.8 * rad + head * 0.7)) + mix(vCol, vec3(1.0), 0.45) * (vWave * 1.25 * (0.5 + 0.5 * arc) * (0.6 + 0.4 * rad));
     a = across * shown * vAl * vDepth;
     fragColor = vec4(col * a, 1.0);
     return;
@@ -651,7 +661,7 @@ void main() {
 }
 `;
 
-/** Flat effects in the orbital plane: the sun's approval pulse (one hairline ring) and the scan arc. */
+/** Flat effects in the orbital plane: the sun's approval pulse (one hairline ring) and the verify wave halo. */
 export const fxVert = /* glsl */ `
 out vec2 vP;
 void main() {
@@ -665,8 +675,8 @@ uniform float uPulseR;
 uniform float uPulseA;
 uniform float uShockR;
 uniform float uShockA;
-uniform float uAng;
-uniform float uScanVis;
+uniform float uWaveR;
+uniform float uWaveA;
 uniform float uR;
 in vec2 vP;
 out vec4 fragColor;
@@ -694,15 +704,11 @@ void main() {
     float trail = step(r, uShockR) * exp(dr / 0.55);
     col += mix(vec3(0.62, 0.55, 1.0), vec3(1.0, 0.95, 1.0), smoothstep(-0.6, 0.0, dr)) * (line * 0.55 + lead * 0.3 + trail * 0.05) * uShockA;
   }
-  if (uScanVis > 0.001) {
-    float th = atan(-vP.y, vP.x);
-    float da = mod(uAng - th + 12.566371, 6.283185);
-    float perp = r * sin(min(da, 1.5707));
-    float aa = max(fwidth(perp), 1e-4);
-    float edge = da < 1.5707 ? 1.0 - smoothstep(0.0, 1.4 * aa, abs(perp)) : 0.0;
-    float sector = da < 1.6 ? exp(-da * 4.5) * 0.04 : 0.0;
-    float radial = (1.0 - smoothstep(uR - 0.9, uR, r)) * smoothstep(0.1, 0.7, r);
-    col += vec3(0.55, 0.92, 1.0) * (edge * 0.4 + sector) * radial * uScanVis;
+  if (uWaveA > 0.001) {
+    // the verify wave's body: a faint soft halo behind the front, in the orbital plane, never past the outer ring (uR - 0.6)
+    float dr = r - uWaveR;
+    float halo = exp(-pow(dr / 0.3, 2.0)) * 0.06 + (dr < 0.0 ? exp(dr / 1.1) * 0.022 : 0.0);
+    col += vec3(0.6, 0.9, 1.0) * halo * uWaveA * (1.0 - smoothstep(uR - 0.75, uR - 0.58, r));
   }
   float dn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
   col += dn / 255.0 * step(0.002, dot(col, vec3(1.0)));
