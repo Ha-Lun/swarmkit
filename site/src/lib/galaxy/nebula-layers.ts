@@ -39,6 +39,8 @@ export interface LayerParams {
   copyAmt: number;
   copyMask: Vector4;
   exposure: number;
+  /** the supernova's white-out 0..1 */
+  flash: number;
 }
 
 export interface NebulaLayers {
@@ -99,25 +101,59 @@ uniform float uFlip;
 uniform vec2 uRes;
 uniform vec4 uCopyMask;
 uniform float uCopyAmt;
+uniform float uShred; // 0..1: the blast tears the remnant outward
+uniform float uFlash; // 0..1: the white-out
+uniform vec3 uAxis; // unit direction from the camera to the blast (the origin)
 uniform vec4 uClear; // xy: the cluster centre in NDC, z: radius (NDC height units), w: how far the clear zone dims
 in vec3 vP;
 out vec4 outColor;
 void main() {
   vec3 d = normalize(vP);
-  vec4 t = texture(uCube, vec3(uFlip * d.x, d.y, d.z));
+  vec4 t;
+  if (uShred > 0.002) {
+    // the blast drags the gas away from the blast point: each pixel gathers the remnant along the great circle toward the blast, so
+    // the clouds are stretched radially into streaks, torn into shreds by an angular noise, thinner and thinner with distance
+    vec3 tg = d - uAxis * dot(d, uAxis);
+    float tl = length(tg);
+    tg = tl > 1e-4 ? tg / tl : vec3(0.0, 1.0, 0.0);
+    vec3 e1 = normalize(cross(uAxis, abs(uAxis.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+    vec3 e2 = cross(uAxis, e1);
+    float az = atan(dot(tg, e2), dot(tg, e1));
+    float shred = 0.35 + 0.65 * pow(0.5 + 0.5 * sin(11.0 * az + 3.0 * sin(5.0 * az + 1.0) + 2.0 * sin(17.0 * az)), 1.5);
+    float ang = acos(clamp(dot(d, uAxis), -1.0, 1.0));
+    float reach = uShred * (0.25 + 0.9 * shred);
+    vec4 acc = vec4(0.0);
+    float wsum = 0.0;
+    for (int i = 0; i < 10; i++) {
+      float f = float(i) / 9.0;
+      float a0 = ang - reach * f * ang * 1.1; // pulled in toward the blast: the image slides outward
+      vec3 dd = normalize(uAxis * cos(max(a0, 0.0)) + tg * sin(max(a0, 0.0)));
+      float w = exp(-f * 2.4);
+      acc += texture(uCube, vec3(uFlip * dd.x, dd.y, dd.z)) * w;
+      wsum += w;
+    }
+    t = acc / wsum;
+    t.a *= 1.0 - 0.55 * uShred * (1.0 - shred);
+  } else {
+    t = texture(uCube, vec3(uFlip * d.x, d.y, d.z));
+  }
   // grade the cream/beige toward the palette: keep the luminance, tint it teal -> violet by direction, a little amber in the highlights
   float l = dot(t.rgb, vec3(0.2126, 0.7152, 0.0722));
   float h = 0.5 + 0.5 * sin(d.x * 2.3 + d.y * 1.7 + d.z * 1.1);
   vec3 tint = mix(vec3(0.20, 0.78, 0.72), vec3(0.58, 0.40, 0.92), h);
   tint = mix(tint, vec3(1.0, 0.72, 0.38), 0.18 * smoothstep(0.25, 0.7, l));
   vec3 c = mix(t.rgb, l * tint * 1.5, 0.78);
+  vec2 fd = (gl_FragCoord.xy / uRes * 2.0 - 1.0 - uClear.xy) * vec2(uRes.x / uRes.y, 1.0);
+  float fk = uFlash * exp(-dot(fd, fd) * 0.7); // the white-out is hottest at the blast and thins toward the copy column
+  c = mix(c, vec3(1.0, 0.94, 1.0) * (0.5 + 1.6 * l), 0.6 * fk);
+  c += vec3(0.9, 0.7, 1.0) * l * 1.2 * uShred * (1.0 - fk); // hot, torn gas glows
   vec2 n = gl_FragCoord.xy / uRes * 2.0 - 1.0;
   // the copy column stays dark, and a soft clear zone keeps the stars and threads of the cluster against near-black
   float k = 1.0;
   if (uCopyMask.z > 0.0) k = mix(1.0, mix(0.05, 1.0, smoothstep(0.6, 1.3, length((n - uCopyMask.xy) / uCopyMask.zw))), uCopyAmt);
   vec2 cd = (n - uClear.xy) * vec2(uRes.x / uRes.y, 1.0);
   k *= 1.0 - uClear.w * (1.0 - smoothstep(0.15, 1.0, length(cd) / max(uClear.z, 0.01)));
-  float a = t.a * uFade * k;
+  float a = t.a * uFade * k * (1.0 + 2.0 * fk);
   outColor = vec4(c * a, a);
 }
 `;
@@ -176,6 +212,7 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
   const layerScene = new Scene();
   const rtRes = new Vector2(2, 2);
   const clearZone = new Vector4(0, 0, 0.7, 0.55);
+  const axis = new Vector3(0, 0, -1);
   const dummyCam = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
   const geo = new BufferGeometry();
   geo.setAttribute('position', new BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
@@ -288,7 +325,7 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
     }
     const sphere = (tex: CubeTexture, r: number, order: number): [Mesh, ShaderMaterial] => {
       const mat = new ShaderMaterial({
-        uniforms: { uCube: { value: tex }, uFade: { value: 0 }, uFlip: { value: 1 }, uRes: { value: rtRes }, uCopyMask: { value: new Vector4() }, uCopyAmt: { value: 0 }, uClear: { value: clearZone } }, vertexShader: vertSphere, fragmentShader: fragSphere,
+        uniforms: { uCube: { value: tex }, uFade: { value: 0 }, uFlip: { value: 1 }, uRes: { value: rtRes }, uCopyMask: { value: new Vector4() }, uCopyAmt: { value: 0 }, uClear: { value: clearZone }, uShred: { value: 0 }, uFlash: { value: 0 }, uAxis: { value: axis } }, vertexShader: vertSphere, fragmentShader: fragSphere,
         glslVersion: GLSL3, ...blend, transparent: true, depthTest: false, depthWrite: false, side: BackSide,
       });
       const g = new SphereGeometry(r, 64, 40);
@@ -323,8 +360,9 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
     const { pp, m } = p;
     // envelopes: the planes through the hero and the comet's arrival, the bubble from the ignition until the burst blows it away
     const apE = approachReady ? 1 - ss(0.17, 0.27, pp) : 0;
-    const blow = ss(M.burst[0], M.burst[1], m);
-    const buE = bubbleReady ? ss(0.535, 0.62, pp) * (1 - blow) : 0;
+    const blow = ss(M.burst[0] - 0.004, M.burst[1] + 0.03, m); // scale and fade: the remnant is carried out and gone just after the burst
+    const shred = ss(M.burst[0] - 0.004, M.burst[0] + 0.05, m); // the tearing is quick: it must read inside the flash
+    const buE = bubbleReady ? ss(0.535, 0.62, pp) * (1 - ss(M.burst[0] + 0.01, M.burst[1] + 0.04, m)) : 0;
     ramp = approachReady || bubbleReady ? Math.min(1, ramp + 0.04) : 0; // fade the whole thing in over ~0.6 s once loaded (and it re-fades if still)
     const k = ramp < 1 && !renderer.xr?.isPresenting ? ss(0, 1, ramp) : 1;
     out.cover = Math.max(apE, buE) * k;
@@ -344,7 +382,7 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
     void cs;
     if (Math.abs(camera.aspect - aspectKey) > 1e-3) placePlanes(camera.aspect);
     // bubble: Opus is the origin; it swells out and fades across the burst (blow-away)
-    const bs = 1 + 0.7 * blow;
+    const bs = 1 + 1.6 * blow;
     if (far && shell && farMat && shellMat) {
       const f = buE * k;
       far.visible = f > 0.002;
@@ -352,21 +390,24 @@ export function createNebulaLayers(tier: Tier, renderer: WebGLRenderer, opts: { 
       // the cube was rendered from Opus: keep the camera inside the spheres (from outside it would read as a hollow ball)
       const inside = Math.max(1, (camera.position.length() * 1.25) / manifest!.bubble.shell.farRadius);
       far.scale.setScalar(bs * inside);
-      shell.scale.setScalar((1 + 0.9 * blow) * inside);
+      shell.scale.setScalar((1 + 2.4 * blow) * inside);
       // a dim, distant remnant behind the nursery (~0.15 of the hero's brightness), not a backdrop that competes with it
       farMat.uniforms.uFade.value = f * BUBBLE_GAIN.far;
       shellMat.uniforms.uFade.value = f * BUBBLE_GAIN.shell;
       tmp.set(0, 0, 0).project(camera);
       clearZone.x = tmp.x;
       clearZone.y = tmp.y;
+      axis.copy(camera.position).negate().normalize();
       for (const m of [farMat, shellMat]) {
+        m.uniforms.uShred.value = shred;
+        m.uniforms.uFlash.value = p.flash;
         m.uniforms.uCopyAmt.value = p.copyAmt;
         m.uniforms.uCopyMask.value.copy(p.copyMask);
       }
     }
     // pointless to redraw when nothing moved
     const e = camera.matrixWorld.elements;
-    const s = `${e.map((v) => v.toFixed(4)).join()}|${camera.fov}|${camera.aspect}|${apE.toFixed(3)}|${buE.toFixed(3)}|${k.toFixed(3)}|${blow.toFixed(3)}|${p.copyAmt.toFixed(3)}|${rt.width}`;
+    const s = `${e.map((v) => v.toFixed(4)).join()}|${camera.fov}|${camera.aspect}|${apE.toFixed(3)}|${buE.toFixed(3)}|${k.toFixed(3)}|${blow.toFixed(3)}|${shred.toFixed(3)}|${p.flash.toFixed(3)}|${p.copyAmt.toFixed(3)}|${rt.width}`;
     comp.uniforms.uExp.value = p.exposure;
     comp.uniforms.uCopyAmt.value = p.copyAmt;
     comp.uniforms.uCopyMask.value.copy(p.copyMask);

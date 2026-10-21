@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  burstFlash, formK, closeAmt, closeC, closeView, coreFlare, L, LATE_END, lateOpacity, lateU, legacyP, M, mergeCam, mergeM, mergeOpacity,
+  blastFlash, burstFlash, formK, shakeAt, debrisK, closeAmt, closeC, closeView, coreFlare, L, LATE_END, lateOpacity, lateU, legacyP, M, mergeCam, mergeM, mergeOpacity,
   pullEnd, pullK, shipK, SPLIT, STATIC_POSE, systemView, viewPose, win,
 } from '../../src/lib/galaxy/path.ts';
 import type { V3 } from '../../src/lib/galaxy/path.ts';
@@ -122,3 +122,9 @@ for (let i = 1; i < poses.length; i++) assert.ok(poses[i] > poses[i - 1]);
 const uOf = (P: number): number => lateU(P);
 assert.ok(uOf(STATIC_POSE.verify) >= L.scan[1] + L.tick && uOf(STATIC_POSE.verify) < L.fly[0]);
 assert.ok(uOf(STATIC_POSE.cron) > L.ship[1] && uOf(STATIC_POSE.cron) < L.dwell[1]);
+
+// K4: the blast's white-out peaks in the burst and is gone soon after; the shake is deterministic and dies out; debris runs 0..1
+assert.ok(blastFlash(0) === 0 && blastFlash(M.burst[0] + 0.008) > 0.9 && blastFlash(M.burst[1] + 0.1) === 0, 'blast flash envelope');
+assert.deepEqual(shakeAt(M.burst[0] + 0.01), shakeAt(M.burst[0] + 0.01), 'shake is a pure function of m');
+assert.ok(shakeAt(0)[0] === 0 && shakeAt(1)[1] === 0, 'no shake outside the burst');
+assert.ok(debrisK(M.burst[0]) === 0 && debrisK(1) === 1, 'debris progress spans the burst to the settle');

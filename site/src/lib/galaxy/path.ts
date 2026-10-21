@@ -245,6 +245,26 @@ export const formK = (m: number): number => 1 - (1 - clamp01((m - M.form[0]) / (
 export const sunSwell = (m: number): number => ss(0.3, M.burst[0], m) * (1 - ss(M.burst[0], M.burst[0] + 0.03, m));
 /** The system (sun, glow pool, orbit ribbons) is present 1 .. gone 0 across the burst. */
 export const systemLeft = (m: number): number => 1 - ss(M.burst[0] + 0.01, M.burst[1], m);
+/** The build-up before the blast 0..1: a held breath, the sun trembles harder as it swells (m just before the burst). */
+export const burstTension = (m: number): number => ss(0.46, M.burst[0], m) * (1 - ss(M.burst[0], M.burst[0] + 0.004, m));
+/** Sun tremble: a small deterministic radius wobble (relative) that grows with the tension. Pure in m. */
+export const sunTremble = (m: number): number => burstTension(m) ** 2 * (0.045 * Math.sin(m * 900) + 0.03 * Math.sin(m * 1530 + 1.3));
+/** The white-out 0..1: an instant rise at the burst, a held peak, then a long fall (longer and brighter than burstFlash, which stays the gentle wash). */
+export const blastFlash = (m: number): number => ss(M.burst[0] - 0.003, M.burst[0] + 0.006, m) * (1 - ss(M.burst[0] + 0.008, M.burst[0] + 0.042, m)) ** 1.3;
+/** Camera shake 0..1 envelope: a hard hit at the burst that dies away within ~0.07 of m. */
+export const blastShake = (m: number): number => ss(M.burst[0] - 0.002, M.burst[0] + 0.004, m) * (1 - ss(M.burst[0] + 0.004, M.burst[0] + 0.085, m)) ** 2;
+/** Shake offset in units of the view distance (x, y): a deterministic sum of sines of m. Multiply by 0 under reduced motion. */
+export const shakeAt = (m: number): [number, number] => {
+  const e = blastShake(m);
+  return [e * (0.0075 * Math.sin(m * 1700) + 0.0045 * Math.sin(m * 2900 + 0.7)), e * (0.0075 * Math.sin(m * 1300 + 2.1) + 0.0045 * Math.sin(m * 3300 + 1.1))];
+};
+/** Debris progress 0..1 (the hot streaks leaving the blast; they hand over to the galaxy's stars). */
+export const debrisK = (m: number): number => clamp01((m - M.burst[0] - 0.004) / 0.24);
+/** Primary shock ring (fast) and the second, slower shell: progress 0..1 (ease-out) and alpha. */
+export const shock1K = (m: number): number => 1 - (1 - clamp01((m - M.burst[0] - 0.003) / 0.13)) ** 2.6;
+export const shock1A = (m: number): number => ss(M.burst[0] + 0.001, M.burst[0] + 0.012, m) * (1 - ss(M.burst[0] + 0.06, M.burst[0] + 0.15, m));
+export const shock2K = (m: number): number => 1 - (1 - clamp01((m - M.burst[0] - 0.012) / 0.3)) ** 2.0;
+export const shock2A = (m: number): number => ss(M.burst[0] + 0.01, M.burst[0] + 0.04, m) * (1 - ss(M.burst[0] + 0.12, M.burst[0] + 0.3, m));
 /** White-violet flash 0..1: a quick rise at the burst start, then a smooth fall. */
 export const burstFlash = (m: number): number => ss(M.burst[0] - 0.005, M.burst[0] + 0.02, m) * (1 - ss(M.burst[0] + 0.02, M.burst[1] + 0.07, m));
 /** Radius (world units) of the bubble the new star carves in its nebula: closed until the ignition flash (pp ~0.515), then
@@ -262,8 +282,9 @@ export function mergeCam(m: number, aspect: number, rMax: number): LateCam {
   const wide = aspect >= 1.2;
   const a = systemView(aspect, rMax);
   const offX = wide ? 0.33 + Math.max(0, 1.6 - aspect) * 0.25 : 0;
-  const dist = wide ? Math.max(25, 10 / (TAN25 * aspect * (0.92 - offX))) : Math.max(52, 10 / (TAN25 * aspect * 0.9)); // galaxy radius is 10
-  const fin = viewPose([0, 0, 0], dist, 0.84, 0, offX, wide ? -0.02 : -0.28, aspect);
+  // galaxy radius is 10 but its bright disc ends near 0.7 of that: the camera is close enough that the spiral fills ~75% of the width
+  const dist = wide ? Math.max(15, 10 / (TAN25 * aspect * (0.97 - offX))) : Math.max(38, 10 / (TAN25 * aspect * 1.22));
+  const fin = viewPose([0, 0, 0], dist, 0.84, 0, wide ? offX - 0.06 : offX, wide ? 0.09 : -0.28, aspect);
   const k: { m: number; cam: V3; tg: V3 }[] = [
     { m: 0, cam: a.cam, tg: a.target },
     { m: 0.42, cam: systemView(aspect, rMax, 0.8).cam, tg: systemView(aspect, rMax, 0.8).target },

@@ -25,13 +25,13 @@ import {
 } from './generator.ts';
 import type { PointCloud } from './generator.ts';
 import {
-  burstFlash, cavityR, nebulaDip, cometAt, clamp01, closeAmt, closeC, closeView, coreFlare, L, lateU, legacyP, lerp, M, formK, mergeCam, mergeM, shockAlpha, shockK, sunSwell, systemLeft, pullK, SPLIT,
+  blastFlash, burstFlash, debrisK, shakeAt, shock1A, shock1K, shock2A, shock2K, sunTremble, cavityR, nebulaDip, cometAt, clamp01, closeAmt, closeC, closeView, coreFlare, L, lateU, legacyP, lerp, M, formK, mergeCam, mergeM, shockK, sunSwell, systemLeft, pullK, SPLIT,
   sceneState, shipK, ss, systemView,
 } from './path.ts';
 import type { SceneState, V3 } from './path.ts';
 import { buildNursery, cocoonK, cronPhase, flashPhase, igniteK, infallPos, knotK, testPulseK, threadK, verifyU, VIEW_DIR } from './nursery.ts';
 import {
-  bodyFrag, bodyVert, cometVert, fxFrag, fxVert, lineFrag, lineVert, spriteFrag, spriteVert, tailFrag, tailVert,
+  bodyFrag, bodyVert, cometVert, debrisFrag, debrisVert, fxFrag, fxVert, lineFrag, lineVert, spriteFrag, spriteVert, tailFrag, tailVert,
 } from './shaders.ts';
 
 const CLEAR = '#05060a';
@@ -223,7 +223,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   const SUN_R = 0.11;
   const STAR_R = 0.05;
   const FIX_R = 0.024;
-  const FX_R = 10;
+  const FX_R = 16;
   const SUN = 0;
   const FIX0 = 1 + nWork;
   const nBody = 1 + nWork + nFix;
@@ -282,6 +282,32 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
   const bcoreMat = sprite(AdditiveBlending, 3, { size: 2, big: 1, gain: 0 });
   bcoreMat.uniforms.uCoreDim = { value: 1 };
   const bcorePts = points(bcoreGeo, bcoreMat, 5);
+  // the supernova's debris: hot streaks (stretched along their screen velocity) thrown out of the core; they hand over to the galaxy's stars
+  const nDeb = opts.tier === 'high' ? 1800 : opts.tier === 'medium' ? 1000 : 600;
+  const debGeo = track(new BufferGeometry());
+  {
+    const dir = new Float32Array(nDeb * 3);
+    const dat = new Float32Array(nDeb * 4);
+    let sd = 7919;
+    const rnd = (): number => { sd = (sd * 1664525 + 1013904223) >>> 0; return sd / 4294967296; };
+    for (let i = 0; i < nDeb; i++) {
+      const th = rnd() * Math.PI * 2;
+      const cy = (rnd() * 2 - 1) * (rnd() < 0.7 ? 0.28 : 1); // most fly out in the disc plane, some in all directions
+      const sy = Math.sqrt(1 - cy * cy);
+      dir.set([Math.cos(th) * sy, cy, Math.sin(th) * sy], i * 3);
+      dat.set([0.3 + 0.7 * rnd() ** 0.8, rnd(), rnd(), 0.35 + 0.65 * rnd() * rnd()], i * 4);
+    }
+    debGeo.setAttribute('position', new BufferAttribute(new Float32Array(nDeb * 3), 3));
+    debGeo.setAttribute('aDir', new BufferAttribute(dir, 3));
+    debGeo.setAttribute('aData', new BufferAttribute(dat, 4));
+  }
+  const debMat = track(new ShaderMaterial({
+    uniforms: { uK: { value: 0 }, uScale: shared.uScale, uPR: shared.uPR, uMax: shared.uMax, uSize: { value: 0.035 }, uAlpha: { value: 0 }, uRes: { value: new Vector2(1, 1) }, uCopyMask: { value: new Vector4(-0.6, 0, 0.5, 0.95) }, uCopyAmt: { value: 0 } },
+    vertexShader: debrisVert, fragmentShader: debrisFrag, glslVersion: GLSL3,
+    blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true,
+  }));
+  const debPts = points(debGeo, debMat, 6);
+  debPts.visible = false;
 
   // ribbons: one light thread per young star, plus the fixer's short tail
   const lineRes = { value: new Vector2(1, 1) }; // shared device-px screen size for the ribbon lines
@@ -336,7 +362,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
 
   // Opus's approval pulse (a soft expanding ring facing the camera) and the supernova shock ring (galaxy plane)
   const fxMat = track(new ShaderMaterial({
-    uniforms: { uPulseR: { value: 0 }, uPulseA: { value: 0 }, uShockR: { value: 0 }, uShockA: { value: 0 } },
+    uniforms: { uPulseR: { value: 0 }, uPulseA: { value: 0 }, uShockR: { value: 0 }, uShockA: { value: 0 }, uShock2R: { value: 0 }, uShock2A: { value: 0 } },
     vertexShader: fxVert, fragmentShader: fxFrag, glslVersion: GLSL3,
     blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true,
   }));
@@ -613,6 +639,14 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       cy + ptr.sy * 0.3 * par * (1 + 0.9 * sysP) + Math.sin(t * 0.17 + 1.3) * 0.1 * sway,
       cz + Math.sin(t * 0.13 + 2.1) * 0.12 * sway,
     );
+    if (m > 0 && idleOn > 0) {
+      // the blast's shake: a deterministic function of m, scaled by the view distance (off under reduced motion)
+      const [shx, shy] = shakeAt(m);
+      const vd = Math.hypot(cx - tg[0], cy - tg[1], cz - tg[2]);
+      camera.position.x += shx * vd;
+      camera.position.y += shy * vd;
+      camera.position.z += shy * vd * 0.4;
+    }
     camera.up.set(Math.sin(st.roll), Math.cos(st.roll), 0);
     camera.lookAt(tg[0], tg[1], tg[2]);
     if (Math.abs(camera.fov - fov) > 1e-3) {
@@ -626,7 +660,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     // nebula volume: full through hero, comet and dive (the knot collapses at the ignition flash), then the dimmed remnant around the
     // star's cavity; the shock ring widens the cavity past the sky and the gas is gone by the end of the burst. Low renders direct, so lift it.
     // the pre-rendered layers cover the hero/comet and the plan beats; the live volume is the dive, the ignition and the fallback
-    nebLayers.update(camera, { pp, m, copyAmt: ss(0.45, 0.55, pp), copyMask: volMask.value, exposure: composer ? st.exposure * (1 + 0.3 * burstFlash(m)) : 1 });
+    nebLayers.update(camera, { pp, m, copyAmt: ss(0.45, 0.55, pp), copyMask: volMask.value, exposure: composer ? st.exposure * (1 + 0.3 * burstFlash(m) + 0.45 * blastFlash(m)) : 1, flash: blastFlash(m) });
     const volWait = nebLayers.ready || pp > 0.1 || performance.now() - sceneT0 > 2200 ? 1 : 0; // hero: give the images a moment before baking the fallback
     const volA = (1 - nebLayers.cover) * volWait;
     nebVol.render(renderer, camera, {
@@ -675,7 +709,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     const px = shared.uScale.value / shared.uPR.value; // css px per world unit at depth 1
     const sunA = ss(0.5, 0.56, pp) * (1 - 0.55 * pullOut) * (1 - 0.7 * cA) * systemLeft(m) * (1 - ss(M.burst[0] - 0.006, M.burst[0] + 0.008, m)); // the star body is gone at the burst (the hot point core takes over); gone by the end of the burst: the merged galaxy owns the origin
     const pulseGlow = Math.sin(Math.PI * pulseP) ** 2;
-    uP[SUN].set(0, 0, 0, SUN_R * (1 + 0.3 * flare + 0.1 * pulseGlow + 1.6 * sunSwell(m)));
+    uP[SUN].set(0, 0, 0, SUN_R * (1 + 0.3 * flare + 0.1 * pulseGlow + 1.6 * sunSwell(m) + sunTremble(m)));
     uS[SUN].set(sunA * (1 + 2.6 * cA), 0, 0, 0); // behind the close-up copy the far sun is lifted back to a blazing star (the dimming above only guards the pill and the bloom)
     bodyMat.uniforms.uSpin.value = tt;
     bodyMat.uniforms.uFlare.value = flare * 0.9 + st.flash * 0.5 + pulseGlow * 0.12;
@@ -764,19 +798,27 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     hazeMat.uniforms.uGain.value *= 1 + 2.6 * portraitK * pullOut;
     hazeMat.uniforms.uSize.value *= 1 + 0.45 * portraitK * pullOut; // the haze carries the disc on phones
     const bf = burstFlash(m);
-    haloMat.uniforms.uGain.value = 0.17 * sunA * (1 + 1.6 * cA) * (1 + 2.5 * sunSwell(m)) + 1.1 * st.flash + 0.08 * bf; // + the ignition flash and the (now gentle) supernova wash
-    haloMat.uniforms.uSize.value = 2.8 * (1 + 0.5 * bf + 0.8 * sunSwell(m));
+    haloMat.uniforms.uGain.value = 0.17 * sunA * (1 + 1.6 * cA) * (1 + 2.5 * sunSwell(m)) + 1.1 * st.flash + 0.08 * bf + 0.7 * blastFlash(m); // + the ignition flash and the (now gentle) supernova wash
+    haloMat.uniforms.uSize.value = 2.8 * (1 + 0.5 * bf + 0.8 * sunSwell(m) + 1.0 * blastFlash(m));
     const b0 = M.burst[0];
     const bCore = ss(b0 - 0.004, b0 + 0.012, m) * (1 - ss(b0 + 0.014, b0 + 0.075, m)); // the hot point: a sharp rise, a quick fall
     bcorePts.visible = bCore > 0.002;
-    bcoreMat.uniforms.uGain.value = 2.0 * bCore;
-    bcoreMat.uniforms.uSize.value = 2.6 * (0.45 + 1.2 * ss(b0, b0 + 0.06, m));
+    bcoreMat.uniforms.uGain.value = 4.5 * bCore;
+    bcoreMat.uniforms.uSize.value = 2.6 * (0.5 + 3.2 * ss(b0, b0 + 0.05, m));
+    const dK = debrisK(m);
+    debPts.visible = dK > 0.0005 && dK < 0.9999;
+    debMat.uniforms.uK.value = dK;
+    debMat.uniforms.uAlpha.value = 0.22 * (opts.tier === 'low' ? 1.2 : 1);
+    debMat.uniforms.uCopyAmt.value = 0.7;
+    debMat.uniforms.uCopyMask.value.copy(volMask.value);
     haloCol[0] = 1 - 0.2 * bf;
     haloCol[1] = 0.62 + 0.1 * bf;
     haloCol[2] = 0.3 + 0.7 * bf;
     haloColAttr.needsUpdate = true;
-    fxMat.uniforms.uShockR.value = shockK(m) * (rMax + 1.2);
-    fxMat.uniforms.uShockA.value = shockAlpha(m);
+    fxMat.uniforms.uShockR.value = shock1K(m) * (rMax + 7);
+    fxMat.uniforms.uShockA.value = shock1A(m) * 1.0;
+    fxMat.uniforms.uShock2R.value = shock2K(m) * (rMax + 5);
+    fxMat.uniforms.uShock2A.value = shock2A(m);
     fxMat.uniforms.uPulseR.value = pulseFront;
     fxMat.uniforms.uPulseA.value = pulseP > 0 ? Math.sin(Math.PI * pulseP) ** 0.8 * 0.9 : 0;
     // the pulse is a sphere's front seen from the camera (a ring facing it); the shock ring lies in the galaxy plane
@@ -876,10 +918,10 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     feed.mesh.visible = feedOn > 0.002;
     tail.mesh.visible = nFix > 0 && u >= L.ship[0];
 
-    if (composer) renderer.toneMappingExposure = st.exposure * (1 + 0.3 * burstFlash(m));
+    if (composer) renderer.toneMappingExposure = st.exposure * (1 + 0.3 * burstFlash(m) + 0.45 * blastFlash(m));
     // planets and rings stay crisp: the bloom steps back while the system is on screen
     const sysAmt = sunA * (1 - pullOut);
-    if (bloom) bloom.strength = 0.45 * st.bloom * (1 - 0.35 * ss(0.5, 0.62, pp) * (1 - lg)) * (opts.tier === 'medium' ? 0.9 : 1) * (1 - 0.55 * sysAmt) * (1 - 0.85 * cA) * (1 + 0.12 * flare) * (1 + 1.0 * burstFlash(m));
+    if (bloom) bloom.strength = 0.45 * st.bloom * (1 - 0.35 * ss(0.5, 0.62, pp) * (1 - lg)) * (opts.tier === 'medium' ? 0.9 : 1) * (1 - 0.55 * sysAmt) * (1 - 0.85 * cA) * (1 + 0.12 * flare) * (1 + 1.0 * burstFlash(m) + 0.8 * blastFlash(m));
 
     // project nodes
     camera.updateMatrixWorld();
@@ -956,6 +998,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     shared.uPR.value = pr;
     shared.uMax.value = pointMax;
     lineRes.value.set(cssW * pr, cssH * pr);
+    debMat.uniforms.uRes.value.set(cssW * pr, cssH * pr);
     tailMat.uniforms.uRes.value.set(cssW * pr, cssH * pr);
     bakeSystem();
     // keep the nebula dim behind the copy: the left column on wide screens, the top band on portrait

@@ -504,6 +504,8 @@ uniform float uPulseR;
 uniform float uPulseA;
 uniform float uShockR;
 uniform float uShockA;
+uniform float uShock2R;
+uniform float uShock2A;
 in vec2 vP;
 out vec4 fragColor;
 void main() {
@@ -522,10 +524,97 @@ void main() {
     float line = 1.0 - smoothstep(0.0, 1.6 * aa, abs(dr));
     float lead = exp(-pow(dr / 0.2, 2.0)) * (dr > 0.0 ? 1.0 : 0.55);
     float trail = step(r, uShockR) * exp(dr / 0.55);
-    col += mix(vec3(0.62, 0.55, 1.0), vec3(1.0, 0.95, 1.0), smoothstep(-0.6, 0.0, dr)) * (line * 0.55 + lead * 0.3 + trail * 0.05) * uShockA;
+    // fast primary: a bright white leading edge, a violet shoulder, a long cooling wake behind it
+    float wake = step(r, uShockR) * exp(dr / 1.8);
+    col += mix(vec3(0.55, 0.45, 1.0), vec3(1.0, 0.96, 1.0), smoothstep(-0.9, 0.0, dr)) * (line * 1.5 + lead * 0.85 + trail * 0.25 + wake * 0.1) * uShockA;
+  }
+  if (uShock2A > 0.001) {
+    // the slower second shell: wide, soft and teal-violet, a swelling band rather than a line
+    float dr = r - uShock2R;
+    float band = exp(-pow(dr / (0.55 + 0.35 * uShock2R * 0.2), 2.0)) * (dr > 0.0 ? 0.7 : 1.0);
+    float inner = step(r, uShock2R) * exp(dr / 1.4);
+    col += mix(vec3(0.2, 0.75, 0.8), vec3(0.62, 0.5, 1.0), smoothstep(-1.5, 0.0, dr)) * (band * 0.3 + inner * 0.07) * uShock2A;
+    col += vec3(1.0, 0.7, 0.4) * exp(-pow((dr + 0.5) / 0.25, 2.0)) * 0.05 * uShock2A; // an amber thread riding the shell
   }
   float dn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
   col += dn / 255.0 * step(0.002, dot(col, vec3(1.0)));
   fragColor = vec4(col, 1.0);
+}
+`;
+
+/**
+ * The supernova's debris: hot streaks thrown out from the core. Position is a pure function of the blast progress uK (a radial
+ * ease-out along a per-particle direction); the sprite is stretched along its screen-space velocity (motion-blur trail), white-hot
+ * at first, cooling to violet / teal / amber, and hands over to the galaxy's stars by fading out. aData: speed, hue, phase, size.
+ */
+export const debrisVert = /* glsl */ `
+uniform float uK;
+uniform float uScale;
+uniform float uPR;
+uniform float uMax;
+uniform float uSize;
+uniform float uAlpha;
+uniform vec2 uRes;
+uniform vec4 uCopyMask;
+uniform float uCopyAmt;
+in vec3 aDir;
+in vec4 aData;
+out vec3 vC;
+out float vA;
+out vec2 vAx; // screen direction of travel (unit)
+out float vLen; // trail length / point size, 0..1
+vec3 at(float k) {
+  float e = 1.0 - pow(1.0 - clamp(k, 0.0, 1.0), 3.4);
+  return aDir * (e * 15.0 * aData.x);
+}
+void main() {
+  float k = uK;
+  vec3 p = at(k);
+  vec4 ma = modelViewMatrix * vec4(p, 1.0);
+  vec4 ca = projectionMatrix * ma;
+  vec4 cb = projectionMatrix * modelViewMatrix * vec4(at(k - 0.025), 1.0);
+  vec2 d = (ca.xy / max(ca.w, 1e-3) - cb.xy / max(cb.w, 1e-3));
+  float depth = max(-ma.z, 0.05);
+  gl_Position = ca;
+  float trailPx = length(d * 0.5 * vec2(uRes.x, uRes.y));
+  float size = aData.w * uSize * uScale / depth;
+  float len = clamp(trailPx * (2.2 + 3.0 * aData.z), 0.0, min(uMax - 2.0, 260.0 * uPR));
+  float pts = clamp(max(size * 2.0, len * 2.0 + size), 3.0 * uPR, uMax);
+  gl_PointSize = pts;
+  vAx = length(d) > 1e-6 ? normalize(d * vec2(uRes.x, uRes.y)) : vec2(1.0, 0.0);
+  vLen = clamp(len / pts, 0.0, 0.5);
+  float cool = smoothstep(0.0, 0.55, k);
+  vec3 hot = vec3(1.0, 0.97, 0.92);
+  vec3 tint = aData.y < 0.4 ? vec3(0.62, 0.45, 1.0) : (aData.y < 0.75 ? vec3(0.25, 0.85, 0.85) : vec3(1.0, 0.7, 0.35));
+  vC = mix(hot * 2.2, tint * 1.5, cool);
+  float life = smoothstep(0.0, 0.03, k) * (1.0 - smoothstep(0.45, 1.0, k));
+  float er = 1.0 - pow(1.0 - clamp(k, 0.0, 1.0), 3.4);
+  // every streak starts at the same point: fade them in as they separate, or the stacked additive core whites out the frame
+  vA = uAlpha * life * smoothstep(0.04, 0.4, er) / (1.0 + pow(size / (10.0 * uPR), 2.0)) / (1.0 + len / (70.0 * uPR));
+  if (uCopyAmt > 0.0) {
+    vec2 nd = (ca.xy / max(ca.w, 1e-3) - uCopyMask.xy) / uCopyMask.zw;
+    vA *= 1.0 - 0.9 * uCopyAmt * (1.0 - smoothstep(0.75, 1.25, length(nd)));
+  }
+}
+`;
+export const debrisFrag = /* glsl */ `
+in vec3 vC;
+in float vA;
+in vec2 vAx;
+in float vLen;
+out vec4 fragColor;
+void main() {
+  vec2 q = (gl_PointCoord - 0.5) * 2.0;
+  q.y = -q.y;
+  // along / across the travel direction; the streak runs from the head (leading) back along the trail
+  float a = dot(q, vAx);
+  float c = dot(q, vec2(-vAx.y, vAx.x));
+  float L = max(vLen * 2.0, 0.04);
+  float tail = clamp(-a / L, 0.0, 1.0);
+  float head = exp(-pow(max(a, 0.0) / 0.12, 2.0));
+  float along = a < 0.0 ? exp(-tail * 2.2) * (1.0 - smoothstep(0.85, 1.0, tail)) : head;
+  float across = exp(-pow(c / (0.1 + 0.05 * tail), 2.0) * 6.0);
+  float g = along * across;
+  fragColor = vec4(vC * g * vA, 1.0);
 }
 `;
