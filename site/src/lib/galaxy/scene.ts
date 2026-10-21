@@ -24,11 +24,11 @@ import {
 } from './generator.ts';
 import type { PointCloud } from './generator.ts';
 import {
-  burstFlash, cavityR, nebulaDip, cometAt, clamp01, closeAmt, closeC, closeView, coreFlare, L, lateU, legacyP, lerp, M, formK, mergeCam, mergeM, shockAlpha, shockK, sunSwell, systemLeft, orbitT, pullK,
-  sceneState, shipK, ss, systemView, win,
+  burstFlash, cavityR, nebulaDip, cometAt, clamp01, closeAmt, closeC, closeView, coreFlare, L, lateU, legacyP, lerp, M, formK, mergeCam, mergeM, shockAlpha, shockK, sunSwell, systemLeft, pullK, SPLIT,
+  sceneState, shipK, ss, systemView,
 } from './path.ts';
 import type { SceneState, V3 } from './path.ts';
-import { buildNursery, cocoonK, flashPhase, igniteK, knotK, threadK, verifyU, VIEW_DIR } from './nursery.ts';
+import { buildNursery, cocoonK, cronPhase, flashPhase, igniteK, infallPos, knotK, testPulseK, threadK, verifyU, VIEW_DIR } from './nursery.ts';
 import {
   bodyFrag, bodyVert, cometVert, fxFrag, fxVert, lineFrag, lineVert, spriteFrag, spriteVert, tailFrag, tailVert,
 } from './shaders.ts';
@@ -277,7 +277,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
 
   // ribbons: one light thread per young star, plus the fixer's short tail
   const lineRes = { value: new Vector2(1, 1) }; // shared device-px screen size for the ribbon lines
-  interface Ribbon { mesh: Mesh; pos: Float32Array; next: Float32Array; geo: BufferGeometry; prog: number[]; al: number[]; mat: ShaderMaterial }
+  interface Ribbon { mesh: Mesh; pos: Float32Array; next: Float32Array; geo: BufferGeometry; prog: number[]; al: number[]; pul: number[]; mat: ShaderMaterial }
   function makeRibbon(nLines: number, segs: number, kind: number, width: number, color: (li: number) => Rgb): Ribbon {
     const vCount = nLines * (segs + 1) * 2;
     const pos = new Float32Array(vCount * 3);
@@ -304,8 +304,9 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     geo.setIndex(new BufferAttribute(idx, 1));
     const prog = new Array(Math.max(1, nLines)).fill(0) as number[];
     const al = new Array(Math.max(1, nLines)).fill(0) as number[];
+    const pul = new Array(Math.max(1, nLines)).fill(0) as number[];
     const mat = track(new ShaderMaterial({
-      uniforms: { uRes: lineRes, uWidth: { value: width }, uPR: shared.uPR, uProg: { value: prog }, uAl: { value: al }, uFocus: { value: new Vector3() }, uDof: shared.uDof, uCopyMask: copyMask, uCopyAmt: { value: 0 } },
+      uniforms: { uRes: lineRes, uWidth: { value: width }, uPR: shared.uPR, uProg: { value: prog }, uAl: { value: al }, uPul: { value: pul }, uFocus: { value: new Vector3() }, uDof: shared.uDof, uCopyMask: copyMask, uCopyAmt: { value: 0 } },
       vertexShader: lineVert(Math.max(1, nLines)), fragmentShader: lineFrag, glslVersion: GLSL3,
       blending: AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, side: 2,
     }));
@@ -313,13 +314,17 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     mesh.frustumCulled = false;
     mesh.renderOrder = 6;
     scene.add(mesh);
-    return { mesh, pos, next, geo, prog, al, mat };
+    return { mesh, pos, next, geo, prog, al, pul, mat };
   }
   const THSEG = 64;
   const FSEG = 16;
   const threads = makeRibbon(nWork, THSEG, 0, 1.5, (li) => NODE_COL[opts.workers[Math.min(li, nWork - 1)].lane]);
   const tail = makeRibbon(Math.max(1, nFix), FSEG, 1, 1.1, () => NODE_COL.agy);
   tail.mesh.visible = nFix > 0;
+  // the feeding stream: a curved additive ribbon from the fixer into the close-up star (kind 2, flow phase in uProg)
+  const FEEDSEG = 28;
+  const feed = makeRibbon(1, FEEDSEG, 2, 1.7, () => NODE_COL[fixers[0]?.lane ?? 'agy']);
+  feed.mesh.visible = false;
 
   // Opus's approval pulse (a soft expanding ring facing the camera) and the supernova shock ring (galaxy plane)
   const fxMat = track(new ShaderMaterial({
@@ -358,36 +363,41 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       const v: V3 = [0, 1, 2].map((k) => Math.cos(a) * e1[k] + Math.sin(a) * e2[k] + tilt * vd[k]) as V3;
       const l = Math.hypot(v[0], v[1], v[2]) || 1;
       starAxis[i] = [v[0] / l, v[1] / l, v[2] / l];
-      // the thread: a gentle arc from just off Opus to the star, bowed sideways like a filament of gas
-      const P = s.pos;
-      const bowD: V3 = [s.dir[1] * vd[2] - s.dir[2] * vd[1], s.dir[2] * vd[0] - s.dir[0] * vd[2], s.dir[0] * vd[1] - s.dir[1] * vd[0]];
-      const bl = Math.hypot(bowD[0], bowD[1], bowD[2]) || 1;
-      const bow = 0.16 * Math.hypot(P[0], P[1], P[2]) * (i % 2 === 0 ? 1 : -1);
-      const C: V3 = [P[0] * 0.5 + (bowD[0] / bl) * bow, P[1] * 0.5 + (bowD[1] / bl) * bow, P[2] * 0.5 + (bowD[2] / bl) * bow];
-      const at = (tt: number, o: V3): void => {
-        const k0 = 0.04 + 0.96 * tt; // starts a hair off Opus, ends on the star
-        const m1 = 1 - k0;
-        for (let c = 0; c < 3; c++) o[c] = m1 * m1 * 0 + 2 * m1 * k0 * C[c] + k0 * k0 * P[c];
-      };
-      const li = starSlot[i]; // ribbons follow story order so the label/state arrays line up
-      const p0: V3 = [0, 0, 0];
-      const p1: V3 = [0, 0, 0];
-      for (let sg = 0; sg <= THSEG; sg++) {
-        at(sg / THSEG, p0);
-        at(Math.min(1, (sg + 1) / THSEG), p1);
-        if (sg === THSEG) for (let c = 0; c < 3; c++) p1[c] = p0[c] + (p0[c] - threadPrev[c]);
-        for (let sd = 0; sd < 2; sd++) {
-          const v2 = (li * (THSEG + 1) + sg) * 2 + sd;
-          threads.pos.set(p0, v2 * 3);
-          threads.next.set(p1, v2 * 3);
-        }
-        threadPrev[0] = p0[0]; threadPrev[1] = p0[1]; threadPrev[2] = p0[2];
-      }
+      fillThread(starSlot[i], s.pos);
     });
     threads.geo.attributes.position.needsUpdate = true;
     threads.geo.attributes.aNext.needsUpdate = true;
   }
   const threadPrev: V3 = [0, 0, 0];
+  const feedPrev: V3 = [0, 0, 0];
+  const threadAt = (C: V3, P: V3, tt: number, o: V3): void => {
+    const k0 = 0.04 + 0.96 * tt; // starts a hair off Opus, ends on the star
+    const m1 = 1 - k0;
+    for (let c = 0; c < 3; c++) o[c] = 2 * m1 * k0 * C[c] + k0 * k0 * P[c];
+  };
+  /** The thread: a gentle arc from just off Opus to the star at P, bowed sideways like a filament of gas (slot li = story order). */
+  function fillThread(li: number, P: V3): void {
+    const vd = VIEW_DIR;
+    const r = Math.hypot(P[0], P[1], P[2]) || 1;
+    const dir: V3 = [P[0] / r, P[1] / r, P[2] / r];
+    const bowD: V3 = [dir[1] * vd[2] - dir[2] * vd[1], dir[2] * vd[0] - dir[0] * vd[2], dir[0] * vd[1] - dir[1] * vd[0]];
+    const bl = Math.hypot(bowD[0], bowD[1], bowD[2]) || 1;
+    const bow = 0.16 * r * (li % 2 === 0 ? 1 : -1);
+    const C: V3 = [P[0] * 0.5 + (bowD[0] / bl) * bow, P[1] * 0.5 + (bowD[1] / bl) * bow, P[2] * 0.5 + (bowD[2] / bl) * bow];
+    const p0: V3 = [0, 0, 0];
+    const p1: V3 = [0, 0, 0];
+    for (let sg = 0; sg <= THSEG; sg++) {
+      threadAt(C, P, sg / THSEG, p0);
+      threadAt(C, P, Math.min(1, (sg + 1) / THSEG), p1);
+      if (sg === THSEG) for (let c = 0; c < 3; c++) p1[c] = p0[c] + (p0[c] - threadPrev[c]);
+      for (let sd = 0; sd < 2; sd++) {
+        const v2 = (li * (THSEG + 1) + sg) * 2 + sd;
+        threads.pos.set(p0, v2 * 3);
+        threads.next.set(p1, v2 * 3);
+      }
+      threadPrev[0] = p0[0]; threadPrev[1] = p0[1]; threadPrev[2] = p0[2];
+    }
+  }
 
   // ---- post -------------------------------------------------------------------------------------------------
   let composer: EffectComposer | null = null;
@@ -440,6 +450,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     .map((w, i) => ({ i, key: (w.mergeIndex ?? 1000) + w.launchIndex * 1e-3 }))
     .sort((a, b) => a.key - b.key)
     .forEach((e, r) => { mergeRank[e.i] = r; });
+  let threadsMerged = false;
   const nodeWorld: V3[] = Array.from({ length: nodeCount }, () => [0, 0, 0] as V3);
   const nodeRad: number[] = new Array(nodeCount).fill(0); // world radius used for the pill offset
   const nodeOnArr: number[] = new Array(nodeCount).fill(0);
@@ -460,7 +471,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     const st = sceneState(pp);
     const t = reduced ? 0 : (nowMs - t0) / 1000;
     const idleOn = reduced ? 0 : 1; // ambient idle motion (owner-allowed): time-based, layered on the scroll; 0 under reduced motion
-    const tt = orbitT(progress); // scroll-driven rotation clock for the stars' surfaces (the idle motion is uTime in the shaders)
+    const tt = 4.2 * clamp01((progress - SPLIT) / (1 - SPLIT)); // scroll-driven rotation clock for the stars' surfaces (the idle motion is uTime in the shaders)
     shared.uTime.value = t;
     shared.uSpin.value = st.spin + 0.5 * m;
     const band = ss(0.27, 0.36, pp) * (1 - ss(0.53, 0.6, pp)); // the dive's bright stretch: thin the bulge so the tunnel reads
@@ -517,12 +528,12 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       cbK[pi] = cocoonK(u, s.buildIndex, n);
       if (m > 0) {
         mk[pi] = pullK(m, mergeRank[starSlot[pi]], n);
-        const f = 1 - mk[pi]; // placeholder: the young stars fall straight in toward Opus
-        starPos[pi] = [s.pos[0] * f, s.pos[1] * f, s.pos[2] * f];
+        starPos[pi] = infallPos(s.pos, mk[pi]); // a gentle inward spiral: gravity pulls the cluster into Opus
       }
     });
     const cronPos: V3 = closeIdx >= 0 ? starPos[closeIdx] : [0, 0, 0];
     const cA = closeIdx >= 0 ? closeAmt(u) : 0;
+    const cronR = closeIdx >= 0 ? STAR_R * (0.8 + 0.2 * igK[closeIdx] + 0.35 * cbK[closeIdx]) : STAR_R; // the close-up star's body radius (frames the close-up)
     shared.uDof.value = cA; // fake depth of field in the close-up: far stars and threads soften with distance from the focus star
     // the knots are density pockets of the same nebula gas: positions + glow (the pulse from Opus brightens them as it passes), tint + ignition, axis + cocoon
     stars.forEach((s, pi) => {
@@ -531,8 +542,12 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       const hit = pulseP > 0 ? Math.exp(-(((pulseFront - r) / 0.9) ** 2)) : 0;
       const gone = 1 - ss(0, 0.25, mk[pi]);
       const c = NODE_COL[s.lane];
-      starKnot[pi].set(starPos[pi][0], starPos[pi][1], starPos[pi][2], kk[pi] * (1 + 1.1 * hit) * gone);
-      starKnotC[pi].set(c[0], c[1], c[2], igK[pi] * gone);
+      // the close-up star: its cocoon glow steps back so the star reads (not a blob), and the cocoon flushes red with each sputter
+      const isC = pi === closeIdx;
+      const kRed = isC && u >= L.dwell[0] ? cronPhase(s.verify.redFlashes, closeC(u)).red : 0;
+      const kDim = isC ? 1 - 0.7 * cA : 1;
+      starKnot[pi].set(starPos[pi][0], starPos[pi][1], starPos[pi][2], kk[pi] * (1 + 1.1 * hit) * gone * kDim);
+      starKnotC[pi].set(c[0] + (1.0 - c[0]) * kRed, c[1] * (1 - 0.85 * kRed), c[2] * (1 - 0.9 * kRed), igK[pi] * gone * (isC ? 1 - 0.45 * cA : 1));
       starKnotA[pi].set(starAxis[pi][0], starAxis[pi][1], starAxis[pi][2], cbK[pi]);
     });
 
@@ -569,7 +584,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       tg[2] = lerp(tg[2], ov.target[2], wSys);
     }
     if (cA > 0) {
-      const cl = closeView(cronPos, aspect);
+      const cl = closeView(cronPos, aspect, cronR);
       cx = lerp(cx, cl.cam[0], cA);
       cy = lerp(cy, cl.cam[1], cA);
       cz = lerp(cz, cl.cam[2], cA);
@@ -610,6 +625,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       collapse: ss(0.4, 0.512, pp),
       knot: 1 - ss(0.515, 0.545, pp),
       copyAmt: ss(0.45, 0.55, pp),
+      wall: ss(0.56, 0.75, pp), // Opus lights the bubble walls: a gentle ramp over the plan beat
       copyMask: volMask.value,
     });
     shared.uFocusD.value = Math.max(0.5, (cronPos[0] - camera.position.x) * fwd.x + (cronPos[1] - camera.position.y) * fwd.y + (cronPos[2] - camera.position.z) * fwd.z);
@@ -654,25 +670,34 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     nodeOnArr[0] = sunA * (1 - cA);
 
     const cC = closeC(u);
+    const cph = closeIdx >= 0 ? cronPhase(nur.stars[closeIdx].verify.redFlashes, cC) : { red: 0, green: 0, feed: 0 };
     stars.forEach((s, pi) => {
       const wi = starSlot[pi];
       const w = opts.workers[wi];
-      // verify: each star runs its flashPhase when its test pulse lands; the close-up star runs it during the dwell
+      // verify: a test pulse runs out along the thread; when it lands the star runs its verify (passing: a steady calm burn,
+      // failing: a red sputter, then it re-ignites). The close-up star sputters and is fed during the dwell instead.
       let okV = 0;
       let redV = 0;
       let failV = 0;
-      if (u > L.scan[0] || u >= L.dwell[0]) {
-        if (pi === closeIdx) {
-          const fp = flashPhase(s.verify, cC);
-          okV = fp.green;
-          redV = fp.red;
-          failV = ss(0, 0.03, cC) * (1 - ss(0.66, 0.74, cC));
-        } else {
-          const uL = verifyU(u, s.rank, n);
-          const fp = flashPhase(s.verify, uL);
-          okV = fp.green;
-          redV = fp.red;
-          failV = s.verify.redFlashes > 0 ? ss(0, 0.04, uL) * (1 - ss(0.62, 0.78, uL)) : 0;
+      let bright = 1;
+      if (pi === closeIdx) {
+        if (u >= L.dwell[0]) {
+          const ph = cronPhase(s.verify.redFlashes, cC);
+          okV = ph.green;
+          redV = ph.red;
+          failV = ss(0, 0.03, cC) * (1 - ss(0.6, 0.72, cC));
+          const flick = 0.5 + 0.5 * Math.sin(cC * Math.PI * 2 * s.verify.redFlashes * 14);
+          bright = (1 - 0.6 * redV * flick) * (1 + 0.3 * ph.feed);
+        }
+      } else if (u > L.scan[0]) {
+        const uL = verifyU(u, s.rank, n);
+        const fp = flashPhase(s.verify, uL);
+        okV = fp.green;
+        redV = fp.red;
+        if (s.verify.redFlashes > 0) {
+          failV = ss(0, 0.04, uL) * (1 - ss(0.62, 0.78, uL));
+          const flick = 0.5 + 0.5 * Math.sin(clamp01(uL / 0.7) * Math.PI * 2 * s.verify.redFlashes * 6);
+          bright = (1 - 0.6 * redV * flick) * (1 + 0.35 * Math.sin(Math.PI * okV)); // sputters, then re-ignites
         }
       }
       // close-up: stars inside the headline column step back so the copy reads (the focus star stays)
@@ -684,19 +709,23 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
         copyDim = 0.9 * cA * (1 - ss(0.75, 1.25, Math.hypot(nx, ny)));
       }
       const live = ss(0, 0.06, igK[pi]) * (1 - ss(0.9, 1, mk[pi])) * (1 - copyDim);
-      const R = STAR_R * (0.8 + 0.2 * igK[pi] + 0.35 * cbK[pi]);
+      const R = STAR_R * (0.8 + 0.2 * igK[pi] + 0.35 * cbK[pi]) * (pi === closeIdx ? 1 + 0.4 * cA : 1); // the close-up star grows so its disc and jets read
       // jet axis and disc tilt on screen: the axis projected onto the camera basis
       const ax = starAxis[pi];
       const sx = ax[0] * right.x + ax[1] * right.y + ax[2] * right.z;
       const sy = ax[0] * upV.x + ax[1] * upV.y + ax[2] * upV.z;
       const sz = ax[0] * back.x + ax[1] * back.y + ax[2] * back.z;
       uP[1 + wi].set(starPos[pi][0], starPos[pi][1], starPos[pi][2], R);
-      uS[1 + wi].set(live * (pi === closeIdx || camera.aspect >= 1.2 ? 1 : 1 - 0.8 * cA), 0, okV, redV);
+      uS[1 + wi].set(live * bright * (pi === closeIdx || camera.aspect >= 1.2 ? 1 : 1 - 0.8 * cA), okV, redV, pi === closeIdx ? cA : 0);
       uA[1 + wi].set(Math.atan2(sy, sx), Math.abs(sz), igK[pi], cbK[pi]);
       // the thread: a bright head travels out from Opus, then it settles to a faint filament
       const landed = thK[pi] >= 1;
+      const pv = testPulseK(u, s.rank, n);
+      threads.pul[wi] = pv > 0 && pv < 1 ? pv : 0; // the test pulse from Opus
+      if (m > 0 && mk[pi] < 1) fillThread(wi, starPos[pi]); // the thread follows its star as it falls in
+      threadsMerged = threadsMerged || (m > 0 && mk[pi] < 1);
       threads.prog[wi] = thK[pi];
-      threads.al[wi] = (landed ? 0.2 + 0.8 * (1 - ss(0, 1, igK[pi])) : ss(0, 0.04, thK[pi])) * (1 - ss(0, 0.2, mk[pi])) * systemLeft(m);
+      threads.al[wi] = (landed ? 0.2 + 0.8 * (1 - ss(0, 1, igK[pi])) : ss(0, 0.04, thK[pi])) * (1 - ss(0.1, 0.9, mk[pi])) * systemLeft(m);
       // the DOM pill sits under its knot; it names the planned worker from the plan beat on
       nodeWorld[wi + 1] = starPos[pi];
       nodeRad[wi + 1] = 0.4 + 0.1 * cbK[pi];
@@ -706,6 +735,15 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       fo.bad = failV;
       fo.rev = w.reviewed ? ss(0.5, 0.95, okV) : 0;
     });
+    if (m > 0) {
+      threads.geo.attributes.position.needsUpdate = true;
+      threads.geo.attributes.aNext.needsUpdate = true;
+    } else if (threadsMerged) {
+      stars.forEach((s2, pi2) => fillThread(starSlot[pi2], s2.pos)); // rewound out of the merge: back to the baked threads
+      threads.geo.attributes.position.needsUpdate = true;
+      threads.geo.attributes.aNext.needsUpdate = true;
+      threadsMerged = false;
+    }
     threads.mesh.visible = n > 0 && u > 0;
     threads.mat.uniforms.uCopyAmt.value = cA;
     threads.mat.uniforms.uFocus.value.set(cronPos[0], cronPos[1], cronPos[2]);
@@ -731,7 +769,9 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
     if (m > 0) fx.rotation.set(-Math.PI / 2, 0, 0);
     else fx.quaternion.copy(camera.quaternion);
 
-    // the fixer: a small amber spark from outside the nursery that docks on the close-up star
+    // the fixer: a small amber star that arrives from the bubble wall, settles beside the close-up star (in its disc plane) and
+    // FEEDS it: a stream of gas from the fixer into the star, until the star holds a steady burn. The fixer then stays nearby, dimmer.
+    let feedOn = 0;
     fixers.forEach((fx2, kf) => {
       const ni = 1 + n + kf;
       const isClose = closeIdx >= 0 && fx2.w === starSlot[closeIdx];
@@ -739,22 +779,35 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       if (isClose) {
         const kS = shipK(u);
         const e = 1 - (1 - kS) ** 2.2;
-        const ang = Math.atan2(cronPos[2], cronPos[0]);
-        const S: V3 = [Math.cos(ang + 0.9) * (rMax + 3.5), 1.6, Math.sin(ang + 0.9) * (rMax + 3.5)];
-        const D: V3 = cronPos;
-        const px2 = (D[2] - S[2]);
-        const pz2 = -(D[0] - S[0]);
-        const pl = Math.hypot(px2, pz2) || 1;
-        const C: V3 = [(S[0] + D[0]) / 2 + (px2 / pl) * 1.3, (S[1] + D[1]) / 2 + 1.1, (S[2] + D[2]) / 2 + (pz2 / pl) * 1.3];
+        // a world-fixed frame from the close-up camera: so the fixer's route does not wobble with the camera's fly-in
+        const cvw = closeView(starPos[closeIdx], camera.aspect, cronR);
+        const fz: V3 = [cvw.target[0] - cvw.cam[0], cvw.target[1] - cvw.cam[1], cvw.target[2] - cvw.cam[2]];
+        const fl = Math.hypot(fz[0], fz[1], fz[2]) || 1;
+        const rl = Math.hypot(fz[2], fz[0]) || 1;
+        const rW: V3 = [-fz[2] / rl, 0, fz[0] / rl]; // world right of the close-up camera
+        const uW: V3 = [(rW[1] * fz[2] - rW[2] * fz[1]) / fl, (rW[2] * fz[0] - rW[0] * fz[2]) / fl, (rW[0] * fz[1] - rW[1] * fz[0]) / fl];
+        const ax = starAxis[closeIdx];
+        const ax_r = ax[0] * rW[0] + ax[1] * rW[1] + ax[2] * rW[2];
+        const ax_u = ax[0] * uW[0] + ax[1] * uW[1] + ax[2] * uW[2];
+        // beside the star, across its jets (in the disc plane as seen), on the right of the frame
+        let ox = -ax_u;
+        let oy = ax_r;
+        const ol = Math.hypot(ox, oy) || 1;
+        if (ox < 0) { ox = -ox; oy = -oy; }
+        const cAn = cA;
+        const dockD = 7 * cronR * (1 + 0.4 * cAn);
+        const D: V3 = [0, 1, 2].map((c) => starPos[closeIdx][c] + (rW[c] * ox / ol + uW[c] * oy / ol) * dockD * (1 - mk[closeIdx])) as V3;
+        const S: V3 = [0, 1, 2].map((c) => D[c] + rW[c] * 3.0 + uW[c] * 0.9 - (fz[c] / fl) * 0.8) as V3;
+        const C: V3 = [0, 1, 2].map((c) => (S[c] + D[c]) / 2 + uW[c] * 0.9) as V3;
         const bez = (ee: number, o: V3): void => {
           const mm = 1 - ee;
           for (let c = 0; c < 3; c++) o[c] = mm * mm * S[c] + 2 * mm * ee * C[c] + ee * ee * D[c];
         };
         const headP: V3 = [0, 0, 0];
         bez(e, headP);
-        a = ss(0, 0.05, kS) * (1 - ss(0.925, 0.955, u)) * (u >= L.ship[0] ? 1 : 0) * (1 - ss(0.3, 0.9, m) );
-        uP[FIX0 + kf].set(headP[0], headP[1], headP[2], FIX_R);
-        uS[FIX0 + kf].set(a, 0, 0, 0);
+        a = ss(0, 0.05, kS) * (u >= L.ship[0] ? 1 : 0) * (1 - 0.45 * ss(0.9, 0.955, u)) * (1 - ss(0.6, 1, mk[closeIdx]));
+        uP[FIX0 + kf].set(headP[0], headP[1], headP[2], FIX_R * (1 + 0.5 * cph.feed));
+        uS[FIX0 + kf].set(a * (1 + 0.5 * cph.feed), 0, 0, 0);
         // tail: the last stretch of the flight
         for (let s = 0; s <= FSEG; s++) bez(Math.max(0, e - 0.2 * (1 - s / FSEG)), tailPts[s]);
         for (let s = 0; s <= FSEG; s++) for (let sd = 0; sd < 2; sd++) {
@@ -768,8 +821,36 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
         tail.geo.attributes.aNext.needsUpdate = true;
         tail.prog[kf] = 1;
         tail.al[kf] = a * 0.9 * (1 - ss(0.8, 1, kS));
+        // the feeding stream: an arc from the fixer to just inside the star's disc, with clumps flowing toward the star
+        feedOn = cph.feed * (u >= L.ship[0] ? 1 : 0) * (1 - ss(0.6, 1, mk[closeIdx]));
+        if (feedOn > 0.002) {
+          const T: V3 = [0, 1, 2].map((c) => starPos[closeIdx][c] + (D[c] - starPos[closeIdx][c]) * (1.5 * cronR * (1 + 0.4 * cAn) / (dockD * (1 - mk[closeIdx]) + 1e-6))) as V3;
+          const dl = Math.hypot(D[0] - T[0], D[1] - T[1], D[2] - T[2]);
+          const FC: V3 = [0, 1, 2].map((c) => (D[c] + T[c]) / 2 + uW[c] * dl * 0.38 + (fz[c] / fl) * -dl * 0.1) as V3;
+          const fAt = (tt: number, o: V3): void => {
+            const mm = 1 - tt;
+            for (let c = 0; c < 3; c++) o[c] = mm * mm * D[c] + 2 * mm * tt * FC[c] + tt * tt * T[c];
+          };
+          const f0: V3 = [0, 0, 0];
+          const f1: V3 = [0, 0, 0];
+          for (let sg = 0; sg <= FEEDSEG; sg++) {
+            fAt(sg / FEEDSEG, f0);
+            fAt(Math.min(1, (sg + 1) / FEEDSEG), f1);
+            if (sg === FEEDSEG) for (let c = 0; c < 3; c++) f1[c] = f0[c] + (f0[c] - feedPrev[c]);
+            for (let sd = 0; sd < 2; sd++) {
+              const v2 = (sg) * 2 + sd;
+              feed.pos.set(f0, v2 * 3);
+              feed.next.set(f1, v2 * 3);
+            }
+            feedPrev[0] = f0[0]; feedPrev[1] = f0[1]; feedPrev[2] = f0[2];
+          }
+          feed.geo.attributes.position.needsUpdate = true;
+          feed.geo.attributes.aNext.needsUpdate = true;
+        }
+        feed.al[0] = feedOn * 0.85;
+        feed.prog[0] = cC * 9 + t * 0.35; // flow phase: scrolls with the page, plus a slow idle drift (0 under reduced motion)
         nodeWorld[ni] = headP;
-        nodeOnArr[ni] = ss(0.01, 0.06, kS) * (1 - ss(0.88, 0.97, kS)) * (u >= L.ship[0] ? 1 : 0);
+        nodeOnArr[ni] = ss(0.01, 0.06, kS) * (u >= L.ship[0] ? 1 : 0) * (1 - ss(0.6, 1, mk[closeIdx]));
       } else {
         uS[FIX0 + kf].set(0, 0, 0, 0);
         tail.al[kf] = 0;
@@ -778,6 +859,7 @@ export function createGalaxy(canvas: HTMLCanvasElement, opts: GalaxyOptions): Ga
       }
       nodeRad[ni] = FIX_R;
     });
+    feed.mesh.visible = feedOn > 0.002;
     tail.mesh.visible = nFix > 0 && u >= L.ship[0];
 
     if (composer) renderer.toneMappingExposure = st.exposure * (1 + 0.3 * burstFlash(m));

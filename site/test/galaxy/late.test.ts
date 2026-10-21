@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   burstFlash, formK, closeAmt, closeC, closeView, coreFlare, L, LATE_END, lateOpacity, lateU, legacyP, M, mergeCam, mergeM, mergeOpacity,
-  orbitT, pullEnd, pullK, shipK, SPLIT, STATIC_POSE, systemView, verifyU, viewPose, waveF, waveR, win,
+  pullEnd, pullK, shipK, SPLIT, STATIC_POSE, systemView, viewPose, win,
 } from '../../src/lib/galaxy/path.ts';
 import type { V3 } from '../../src/lib/galaxy/path.ts';
 
@@ -15,16 +15,6 @@ assert.equal(mergeM(LATE_END), 0);
 assert.equal(mergeM(1), 1);
 assert.ok(SPLIT < LATE_END && LATE_END < 1);
 assert.equal(legacyP(0), 0);
-
-// the orbital clock is scroll-driven: zero until the late beats, then monotonic
-assert.equal(orbitT(0), 0);
-assert.equal(orbitT(SPLIT), 0);
-let tPrev = 0;
-for (let i = 0; i <= 100; i++) {
-  const t = orbitT(i / 100);
-  assert.ok(t >= tPrev);
-  tPrev = t;
-}
 
 // the late windows run in story order: launch, build, scan (plus one flash), fly in, dwell, pull back
 assert.ok(L.fan[1] <= L.build[0] && L.build[1] <= L.scan[0]);
@@ -41,12 +31,12 @@ assert.equal(closeAmt(L.dwell[1]), 1);
 assert.equal(closeAmt(1), 0);
 assert.equal(closeC(L.dwell[0]), 0);
 assert.equal(closeC(L.dwell[1]), 1);
-// the fixer flies from outside the system, starts during the fly-in and docks before cron's red flashes end (c = 0.7)
+// the fixer flies from the bubble wall, starts during the fly-in and arrives beside cron once its three sputters end (c = 0.5)
 assert.equal(shipK(L.ship[0]), 0);
 assert.equal(shipK(L.ship[1]), 1);
 assert.ok(L.ship[0] < L.dwell[0], 'the ship is already on its way as the camera arrives');
 const dockC = (L.ship[1] - L.dwell[0]) / (L.dwell[1] - L.dwell[0]);
-assert.ok(dockC > 0.55 && dockC < 0.7, `dock at c=${dockC}`);
+assert.ok(dockC > 0.4 && dockC <= 0.5, `dock at c=${dockC}`);
 
 // poses: the cameras are finite, continuous in the planet's position, and the merge camera starts on the overview
 for (const asp of [1.6, 0.46]) {
@@ -60,9 +50,9 @@ for (const asp of [1.6, 0.46]) {
     assert.ok(dist(c, prev) < 0.25, 'merge camera is continuous');
     prev = c;
   }
-  // close-up: a few units from the planet, and it follows the planet as it orbits (small steps for small planet steps)
+  // close-up: a few units from the star (scaled to its size), and it follows the star as it moves (small steps for small steps)
   let pc = closeView([3.4, 0, 0], asp).cam;
-  assert.ok(dist(pc, [3.4, 0, 0]) < 2.5);
+  assert.ok(dist(pc, [3.4, 0, 0]) < 6);
   for (let i = 1; i <= 200; i++) {
     const a = (i / 200) * 0.6;
     const c = closeView([3.4 * Math.cos(a), 0, 3.4 * Math.sin(a)], asp).cam;
@@ -132,30 +122,3 @@ for (let i = 1; i < poses.length; i++) assert.ok(poses[i] > poses[i - 1]);
 const uOf = (P: number): number => lateU(P);
 assert.ok(uOf(STATIC_POSE.verify) >= L.scan[1] + L.tick && uOf(STATIC_POSE.verify) < L.fly[0]);
 assert.ok(uOf(STATIC_POSE.cron) > L.ship[1] && uOf(STATIC_POSE.cron) < L.dwell[1]);
-
-// the verify wave: starts at the sun, reaches the outer ring by the end of the scan, never past it, monotonic
-{
-  const radii = [1.6, 2.4, 3.2, 4.0, 4.8, 5.6];
-  const n = radii.length;
-  assert.equal(waveR(L.scan[0], radii), 0);
-  assert.equal(waveR(L.scan[0] - 0.05, radii), 0);
-  assert.equal(waveR(L.scan[1], radii), radii[n - 1]);
-  assert.equal(waveR(1, radii), radii[n - 1]);
-  let prev = -1;
-  for (let i = 0; i <= 200; i++) {
-    const u = L.scan[0] + ((L.scan[1] - L.scan[0]) * i) / 200;
-    const r = waveR(u, radii);
-    assert.ok(r >= prev && r <= radii[n - 1]);
-    prev = r;
-  }
-  assert.ok(waveF(L.scan[1], n) === n);
-  // the rank-based trigger fires inner planets first, and every planet is done within scan + tick
-  for (let rank = 0; rank < n - 1; rank++) {
-    const first = (k: number): number => { let u = L.scan[0]; while (verifyU(u, k, n) <= 0) u += 1e-4; return u; };
-    assert.ok(first(rank) < first(rank + 1));
-  }
-  for (let rank = 0; rank < n; rank++) {
-    assert.equal(verifyU(L.scan[0], rank, n), 0);
-    assert.equal(verifyU(L.scan[1] + L.tick, rank, n), 1);
-  }
-}

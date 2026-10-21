@@ -150,18 +150,17 @@ export const LATE_END = 0.766;
 export const legacyP = (P: number): number => clamp01(P / SPLIT);
 export const lateU = (P: number): number => clamp01((P - SPLIT) / (LATE_END - SPLIT));
 export const mergeM = (P: number): number => clamp01((P - LATE_END) / (1 - LATE_END));
-/** Orbital clock for the planets: scroll-driven (no autoplay), 0 until the late beats start. */
 export const orbitT = (P: number): number => 4.2 * clamp01((P - SPLIT) / (1 - SPLIT));
 
 export const L = {
   fan: [0.03, 0.27], // planets launch from the sun, staggered by launch order
   build: [0.36, 0.61], // worktree rings grow, staggered by build order
-  scan: [0.665, 0.745], // the verify wave runs out ring by ring
-  tick: 0.03, // u a planet takes to run through its verify flash after the arc passes
+  scan: [0.665, 0.745], // test pulses run out along the threads, inner stars first
+  tick: 0.035, // u a young star takes to run through its verify (sputter or settle) after its test pulse lands
   fly: [0.79, 0.84], // the camera flies in to the close-up planet
   dwell: [0.84, 0.955], // close-up hold; c = 0..1 drives the planet's flashes and its fixer
   out: [0.955, 1.0], // and pulls back to the overview
-  ship: [0.8, 0.918], // the fixer's flight from outside the system; it docks at the end
+  ship: [0.8, 0.895], // the fixer's flight from the bubble wall; it arrives beside cron at the end (c = 0.5), then feeds it
 } as const;
 /** Close-up progress c 0..1 (flashPhase input for the close-up planet). */
 export const closeC = (u: number): number => clamp01((u - L.dwell[0]) / (L.dwell[1] - L.dwell[0]));
@@ -172,25 +171,6 @@ export const shipK = (u: number): number => clamp01((u - L.ship[0]) / (L.ship[1]
 /** u as a 0..1 window position. */
 export const win = (w: readonly [number, number], u: number): number => clamp01((u - w[0]) / (w[1] - w[0]));
 
-// ---- the verify wave: light leaves the sun and reaches the orbits one after another (inner ring first) --------------
-/** Wave front in ring-rank space: 0 at the start of L.scan, n at its end, ring `rank` is hit at rank + 0.5. Keeps growing past the window so late flashes finish (>= 0, monotonic). */
-export const waveF = (u: number, n: number): number => Math.max(0, ((u - L.scan[0]) / (L.scan[1] - L.scan[0])) * n);
-/** The front's world radius: 0 at the start of L.scan, the outer ring by its end, never beyond it. `radii` ascending. */
-export function waveR(u: number, radii: readonly number[]): number {
-  const n = radii.length;
-  if (n === 0) return 0;
-  const x = Math.min(waveF(u, n), n - 0.5); // ring i sits at rank-space i + 0.5
-  if (x <= 0.5) return radii[0] * (x / 0.5);
-  const i = Math.min(n - 2, Math.floor(x - 0.5));
-  if (i < 0) return radii[0];
-  const f = x - 0.5 - i;
-  return radii[i] + (radii[i + 1] - radii[i]) * f;
-}
-/** A planet's verify progress (flashPhase input): starts when the wave reaches its ring (rank by radius, inner first), runs for L.tick. */
-export const verifyU = (u: number, rank: number, n: number): number => {
-  const hit = L.scan[0] + ((rank + 0.5) / Math.max(1, n)) * (L.scan[1] - L.scan[0]);
-  return clamp01((u - hit) / L.tick);
-};
 const easeInOut = (t: number): number => t * t * (3 - 2 * t);
 
 export interface LateCam { cam: V3; target: V3; fov: number }
@@ -218,13 +198,15 @@ export function systemView(aspect: number, rMax: number, zoom = 1): LateCam {
   if (wide) return viewPose([0, 0, 0], dist, 0.49, 0, 0.33 + Math.max(0, 1.6 - aspect) * 0.25, -0.02, aspect);
   return viewPose([0, 0, 0], dist, 0.7, 0, 0, -0.3, aspect);
 }
-/** Close-up on a planet at `pos` (angle `ang` about the sun): from the tangent side so the sun glows far behind it. */
-export function closeView(pos: V3, aspect: number): LateCam {
+/** Close-up on the young star at `pos` with body radius `starR`: from the tangent side so Opus glows far behind it. The
+ *  distance scales with the star's visual extent (disc + jets reach ~11 body radii) so it fits with breathing room. */
+export function closeView(pos: V3, aspect: number, starR = 0.0575): LateCam {
   const ang = Math.atan2(pos[2], pos[0]);
   const hx = -Math.sin(ang) * 0.82 + Math.cos(ang) * 0.57; // tangent plus a little outward
   const hz = Math.cos(ang) * 0.82 + Math.sin(ang) * 0.57;
   const wide = aspect >= 1.2;
-  return viewPose(pos, wide ? 1.9 : 1.75, 0.34, Math.atan2(hx, hz), wide ? 0.3 : 0, wide ? -0.02 : -0.36, aspect);
+  const dist = 48 * starR * Math.max(1, (wide ? 0.62 : 0.78) / aspect);
+  return viewPose(pos, dist, 0.34, Math.atan2(hx, hz), wide ? 0.3 : 0, wide ? -0.02 : -0.36, aspect);
 }
 
 // ---- beat 5: merge (m) -------------------------------------------------------------------------------------------------
@@ -315,8 +297,8 @@ export const STATIC_POSE = {
   constellation: 0.9 * SPLIT,
   fan: SPLIT + 0.3 * (LATE_END - SPLIT),
   build: SPLIT + 0.62 * (LATE_END - SPLIT),
-  verify: SPLIT + 0.78 * (LATE_END - SPLIT),
-  cron: SPLIT + 0.935 * (LATE_END - SPLIT),
+  verify: SPLIT + 0.786 * (LATE_END - SPLIT),
+  cron: SPLIT + 0.95 * (LATE_END - SPLIT),
   merge: LATE_END + 0.3 * (1 - LATE_END),
   close: 1,
 } as const;

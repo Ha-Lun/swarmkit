@@ -28,6 +28,7 @@ export interface VolumeParams {
   collapse: number; // 0..1: the knot contracts to a point and brightens (ignition)
   knot: number; // 0..1: knot brightness
   copyAmt: number; // 0..1: dim the copy column
+  wall?: number; // 0..1: Opus lights the bubble walls (a gentle ramp of the cavity-wall emission; 0 = as carved)
   copyMask: Vector4; // NDC ellipse cx, cy, rx, ry
   /** Star-forming knots (density pockets of the same gas, integrated in closed form): per star three vec4s.
    *  p = position + glow 0..1 (pulse included), c = tint + ignition 0..1, a = bipolar axis + cocoon build 0..1. */
@@ -85,6 +86,7 @@ uniform vec4 uKc[${MAX_KNOTS}];
 uniform vec4 uKa[${MAX_KNOTS}];
 uniform int uKn;
 uniform float uKGain;
+uniform float uWall;
 in vec3 vDir;
 out vec4 outColor;
 ${lobeConsts()}
@@ -224,7 +226,7 @@ void main() {
       float rimK = 1.0 - smoothstep(0.08, 0.7, env);
       base = mix(base, RIMC, 0.5 * rimK);
       base = mix(base, vec3(0.9, 0.97, 1.0), 0.3 * lit + 0.25 * wall);
-      em = gas * (0.5 + 1.2 * lit + 2.8 * wall) + gas * gas * 0.6 * (lit + wall);
+      em = gas * (0.5 + 1.2 * lit + 2.8 * wall * (1.0 + 0.85 * uWall)) + gas * gas * 0.6 * (lit + wall);
       col = base * em;
       sig = gas * 0.35 + dust * 1.6;
     }
@@ -315,7 +317,7 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
       uKp: { value: Array.from({ length: MAX_KNOTS }, () => new Vector4()) },
       uKc: { value: Array.from({ length: MAX_KNOTS }, () => new Vector4()) },
       uKa: { value: Array.from({ length: MAX_KNOTS }, () => new Vector4(0, 1, 0, 0)) },
-      uKn: { value: 0 }, uKGain: { value: 0 },
+      uKn: { value: 0 }, uKGain: { value: 0 }, uWall: { value: 0 },
       uTime: { value: 0 }, uGain: { value: 0 }, uCavR: { value: 0 }, uCollapse: { value: 0 }, uKnot: { value: 1 },
       uSteps: { value: q.steps }, uOct: { value: q.octaves },
       uTeal: { value: PALETTE.opencode }, uAmber: { value: PALETTE.agy },
@@ -363,7 +365,7 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
       // the low tier freezes the idle drift so an unchanged view is never re-marched
       const time = tier === 'low' ? 0 : p.time;
       const e = camera.matrixWorld.elements;
-      const s = `${e[12].toFixed(4)},${e[13].toFixed(4)},${e[14].toFixed(4)},${e[0].toFixed(4)},${e[1].toFixed(4)},${e[2].toFixed(4)},${e[4].toFixed(4)},${e[5].toFixed(4)},${e[6].toFixed(4)},${camera.fov},${camera.aspect},${time.toFixed(3)},${p.gain.toFixed(4)},${p.cavR.toFixed(4)},${p.collapse.toFixed(4)},${p.knot.toFixed(4)}`
+      const s = `${e[12].toFixed(4)},${e[13].toFixed(4)},${e[14].toFixed(4)},${e[0].toFixed(4)},${e[1].toFixed(4)},${e[2].toFixed(4)},${e[4].toFixed(4)},${e[5].toFixed(4)},${e[6].toFixed(4)},${camera.fov},${camera.aspect},${time.toFixed(3)},${p.gain.toFixed(4)},${p.cavR.toFixed(4)},${p.collapse.toFixed(4)},${p.knot.toFixed(4)},${(p.wall ?? 0).toFixed(3)}`
         + (kn ? `|${kn.n},${kn.gain.toFixed(4)},${kn.p.slice(0, kn.n).map((v, i) => `${v.x.toFixed(3)},${v.y.toFixed(3)},${v.z.toFixed(3)},${v.w.toFixed(3)},${kn.c[i].w.toFixed(3)},${kn.a[i].w.toFixed(3)}`).join(';')}` : '');
       if (s === sig) return;
       sig = s;
@@ -375,6 +377,7 @@ export function createNebulaVolume(tier: Tier, renderer: WebGLRenderer): NebulaV
       u.uCavR.value = p.cavR;
       u.uCollapse.value = p.collapse;
       u.uKnot.value = p.knot;
+      u.uWall.value = p.wall ?? 0;
       const kn2 = p.knots;
       const nk = kn2 ? Math.min(kn2.n, MAX_KNOTS) : 0;
       u.uKn.value = nk;

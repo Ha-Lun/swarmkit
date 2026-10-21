@@ -1,6 +1,5 @@
 // Star-nursery layout + timing: N young stars born in the bubble wall around
-// Opus (the origin). Replaces the planet layout of system.ts for the new
-// design. Pure math (no DOM, no three.js) so it runs under node --test and in
+// Opus (the origin). Pure math (no DOM, no three.js) so it runs under node --test and in
 // the R3F scene alike. All progress inputs are 0..1 (pp = legacy plan beat,
 // u = late beats), so everything scrubs and rewinds exactly.
 import type { Story, StoryWorker } from './story.ts';
@@ -8,12 +7,38 @@ import type { Lane } from '../run.ts';
 import { clamp01, ss, win } from './path.ts';
 import { L } from './path.ts';
 import type { V3 } from './path.ts';
-import { flashPhase, stagger } from './system.ts';
-import type { VerifyPlan } from './system.ts';
-
-export { flashPhase, stagger };
-export type { VerifyPlan };
 export type { V3 };
+
+export interface VerifyPlan {
+  redFlashes: number; // = failedVerifies
+  resolution: 'clean' | 'resume' | 'fixer';
+  fixer: { slug: string; lane: Lane } | null;
+}
+
+const smooth = (t: number): number => t * t * (3 - 2 * t);
+
+/** Global progress u in 0..1 mapped to item i of n (smoothstep easing); the stagger of every nursery beat. */
+export function stagger(u: number, i: number, n: number, span = 0.6): number {
+  const start = n > 1 ? (i / (n - 1)) * (1 - span) : 0;
+  return smooth(clamp01((u - start) / span));
+}
+
+/** Verify beat: red failure pulses over the first 70% of u, then the star settles (green ramp over the last 30%);
+ *  clean stars ramp green early and never flash red. */
+export function flashPhase(v: VerifyPlan, u: number): { red: number; green: number } {
+  const x = clamp01(u);
+  if (v.redFlashes <= 0) return { red: 0, green: clamp01(x / 0.4) };
+  const red = x < 0.7 ? Math.sin(Math.PI * (((x / 0.7) * v.redFlashes) % 1)) ** 2 : 0;
+  return { red, green: clamp01((x - 0.7) / 0.3) };
+}
+
+/** The close-up star over the dwell (c 0..1): red sputters (redFlashes of them) until c = 0.5, the fixer feeds it
+ *  c 0.5..0.9 (feed 0..1..0), and it holds a steady burn (green) from there. */
+export function cronPhase(redFlashes: number, c: number): { red: number; green: number; feed: number } {
+  const x = clamp01(c / 0.5);
+  const red = redFlashes > 0 && x < 1 ? Math.sin(Math.PI * ((x * redFlashes) % 1)) ** 2 : 0;
+  return { red, green: ss(0.62, 0.9, c), feed: ss(0.5, 0.58, c) * (1 - ss(0.86, 0.93, c)) };
+}
 
 export interface Young {
   slug: string;
@@ -28,7 +53,6 @@ export interface Young {
 }
 
 const GOLDEN = 2.399963; // golden angle: consecutive stars never line up
-const TAU = Math.PI * 2;
 const TH_MIN = (55 * Math.PI) / 180; // band around VIEW_DIR: no star in front of
 const TH_MAX = (125 * Math.PI) / 180; // Opus, none hidden straight behind it
 
@@ -38,7 +62,7 @@ export const VIEW_DIR: V3 = [0, 0.47 / VD_LEN, 0.88 / VD_LEN];
 
 const frac = (x: number): number => x - Math.floor(x);
 
-// Verify beat plan, copied from system.ts (which goes away later).
+// Verify beat plan of one worker.
 export function verifyFor(w: StoryWorker): VerifyPlan {
   if (w.fixer !== null) return { redFlashes: w.failedVerifies, resolution: 'fixer', fixer: w.fixer };
   if (w.failedVerifies > 0) return { redFlashes: w.failedVerifies, resolution: 'resume', fixer: null };
@@ -172,3 +196,20 @@ export const testPulseK = (u: number, rank: number, n: number): number =>
 /** Verify progress (flashPhase input) of the star: starts when its test pulse lands, runs for L.tick. */
 export const verifyU = (u: number, rank: number, n: number): number =>
   clamp01((u - (pulseStart(rank, n) + PULSE_DUR)) / L.tick);
+
+/** Merge infall (k = pullK 0..1): the star falls from its bubble-wall position to Opus along a gently curving path:
+ *  it swings about the view axis by up to ~100 degrees as it sinks (faster near the end, like angular momentum
+ *  conserving) so the cluster tightens in a slight inward spiral. k = 0 is `pos`, k = 1 is Opus (the origin). */
+export function infallPos(pos: V3, k: number): V3 {
+  const kk = clamp01(k);
+  const r = 1 - kk;
+  const a = 1.75 * (1 - Math.sqrt(r)); // swing angle about VIEW_DIR
+  const c = Math.cos(a);
+  const sn = Math.sin(a);
+  const ax = VIEW_DIR;
+  const d = ax[0] * pos[0] + ax[1] * pos[1] + ax[2] * pos[2];
+  const cx: V3 = [ax[1] * pos[2] - ax[2] * pos[1], ax[2] * pos[0] - ax[0] * pos[2], ax[0] * pos[1] - ax[1] * pos[0]];
+  // Rodrigues rotation, then the radial shrink (kept fully to the origin at k = 1)
+  const o: V3 = [0, 1, 2].map((q) => (pos[q] * c + cx[q] * sn + ax[q] * d * (1 - c)) * r) as V3;
+  return [o[0] + 0, o[1] + 0, o[2] + 0];
+}

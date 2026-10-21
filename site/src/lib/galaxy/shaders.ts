@@ -193,7 +193,7 @@ void main() {
 /**
  * The bodies: one camera-facing quad each (not point sprites, so there is no point-size limit in the close-up).
  * kind 0 Opus (the sun), 1 young star (a protostar in its cocoon: small star, faint accretion disc, two short jets),
- * 2 fixer spark. uP = world centre + radius, uS = alpha, unused, ok (green), red,
+ * 2 fixer spark. uP = world centre + radius, uS = alpha, ok (steady burn), red (sputter), close-up (softens the glow),
  * uA = jet axis angle on screen, disc ellipse ratio (|axis . view|), ignition 0..1, build 0..1.
  */
 export const bodyVert = (n: number): string => /* glsl */ `
@@ -317,16 +317,18 @@ void main() {
       // lane tint: a white-hot core, the lane colour toward the limb and in the corona
       vec3 lane = mix(vC, vec3(1.0), 0.28);
       vec3 sy = surf * mix(vec3(1.0), lane * 1.15, 0.62);
-      float ok = clamp(vS.z, 0.0, 1.0);
-      float bad = clamp(vS.w, 0.0, 1.0);
-      vec3 stT = mix(lane, vec3(0.3, 1.0, 0.55), ok);
-      stT = mix(stT, vec3(1.0, 0.22, 0.18), bad);
-      vec3 cy = mix(vec3(1.0), stT, 0.7) * coronaE * (d > 1.0 ? 0.42 : 0.3);
+      float ok = clamp(vS.y, 0.0, 1.0);
+      float bad = clamp(vS.z, 0.0, 1.0);
+      // passing: a steady, calm lane-tinted burn (slightly brighter surface, softer corona); failing: a red sputter
+      sy = mix(sy * (1.0 + 0.18 * ok), vec3(1.0, 0.1, 0.05) * (0.45 + 0.6 * temp), 0.92 * bad);
+      vec3 stT = mix(lane, vec3(0.3, 1.0, 0.55), 0.4 * ok);
+      stT = mix(stT, vec3(1.0, 0.1, 0.06), bad);
+      vec3 cy = mix(vec3(1.0), stT, 0.7 + 0.3 * bad) * coronaE * (d > 1.0 ? 0.42 : 0.3) * (1.0 - 0.28 * ok) * (1.0 - 0.6 * vS.w);
       // ignition: a short flash that blooms out of the star and settles, as the thread of light lands
       float fl = 4.0 * ign * (1.0 - ign);
-      cy += mix(vec3(1.0), lane, 0.45) * (1.5 * exp(-d * 0.55) + 0.4 * exp(-d * 0.16)) * fl;
+      cy += mix(vec3(1.0), lane, 0.6) * (1.05 * exp(-d * 0.55) + 0.3 * exp(-d * 0.16)) * fl;
       // the star's own glow while it builds (a soft lane-coloured halo, steady)
-      cy += stT * (0.1 + 0.16 * bld) * exp(-d * 0.42) * ign;
+      cy += stT * (0.1 + 0.16 * bld) * exp(-d * 0.42) * ign * (1.0 - 0.6 * vS.w);
       c = sy * disc * ign + cy * (1.0 - 0.5 * disc);
       fade = 1.0 - smoothstep(8.0, 13.0, d);
       // jet frame: q.y along the disc axis (screen angle vA.x), q.x across
@@ -340,15 +342,15 @@ void main() {
       float rho = length(vec2(q.x, q.y / ratio));
       float dd = smoothstep(1.7, 2.3, rho) * (1.0 - smoothstep(3.6, 5.2, rho));
       dd *= 0.8 + 0.2 * sin(rho * 3.4 + vIdx * 2.0);
-      vec3 discC = mix(lane, vec3(1.0, 0.82, 0.62), 0.45) * dd * (0.34 / (0.45 + 0.28 * rho)) * b3;
+      vec3 discC = mix(lane, vec3(1.0, 0.82, 0.62), 0.45) * dd * (0.3 / (0.45 + 0.28 * rho)) * b3 * (1.0 - 0.25 * vS.w);
       // two short bipolar jets along the axis: tapered beams that fade with distance
       float ay = abs(q.y);
-      float jl = (3.2 + 8.0 * bld) * (0.35 + 0.65 * proj);
-      float w = 0.17 + 0.03 * ay;
+      float jl = (2.6 + 5.6 * bld) * (0.4 + 0.6 * proj);
+      float w = 0.24 + 0.07 * ay;
       float beam = exp(-pow(q.x / w, 2.0)) + 0.22 * exp(-pow(q.x / (w * 3.4), 2.0));
       float along = smoothstep(1.1, 2.0, ay) * exp(-ay / (0.55 * jl)) * (1.0 - smoothstep(0.85 * jl, 1.3 * jl, ay));
-      float beads = 1.0 + 0.16 * sin(ay * 1.9 - uTime * 0.7 + vIdx);
-      vec3 jetC = mix(lane, vec3(1.0), 0.4) * beam * along * beads * 0.5 * b3 * (0.5 + 0.5 * proj);
+      float beads = 1.0 + 0.16 * (1.0 - ok) * sin(ay * 1.9 - uTime * 0.7 + vIdx);
+      vec3 jetC = mix(lane, vec3(1.0), 0.4) * beam * along * beads * 0.5 * b3 * (0.5 + 0.5 * proj) * (1.0 - 0.4 * bad);
       c += discC + jetC;
     }
     c = vec3(1.0) - exp(-c);
@@ -377,6 +379,7 @@ uniform float uWidth;
 uniform float uPR;
 uniform float uProg[${n}];
 uniform float uAl[${n}];
+uniform float uPul[${n}]; // test pulse position along the thread (0..1 while travelling, 0 = none)
 uniform vec3 uFocus; // the close-up star
 uniform float uDof;
 uniform vec4 uCopyMask; // NDC ellipse that dims threads behind the close-up headline
@@ -388,6 +391,7 @@ out float vT;
 out float vSide;
 out float vProg;
 out float vAl;
+out float vPul;
 out float vK;
 out float vBlur;
 out vec3 vCol;
@@ -400,7 +404,7 @@ void main() {
   vec2 dir = l > 1e-4 ? d / l : vec2(1.0, 0.0);
   vec2 perp = vec2(-dir.y, dir.x);
   bool thread = aData.w < 0.5;
-  float wpx = uWidth * uPR * (thread ? 1.0 : 1.6 * aData.x) * (1.0 + 2.2 * blur);
+  float wpx = uWidth * uPR * (thread ? 1.0 : (aData.w < 1.5 ? 1.6 * aData.x : 0.8 + 3.2 * pow(sin(3.14159 * aData.x), 0.7))) * (1.0 + 2.2 * blur);
   vec2 off = perp * aData.y * wpx / (uRes * 0.5);
   gl_Position = ca + vec4(off * ca.w, 0.0, 0.0);
   int li = int(aData.z + 0.5);
@@ -408,6 +412,7 @@ void main() {
   vSide = aData.y;
   vProg = uProg[li];
   vAl = uAl[li];
+  vPul = uPul[li];
   if (thread && uCopyAmt > 0.0) {
     vec2 nd = (ca.xy / max(ca.w, 1e-3) - uCopyMask.xy) / uCopyMask.zw;
     vAl *= 1.0 - 0.92 * uCopyAmt * (1.0 - smoothstep(0.75, 1.25, length(nd)));
@@ -423,6 +428,7 @@ in float vT;
 in float vSide;
 in float vProg;
 in float vAl;
+in float vPul;
 in float vK;
 in float vBlur;
 in vec3 vCol;
@@ -440,7 +446,25 @@ void main() {
     vec3 body = mix(vCol, vec3(1.0), 0.3) * 0.5 * trail;
     vec3 tip = mix(vCol, vec3(1.0), 0.75) * head * 1.5;
     a = across * shown * ends;
-    fragColor = vec4((body * vAl + tip) * a, 1.0);
+    // test pulse: a bright head travels out from Opus and the thread glows behind it
+    vec3 pl = vec3(0.0);
+    if (vPul > 0.0 && vPul < 1.0) {
+      float fade = 1.0 - smoothstep(0.88, 1.0, vPul);
+      float ph = exp(-pow((vT - vPul) * 16.0, 2.0));
+      float pt = vT < vPul ? exp(-(vPul - vT) * 7.0) : 0.0;
+      pl = mix(vCol, vec3(1.0), 0.6) * (1.5 * ph + 0.6 * pt) * fade * across * ends;
+    }
+    fragColor = vec4(body * vAl * a + tip * clamp(vAl * 4.0, 0.0, 1.0) * a + pl, 1.0);
+    return;
+  }
+  if (vK > 1.5) {
+    // the fixer's stream of gas: soft clumps flowing along the arc toward the star, thin and bright at the core, no hard edges
+    float stream = exp(-vSide * vSide * 3.2) * 0.55 + exp(-vSide * vSide * 14.0) * 0.5;
+    float wave = 0.5 + 0.5 * sin(6.28318 * (vT * 3.0 - vProg));
+    float clump = 0.35 + 0.9 * wave * wave;
+    float ends = smoothstep(0.0, 0.12, vT) * (1.0 - smoothstep(0.88, 1.0, vT));
+    vec3 sc = mix(vCol, vec3(1.0, 0.95, 0.85), 0.25 + 0.4 * vT);
+    fragColor = vec4(sc * stream * clump * ends * vAl, 1.0);
     return;
   }
   a = across * pow(vT, 1.7) * vAl;

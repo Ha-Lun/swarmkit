@@ -7,7 +7,7 @@ import type { FeaturedRun } from '../../src/lib/run.ts';
 import { L } from '../../src/lib/galaxy/path.ts';
 import type { V3 } from '../../src/lib/galaxy/path.ts';
 import {
-  buildNursery, cocoonK, flashPhase, igniteK, knotK, stagger, testPulseK, threadK, verifyFor, verifyU, VIEW_DIR,
+  buildNursery, cocoonK, cronPhase, flashPhase, infallPos, igniteK, knotK, stagger, testPulseK, threadK, verifyFor, verifyU, VIEW_DIR,
 } from '../../src/lib/galaxy/nursery.ts';
 
 function loadReal(): FeaturedRun {
@@ -71,7 +71,7 @@ let far = 0;
 for (const s of nur.stars) far = Math.max(far, len(s.pos));
 assert.ok(Math.abs(nur.extent - far) < 1e-9, 'extent is the max |pos|');
 
-// verify plans copied from system.ts: cron fixer with 3 red flashes, template + wrap resume with 1, five clean.
+// verify plans: cron fixer with 3 red flashes, template + wrap resume with 1, five clean.
 const bySlug = new Map(nur.stars.map((s) => [s.slug, s]));
 const cron = bySlug.get('cron')!;
 assert.equal(cron.verify.redFlashes, 3);
@@ -86,11 +86,9 @@ for (const slug of ['template', 'wrap']) {
 const clean = nur.stars.filter((s) => s.verify.resolution === 'clean');
 assert.equal(clean.length, 5);
 for (const s of clean) assert.equal(s.verify.redFlashes, 0, s.slug);
-// verifyFor itself agrees, and the re-exported plan helpers still behave.
+// verifyFor itself agrees, and the plan helpers behave.
 const raw = story.workers.find((w) => w.slug === 'cron')!;
 assert.deepEqual(verifyFor(raw), cron.verify);
-assert.equal(Object.is(flashPhase, (await import('../../src/lib/galaxy/system.ts')).flashPhase), true, 'flashPhase re-exported');
-assert.equal(Object.is(stagger, (await import('../../src/lib/galaxy/system.ts')).stagger), true, 'stagger re-exported');
 assert.equal(flashPhase(cron.verify, 0).red, 0);
 assert.equal(stagger(1, 3, 8, 0.5), 1);
 
@@ -178,4 +176,70 @@ assert.deepEqual(buildNursery({ workers: [] }, 1.6), { stars: [], closeUp: null,
 
 function dot(a: V3, b: V3): number {
   return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+// flashPhase: red 0 at both ends, green 1 at u=1, for every resolution; cron flashes red exactly 3 times.
+for (const s of nur.stars) {
+  assert.equal(flashPhase(s.verify, 0).red, 0, `${s.slug} red at 0`);
+  assert.equal(flashPhase(s.verify, 1).red, 0, `${s.slug} red at 1`);
+  assert.equal(flashPhase(s.verify, 1).green, 1, `${s.slug} green at 1`);
+}
+{
+  let peaks = 0;
+  let prevR = 0;
+  let rising = false;
+  for (let j = 0; j <= 400; j++) {
+    const r = flashPhase(cron.verify, j / 400).red;
+    if (r > prevR) rising = true;
+    else if (r < prevR && rising) { if (prevR > 0.9) peaks++; rising = false; }
+    prevR = r;
+  }
+  assert.equal(peaks, 3, 'cron flashes red three times');
+}
+// stagger: nothing started at 0 (except the first), all done at 1, monotonic.
+for (let i = 0; i < 8; i++) {
+  if (i > 0) assert.equal(stagger(0, i, 8), 0, `stagger starts at 0 for ${i}`);
+  assert.equal(stagger(1, i, 8), 1, `stagger ends at 1 for ${i}`);
+  let prev = 0;
+  for (let q = 0; q <= 20; q++) {
+    const v = stagger(q / 20, i, 8);
+    assert.ok(v >= prev && v <= 1, `stagger monotonic for ${i}`);
+    prev = v;
+  }
+}
+// cronPhase: three sputters then silence, the feed sits between, steady (green 1, red 0, feed 0) at the end.
+{
+  let peaks = 0;
+  let prevR = 0;
+  let rising = false;
+  for (let j = 0; j <= 400; j++) {
+    const ph = cronPhase(3, j / 400);
+    if (ph.red > prevR) rising = true;
+    else if (ph.red < prevR && rising) { if (prevR > 0.9) peaks++; rising = false; }
+    prevR = ph.red;
+    if (j / 400 >= 0.5) assert.equal(ph.red, 0, 'no red after the fixer arrives');
+  }
+  assert.equal(peaks, 3);
+  assert.equal(cronPhase(3, 0).feed, 0);
+  assert.equal(cronPhase(3, 0.7).feed, 1);
+  const e = cronPhase(3, 1);
+  assert.deepEqual([e.red, e.green, e.feed], [0, 1, 0]);
+  assert.equal(cronPhase(0, 0.2).red, 0);
+}
+
+// infall: starts on the wall, ends on Opus, shrinks monotonically, and curves (never a straight line toward Opus).
+for (const s of nur.stars) {
+  const r0 = len(s.pos);
+  const p0 = infallPos(s.pos, 0);
+  assert.ok(Math.abs(p0[0] - s.pos[0]) + Math.abs(p0[1] - s.pos[1]) + Math.abs(p0[2] - s.pos[2]) < 1e-9, 'k=0 is the wall');
+  assert.ok(len(infallPos(s.pos, 1)) < 1e-9, 'k=1 is Opus');
+  let prev = Infinity;
+  for (let q = 0; q <= 40; q++) {
+    const r = len(infallPos(s.pos, q / 40));
+    assert.ok(r <= prev + 1e-9, 'radius never grows');
+    prev = r;
+  }
+  const mid = infallPos(s.pos, 0.5);
+  const line: V3 = [s.pos[0] * 0.5, s.pos[1] * 0.5, s.pos[2] * 0.5];
+  assert.ok(Math.hypot(mid[0] - line[0], mid[1] - line[1], mid[2] - line[2]) > 0.15 * r0, `${s.slug} curves`);
 }
