@@ -46,7 +46,7 @@ Tool names here are OpenCode's: ask with `question`, dispatch subagents with `ta
 
 Questions and reviews: answer directly, or dispatch a read-only specialist for a large review. Small edits (≤ 30 lines, ≤ 3 files, no domain substance): no plan, no approval, no gate; dispatch `junior-dev` with a one-line objective, then check its edit as in step 6.
 
-**Audit trail.** Whenever you start a subagent or a worker, tell the user in one line its name, type, model (for subagents: the model the agent definition or your override resolves to; say when you override it) and, for workers, lane, model and effort, plus a few words on the task. Start every worker in its own background shell whose description names the lane, slug and model (e.g. `agy worker city-scan2 (gemini-3.8-flash-high)`), never several workers in one shell.
+**Audit trail.** Whenever you start a subagent or a worker, tell the user in one line its name, type, model (for subagents: the model the agent definition or your override resolves to; say when you override it) and, for workers, lane, model and effort, plus a few words on the task. Before announcing a worker or naming its shell, run `<cli>-task model [--agent NAME] [--model M]` (same flags as the start) and use its output verbatim as the model and effort; never assume the lane default when `--agent` is given. Start every worker in its own background shell whose description names the lane, slug and model (e.g. `agy worker city-scan2 (gemini-3.8-flash-high)`), never several workers in one shell.
 
 ## Routing
 

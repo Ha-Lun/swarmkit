@@ -43,13 +43,13 @@ You have `Read`, `Glob` and `Bash`, but **no Edit, and Write only for the plan-m
 
 Questions and reviews: answer directly, or dispatch a read-only specialist for a large review. Small edits (≤ 30 lines, ≤ 3 files, no domain substance): no plan, no approval, no gate; dispatch `junior-dev` with a one-line objective, then check its edit as in step 6.
 
-**Audit trail.** Whenever you start a subagent or a worker, tell the user in one line its name, type, model (for subagents: the model the agent definition or your override resolves to; say when you override it) and, for workers, lane, model and effort, plus a few words on the task. Start every worker in its own background shell whose description names the lane, slug and model (e.g. `opencode worker city-scan2 (muse)`), never several workers in one shell.
+**Audit trail.** Whenever you start a subagent or a worker, tell the user in one line its name, type, model (for subagents: the model the agent definition or your override resolves to; say when you override it) and, for workers, lane, model and effort, plus a few words on the task. Before announcing a worker or naming its shell, run `<cli>-task model [--agent NAME] [--model M]` (same flags as the start) and use its output verbatim as the model and effort; never assume the lane default when `--agent` is given. Start every worker in its own background shell whose description names the lane, slug and model (e.g. `opencode worker city-scan2 (muse)`), never several workers in one shell.
 
 ## Routing
 
 | Work | Goes to | Model |
 |---|---|---|
-| File-disjoint implementation, including specialist work (UI, animation, backend, devops...) | `opencode-task`, with `--agent <specialist>` when a specialty applies | lane default (muse); with `--agent`, the agent's own model if allowlisted |
+| File-disjoint implementation, including specialist work (UI, animation, backend, devops...) | `opencode-task`, with `--agent <specialist>` when a specialty applies | as printed by `opencode-task model` (lane default muse; with `--agent`, the agent's own model if allowlisted) |
 | Bulk edits / boilerplate where you run the tests | `agy-task`, with `--agent <specialist>` when a specialty applies | lane default |
 | Second opinion on your own diff | `agy-task --review` | lane default |
 | Run a script/benchmark, screenshots, probes | background Bash, or `general-purpose` | haiku |

@@ -3,10 +3,11 @@
 
   agy-task start  SLUG [--model M] [--effort E] [--agent NAME] [--max-denied 10] [--max-tool-errors 20] [--timeout 20m] [--base REF] [--setup CMD] [--review] [--yolo] [--wait] PROMPT|-
   agy-task resume SLUG [--timeout 20m] [--review] [--yolo] PROMPT|-
+  agy-task model  [--agent NAME] [--model M] [--effort E]   (prints "<model> <effort|none>" a start would use; starts nothing)
   agy-task list
   agy-task clean  SLUG [--force]
 
-start and resume: opencode-task runs under Claude Code (CLAUDECODE=1), never under OpenCode (OPENCODE=1); agy-task runs under Claude Code or OpenCode; SWARMKIT_ALLOW_WORKERS=1 allows a manual start; list and clean run anywhere.
+start and resume: opencode-task runs under Claude Code (CLAUDECODE=1), never under OpenCode (OPENCODE=1); agy-task runs under Claude Code or OpenCode; SWARMKIT_ALLOW_WORKERS=1 allows a manual start; list, clean and model run anywhere.
 
 --review is for tasks that answer in text: ok then means "no tool denied and a non-empty
 response", not "files changed". --setup CMD runs in the worktree before agy (e.g. installing
@@ -862,9 +863,45 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     return 0 if ok else 1
 
 
+def resolve(a):
+    """Model, effort and agent checks shared by start and model, so a model preview can never drift from a start."""
+    from_agent = a.model is None and a.agent and CLI == "opencode"
+    if a.model is None:
+        a.model = BACKEND["model"]
+    if a.model not in BACKEND["allowed"]:
+        print(f"{PROG}: model not on the worker allowlist: {a.model} (allowed: {', '.join(BACKEND['allowed'])})", file=sys.stderr)
+        sys.exit(2)
+    if a.agent and CLI == "agy":
+        bad = agy_agent_problem(a.agent)
+        if bad:
+            print(f"{PROG}: {bad}", file=sys.stderr)
+            sys.exit(2)
+    elif a.agent:
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", a.agent):
+            print(f"{PROG}: invalid agent name: {a.agent}", file=sys.stderr)
+            sys.exit(2)
+        if a.agent == "lead-dev-hybrid":
+            print(f"{PROG}: orchestrators cannot run as workers: lead-dev-hybrid", file=sys.stderr)
+            sys.exit(2)
+        if not (agents_dir() / f"{a.agent}.md").is_file():
+            print(f"{PROG}: unknown OpenCode agent: {a.agent}", file=sys.stderr)
+            sys.exit(2)
+        if agent_edits_git(a.agent):
+            print(f"{PROG}: agent {a.agent} has an edit rule for .git; it cannot run as a worker", file=sys.stderr)
+            sys.exit(2)
+        if from_agent:
+            m = agent_model(a.agent)
+            if m in BACKEND["allowed"]:
+                a.model = m
+            elif m:
+                print(f"{PROG}: agent {a.agent} model {m} is not on the worker allowlist; using {a.model}", file=sys.stderr)
+    if a.effort is None:
+        a.effort = EFFORT_DEFAULTS.get(a.model, "")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    ap.add_argument("cmd", choices=["start", "resume", "list", "clean"])
+    ap.add_argument("cmd", choices=["start", "resume", "list", "clean", "model"])
     ap.add_argument("slug", nargs="?")
     ap.add_argument("prompt", nargs="?", help="task text, or - to read it from stdin")
     ap.add_argument("--model", default=None)
@@ -892,43 +929,19 @@ def main():
                      "subagents instead. Set SWARMKIT_ALLOW_WORKERS=1 to start one by hand from a terminal.")
         if CLI == "agy" and not (claude or opencode or manual):
             refuse(f"{PROG}: agy workers are started only by Claude Code or OpenCode. Set SWARMKIT_ALLOW_WORKERS=1 to start one by hand from a terminal.")
-    from_agent = a.model is None and a.cmd == "start" and a.agent and CLI == "opencode"
-    if a.model is None:
-        a.model = BACKEND["model"]
-
-    if a.cmd == "start" and a.model not in BACKEND["allowed"]:
-        print(f"{PROG}: model not on the worker allowlist: {a.model} (allowed: {', '.join(BACKEND['allowed'])})", file=sys.stderr)
-        sys.exit(2)
-
-    if a.cmd == "resume" and a.agent:
-        print(f"{PROG}: --agent is for start only; resume reuses the agent of start", file=sys.stderr)
-        sys.exit(2)
-    if a.cmd == "start" and a.agent and CLI == "agy":
-        bad = agy_agent_problem(a.agent)
-        if bad:
-            print(f"{PROG}: {bad}", file=sys.stderr)
+    if a.cmd in ("start", "model"):
+        resolve(a)
+        if a.cmd == "model":
+            print(a.model, a.effort or "none")
+            return 0
+    else:
+        if a.model is None:
+            a.model = BACKEND["model"]
+        if a.cmd == "resume" and a.agent:
+            print(f"{PROG}: --agent is for start only; resume reuses the agent of start", file=sys.stderr)
             sys.exit(2)
-    elif a.cmd == "start" and a.agent:
-        if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", a.agent):
-            print(f"{PROG}: invalid agent name: {a.agent}", file=sys.stderr)
-            sys.exit(2)
-        if a.agent == "lead-dev-hybrid":
-            print(f"{PROG}: orchestrators cannot run as workers: lead-dev-hybrid", file=sys.stderr)
-            sys.exit(2)
-        if not (agents_dir() / f"{a.agent}.md").is_file():
-            print(f"{PROG}: unknown OpenCode agent: {a.agent}", file=sys.stderr)
-            sys.exit(2)
-        if agent_edits_git(a.agent):
-            print(f"{PROG}: agent {a.agent} has an edit rule for .git; it cannot run as a worker", file=sys.stderr)
-            sys.exit(2)
-        if from_agent:
-            m = agent_model(a.agent)
-            if m in BACKEND["allowed"]:
-                a.model = m
-            elif m:
-                print(f"{PROG}: agent {a.agent} model {m} is not on the worker allowlist; using {a.model}", file=sys.stderr)
-    if a.effort is None:
-        a.effort = EFFORT_DEFAULTS.get(a.model, "")
+        if a.effort is None:
+            a.effort = EFFORT_DEFAULTS.get(a.model, "")
 
     def base(b):  # resolved, so the worktree path git records is the one we check against
         return Path(os.path.realpath(os.environ.get(f"{b['env']}_DIR", Path.home() / b["home"])))

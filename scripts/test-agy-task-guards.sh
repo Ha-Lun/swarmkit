@@ -688,4 +688,20 @@ allowed "${CLEAN[@]}" CLAUDECODE=1 OPENCODE=1 "$AGY_TASK" start cc7 "p"
 allowed "${CLEAN[@]}" SWARMKIT_ALLOW_WORKERS=1 OPENCODE=1 "$TASK" start cc8 "p"
 allowed "${CLEAN[@]}" SWARMKIT_ALLOW_WORKERS=1 "$AGY_TASK" start cc9 "p"
 for s in cc2 cc3 cc5 cc7 cc8 cc9; do "$TASK" clean $s --force >/dev/null 2>&1 || true; "$AGY_TASK" clean $s --force >/dev/null 2>&1 || true; done
+# model: resolve-only, same rules as start, starts nothing
+export SWARMKIT_OPENCODE_AGENTS_DIR="$T/magents"; mkdir -p "$SWARMKIT_OPENCODE_AGENTS_DIR"
+mkagent() { printf -- "---\n%s---\n" "$2" > "$SWARMKIT_OPENCODE_AGENTS_DIR/$1.md"; }
+oc_def=$("$TASK" model | cut -d' ' -f1); [ -n "$oc_def" ] || fail "model printed nothing"
+mkagent mres-other "model: opencode-go/mimo-v2.6-flash
+"
+mkagent mres-bad "model: anthropic/claude-x
+"
+[ "$("$TASK" model --agent mres-other)" = "opencode-go/mimo-v2.6-flash none" ] || fail "model --agent: agent model not used"
+[ "$("$TASK" model --agent mres-bad 2>/dev/null)" = "$oc_def none" ] || fail "model --agent: non-allowlisted agent model not replaced by lane default"
+"$TASK" model --agent mres-bad 2>&1 >/dev/null | grep -q "not on the worker allowlist" || fail "model: no notice for non-allowlisted agent model"
+[ "$("$TASK" model --model opencode-go/glm-5.3-flash)" = "opencode-go/glm-5.3-flash none" ] || fail "model --model"
+"$TASK" model --model nope/x >/dev/null 2>&1 && fail "model accepted a model off the allowlist"
+"$TASK" model --agent no-such-agent >/dev/null 2>&1 && fail "model accepted an unknown agent"
+[ "$("$AGY_TASK" model)" = "gemini-3.8-flash-high none" ] || fail "agy model default"
+unset SWARMKIT_OPENCODE_AGENTS_DIR
 echo "ok"
