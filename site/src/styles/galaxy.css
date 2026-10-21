@@ -67,8 +67,9 @@ html.gx-still .gx-caret, html.gx-nogl .gx-caret, html:not(.gx-live) .gx-caret { 
 
 /* worker labels: stacked list by default, pinned to the 3D nodes when live */
 .gx-nodes { list-style: none; margin: 24px 0 0; padding: 0 clamp(20px, 6vw, 96px) 64px; display: flex; flex-wrap: wrap; gap: 8px 10px; max-width: 40rem; }
-.gx-node { position: relative; display: inline-flex; align-items: baseline; gap: 8px; font-family: var(--gx-mono); font-size: 13px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--gx-line); background: rgba(5, 6, 10, 0.55); white-space: nowrap; }
+.gx-node { position: relative; display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; font-family: var(--gx-mono); font-size: 13px; padding: 4px 10px; border-radius: 12px; border: 1px solid var(--gx-line); background: rgba(5, 6, 10, 0.55); white-space: normal; max-width: 22rem; }
 .gx-node-slug { color: var(--gx-ink); }
+.gx-node-what { color: var(--gx-muted); font-family: inherit; font-size: 12px; }
 .gx-node-lane { color: var(--gx-muted); font-size: 11px; }
 .gx-node-opencode .gx-node-lane { color: var(--gx-teal); }
 .gx-node-agy .gx-node-lane { color: var(--gx-amber); }
@@ -90,11 +91,20 @@ html.gx-live .gx-tag, html.gx-still .gx-tag { display: none; }
 .gx-cap-run { margin-top: 16px; }
 
 html.gx-live .gx-nodes, html.gx-still .gx-nodes { position: fixed; inset: 0; margin: 0; padding: 0; max-width: none; display: block; pointer-events: none; z-index: 2; }
-html.gx-live .gx-node, html.gx-still .gx-node { position: absolute; left: 0; top: 0; opacity: 0; margin: 0; will-change: transform, opacity; background: rgba(8, 8, 20, 0.82); border: 1px solid var(--gx-line); padding: 5px 12px; gap: 10px; align-items: center; font-size: 13px; box-shadow: 0 0 18px rgba(5, 6, 10, 0.8); }
-html.gx-live .gx-node-lane, html.gx-still .gx-node-lane { font-size: 13px; letter-spacing: 0.04em; }
+html.gx-live .gx-node, html.gx-still .gx-node { position: absolute; left: 0; top: 0; opacity: 0; margin: 0; will-change: transform, opacity; background: rgba(8, 8, 20, 0.82); border: 1px solid var(--gx-line); padding: 5px 12px; gap: 2px; align-items: flex-start; font-size: 13px; box-shadow: 0 0 18px rgba(5, 6, 10, 0.8); }
+html.gx-live .gx-node-lane, html.gx-still .gx-node-lane { font-size: 11px; letter-spacing: 0.04em; }
 .gx-node-opencode { border-color: rgba(46, 230, 200, 0.7); }
 .gx-node-agy { border-color: rgba(255, 181, 71, 0.7); }
 .gx-node-opus { border-color: rgba(217, 204, 255, 0.75); }
+
+/* fan-out beat: one honest line about subagents + a legend of helper kinds */
+.gx-meta { font-family: var(--gx-mono); font-size: 12px; line-height: 1.5; color: var(--gx-muted); margin: 14px 0 0; text-shadow: 0 1px 20px rgba(5, 6, 10, 0.95); }
+.gx-legend { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font-family: var(--gx-mono); font-size: 12px; line-height: 1.5; color: var(--gx-muted); max-width: 26rem; }
+.gx-legend li { display: flex; align-items: baseline; gap: 8px; }
+.gx-dot { flex: 0 0 auto; display: inline-block; width: 8px; height: 8px; border-radius: 999px; }
+.gx-dot-violet { background: var(--gx-violet); }
+.gx-dot-teal { background: var(--gx-teal); }
+.gx-dot-amber { background: var(--gx-amber); }
 
 /* ---- close: the numbers, the CLIs and the install block scroll over the final wide shot ---- */
 .gx-close { position: relative; z-index: 1; }
@@ -162,8 +172,9 @@ html.gx-still .gx-cron { display: flex; }
 }
 /* phones and short landscape screens: compact pinned pills (status tags under the name) */
 @media (max-width: 767px), (max-height: 520px) {
-  html.gx-live .gx-node, html.gx-still .gx-node { font-size: 11px; padding: 3px 8px; gap: 6px; }
+  html.gx-live .gx-node, html.gx-still .gx-node { font-size: 11px; padding: 3px 8px; gap: 2px; }
   html.gx-live .gx-node-lane, html.gx-still .gx-node-lane { font-size: 10px; letter-spacing: 0.02em; }
+  .gx-node-what { font-size: 11px; }
   .gx-node-row { gap: 6px; }
   html.gx-live .gx-node-tags, html.gx-still .gx-node-tags { top: calc(100% + 3px); }
   .gx-tag { font-size: 10px; padding: 0 6px; }

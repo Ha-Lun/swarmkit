@@ -4,6 +4,7 @@
 import '../../styles/galaxy.css';
 import { loadFeaturedRun } from '../../lib/run.ts';
 import { buildStory } from '../../lib/galaxy/story.ts';
+import { HELPER, OPUS_WHAT, TASK_WHAT, fixerWhat } from '../../lib/galaxy/tasks.ts';
 import Numbers from './sections/Numbers.astro';
 import Clis from './sections/Clis.astro';
 import Cta from './sections/Cta.astro';
@@ -19,7 +20,7 @@ const byFixer = workers.filter((w) => w.failed && w.fixer);
 const byResume = workers.filter((w) => w.failed && !w.fixer);
 const closeUp = byFixer[0] ?? null; // the planet the camera flies to (same rule as system.ts)
 const verifyNote = [
-  ...byFixer.map((w) => `${w.slug} failed its tests ${times(w.failedVerifies)} and was fixed by the ${w.fixer!.lane} fixer ${w.fixer!.slug}.`),
+  ...byFixer.map((w) => `${w.slug} failed its tests ${times(w.failedVerifies)} and was fixed by ${w.fixer!.slug}, an ${HELPER[w.fixer!.lane]}.`),
   byResume.length > 0 ? `${names(byResume.map((w) => w.slug))} failed once each and were fixed on resume, with no fixer.` : '',
 ].filter(Boolean).join(' ');
 const mergeLine = story
@@ -27,6 +28,11 @@ const mergeLine = story
   : '';
 const task = run?.task ?? '';
 const approval = run?.plan_approval;
+// fan-out beat, derived: workers per lane, and whether any dispatch went to a Claude subagent
+// (worker dispatches carry a lane; a dispatch without one is a Claude subagent).
+const nOpencode = workers.filter((w) => w.lane === 'opencode').length;
+const nAgy = workers.filter((w) => w.lane === 'agy').length;
+const subagentCount = run ? run.events.filter((e) => e.type === 'dispatch' && e.lane === undefined).length : 0;
 const json = JSON.stringify({
   task,
   workers: workers.map((w) => ({
@@ -80,7 +86,17 @@ const json = JSON.stringify({
             <div class="gx-plan-inner" data-inner>
               <p class="gx-kicker gx-num">02</p>
               <h2 id="gx-fan-title" class="gx-h2">{story.counts.workers} workers. At once.</h2>
-              <p class="gx-body">Cheaper models on OpenCode and Antigravity build in parallel.</p>
+              <p class="gx-body">Opus hands each module to a cheaper model running headless in its own worktree: {nOpencode} on OpenCode, {nAgy} on Antigravity.</p>
+              {subagentCount === 0 ? (
+                <p class="gx-meta">This run needed no Claude subagents: every module was independent, so all of them went to workers.</p>
+              ) : (
+                <p class="gx-meta">Claude subagents: {subagentCount}.</p>
+              )}
+              <ul class="gx-legend" aria-label="Kinds of helpers">
+                <li><span class="gx-dot gx-dot-violet" aria-hidden="true"></span>Claude subagents — specialists for judgment-heavy work (security, UI, data)</li>
+                <li><span class="gx-dot gx-dot-teal" aria-hidden="true"></span>{HELPER.opencode}s — headless, file-disjoint code</li>
+                <li><span class="gx-dot gx-dot-amber" aria-hidden="true"></span>{HELPER.agy}s — headless, file-disjoint code</li>
+              </ul>
             </div>
           </section>
           <section class="gx-beat gx-plan gx-late" data-beat="build" aria-labelledby="gx-build-title">
@@ -104,7 +120,7 @@ const json = JSON.stringify({
               <div class="gx-plan-inner" data-inner>
                 <p class="gx-kicker gx-num">04</p>
                 <h2 id="gx-cron-title" class="gx-h2">Up close: {closeUp.slug}.</h2>
-                <p class="gx-body">{closeUp.slug} failed its tests {times(closeUp.failedVerifies)}. The {closeUp.fixer!.lane} fixer {closeUp.fixer!.slug} fixed it, and it passed.</p>
+                <p class="gx-body">{closeUp.slug} failed its tests {times(closeUp.failedVerifies)}. {closeUp.fixer!.slug}, an {HELPER[closeUp.fixer!.lane]}, fixed it, and it passed.</p>
               </div>
             </section>
           )}
@@ -121,10 +137,14 @@ const json = JSON.stringify({
       )}
 
       <ul class="gx-nodes" data-nodes aria-label="Workers in this run">
-        <li class="gx-node gx-node-opus" data-node><span class="gx-node-row"><span class="gx-node-slug">Opus</span><span class="gx-node-lane">planner</span></span></li>
+        <li class="gx-node gx-node-opus" data-node>
+          <span class="gx-node-row"><span class="gx-node-slug">Opus</span><span class="gx-node-what">· {OPUS_WHAT}</span></span>
+          <span class="gx-node-lane">Claude Opus, the orchestrator</span>
+        </li>
         {workers.map((w) => (
           <li class={`gx-node gx-node-${w.lane}`} data-node>
-            <span class="gx-node-row"><span class="gx-node-slug">{w.slug}</span><span class="gx-node-lane">{w.lane}</span></span>
+            <span class="gx-node-row"><span class="gx-node-slug">{w.slug}</span><span class="gx-node-what">· {TASK_WHAT[w.slug] ?? ''}</span></span>
+            <span class="gx-node-lane">{HELPER[w.lane]}</span>
             <span class="gx-node-tags">
               {w.failed && <span class="gx-tag gx-tag-fail" data-tag="fail">tests failed ×{w.failedVerifies}</span>}
               {w.failed && <span class="gx-tag gx-tag-fixed" data-tag="fixed">{w.fixer ? `fixed by ${w.fixer.slug}` : w.resumes > 0 ? 'fixed on resume' : 're-tested green'}</span>}
@@ -134,7 +154,8 @@ const json = JSON.stringify({
         ))}
         {fixers.map((w) => (
           <li class={`gx-node gx-node-${w.fixer!.lane} gx-node-fixer`} data-node>
-            <span class="gx-node-row"><span class="gx-node-slug">{w.fixer!.slug}</span><span class="gx-node-lane">{w.fixer!.lane}</span></span>
+            <span class="gx-node-row"><span class="gx-node-slug">{w.fixer!.slug}</span><span class="gx-node-what">· {fixerWhat(w.slug)}</span></span>
+            <span class="gx-node-lane">{HELPER[w.fixer!.lane]}</span>
             <span class="gx-node-tags"><span class="gx-tag gx-tag-fix" data-tag="fixer">fixer for {w.slug}</span></span>
           </li>
         ))}
