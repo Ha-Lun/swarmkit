@@ -42,6 +42,9 @@ async function boot(): Promise<void> {
   const nodesEl = root.querySelector<HTMLElement>('[data-nodes]');
   const labelEls = nodesEl ? [...nodesEl.querySelectorAll<HTMLElement>('[data-node]')] : [];
   let lastChars = -1;
+  let focusKeep = -1;
+  let seen = new Set<number>();
+  const pos: { x: number; y: number }[] = labelEls.map(() => ({ x: 0, y: 0 }));
   const tagsOf = labelEls.map((el) => ({
     fail: el.querySelector<HTMLElement>('[data-tag="fail"]'),
     fixed: el.querySelector<HTMLElement>('[data-tag="fixed"]'),
@@ -94,45 +97,65 @@ async function boot(): Promise<void> {
       }
     }
     setOpacity(approved, live ? beatOpacity.approved(p) : planO);
-    // pills sit centred just below their node ; neighbours that would overlap are pushed apart vertically
-    const wide = canvas.clientWidth >= canvas.clientHeight * 1.2;
-    // portrait phones/tablets and short landscape screens: a full overlap solver that also keeps pills inside the viewport
-    const solve = !wide || innerWidth < 768 || innerHeight < 520;
+    // Each worker pill sits on the far side of its star, radially outward from Opus (node 0); Opus's own pill sits just below it.
+    // A rectangle solver then separates overlaps, keeps pills clear of the copy block and inside the viewport, and a leader line
+    // (CSS vars, drawn by .gx-node::after) ties each pill to its star.
+    const vw = html.clientWidth; // excludes the scrollbar
+    const vh = innerHeight;
+    const phone = vw < 768;
+    const M = 9;
+    const topMin = 60;
+    const G = 6;
+    // phones: pills collapse to slug + helper dot, except the nearest star (largest on screen), which keeps its description
+    let focus = -1;
+    if (phone) {
+      let best = 0;
+      let cur = 0;
+      f.nodes.forEach((n, i) => {
+        if (i === 0 || !n.front) return;
+        const r = n.rad * n.on;
+        if (r > best) { best = r; focus = i; }
+        if (i === focusKeep) cur = r;
+      });
+      if (focusKeep > 0 && cur > 0 && cur * 1.15 >= best) focus = focusKeep;
+      focusKeep = focus;
+    }
+    labelEls.forEach((el, i) => {
+      el.classList.toggle('is-compact', phone && i !== focus);
+    });
+    const tagsShown = (i: number): number => [tagsOf[i].fail, tagsOf[i].fixed, tagsOf[i].rev, tagsOf[i].fixer].filter((x) => x && x.style.display === 'inline-block').length;
+    const op = f.nodes[0];
+    type Item = { i: number; sx: number; sy: number; rad: number; pw: number; ph: number; W: number; H: number; l: number; t: number; vis: number };
+    const items: Item[] = [];
     labelEls.forEach((el, i) => {
       const n = f.nodes[i];
-      const t = tagsOf[i];
-      if (live || pose !== 'nebula') {
-        setTag(t.fail, live ? n.bad : n.ok + n.bad);
-        setTag(t.fixed, n.ok);
-        setTag(t.rev, n.rev);
-        setTag(t.fixer, u >= 0.6 ? n.on : 0);
-        el.classList.toggle('is-bad', n.bad > 0.5);
-        el.classList.toggle('is-ok', n.ok > 0.5);
-      }
-    });
-    const place = labelEls.map((el, i) => {
-      const n = f.nodes[i];
-      const t = tagsOf[i];
-      const w = el.offsetWidth || 120;
-      const tags = [t.fail, t.fixed, t.rev, t.fixer].filter((x) => x && x.style.display === 'inline-block').length;
-      const tb = tagBoxes[i];
-      const tw = tags > 0 && tb ? tb.offsetWidth : 0;
-      const th = tags > 0 && tb ? tb.offsetHeight + 5 : 0;
+      const vis = n.front ? Math.min(1, n.on * 1.4) * pillO : 0;
+      if (vis < 0.02) return;
+      const pw = el.offsetWidth || 120;
       const ph = el.offsetHeight || 26;
-      const fixer = !solve && el.classList.contains('gx-node-fixer');
-      const h = solve ? ph + th : 32 + tags * 19;
-      const W = solve ? Math.max(w, tw) : w;
-      const y = fixer ? n.y - 16 - h : n.y + (n.rad || 14) + 8;
-      return { el, i, x: n.x - W / 2, y, w: W, pw: w, h };
+      const tb = tagBoxes[i];
+      const has = tagsShown(i) > 0 && tb;
+      const W = Math.max(pw, has ? tb.offsetWidth : 0);
+      const H = ph + (has ? tb.offsetHeight + 5 : 0);
+      const rad = Math.max(n.rad || 14, 8);
+      let cx = n.x;
+      let cy = n.y + rad + 8 + ph / 2;
+      if (i > 0) {
+        let dx = n.x - op.x;
+        let dy = n.y - op.y;
+        const len = Math.hypot(dx, dy);
+        if (len < 2) { dx = 0; dy = 1; } else { dx /= len; dy /= len; }
+        const te = Math.min(dx === 0 ? Infinity : pw / 2 / Math.abs(dx), dy === 0 ? Infinity : ph / 2 / Math.abs(dy));
+        const dist = rad + 14 + te;
+        cx = n.x + dx * dist;
+        cy = n.y + dy * dist;
+      }
+      items.push({ i, sx: n.x, sy: n.y, rad, pw, ph, W, H, l: cx - W / 2, t: cy - ph / 2, vis });
     });
-    if (solve) {
-      const vw = innerWidth;
-      const vh = innerHeight;
-      const M = 9;
-      const topMin = 60;
-      // keep clear of the copy block of whichever beat is showing (opacity-weighted so crossfades do not jump)
-      let ex = 0;
-      let ey = 0;
+    // the copy block of whichever beat is showing (opacity-weighted so crossfades do not jump)
+    let ex = 0;
+    let ey = 0;
+    {
       const ws: [HTMLElement | null, number][] = live
         ? [[plan, planO], [fan, lateOpacity.fan(u)], [build, lateOpacity.build(u)], [verify, lateOpacity.verify(u) * mergeOpacity.verifyOut(mm)]]
         : [[plan, pose === 'constellation' ? 1 : 0], [fan, pose === 'fan' ? 1 : 0], [build, pose === 'build' ? 1 : 0], [verify, pose === 'verify' ? 1 : 0], [cron, pose === 'cron' ? 1 : 0]];
@@ -149,74 +172,89 @@ async function boot(): Promise<void> {
         ex = ex / tw + M;
         ey = ey / tw + M;
       }
-      const G = 4;
-      // the 3D nodes themselves are obstacles: a pill belongs under its own planet, not over a neighbour's
-      const discs = f.nodes.filter((n) => n.on * pillO > 0.2).map((n) => { const r = Math.max(n.rad, 10) + 2; return { x: n.x - r, y: n.y - r, w: 2 * r, h: 2 * r }; });
-      const order = [...place].sort((a, b) => a.y - b.y);
-      for (let pass = 0; pass < 80; pass++) {
-        const useDiscs = pass < 40; // planets are a soft preference: if the screen is too crowded, pills clearing each other wins
-        let moved = false;
-        for (let k = 0; k < order.length; k++) {
-          const a = order[k];
-          if (a.x < ex && a.y < ey && ey > M) {
-            // clear of the copy block: sideways if that is the shorter way out (landscape), otherwise below it
-            if (ex - a.x < (ey - a.y) * 1.2 && ex + a.w < vw - M) a.x = ex; else a.y = ey;
-            moved = true;
-          }
-          for (const o of useDiscs ? discs : []) {
-            if (a.x >= o.x + o.w || o.x >= a.x + a.w || a.y >= o.y + o.h || o.y >= a.y + a.h) continue;
-            moved = true;
-            const dn = o.y + o.h + G - a.y;
-            const up = o.y - G - (a.y + a.h);
-            const dr = o.x + o.w + G - a.x;
-            const dl = o.x - G - (a.x + a.w);
-            const dv = Math.abs(dn) < Math.abs(up) ? dn : up;
-            const dh = Math.abs(dr) < Math.abs(dl) ? dr : dl;
-            if (Math.abs(dh) < Math.abs(dv) * 0.6) a.x += dh; else a.y += dv;
-          }
-          for (let m = 0; m < k; m++) {
-            const b = order[m];
-            const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) + G;
-            const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) + G;
-            if (ox <= 0 || oy <= 0) continue;
-            moved = true;
-            const lower = a.y >= b.y ? a : b;
-            const full = lower.y + oy + lower.h > vh - M; // no room left below: separate sideways
-            if (ox < oy * 0.6 || full) {
-              const d = ox / 2;
-              if (a.x + a.w / 2 < b.x + b.w / 2) { a.x -= d; b.x += d; } else { a.x += d; b.x -= d; }
-            } else if (a.y >= b.y) {
-              a.y += oy;
-            } else {
-              b.y += oy;
-            }
-          }
-          a.x = Math.min(Math.max(a.x, M), Math.max(M, vw - M - a.w));
-          a.y = Math.min(Math.max(a.y, topMin), Math.max(topMin, vh - M - a.h));
-        }
-        if (!moved && pass >= 40) break;
-        if (!moved) pass = 39;
-      }
-      place.forEach((q) => {
-        q.x = Math.min(Math.max(q.x, M), Math.max(M, vw - M - q.w));
-        q.y = Math.min(Math.max(q.y, topMin), Math.max(topMin, vh - M - q.h));
-        q.x += (q.w - q.pw) / 2;
-      });
-    } else {
-      place.sort((a, b) => a.y - b.y);
-      for (let k = 1; k < place.length; k++) {
-        for (let m = k - 1; m >= 0; m--) {
-          const a = place[m];
-          const b = place[k];
-          if (Math.abs(a.x + a.w / 2 - (b.x + b.w / 2)) < (a.w + b.w) / 2 + 6 && b.y - a.y < a.h + 2) b.y = a.y + a.h + 2;
-        }
-      }
     }
-    place.forEach((q) => {
-      const n = f.nodes[q.i];
-      const vis = n.front ? Math.min(1, n.on * 1.4) * pillO : 0;
-      q.el.style.transform = `translate3d(${q.x.toFixed(1)}px, ${q.y.toFixed(1)}px, 0)`;
-      q.el.style.opacity = vis.toFixed(3);
+    // the 3D nodes are soft obstacles: a pill never sits over a star
+    const discs = f.nodes.filter((n) => n.on * pillO > 0.2 && n.front).map((n) => { const r = Math.max(n.rad, 10) + 3; return { x: n.x - r, y: n.y - r, w: 2 * r, h: 2 * r }; });
+    const clamp = (a: Item): void => {
+      a.l = Math.min(Math.max(a.l, M), Math.max(M, vw - M - a.W));
+      a.t = Math.min(Math.max(a.t, topMin), Math.max(topMin, vh - M - a.H));
+    };
+    items.forEach(clamp);
+    for (let pass = 0; pass < 80; pass++) {
+      const soft = pass < 50; // stars are a preference; the copy block, pill-vs-pill and the viewport edge always win
+      let moved = false;
+      for (let k = 0; k < items.length; k++) {
+        const a = items[k];
+        if (ey > M && a.l < ex && a.t < ey) {
+          if (ex - a.l < (ey - a.t) * 1.2 && ex + a.W < vw - M) a.l = ex; else a.t = ey;
+          moved = true;
+        }
+        if (soft) {
+          for (const o of discs) {
+            if (a.l >= o.x + o.w || o.x >= a.l + a.W || a.t >= o.y + o.h || o.y >= a.t + a.H) continue;
+            moved = true;
+            const cands = [o.x + o.w + G - a.l, o.x - G - (a.l + a.W), o.y + o.h + G - a.t, o.y - G - (a.t + a.H)];
+            // push along the pill's outward (radial) axis first: the smallest of the four exits wins
+            let bi = 0;
+            cands.forEach((c, ci) => { if (Math.abs(c) < Math.abs(cands[bi])) bi = ci; });
+            if (bi < 2) a.l += cands[bi]; else a.t += cands[bi];
+          }
+        }
+        for (let m = 0; m < k; m++) {
+          const b = items[m];
+          const ox = Math.min(a.l + a.W, b.l + b.W) - Math.max(a.l, b.l) + G;
+          const oy = Math.min(a.t + a.H, b.t + b.H) - Math.max(a.t, b.t) + G;
+          if (ox <= 0 || oy <= 0) continue;
+          moved = true;
+          if (ox < oy) {
+            const d = ox / 2;
+            if (a.l + a.W / 2 < b.l + b.W / 2) { a.l -= d; b.l += d; } else { a.l += d; b.l -= d; }
+          } else {
+            const d = oy / 2;
+            if (a.t + a.H / 2 < b.t + b.H / 2) { a.t -= d; b.t += d; } else { a.t += d; b.t -= d; }
+          }
+          clamp(b);
+        }
+        clamp(a);
+      }
+      if (!moved && pass >= 50) break;
+      if (!moved) pass = 49;
+    }
+    const seenNow = new Set<number>();
+    items.forEach((q) => {
+      const el = labelEls[q.i];
+      let x = q.l + (q.W - q.pw) / 2;
+      let y = q.t;
+      // smooth over frames so pills do not jitter while scrolling; first appearance and reduced motion place directly
+      if (!reduced && seen.has(q.i)) {
+        const o = pos[q.i];
+        x = o.x + (x - o.x) * 0.3;
+        y = o.y + (y - o.y) * 0.3;
+        if (Math.abs(x - q.l - (q.W - q.pw) / 2) < 0.3) x = q.l + (q.W - q.pw) / 2;
+        if (Math.abs(y - q.t) < 0.3) y = q.t;
+      }
+      pos[q.i] = { x, y };
+      seenNow.add(q.i);
+      // leader: from the star's rim to the nearest point of the pill, drawn by a 100px-wide ::after scaled and rotated
+      const qx = Math.min(Math.max(q.sx, x), x + q.pw);
+      const qy = Math.min(Math.max(q.sy, y), y + q.ph);
+      const vx = qx - q.sx;
+      const vy = qy - q.sy;
+      const L = Math.hypot(vx, vy);
+      const r0 = q.rad * 0.9;
+      const len = Math.max(0, L - r0);
+      const ux = L > 0 ? vx / L : 0;
+      const uy = L > 0 ? vy / L : 1;
+      el.style.setProperty('--lx', `${(q.sx + ux * r0 - x).toFixed(1)}px`);
+      el.style.setProperty('--ly', `${(q.sy + uy * r0 - y).toFixed(1)}px`);
+      el.style.setProperty('--la', `${Math.atan2(vy, vx).toFixed(4)}rad`);
+      el.style.setProperty('--ls', len < 4 ? '0' : (len / 100).toFixed(4));
+      el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+      el.style.opacity = q.vis.toFixed(3);
+    });
+    seen = seenNow;
+    labelEls.forEach((el, i) => {
+      if (!seenNow.has(i)) el.style.opacity = '0';
     });
   };
 
