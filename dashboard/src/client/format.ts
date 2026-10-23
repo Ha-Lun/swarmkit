@@ -1,5 +1,5 @@
 // Small pure formatting helpers. No side effects, no React.
-import type { AgentNode, PermissionRequest } from '../shared/types';
+import type { AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
 
 /** 'claude-opus-5-5' -> 'Opus 5.5'; 'opencode-go/glm-5.3-flash' -> 'glm-5.3-flash'; missing -> ''. */
 export function modelLabel(model?: string): string {
@@ -103,4 +103,31 @@ export function permissionSummary(p: PermissionRequest): string {
 export function elapsedMs(node: AgentNode, now: number): number {
   if (node.status === 'running' || node.status === 'waiting') return now - node.startedAt;
   return (node.endedAt ?? now) - node.startedAt;
+}
+
+/** 'opencode-go/glm-5.3-flash' -> 'glm-5.3-flash'; missing -> ''. */
+export function shortModel(model?: string): string {
+  if (!model) return '';
+  const i = model.lastIndexOf('/');
+  return i >= 0 ? model.slice(i + 1) : model;
+}
+
+/** Worker state -> the shared dot/status classes (running pulse / ok green / not-ok red / unfinished gray). */
+export function workerStateClass(state: WorkerTask['state']): string {
+  switch (state) {
+    case 'running':
+      return 'st-running';
+    case 'ok':
+      return 'st-done';
+    case 'not-ok':
+      return 'st-error';
+    default:
+      return 'st-idle';
+  }
+}
+
+/** Ticking seconds for a worker task: server elapsed + seconds since the update arrived. */
+export function workerElapsedS(task: WorkerTask, now: number, at: number): number {
+  if (task.state !== 'running' || at === 0) return task.elapsedS;
+  return task.elapsedS + Math.max(0, Math.floor((now - at) / 1000));
 }

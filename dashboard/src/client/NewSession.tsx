@@ -1,8 +1,9 @@
-// New session dialog: prompt, cwd (datalist), agent (per cwd), model.
+// New session dialog: prompt, folder picker (shared with the landing page), agent, model.
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { AgentInfo, StartSessionBody, StartSessionResponse } from '../shared/types';
 import type { FleetBackend, Guard } from './api';
+import { FolderPicker, resolveDefaultCwd } from './FolderPicker';
 
 interface Props {
   backend: FleetBackend;
@@ -16,21 +17,15 @@ export function NewSession({ backend, guard, onClose, onStarted }: Props) {
   const [cwd, setCwd] = useState('');
   const [agent, setAgent] = useState('');
   const [model, setModel] = useState('');
-  const [cwds, setCwds] = useState<string[]>([]);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    backend
-      .cwds()
-      .then((list) => {
-        if (!alive) return;
-        setCwds(list);
-        setCwd((c) => c || list[0] || '');
-      })
-      .catch(() => undefined);
+    void resolveDefaultCwd(backend).then((c) => {
+      if (alive && c) setCwd(c);
+    });
     return () => {
       alive = false;
     };
@@ -103,20 +98,8 @@ export function NewSession({ backend, guard, onClose, onStarted }: Props) {
           placeholder="What should the fleet do?"
         />
 
-        <label htmlFor="ns-cwd">Working directory</label>
-        <input
-          id="ns-cwd"
-          list="ns-cwds"
-          value={cwd}
-          onChange={(e) => setCwd(e.target.value)}
-          placeholder="/absolute/path"
-          spellCheck={false}
-        />
-        <datalist id="ns-cwds">
-          {cwds.map((c) => (
-            <option key={c} value={c} />
-          ))}
-        </datalist>
+        <p className="dialog-label" id="ns-cwd-label">Working directory</p>
+        <FolderPicker backend={backend} guard={guard} cwd={cwd} onCwd={setCwd} labelledby="ns-cwd-label" />
 
         <label htmlFor="ns-agent">Agent</label>
         <select id="ns-agent" value={agent} onChange={(e) => setAgent(e.target.value)}>

@@ -4,15 +4,71 @@ import type {
   AgentNode,
   AgentNodeHead,
   AgentsResponse,
+  DirEntry,
+  DirListing,
   PermissionRequest,
   ServerEvent,
   SessionDetail,
   SessionSummary,
   StartSessionBody,
   StartSessionResponse,
+  ResumeSessionBody,
   TokenUsage,
+  WorkerTask,
 } from '../shared/types';
+import { ApiError } from './api';
 import type { FleetBackend } from './api';
+
+const MOCK_HOME = '/home/ha-lun';
+
+/** Tiny fake filesystem for the folder picker: home → a few well-known folders. */
+const dirTree = new Map<string, DirEntry[]>([
+  [
+    MOCK_HOME,
+    [
+      { name: 'work', path: `${MOCK_HOME}/work`, isGitRepo: false },
+      { name: 'projects', path: `${MOCK_HOME}/projects`, isGitRepo: false },
+      { name: 'opencode-config', path: `${MOCK_HOME}/opencode-config`, isGitRepo: true },
+      { name: '.config', path: `${MOCK_HOME}/.config`, isGitRepo: false },
+      { name: '.agy-tasks', path: `${MOCK_HOME}/.agy-tasks`, isGitRepo: false },
+      { name: '.opencode-tasks', path: `${MOCK_HOME}/.opencode-tasks`, isGitRepo: false },
+    ],
+  ],
+  [
+    `${MOCK_HOME}/work`,
+    [
+      { name: 'fleet-ui', path: `${MOCK_HOME}/work/fleet-ui`, isGitRepo: true },
+      { name: 'website', path: `${MOCK_HOME}/work/website`, isGitRepo: true },
+      { name: 'scratch', path: `${MOCK_HOME}/work/scratch`, isGitRepo: false },
+    ],
+  ],
+  [
+    `${MOCK_HOME}/work/fleet-ui`,
+    [
+      { name: 'dashboard', path: `${MOCK_HOME}/work/fleet-ui/dashboard`, isGitRepo: false },
+      { name: 'docs', path: `${MOCK_HOME}/work/fleet-ui/docs`, isGitRepo: false },
+    ],
+  ],
+  [
+    `${MOCK_HOME}/work/fleet-ui/dashboard`,
+    [
+      { name: 'server', path: `${MOCK_HOME}/work/fleet-ui/dashboard/server`, isGitRepo: false },
+      { name: 'src', path: `${MOCK_HOME}/work/fleet-ui/dashboard/src`, isGitRepo: false },
+      { name: 'test', path: `${MOCK_HOME}/work/fleet-ui/dashboard/test`, isGitRepo: false },
+    ],
+  ],
+  [
+    `${MOCK_HOME}/projects`,
+    [
+      { name: 'app', path: `${MOCK_HOME}/projects/app`, isGitRepo: true },
+      { name: 'blog', path: `${MOCK_HOME}/projects/blog`, isGitRepo: true },
+    ],
+  ],
+  [
+    `${MOCK_HOME}/opencode-config`,
+    [{ name: 'opencode', path: `${MOCK_HOME}/opencode-config/opencode`, isGitRepo: true }],
+  ],
+]);
 
 const tu = (input: number, output: number, cacheRead = 0, cacheWrite = 0): TokenUsage => ({
   input,
@@ -97,6 +153,89 @@ export function createMockBackend(): FleetBackend {
     nodeMaps.set(s.id, new Map());
     permLists.set(s.id, []);
   }
+
+  // --- mock workers (live via workers.update, linked to the tree's worker node) ---
+  const workerTasks: WorkerTask[] = [
+    {
+      lane: 'opencode',
+      repo: 'opencode-config-5dbfaa',
+      slug: 'fleet-ui',
+      state: 'running',
+      model: 'opencode-go/glm-5.3-flash',
+      agent: 'frontend-specialist',
+      startedAt: base - 420_000,
+      elapsedS: 420,
+      denied: 2,
+      changes: 'dashboard/src/client +12 -4',
+      lastTool: 'edit dashboard/src/client/Workers.tsx',
+      toolCounts: { edit: 14, bash: 3, read: 9 },
+      sessionId: s1.id,
+      nodeId: 'task-worker',
+    },
+    {
+      lane: 'agy',
+      repo: 'opencode-config-5dbfaa',
+      slug: 'docs-refresh',
+      state: 'ok',
+      model: 'claude-sonnet-5-5',
+      agent: 'release-tester',
+      startedAt: base - 1_500_000,
+      endedAt: base - 688_000,
+      elapsedS: 812,
+      denied: 0,
+      changes: 'README.md +3 -1',
+      toolCounts: { read: 6 },
+      response: 'Docs refreshed against the current build; no regressions found.',
+    },
+    {
+      lane: 'agy',
+      repo: 'fleet-ui2',
+      slug: 'flaky-migrate',
+      state: 'not-ok',
+      model: 'claude-opus-5-5',
+      startedAt: base - 7_200_000,
+      endedAt: base - 6_900_000,
+      elapsedS: 300,
+      denied: 5,
+      stoppedBy: 'denied-tools',
+      warnings: ['5 tool calls were denied by the user'],
+      toolCounts: { bash: 8 },
+      response: 'Migration aborted: the user denied a run of shell commands.',
+    },
+    {
+      lane: 'opencode',
+      repo: 'opencode-config-5dbfaa',
+      slug: 'lint-sweep',
+      state: 'unfinished',
+      model: 'opencode-go/glm-4.5-air',
+      startedAt: base - 86_400_000,
+      elapsedS: 3600,
+      denied: 0,
+      toolCounts: {},
+    },
+  ];
+
+  const workerLogLines = (t: WorkerTask): string[] => {
+    const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour12: false });
+    const head = `[${clock(t.startedAt)}] ${t.lane}-task: starting ${t.repo} · ${t.slug}`;
+    if (t.state === 'running') {
+      return [
+        head,
+        `[${clock(t.startedAt + 4000)}] worktree ready`,
+        `[${clock(t.startedAt + 9000)}] edit dashboard/src/client/Workers.tsx`,
+        `[${clock(t.startedAt + 15_000)}] edit dashboard/src/client/WorkerDrawer.tsx`,
+        `[${clock(t.startedAt + 21_000)}] bash npm run typecheck --prefix dashboard`,
+        `[${clock(t.startedAt + 27_000)}] edit dashboard/src/client/styles.css`,
+      ];
+    }
+    if (t.state === 'not-ok') {
+      return [head, `[${clock(t.startedAt + 8000)}] bash npx drizzle-kit push`, `[${clock(t.endedAt ?? base)}] stopped: denied tools`];
+    }
+    if (t.state === 'ok') {
+      return [head, `[${clock(t.startedAt + 7000)}] read README.md`, `[${clock(t.endedAt ?? base)}] done in ${t.elapsedS}s`];
+    }
+    return [head, '[…] no result.json yet'];
+  };
 
   // --- static terminal sessions ---
   const t1root: AgentNode = {
@@ -340,6 +479,22 @@ export function createMockBackend(): FleetBackend {
   at(1700, () => toolCall(root, 'Read', 'dashboard/package.json'));
   at(2100, () => toolBack(root, 'Read', 'Read 30 lines'));
 
+  // A finished pack install — triggers the amber restart banner above the composer.
+  at(2400, () => {
+    pushEvent(root, 'tool_use', 'bash install.sh --pack fleet-agents', {
+      tool: 'Bash',
+      toolUseId: 'mock-pack-1',
+      detail: 'bash ~/.fleet/install.sh --pack fleet-agents   # installs planner, reviewer, tester',
+    });
+    root.toolCounts.Bash = (root.toolCounts.Bash ?? 0) + 1;
+    root.costUsd = r4(root.costUsd + 0.002);
+    bumpSession(root.sessionId);
+    upsertHead(root);
+  });
+  at(2800, () => {
+    pushEvent(root, 'tool_result', 'Installed 3 agents from the pack', { tool: 'Bash', toolUseId: 'mock-pack-1' });
+  });
+
   at(2600, () => {
     explore = spawn(root, 'task-explore', 'subagent', 'explore', 'claude-haiku-4-5-20251001', 'Map the dashboard data flow', 'Trace how ServerEvent reaches the client reducer. List the files involved and the merge rules.');
   });
@@ -568,10 +723,58 @@ export function createMockBackend(): FleetBackend {
         '/home/ha-lun/work/website',
         '/home/ha-lun/opencode-config/opencode',
       ]),
+    dirs: (rawPath, hidden) => {
+      const path = rawPath && rawPath.trim() ? rawPath.trim() : MOCK_HOME;
+      const entries = dirTree.get(path) ?? [];
+      const parent = path === MOCK_HOME ? undefined : path.slice(0, path.lastIndexOf('/')) || undefined;
+      const listing: DirListing = {
+        path,
+        parent,
+        entries: entries
+          .filter((e) => hidden || !e.name.startsWith('.'))
+          .map((e) => ({ ...e })),
+      };
+      return Promise.resolve(listing);
+    },
+    workers: () =>
+      Promise.resolve(workerTasks.map((t) => ({ ...t, toolCounts: { ...t.toolCounts } }))),
+    workerLog: (lane, repo, slug) => {
+      const t = workerTasks.find((w) => w.lane === lane && w.repo === repo && w.slug === slug);
+      if (!t) return Promise.reject(new ApiError(404, 'worker log not found'));
+      return Promise.resolve({ lines: workerLogLines(t) });
+    },
+    resume: (sessionId, body: ResumeSessionBody) => {
+      const s = sessions.get(sessionId);
+      const map = nodeMaps.get(sessionId);
+      if (!s || !map) return Promise.reject(new ApiError(404, 'session not found'));
+      const root = map.get('root');
+      if (s.status === 'running' || s.status === 'waiting') {
+        return Promise.reject(new ApiError(409, 'This session is still active in a terminal'));
+      }
+      // Terminal resume becomes page-owned; the same session id keeps its transcript.
+      s.source = 'page';
+      s.status = 'running';
+      if (root) {
+        root.status = 'running';
+        root.endedAt = undefined;
+        root.result = undefined;
+        pushEvent(root, 'user', body.text.split('\n')[0], { detail: body.text });
+        upsertHead(root);
+        at(1800, () => {
+          if (root.status === 'running') pushEvent(root, 'text', 'Continuing — scripted mock reply.');
+        });
+        at(3600, () => {
+          if (root.status === 'running') finishNode(root, 'Continued and finished (mock).', 0.012, tu(2400, 700));
+        });
+      }
+      bumpSession(sessionId);
+      return Promise.resolve({ sessionId } satisfies StartSessionResponse);
+    },
     connect(onEvent, onStatus) {
       emit = onEvent;
       onStatus(true);
       emit({ type: 'hello', sessions: Array.from(sessions.values()).map((s) => ({ ...s })) });
+      emit({ type: 'workers.update', workers: workerTasks.map((t) => ({ ...t, toolCounts: { ...t.toolCounts } })) });
       upsertHead(root);
       return () => clearAll();
     },

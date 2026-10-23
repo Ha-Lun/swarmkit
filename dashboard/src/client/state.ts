@@ -7,6 +7,7 @@ import type {
   ServerEvent,
   SessionDetail,
   SessionSummary,
+  WorkerTask,
 } from '../shared/types';
 
 export interface AppState {
@@ -14,6 +15,7 @@ export interface AppState {
   selectedId: string | null;
   details: Record<string, SessionDetail>;
   connected: boolean;
+  workers: WorkerTask[];
 }
 
 export type Action =
@@ -21,9 +23,10 @@ export type Action =
   | { type: 'ev'; ev: ServerEvent }
   | { type: 'detail'; detail: SessionDetail }
   | { type: 'select'; sessionId: string | null }
-  | { type: 'connected'; connected: boolean };
+  | { type: 'connected'; connected: boolean }
+  | { type: 'workers'; workers: WorkerTask[] };
 
-export const initialState: AppState = { sessions: [], selectedId: null, details: {}, connected: false };
+export const initialState: AppState = { sessions: [], selectedId: null, details: {}, connected: false, workers: [] };
 
 const byRecency = (a: SessionSummary, b: SessionSummary) => b.updatedAt - a.updatedAt;
 
@@ -34,6 +37,8 @@ function mergeSessions(list: SessionSummary[], s: SessionSummary): SessionSummar
 }
 
 function pickDefault(list: SessionSummary[]): string | null {
+  // On phones the landing page is the first screen — never auto-select a session.
+  if (typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches) return null;
   if (list.length === 0) return null;
   return (list.find((s) => s.source === 'page') ?? list[0]).id;
 }
@@ -139,6 +144,8 @@ export function reducer(state: AppState, action: Action): AppState {
             },
           };
         }
+        case 'workers.update':
+          return { ...state, workers: ev.workers };
       }
       return state;
     }
@@ -158,6 +165,9 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case 'connected':
       return { ...state, connected: action.connected };
+
+    case 'workers':
+      return { ...state, workers: action.workers };
 
     default:
       return state;

@@ -1,7 +1,7 @@
 // The tree canvas: own tidy layout (no libraries), SVG connectors, pan/zoom/fit.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import type { AgentNode, PermissionRequest } from '../shared/types';
+import type { AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
 import { NodeCard } from './NodeCard';
 import { FitIcon, ZoomInIcon, ZoomOutIcon } from './icons';
 
@@ -97,6 +97,8 @@ function computeLayout(nodes: AgentNode[], heights: Record<string, number>): Lay
 interface Props {
   nodes: AgentNode[];
   permissions: PermissionRequest[];
+  workers: WorkerTask[];
+  workersAt: number;
   now: number;
   openNodeId: string | null;
   onOpen: (nodeId: string) => void;
@@ -109,7 +111,7 @@ interface View {
   z: number;
 }
 
-export function Tree({ nodes, permissions, now, openNodeId, onOpen, onDecide }: Props) {
+export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, onOpen, onDecide }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const layerRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>({ x: FIT_PAD, y: FIT_PAD, z: 1 });
@@ -118,6 +120,22 @@ export function Tree({ nodes, permissions, now, openNodeId, onOpen, onDecide }: 
   const dragMoved = useRef(false);
 
   const layout = useMemo(() => computeLayout(nodes, heights), [nodes, heights]);
+
+  // Live WorkerTask per worker node: same sessionId+nodeId, else same lane+slug.
+  const taskByNode = useMemo(() => {
+    const m = new Map<string, WorkerTask>();
+    if (workers.length === 0) return m;
+    for (const n of nodes) {
+      if (n.kind !== 'worker') continue;
+      const t = workers.find(
+        (w) =>
+          (w.sessionId != null && w.nodeId != null && w.sessionId === n.sessionId && w.nodeId === n.id) ||
+          (n.worker != null && w.lane === n.worker.lane && w.slug === n.worker.slug),
+      );
+      if (t) m.set(n.id, t);
+    }
+    return m;
+  }, [nodes, workers]);
 
   const fit = useCallback(() => {
     const el = wrapRef.current;
@@ -175,36 +193,77 @@ export function Tree({ nodes, permissions, now, openNodeId, onOpen, onDecide }: 
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
-  // Pan by pointer drag. No pointer capture: cards keep receiving clicks;
-  // a >5px drag sets a guard that suppresses the stray click on release.
+  // Pan with one pointer, pinch-zoom with two. touch-action: none keeps the touch
+  // gesture on the canvas; no pointer capture so cards keep receiving clicks.
+  // A >5px move sets a guard that suppresses the stray click on release.
+  const ptsRef = useRef(new Map<number, { x: number; y: number; sx: number; sy: number }>());
+  const pinchRef = useRef<{ dist: number; mx: number; my: number } | null>(null);
+
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const el = wrapRef.current;
-    if (!el || e.button !== 0) return;
-    const start = { px: e.clientX, py: e.clientY, ox: view.x, oy: view.y, moved: false };
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     dragMoved.current = false;
-    const onMove = (ev: PointerEvent) => {
-      const dx = ev.clientX - start.px;
-      const dy = ev.clientY - start.py;
-      if (!start.moved && Math.abs(dx) + Math.abs(dy) > 5) {
-        start.moved = true;
+    ptsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY });
+    pinchRef.current = null;
+  };
+
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const pts = ptsRef.current;
+      const prev = pts.get(e.pointerId);
+      if (!prev) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: prev.sx, sy: prev.sy });
+
+      if (pts.size === 1) {
+        if (!dragMoved.current && Math.abs(e.clientX - prev.sx) + Math.abs(e.clientY - prev.sy) > 5) {
+          dragMoved.current = true;
+          userMoved.current = true;
+          wrapRef.current?.classList.add('is-dragging');
+        }
+        if (!dragMoved.current) return;
+        e.preventDefault();
+        setView((v) => ({ ...v, x: v.x + (e.clientX - prev.x), y: v.y + (e.clientY - prev.y) }));
+        return;
+      }
+
+      // Two pointers: pinch-zoom around the midpoint, and pan with it.
+      const [a, b] = Array.from(pts.values());
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      const mx = (a.x + b.x) / 2;
+      const my = (a.y + b.y) / 2;
+      const g = pinchRef.current;
+      if (g && g.dist > 0) {
+        e.preventDefault();
         dragMoved.current = true;
         userMoved.current = true;
-        el.classList.add('is-dragging');
+        const panX = mx - g.mx;
+        const panY = my - g.my;
+        setView((v) => {
+          const z = Math.min(MAX_Z, Math.max(MIN_Z, v.z * (dist / g.dist)));
+          const el = wrapRef.current;
+          if (!el) return { ...v, z };
+          const r = el.getBoundingClientRect();
+          const px = mx - r.left;
+          const py = my - r.top;
+          const k = z / v.z;
+          return { z, x: px - (px - v.x) * k + panX, y: py - (py - v.y) * k + panY };
+        });
       }
-      if (!start.moved) return;
-      ev.preventDefault();
-      setView((v) => ({ ...v, x: start.ox + dx, y: start.oy + dy }));
+      pinchRef.current = { dist, mx, my };
     };
-    const onUp = () => {
+    const onUp = (e: PointerEvent) => {
+      ptsRef.current.delete(e.pointerId);
+      pinchRef.current = null;
+      if (ptsRef.current.size === 0) wrapRef.current?.classList.remove('is-dragging');
+    };
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
-      el.classList.remove('is-dragging');
     };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
-  };
+  }, []);
 
   // Measure card heights so connectors meet card edges and rows don't overlap.
   const roRef = useRef<ResizeObserver | null>(null);
@@ -287,6 +346,8 @@ export function Tree({ nodes, permissions, now, openNodeId, onOpen, onDecide }: 
             <NodeCard
               node={node}
               now={now}
+              task={taskByNode.get(node.id)}
+              workersAt={workersAt}
               permission={permByNode.get(node.id)}
               open={openNodeId === node.id}
               onOpen={() => onOpen(node.id)}

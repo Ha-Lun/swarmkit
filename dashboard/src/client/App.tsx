@@ -1,20 +1,35 @@
 // Top-level app: backend wiring (real or mock), routing state, chrome.
 import { Component, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
-import type { PermissionRequest, SessionSummary, StartSessionBody } from '../shared/types';
+import type { PermissionRequest, SessionSummary, WorkerTask } from '../shared/types';
 import { ApiError, apiBackend } from './api';
 import type { FleetBackend, Guard } from './api';
 import { Composer } from './Composer';
+import { Continue } from './Continue';
 import { Drawer } from './Drawer';
 import { fmtCost } from './format';
 import { MenuIcon } from './icons';
+import { Landing } from './Landing';
 import { createMockBackend } from './mock';
 import { NewSession } from './NewSession';
+import { packInstallDone, RestartBanner } from './RestartBanner';
 import { Sidebar } from './Sidebar';
 import { initialState, nodeById, reducer } from './state';
 import { Tree } from './Tree';
+import { WorkerDrawer } from './WorkerDrawer';
+import { workerKey, WorkersView } from './Workers';
 
 const MOCK = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mock') === '1';
+
+const RESTART_KEY = 'fleet.restart-dismissed';
+
+function readDismissed(): string[] {
+  try {
+    return JSON.parse(sessionStorage.getItem(RESTART_KEY) ?? '[]') as string[];
+  } catch {
+    return [];
+  }
+}
 
 function useTicker(active: boolean): number {
   const [now, setNow] = useState(() => Date.now());
@@ -25,6 +40,25 @@ function useTicker(active: boolean): number {
     return () => window.clearInterval(t);
   }, [active]);
   return now;
+}
+
+/** Pad the composer zone above the on-screen keyboard (visualViewport, iOS-safe). */
+function useKeyboardInset(): void {
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const apply = () => {
+      const kb = Math.max(0, Math.round(window.innerHeight - vv.height));
+      document.documentElement.style.setProperty('--kb', `${kb}px`);
+    };
+    apply();
+    vv.addEventListener('resize', apply);
+    vv.addEventListener('scroll', apply);
+    return () => {
+      vv.removeEventListener('resize', apply);
+      vv.removeEventListener('scroll', apply);
+    };
+  }, []);
 }
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -60,6 +94,9 @@ function TokenScreen() {
       <div className="token-card">
         <h1>Claude Fleet</h1>
         <p>This dashboard needs an access token. Paste it and press Open — the server will set a cookie.</p>
+        <p className="muted token-hint">
+          Open the link with ?token= once on this device; it stays signed in for 30 days.
+        </p>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -85,14 +122,22 @@ function TokenScreen() {
   );
 }
 
-function Topbar({ session, onMenu }: { session?: SessionSummary; onMenu: () => void }) {
+function Topbar({
+  session,
+  onMenu,
+  title,
+}: {
+  session?: SessionSummary;
+  onMenu: () => void;
+  title?: string;
+}) {
   return (
     <header className="topbar">
       <button type="button" className="icon-btn menu-btn" aria-label="Open session list" onClick={onMenu}>
         <MenuIcon />
       </button>
       <div className="topbar-title">
-        <h1>{session ? session.title || session.project : 'Claude Fleet'}</h1>
+        <h1>{title ?? (session ? session.title || session.project : 'Claude Fleet')}</h1>
         {session && (
           <p className="topbar-cwd" title={session.cwd}>
             {session.cwd}
@@ -127,6 +172,11 @@ function App() {
   const [drawerNodeId, setDrawerNodeId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [view, setView] = useState<'session' | 'workers'>('session');
+  const [workerDrawerKey, setWorkerDrawerKey] = useState<string | null>(null);
+  const [restartBusy, setRestartBusy] = useState(false);
+  const [dismissedRestart, setDismissedRestart] = useState<string[]>(readDismissed);
+  const workersAtRef = useRef(Date.now());
 
   const backend = useMemo<FleetBackend>(() => (MOCK ? createMockBackend() : apiBackend), []);
 
@@ -148,10 +198,15 @@ function App() {
     [guard],
   );
 
+  useKeyboardInset();
+
   // Live event stream.
   useEffect(() => {
     return backend.connect(
-      (ev) => dispatch({ type: 'ev', ev }),
+      (ev) => {
+        if (ev.type === 'workers.update') workersAtRef.current = Date.now();
+        dispatch({ type: 'ev', ev });
+      },
       (up) => {
         dispatch({ type: 'connected', connected: up });
         if (up) {
@@ -172,6 +227,16 @@ function App() {
   useEffect(() => {
     guardSilent(backend.sessions()).then((sessions) => {
       if (sessions) dispatch({ type: 'sessions', sessions: sessions as never });
+    });
+  }, [backend, guardSilent]);
+
+  // Initial worker list (the workers.update event right after connect also refreshes it).
+  useEffect(() => {
+    guardSilent(backend.workers()).then((w) => {
+      if (w) {
+        workersAtRef.current = Date.now();
+        dispatch({ type: 'workers', workers: w as WorkerTask[] });
+      }
     });
   }, [backend, guardSilent]);
 
@@ -200,17 +265,39 @@ function App() {
   }, [state.selectedId, state.details, backend, guard, retryNonce]);
 
   const anyActive =
-    detail?.nodes.some((n) => n.status === 'running' || n.status === 'waiting') ??
+    detail?.nodes.some((n) => n.status === 'running' || n.status === 'waiting') ||
+    state.workers.some((w) => w.state === 'running') ||
     state.sessions.some((s) => s.status === 'running' || s.status === 'waiting');
-  const now = useTicker(anyActive);
+  const now = useTicker(Boolean(anyActive));
 
   const drawerNode = detail && drawerNodeId ? nodeById(detail, drawerNodeId) : undefined;
+  const drawerTask = workerDrawerKey
+    ? state.workers.find((w) => workerKey(w) === workerDrawerKey)
+    : undefined;
 
   const openNode = useCallback((nodeId: string) => setDrawerNodeId(nodeId), []);
   const selectSession = useCallback((id: string) => {
     dispatch({ type: 'select', sessionId: id });
     setSheetOpen(false);
+    setView('session');
   }, []);
+  const onStarted = useCallback((id: string) => {
+    setNewOpen(false);
+    setSheetOpen(false);
+    setDrawerNodeId(null);
+    dispatch({ type: 'select', sessionId: id });
+    setView('session');
+  }, []);
+
+  const openWorker = useCallback((task: WorkerTask) => setWorkerDrawerKey(workerKey(task)), []);
+  const viewWorkerInTree = useCallback(
+    (sessionId: string, nodeId: string) => {
+      setWorkerDrawerKey(null);
+      selectSession(sessionId);
+      setDrawerNodeId(nodeId);
+    },
+    [selectSession],
+  );
 
   const decide = useCallback(
     (p: PermissionRequest, allow: boolean, message?: string) => {
@@ -219,17 +306,84 @@ function App() {
     [backend, guardSilent],
   );
 
+  // ---- restart after a pack install ----
+  const restartNeeded = detail ? packInstallDone(detail.nodes) : false;
+  const showRestart =
+    view === 'session' && restartNeeded && selected != null && !dismissedRestart.includes(selected.id);
+
+  const dismissRestart = useCallback(() => {
+    const id = stateRef.current.selectedId;
+    if (!id) return;
+    setDismissedRestart((prev) => {
+      const next = prev.includes(id) ? prev : [...prev, id];
+      try {
+        sessionStorage.setItem(RESTART_KEY, JSON.stringify(next));
+      } catch {
+        // private mode — dismissal is per pageload then
+      }
+      return next;
+    });
+  }, []);
+
+  const restartSession = useCallback(async () => {
+    const id = stateRef.current.selectedId;
+    if (!id || restartBusy) return;
+    setRestartBusy(true);
+    try {
+      await guard(backend.stop(id));
+      await guard(
+        backend.resume(id, {
+          text: 'The new agents are installed and the session was restarted. Continue the task where you left off.',
+        }),
+      );
+      const d = await guard(backend.detail(id));
+      if (d) dispatch({ type: 'detail', detail: d as never });
+      dismissRestart();
+    } catch {
+      // keep the banner up so the user can retry
+    }
+    setRestartBusy(false);
+  }, [backend, guard, restartBusy, dismissRestart]);
+
+  // ---- continue (resume) ----
+  const handleResumed = useCallback(
+    (id: string) => {
+      setView('session');
+      guardSilent(backend.detail(id)).then((d) => {
+        if (d) dispatch({ type: 'detail', detail: d as never });
+      });
+    },
+    [backend, guardSilent],
+  );
+
   if (authNeeded) return <TokenScreen />;
+
+  const running = selected ? selected.status === 'running' || selected.status === 'waiting' : false;
+  const canContinue =
+    !!selected &&
+    !running &&
+    (selected.source === 'terminal' ||
+      selected.status === 'done' ||
+      selected.status === 'stopped' ||
+      selected.status === 'error' ||
+      selected.status === 'idle');
 
   return (
     <div className="app">
       <Sidebar
         sessions={state.sessions}
+        workers={state.workers}
         selectedId={state.selectedId}
         open={sheetOpen}
         connected={state.connected || MOCK}
         now={now}
+        workersAt={workersAtRef.current}
         onSelect={selectSession}
+        onOpenWorker={openWorker}
+        onOpenWorkers={() => {
+          setSheetOpen(false);
+          setView('workers');
+        }}
         onNew={() => setNewOpen(true)}
         onClose={() => setSheetOpen(false)}
       />
@@ -238,23 +392,28 @@ function App() {
       )}
 
       <div className="main">
-        <Topbar session={selected} onMenu={() => setSheetOpen(true)} />
+        <Topbar
+          session={view === 'workers' ? undefined : selected ?? undefined}
+          title={view === 'workers' ? 'Workers' : undefined}
+          onMenu={() => setSheetOpen(true)}
+        />
         {!state.connected && !MOCK && (
           <div className="conn-banner" aria-live="polite">
             Connection lost — reconnecting…
           </div>
         )}
 
-        {!selected ? (
-          <div className="canvas-empty">
-            <div>
-              <p>No session selected.</p>
-              <p className="muted">Pick one from the list, or start a new session to watch the agent tree grow.</p>
-              <button type="button" className="btn btn-primary" onClick={() => setNewOpen(true)}>
-                New session
-              </button>
-            </div>
-          </div>
+        {view === 'workers' ? (
+          <WorkersView workers={state.workers} now={now} at={workersAtRef.current} onOpen={openWorker} />
+        ) : !selected ? (
+          <Landing
+            backend={backend}
+            guard={guard}
+            sessions={state.sessions}
+            now={now}
+            onSelect={selectSession}
+            onStarted={onStarted}
+          />
         ) : !detail ? (
           loadError ? (
             <div className="canvas-empty">
@@ -276,6 +435,8 @@ function App() {
             key={detail.id}
             nodes={detail.nodes}
             permissions={detail.permissions}
+            workers={state.workers}
+            workersAt={workersAtRef.current}
             now={now}
             openNodeId={drawerNodeId}
             onOpen={openNode}
@@ -283,36 +444,65 @@ function App() {
           />
         )}
 
-        {selected?.source === 'page' ? (
-          <Composer
-            onSend={(text) => {
-              if (state.selectedId) void guardSilent(backend.send(state.selectedId, text));
-            }}
-            onInterrupt={() => {
-              if (state.selectedId) void guardSilent(backend.interrupt(state.selectedId));
-            }}
-            onStop={() => {
-              if (state.selectedId) void guardSilent(backend.stop(state.selectedId));
-            }}
+        {view === 'session' && selected && detail && showRestart && (
+          <RestartBanner
+            source={selected.source}
+            busy={restartBusy}
+            onRestart={() => void restartSession()}
+            onDismiss={dismissRestart}
           />
-        ) : selected ? (
-          <div className="readonly-bar">Read-only: this session was started in a terminal.</div>
-        ) : null}
+        )}
+
+        {view === 'session' && selected && (
+          selected.source === 'page' && running ? (
+            <Composer
+              onSend={(text) => {
+                if (state.selectedId) void guardSilent(backend.send(state.selectedId, text));
+              }}
+              onInterrupt={() => {
+                if (state.selectedId) void guardSilent(backend.interrupt(state.selectedId));
+              }}
+              onStop={() => {
+                if (state.selectedId) void guardSilent(backend.stop(state.selectedId));
+              }}
+            />
+          ) : running ? (
+            <div className="readonly-bar">
+              Read-only — this session is running in a terminal. Continue becomes available when it stops.
+            </div>
+          ) : canContinue ? (
+            <Continue
+              key={selected.id}
+              backend={backend}
+              guard={guard}
+              sessionId={selected.id}
+              source={selected.source}
+              onResumed={handleResumed}
+            />
+          ) : null
+        )}
       </div>
 
       {drawerNode && <Drawer node={drawerNode} onClose={() => setDrawerNodeId(null)} />}
+
+      {drawerTask && (
+        <WorkerDrawer
+          task={drawerTask}
+          backend={backend}
+          guard={guard}
+          now={now}
+          at={workersAtRef.current}
+          onClose={() => setWorkerDrawerKey(null)}
+          onViewInTree={viewWorkerInTree}
+        />
+      )}
 
       {newOpen && (
         <NewSession
           backend={backend}
           guard={guard}
           onClose={() => setNewOpen(false)}
-          onStarted={(id) => {
-            setNewOpen(false);
-            setSheetOpen(false);
-            setDrawerNodeId(null);
-            dispatch({ type: 'select', sessionId: id });
-          }}
+          onStarted={onStarted}
         />
       )}
     </div>

@@ -1,20 +1,38 @@
 // Session list: narrow column on desktop, slide-over sheet on <=768px.
-import type { SessionSummary } from '../shared/types';
+import type { SessionSummary, WorkerTask } from '../shared/types';
 import { fmtCost, relTime } from './format';
 import { PlusIcon, TerminalIcon } from './icons';
+import { WorkersSection } from './Workers';
 
 interface Props {
   sessions: SessionSummary[];
+  workers: WorkerTask[];
   selectedId: string | null;
   open: boolean;
   connected: boolean;
   now: number;
+  workersAt: number;
   onSelect: (id: string) => void;
+  onOpenWorker: (task: WorkerTask) => void;
+  onOpenWorkers: () => void;
   onNew: () => void;
   onClose: () => void;
 }
 
-export function Sidebar({ sessions, selectedId, open, connected, now, onSelect, onNew, onClose }: Props) {
+export function Sidebar({
+  sessions,
+  workers,
+  selectedId,
+  open,
+  connected,
+  now,
+  workersAt,
+  onSelect,
+  onOpenWorker,
+  onOpenWorkers,
+  onNew,
+  onClose,
+}: Props) {
   return (
     <nav className={`sidebar${open ? ' is-open' : ''}`} aria-label="Sessions">
       <div className="side-brand">
@@ -63,6 +81,14 @@ export function Sidebar({ sessions, selectedId, open, connected, now, onSelect, 
           ))
         )}
       </div>
+
+      <WorkersSection
+        workers={workers}
+        now={now}
+        at={workersAt}
+        onOpen={onOpenWorker}
+        onOpenAll={onOpenWorkers}
+      />
 
       <div className="side-foot">
         <span className={`dot ${connected ? 'st-running' : 'st-error'}`} aria-hidden="true" />

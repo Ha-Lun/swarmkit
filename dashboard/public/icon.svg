@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Claude Fleet">
+  <!-- rounded square -->
+  <rect width="512" height="512" rx="112" fill="#1b1b21"/>
+  <!-- agent tree connectors -->
+  <path d="M256 168v64M256 232l-104 112M256 232l104 112"
+        stroke="#7d9bff" stroke-width="26" stroke-linecap="round" fill="none"/>
+  <!-- root agent -->
+  <circle cx="256" cy="144" r="46" fill="#3e7bfa"/>
+  <!-- two child agents -->
+  <circle cx="148" cy="368" r="38" fill="#ffffff"/>
+  <circle cx="364" cy="368" r="38" fill="#ffffff"/>
+</svg>

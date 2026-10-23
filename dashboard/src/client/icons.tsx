@@ -93,6 +93,18 @@ export const KeyIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const UpIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 19V5M5 12l7-7 7 7" />
+  </Svg>
+);
+
+export const FolderIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3.5 7A1.5 1.5 0 0 1 5 5.5h3.6L11 8h8A1.5 1.5 0 0 1 20.5 9.5V18A1.5 1.5 0 0 1 19 19.5H5A1.5 1.5 0 0 1 3.5 18V7Z" />
+  </Svg>
+);
+
 // --- node kinds ---
 
 export const MainIcon = (p: IconProps) => (
