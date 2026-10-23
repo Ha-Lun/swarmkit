@@ -1,10 +1,11 @@
+import { setImmediate } from 'node:timers/promises';
 import { open, readdir, readFile, stat } from 'node:fs/promises';
 import { closeSync, openSync, readSync, readdirSync, statSync } from 'node:fs';
 import type { Dirent } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import type { ServerEvent, SessionDetail, SessionSummary } from '../../src/shared/types.ts';
-import { applyMessage, createTree, ensureNode, setStatus, upsertEvent, type SessionTree } from '../model/reducer.ts';
+import { applyMessage, createTree, ensureNode, markPlaceholder, setStatus, upsertEvent, type SessionTree } from '../model/reducer.ts';
 import { pollWorkers } from '../model/workers.ts';
 
 export interface WatcherOptions {
@@ -44,15 +45,31 @@ interface LiveSession {
   cwd: string;
   startedAt: number;
   subs: Map<string, SubState>;
+  /** Last time get() was called for this session. */
+  lastAccess: number;
   lastSummary: string;
 }
 
 const HEAD_BYTES = 64 * 1024;
 const SCAN_MS = 2000;
-/** Sessions younger than this are parsed eagerly by the scan loop. */
+/** Sessions older than this mtime age are no longer parsed eagerly by the scan loop. */
+const PARSE_FRESH_MS = 2 * 60_000;
+/** At most this many sessions are fully parsed per scan tick. */
+const PARSE_PER_TICK = 2;
+/** Above this file size only the tail is parsed (the head's title is already known). */
+const TAIL_BYTES = 4 * 1024 * 1024;
+/** Yield to the event loop between this many applied lines. */
+const LINE_CHUNK = 2000;
+/** Sessions newer than this mtime age are classified as running in summaries. */
 const LIVE_MS = 10 * 60_000;
-/** A recently written session file counts as running in summaries. */
+/** A freshly written session file counts as running in summaries. */
 const RUNNING_MS = 2 * 60_000;
+/** A live session not accessed via get() within this many ms can be evicted (when also mtime-stale). */
+const ACCESS_MS = 10 * 60_000;
+/** Live sessions are capped; the LRU (by lastAccess / mtime) is dropped beyond this. */
+const MAX_LIVE = 20;
+/** Cached meta.json entries per watcher. */
+const MAX_META_CACHE = 500;
 
 export class TranscriptWatcher {
   private readonly root: string;
@@ -62,6 +79,7 @@ export class TranscriptWatcher {
   private heads = new Map<string, HeadEntry>();
   private live = new Map<string, LiveSession>();
   private cwds = new Map<string, number>();
+  private metaCache = new Map<string, { mtimeMs: number; size: number; data: Record<string, unknown> }>();
   private timer: ReturnType<typeof setInterval> | undefined;
   private scanning = false;
 
@@ -89,31 +107,101 @@ export class TranscriptWatcher {
     }
   }
 
-  /** One scan pass: refresh the head cache, tail live sessions, poll workers. */
+  /** One scan pass: refresh the head cache, lazily parse very fresh sessions, tail live sessions, poll workers. */
   async scanNow(): Promise<void> {
     if (this.scanning) return;
     this.scanning = true;
     try {
       this.refreshHeadsSync();
       const now = Date.now();
+      await this.evictLive(now);
+      // Only sessions modified in the last 2 min are parsed eagerly (at most 2 per tick).
+      const fresh: { id: string; head: HeadEntry }[] = [];
       for (const [id, head] of [...this.heads.entries()]) {
         if (this.live.has(id) || this.skipFn(id)) continue;
-        if (now - head.mtimeMs < LIVE_MS) {
-          try {
-            const { live, events } = await this.parseFull(head.path, id);
-            this.live.set(id, live);
-            this.flushEvents(events, live);
-          } catch {
-            // unreadable session file: try again next pass
-          }
+        if (now - head.mtimeMs < PARSE_FRESH_MS) fresh.push({ id, head });
+      }
+      fresh.sort((a, b) => b.head.mtimeMs - a.head.mtimeMs);
+      let parsed = 0;
+      for (const { id, head } of fresh) {
+        if (parsed >= PARSE_PER_TICK) break;
+        try {
+          const { live, events } = await this.parseFull(head.path, id);
+          this.live.set(id, live);
+          this.flushEvents(events, live);
+          parsed++;
+        } catch {
+          // unreadable session file: try again next pass
         }
       }
-      for (const live of [...this.live.values()]) {
-        const events = await this.refreshLive(live);
-        this.flushEvents(events, live);
+      // Eager parses can have overshot the cap again: trim once more.
+      await this.trimLiveToCap(Date.now());
+      for (const [id, entry] of [...this.live.entries()]) {
+        if (this.skipFn(id)) {
+          this.live.delete(id);
+          continue;
+        }
+        const events = await this.refreshLive(entry);
+        this.flushEvents(events, this.live.get(id) ?? entry);
       }
     } finally {
       this.scanning = false;
+    }
+  }
+
+  /**
+   * Drops live sessions that aged out: mtime older than LIVE_MS and not accessed via get()
+   * within ACCESS_MS, or whose file is gone; also caps the map at MAX_LIVE (LRU). A final
+   * session.upsert (from the head cache when present) is emitted before each drop.
+   */
+  private async evictLive(now: number): Promise<void> {
+    const drop: string[] = [];
+    for (const [id, live] of [...this.live.entries()]) {
+      const stale = now - live.mtimeMs > LIVE_MS;
+      const unaccessed = now - live.lastAccess > ACCESS_MS;
+      if (this.skipFn(id) || (stale && unaccessed)) {
+        drop.push(id);
+        continue;
+      }
+      if (stale) {
+        // mtime-stale but recently accessed: the file may still have been deleted.
+        try {
+          await stat(live.path);
+        } catch {
+          drop.push(id);
+        }
+      }
+    }
+    await this.dropLive(drop, now);
+    if (this.live.size > MAX_LIVE) await this.trimLiveToCap(now);
+  }
+
+  /** Cap-only LRU trim (used after eager parses): no file probing needed. */
+  private async trimLiveToCap(now: number): Promise<void> {
+    if (this.live.size <= MAX_LIVE) return;
+    const candidates = [...this.live.keys()];
+    candidates.sort((a, b) => {
+      const la = this.live.get(a)!;
+      const lb = this.live.get(b)!;
+      const ka = Math.max(la.lastAccess, la.mtimeMs);
+      const kb = Math.max(lb.lastAccess, lb.mtimeMs);
+      return ka - kb;
+    });
+    const over = candidates.length - MAX_LIVE;
+    await this.dropLive(candidates.slice(0, over), now);
+  }
+
+  /** The shared drop step: final session.upsert then delete. */
+  private async dropLive(ids: string[], _now: number): Promise<void> {
+    for (const id of ids) {
+      const live = this.live.get(id);
+      if (!live) continue;
+      const head = this.heads.get(id);
+      this.emitFn({
+        type: 'session.upsert',
+        session: head ? headSummary(head) : liveSummary(live),
+      });
+      this.live.delete(id);
     }
   }
 
@@ -157,6 +245,7 @@ export class TranscriptWatcher {
       }
     }
     const events = await this.refreshLive(live);
+    live.lastAccess = Date.now();
     this.flushEvents(events, live);
     return this.detailFor(live);
   }
@@ -171,7 +260,11 @@ export class TranscriptWatcher {
 
   /** The tree node that started a worker with this lane+slug, in any live watcher tree. */
   findWorkerNode(lane: 'agy' | 'opencode', slug: string): { sessionId: string; nodeId: string } | undefined {
-    for (const live of this.live.values()) {
+    for (const [id, live] of this.live.entries()) {
+      if (this.skipFn(id)) {
+        this.live.delete(id);
+        continue;
+      }
       for (const node of live.tree.nodes.values()) {
         if (node.kind === 'worker' && node.worker?.lane === lane && node.worker?.slug === slug) {
           return { sessionId: live.id, nodeId: node.id };
@@ -202,10 +295,26 @@ export class TranscriptWatcher {
     }
   }
 
-  /** Full parse of a session file plus its subagent files. */
+  /** Full parse of a session file plus its subagent files; tail-only above TAIL_BYTES. */
   private async parseFull(file: string, id: string): Promise<{ live: LiveSession; events: ServerEvent[] }> {
-    const [st, raw] = await Promise.all([stat(file), readFile(file)]);
-    const { lines } = extractLines(raw);
+    const st = await stat(file);
+    let start = 0;
+    if (st.size > TAIL_BYTES) start = st.size - TAIL_BYTES;
+    let raw = await readRange(file, start);
+    if (start > 0) {
+      // Cut ends at the first newline after the truncation point; the head's first-prompt title is known.
+      const nl = raw.indexOf(0x0a);
+      if (nl >= 0) {
+        start += nl + 1;
+        raw = raw.subarray(nl + 1);
+      } else {
+        start += raw.length;
+        raw = Buffer.alloc(0);
+      }
+    }
+    const { lines, rest } = extractLines(raw);
+    // Kept for the next tail: the bytes after the last complete newline, never re-parsed.
+    const offset = start + (raw.length - rest.length);
     // Pre-scan for cwd / first timestamp / agent-setting before building the tree.
     let cwd = '';
     let sawTs = false;
@@ -228,22 +337,32 @@ export class TranscriptWatcher {
         if (a) agentType = a;
       }
     }
+    // A tail-only start has no first timestamp: the head read already established it.
+    if (start > 0) {
+      const head = this.heads.get(id);
+      if (head) startedAt = head.startedAt;
+    }
     const tree = createTree(id, { startedAt, agentType });
+    if (cwd) tree.cwd = cwd;
     const live: LiveSession = {
       id,
       path: file,
       tree,
-      offset: raw.length,
-      rest: Buffer.alloc(0),
+      offset,
+      rest,
       mtimeMs: st.mtimeMs,
       cwd,
       startedAt,
       subs: new Map<string, SubState>(),
+      lastAccess: Date.now(),
       lastSummary: '',
     };
     this.noteCwd(cwd, st.mtimeMs);
     const events: ServerEvent[] = [];
-    for (const m of msgs) events.push(...applyMessage(tree, m));
+    for (let i = 0; i < msgs.length; i += LINE_CHUNK) {
+      for (const m of msgs.slice(i, i + LINE_CHUNK)) events.push(...applyMessage(tree, m));
+      if (i + LINE_CHUNK < msgs.length) await setImmediate();
+    }
     await this.ensureSubs(live, events, true);
     return { live, events };
   }
@@ -251,15 +370,19 @@ export class TranscriptWatcher {
   /** Tails the main file, the subagent files and polls worker result files. */
   private async refreshLive(live: LiveSession): Promise<ServerEvent[]> {
     const events: ServerEvent[] = [];
+    let truncated = false;
     try {
       const st = await stat(live.path);
+      // rest already holds the bytes after the last complete newline: never read them twice.
+      const readFrom = live.offset + live.rest.length;
+      truncated = st.size < readFrom; // truncated or rewritten from scratch
       live.mtimeMs = st.mtimeMs;
-      if (st.size > live.offset) {
-        const chunk = await readRange(live.path, live.offset);
-        live.offset += chunk.length;
+      if (!truncated && st.size > readFrom) {
+        const chunk = await readRange(live.path, readFrom);
         const buf = Buffer.concat([live.rest, chunk]);
         const { lines, rest } = extractLines(buf);
         live.rest = rest;
+        live.offset = readFrom + chunk.length - rest.length;
         for (const line of lines) {
           const m = parseJsonLine(line);
           if (!m) continue;
@@ -271,7 +394,10 @@ export class TranscriptWatcher {
     } catch {
       // missing/rotated file: keep the last parsed state
     }
-    await this.ensureSubs(live, events, false);
+    if (!truncated) {
+      truncated = await this.ensureSubs(live, events, false);
+    }
+    if (truncated) return this.rebuild(live);
     try {
       events.push(...(await pollWorkers(live.tree)));
     } catch {
@@ -280,38 +406,75 @@ export class TranscriptWatcher {
     return events;
   }
 
+  /**
+   * A main or subagent file was truncated/rewritten: rebuild the tree from scratch and emit
+   * node.upserts for every node plus a session.upsert.
+   */
+  private async rebuild(live: LiveSession): Promise<ServerEvent[]> {
+    const events: ServerEvent[] = [];
+    try {
+      const parsed = await this.parseFull(live.path, live.id);
+      this.live.set(live.id, parsed.live);
+      for (const node of parsed.live.tree.nodes.values()) {
+        events.push(upsertEvent(node));
+      }
+      events.push({ type: 'session.upsert', session: liveSummary(parsed.live) });
+    } catch {
+      // file vanished mid-rebuild: the old state stands
+    }
+    return events;
+  }
+
   /** Discovers and tails subagents/agent-<agentId>.jsonl files for a live session. */
-  private async ensureSubs(live: LiveSession, events: ServerEvent[], initial: boolean): Promise<void> {
+  private async ensureSubs(live: LiveSession, events: ServerEvent[], initial: boolean): Promise<boolean> {
     const subDir = join(dirname(live.path), live.id, 'subagents');
     let entries: Dirent[];
     try {
       entries = await readdir(subDir, { withFileTypes: true });
     } catch {
       void initial;
-      return;
+      return false;
     }
+    const seen = new Set<string>();
     for (const e of entries) {
       if (typeof e.isSymbolicLink === 'function' && e.isSymbolicLink()) continue;
       if (typeof e.isFile === 'function' && !e.isFile()) continue;
       if (!e.name.endsWith('.jsonl')) continue;
       const path = join(subDir, e.name);
+      seen.add(path);
       let state = live.subs.get(path);
       if (!state) {
         state = { offset: 0, rest: Buffer.alloc(0) };
         live.subs.set(path, state);
       }
       try {
-        await this.syncSub(live, path, state, events);
+        const truncated = await this.syncSub(live, path, state, events);
+        if (truncated) return true;
       } catch {
         // unreadable subagent file: retry next pass
       }
     }
+    if (live.subs.size > 50) { // keep the sub map bounded
+      for (const path of [...live.subs.keys()]) {
+        if (!seen.has(path)) live.subs.delete(path);
+      }
+    }
+    return false;
   }
 
-  private async syncSub(live: LiveSession, path: string, state: SubState, events: ServerEvent[]): Promise<void> {
-    const meta = await readMeta(path);
+  /** Returns true when the subagent file was truncated/rewritten (the session is rebuilt). */
+  private async syncSub(live: LiveSession, path: string, state: SubState, events: ServerEvent[]): Promise<boolean> {
+    let st;
+    try {
+      st = await stat(path);
+    } catch {
+      // unreadable subagent file: retry next pass
+      return false;
+    }
+    if (st.size < state.offset + state.rest.length) return true; // truncated/rewritten subagent file
+    const meta = await this.readMetaCached(path);
     const nodeId = str(meta.toolUseId);
-    if (!nodeId) return;
+    if (!nodeId) return false;
     if (!live.tree.nodes.has(nodeId)) {
       // The Agent tool_use was not seen in the main thread: build the node from the meta.
       const node = ensureNode(live.tree, nodeId, {
@@ -321,24 +484,62 @@ export class TranscriptWatcher {
         model: str(meta.model),
         startedAt: Date.now(),
       });
+      markPlaceholder(live.tree, nodeId);
       events.push(upsertEvent(node));
     }
-    const chunk = await readRange(path, state.offset).catch(() => Buffer.alloc(0));
-    if (chunk.length > 0) {
-      state.offset += chunk.length;
-      const buf = Buffer.concat([state.rest, chunk]);
-      const { lines, rest } = extractLines(buf);
+    if (state.offset === 0 && state.rest.length === 0) {
+      // Initial read; above TAIL_BYTES the subagent file is tail-only.
+      let start = 0;
+      if (st.size > TAIL_BYTES) start = st.size - TAIL_BYTES;
+      let chunk = await readRange(path, start);
+      if (start > 0) {
+        const nl = chunk.indexOf(0x0a);
+        if (nl >= 0) {
+          start += nl + 1;
+          chunk = chunk.subarray(nl + 1);
+        } else {
+          start += chunk.length;
+          chunk = Buffer.alloc(0);
+        }
+      }
+      const { lines, rest } = extractLines(chunk);
+      state.offset = start + (chunk.length - rest.length);
       state.rest = rest;
       for (const line of lines) {
         const m = parseJsonLine(line);
         if (m) events.push(...applyMessage(live.tree, m, { nodeId }));
       }
+      this.finishSubMeta(live, meta, nodeId, events);
+      return false;
     }
-    if (meta.finished === true) {
-      const node = live.tree.nodes.get(nodeId);
-      if (node && (node.status === 'running' || node.status === 'waiting')) {
-        events.push(...setStatus(live.tree, nodeId, 'done'));
+    // Incremental tail: rest already holds the bytes after the last newline from the read before last.
+    const readFrom = state.offset + state.rest.length;
+    const incChunk = await readRange(path, readFrom).catch(() => Buffer.alloc(0));
+    if (incChunk.length > 0) {
+      const buf = Buffer.concat([state.rest, incChunk]);
+      const { lines, rest } = extractLines(buf);
+      state.rest = rest;
+      state.offset = readFrom + incChunk.length - rest.length;
+      for (const line of lines) {
+        const m = parseJsonLine(line);
+        if (m) events.push(...applyMessage(live.tree, m, { nodeId }));
       }
+    }
+    this.finishSubMeta(live, meta, nodeId, events);
+    return false;
+  }
+
+  /** Marks a subagent done when its meta.json reports finished. */
+  private finishSubMeta(
+    live: LiveSession,
+    meta: Record<string, unknown>,
+    nodeId: string,
+    events: ServerEvent[],
+  ): void {
+    if (meta.finished !== true) return;
+    const node = live.tree.nodes.get(nodeId);
+    if (node && (node.status === 'running' || node.status === 'waiting')) {
+      events.push(...setStatus(live.tree, nodeId, 'done'));
     }
   }
 
@@ -412,6 +613,27 @@ export class TranscriptWatcher {
       }
     }
     return undefined;
+  }
+
+  /** Reads <name>.meta.json next to a subagent file, cached by (mtime,size). */
+  private async readMetaCached(jsonlPath: string): Promise<Record<string, unknown>> {
+    const metaPath = `${jsonlPath.slice(0, -'.jsonl'.length)}.meta.json`;
+    const st = await stat(metaPath).catch(() => undefined);
+    if (!st) return {};
+    const cached = this.metaCache.get(metaPath);
+    if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) return cached.data;
+    let data: Record<string, unknown> = {};
+    try {
+      const parsed: unknown = JSON.parse(await readFile(metaPath, 'utf8'));
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) data = parsed as Record<string, unknown>;
+    } catch {
+      data = {};
+    }
+    this.metaCache.set(metaPath, { mtimeMs: st.mtimeMs, size: st.size, data });
+    if (this.metaCache.size > MAX_META_CACHE) {
+      this.metaCache.delete(this.metaCache.keys().next().value!);
+    }
+    return data;
   }
 
   private detailFor(live: LiveSession): SessionDetail {
@@ -554,17 +776,6 @@ function readHeadSync(path: string, st: { mtimeMs: number; size: number }, key: 
     return head;
   } finally {
     closeSync(handle);
-  }
-}
-
-async function readMeta(jsonlPath: string): Promise<Record<string, unknown>> {
-  try {
-    const metaPath = `${jsonlPath.slice(0, -'.jsonl'.length)}.meta.json`;
-    const raw = await readFile(metaPath, 'utf8');
-    const parsed: unknown = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
-  } catch {
-    return {};
   }
 }
 

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { applyMessage, createTree, ownerOf, setStatus } from '../server/model/reducer.ts';
 import { estimateCost } from '../server/model/pricing.ts';
-import type { ServerEvent } from '../src/shared/types.ts';
+import type { AgentNode, ServerEvent } from '../src/shared/types.ts';
 
 function fixtureUrl(name: string): URL {
   return new URL(`./fixtures/transcript/${name}`, import.meta.url);
@@ -204,6 +204,105 @@ describe('reducer: SDK sequence', () => {
     expect(upsert).toHaveLength(1);
     expect(tree.nodes.get('root')!.status).toBe('waiting');
     expect(setStatus(tree, 'missing', 'done')).toEqual([]);
+  });
+
+  describe('placeholder reparenting', () => {
+    // A subagent line whose parent_tool_use_id has no Agent tool_use YET (streamed transcripts
+    // and subagent meta.json can produce this): the node starts under 'root'.
+    const ghostLine = {
+      type: 'assistant' as const,
+      uuid: 'g1',
+      parent_tool_use_id: 'toolu_ghost2',
+      timestamp: 1_700_000_005_000,
+      message: { id: 'msg_g1', model: 'claude-sonnet-4-5', content: [{ type: 'text', text: 'Sub line first.' }] },
+    };
+    const agentUse = {
+      type: 'assistant' as const,
+      uuid: 'g2',
+      timestamp: 1_700_000_001_000,
+      message: {
+        id: 'msg_g2',
+        model: 'claude-opus-4-5',
+        content: [{ type: 'tool_use', id: 'toolu_ghost2', name: 'Agent', input: { subagent_type: 'tester', description: 'Run checks', prompt: 'go check' } }],
+      },
+    };
+    const usage = { input_tokens: 5, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+
+    function eventsOf(node: AgentNode): string {
+      return JSON.stringify(node.events.map((e) => e.id));
+    }
+    const fromRoot = {
+      type: 'assistant' as const,
+      uuid: 'g3',
+      timestamp: 1_700_000_010_000,
+      message: { id: 'msg_g3', model: 'claude-opus-4-5', content: [{ type: 'text', text: 'Root still alive.' }], usage },
+    };
+
+    it('reparents a placeholder when its Agent tool_use arrives later', () => {
+      const tree = createTree('ph1', { startedAt: 1_700_000_000_000 });
+      applyMessage(tree, ghostLine);
+      const node = tree.nodes.get('toolu_ghost2')!;
+      expect(node.parentId).toBe('root'); // provisional until the tool_use is known
+      expect(node.agentType).toBe('general-purpose');
+
+      const events = applyMessage(tree, agentUse);
+      expect(node.parentId).toBe('root'); // reparented to the calling node (root here)
+      expect(node.agentType).toBe('tester'); // backfilled from the Agent input
+      expect(node.description).toBe('Run checks');
+      expect(node.prompt).toBe('go check');
+      expect(node.startedAt).toBe(1_700_000_001_000); // backdated to the Agent tool_use
+      const upsert = events.filter((e) => e.type === 'node.upsert' && (e as { node: { id: string } }).node.id === 'toolu_ghost2');
+      expect(upsert.length).toBeGreaterThan(0);
+      // The caller's later lines do not touch the (already correct) node: one backfill only.
+      applyMessage(tree, fromRoot);
+      expect(node.parentId).toBe('root');
+    });
+
+    it('is order-independent: a second Agent tool_use for the same id changes nothing', () => {
+      const tree = createTree('ph2', { startedAt: 1_700_000_000_000 });
+      applyMessage(tree, agentUse);
+      applyMessage(tree, ghostLine);
+      const node = tree.nodes.get('toolu_ghost2')!;
+      expect(node.parentId).toBe('root');
+      expect(node.agentType).toBe('tester');
+      expect(node.description).toBe('Run checks');
+      expect(node.prompt).toBe('go check');
+      // A duplicated tool_use is a no-op for the node's fields.
+      const before = eventsOf(node);
+      applyMessage(tree, agentUse);
+      expect(eventsOf(node)).toBe(before);
+    });
+
+    it('reparents to a nested calling node, not just root', () => {
+      const tree = createTree('ph3', { startedAt: 1_700_000_000_000 });
+      // caller = a real subagent node under root
+      applyMessage(tree, {
+        type: 'assistant',
+        uuid: 'c1',
+        timestamp: 1_700_000_000_500,
+        message: {
+          id: 'msg_c1',
+          model: 'claude-opus-4-5',
+          content: [{ type: 'tool_use', id: 'toolu_c1', name: 'Agent', input: { subagent_type: 'planner' } }],
+          usage,
+        },
+      });
+      // The Agent tool_use arrives from within the nested caller's context.
+      const use = structuredClone(agentUse) as typeof agentUse & { parent_tool_use_id?: string };
+      use.parent_tool_use_id = 'toolu_c1';
+      use.message = {
+        id: 'msg_g2b',
+        model: 'claude-opus-4-5',
+        content: [{ type: 'tool_use', id: 'toolu_ghost2', name: 'Agent', input: { subagent_type: 'tester', description: 'Nested check', prompt: 'deep' } }],
+      };
+      applyMessage(tree, use);
+      applyMessage(tree, ghostLine);
+      const node = tree.nodes.get('toolu_ghost2')!;
+      expect(node.parentId).toBe('toolu_c1');
+      expect(node.agentType).toBe('tester');
+      expect(node.description).toBe('Nested check');
+      expect(node.prompt).toBe('deep');
+    });
   });
 
   describe('queue-operation task notifications', () => {
