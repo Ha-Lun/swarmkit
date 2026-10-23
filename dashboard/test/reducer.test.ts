@@ -378,3 +378,233 @@ describe('reducer: SDK sequence', () => {
     });
   });
 });
+
+describe('reducer: tool_result metadata and denials', () => {
+  const bashUse = {
+    type: 'assistant',
+    uuid: 'a1',
+    timestamp: 1_700_000_001_000,
+    message: {
+      id: 'msg_b1',
+      model: 'claude-opus-4-5',
+      content: [{ type: 'tool_use', id: 'toolu_b1', name: 'Bash', input: { command: 'npm test' } }],
+    },
+  };
+  const result = (toolUseId: string, text: string, isError: boolean) => ({
+    type: 'user',
+    uuid: `u_${toolUseId}`,
+    timestamp: 1_700_000_002_000,
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content: text, is_error: isError }] },
+  });
+  const resultEvents = (events: ServerEvent[]) =>
+    events.filter((e) => e.type === 'node.event' && (e as { event: { kind: string } }).event.kind === 'tool_result')
+      .map((e) => (e as { event: { tool?: string; toolUseId?: string; summary: string; isError?: boolean } }).event);
+
+  it('sets tool (from the tool_use map) and toolUseId on tool_result events', () => {
+    const tree = createTree('tr1', { startedAt: 1_700_000_000_000 });
+    flatten([applyMessage(tree, bashUse), applyMessage(tree, result('toolu_b1', 'all tests passed', false))]);
+    const event = tree.nodes.get('root')!.events.find((e) => e.kind === 'tool_result')!;
+    expect(event.tool).toBe('Bash');
+    expect(event.toolUseId).toBe('toolu_b1');
+    expect(event.summary).toBe('all tests passed');
+    expect(event.isError).toBeUndefined();
+  });
+
+  it("prefixes 'Denied: ' on permission-denied error results, keeps isError, and leaves plain errors alone", () => {
+    const tree = createTree('tr2', { startedAt: 1_700_000_000_000 });
+    flatten([applyMessage(tree, bashUse)]);
+    const denied = resultEvents(flatten([
+      applyMessage(tree, result('toolu_b1', "The user doesn't want to proceed with this tool use. Permission denied.", true)),
+    ]));
+    expect(denied).toHaveLength(1);
+    expect(denied[0].summary.startsWith("Denied: The user doesn't want to proceed")).toBe(true);
+    expect(denied[0].summary.length).toBeLessThanOrEqual(200);
+    expect(denied[0].isError).toBe(true);
+    expect(tree.nodes.get('root')!.lastActivity!.startsWith('Denied: ')).toBe(true);
+
+    // A non-denied error keeps its summary unprefixed.
+    const tree2 = createTree('tr3', { startedAt: 1_700_000_000_000 });
+    flatten([applyMessage(tree2, bashUse)]);
+    const plain = resultEvents(flatten([applyMessage(tree2, result('toolu_b1', 'segmentation fault', true))]));
+    expect(plain[0].summary).toBe('segmentation fault');
+    expect(plain[0].isError).toBe(true);
+  });
+});
+
+describe('reducer: hand-back unwrapping', () => {
+  const report = 'All routes fixed.\nEvery request now returns 200.\n\nDetails:\n  The handler was stale.';
+  /**
+   * This is the exact text Claude Code puts into the parent transcript: framing lines up to
+   * 'The report follows:', then the report with every line indented by two spaces.
+   */
+  const handback =
+    '[Subagent hand-back] The text below is the final report of a subagent that the parent agent can no longer reach.\n' +
+    'It reports as follows.\n\nThe report follows:\n' +
+    report.split('\n').map((line) => `  ${line}`).join('\n');
+
+  it('strips the [Subagent hand-back] wrapper from text, result, lastActivity and detail', () => {
+    const tree = createTree('hb1', { startedAt: 1_700_000_000_000 });
+    applyMessage(tree, {
+      type: 'assistant',
+      uuid: 'a1',
+      timestamp: 1_700_000_001_000,
+      message: {
+        id: 'msg_h1',
+        model: 'claude-opus-4-5',
+        content: [{ type: 'text', text: handback }],
+      },
+    });
+    const root = tree.nodes.get('root')!;
+    expect(root.result).toBe(report);
+    expect(root.lastActivity).toBe('All routes fixed.');
+    const textEvent = root.events.find((e) => e.kind === 'text')!;
+    expect(textEvent.summary).toBe('All routes fixed.');
+    expect(textEvent.detail).toBe(report);
+  });
+
+  it('strips <agent-message> wrappers, stacked and alone, and leaves other text untouched', () => {
+    const tree = createTree('hb2', { startedAt: 1_700_000_000_000 });
+    applyMessage(tree, {
+      type: 'assistant',
+      uuid: 'a1',
+      timestamp: 1_700_000_001_000,
+      message: {
+        id: 'msg_h2',
+        model: 'claude-opus-4-5',
+        content: [{ type: 'text', text: `<agent-message from="agy-test-runner">\n  ${report.split('\n').join('\n  ')}\n</agent-message>` }],
+      },
+    });
+    // agent-message body keeps its own indentation: only the tags are removed.
+    let textEvent = tree.nodes.get('root')!.events[0];
+    expect(textEvent.detail).toBe(report.split('\n').map((line) => `  ${line}`).join('\n'));
+
+    // agent-message wrapping the whole hand-back text: both layers are removed.
+    const tree2 = createTree('hb3', { startedAt: 1_700_000_000_000 });
+    applyMessage(tree2, {
+      type: 'assistant',
+      uuid: 'a2',
+      message: { id: 'msg_h3', model: 'claude-opus-4-5', content: [{ type: 'text', text: `<agent-message from="opencode-task">\n${handback}\n</agent-message>` }] },
+    });
+    textEvent = tree2.nodes.get('root')!.events[0];
+    expect(textEvent.detail).toBe(report);
+
+    // Plain text is untouched.
+    const tree3 = createTree('hb4', { startedAt: 1_700_000_000_000 });
+    applyMessage(tree3, {
+      type: 'assistant',
+      uuid: 'a3',
+      message: { id: 'msg_h4', model: 'claude-opus-4-5', content: [{ type: 'text', text: '  two leading spaces stay' }] },
+    });
+    expect(tree3.nodes.get('root')!.result).toBe('  two leading spaces stay');
+  });
+});
+
+describe('reducer: worker resume', () => {
+  const notification = (id: string, status: string, summary: string) => ({
+    type: 'queue-operation',
+    operation: 'enqueue',
+    timestamp: 1_700_000_020_000,
+    content:
+      `<task-notification>\n<tool-use-id>${id}</tool-use-id>\n<status>${status}</status>\n` +
+      `<summary>${summary}</summary>\n</task-notification>`,
+  });
+
+  function treeWithStartedWorker() {
+    const tree = createTree('res1', { startedAt: 1_700_000_000_000 });
+    applyMessage(tree, {
+      type: 'assistant',
+      uuid: 'a1',
+      timestamp: 1_700_000_001_000,
+      message: {
+        id: 'msg_start',
+        model: 'claude-opus-4-5',
+        content: [{
+          type: 'tool_use',
+          id: 'toolu_w1',
+          name: 'Bash',
+          input: { command: "agy-task start fleet-core <<'EOF'\nwork\nEOF", description: 'Start worker' },
+        }],
+      },
+    });
+    return tree;
+  }
+
+  it('start fails (notification) then resume completes the same node', () => {
+    const tree = treeWithStartedWorker();
+    const worker = tree.nodes.get('toolu_w1')!;
+    expect(worker.status).toBe('running');
+    applyMessage(tree, notification('toolu_w1', 'failed', 'failed with exit code 1'));
+    expect(worker.status).toBe('error');
+
+    const events = flatten([
+      applyMessage(tree, {
+        type: 'assistant',
+        uuid: 'a2',
+        timestamp: 1_700_000_030_000,
+        message: {
+          id: 'msg_resume',
+          model: 'claude-opus-4-5',
+          content: [{
+            type: 'tool_use',
+            id: 'toolu_r1',
+            name: 'Bash',
+            input: { command: 'agy-task resume fleet-core', description: 'Resume worker' },
+          }],
+        },
+      }),
+    ]);
+    // No new node: the resume reattaches to the started one.
+    expect(tree.nodes.get('toolu_r1')).toBeUndefined();
+    expect(tree.nodes.size).toBe(2);
+    expect(worker.status).toBe('running');
+    expect(worker.endedAt).toBeUndefined();
+    // The resume tool_use id is an alias of the worker node.
+    expect(tree.toolOwner.get('toolu_r1')).toBe('toolu_w1');
+    const resumed = events.find(
+      (e) => e.type === 'node.event' && (e as { nodeId: string }).nodeId === 'toolu_w1' &&
+        (e as { event: { kind: string } }).event.kind === 'system',
+    ) as { event: { tool?: string; toolUseId?: string; summary: string } };
+    expect(resumed.event.summary).toBe('resumed');
+    expect(resumed.event.tool).toBe('Bash');
+    expect(resumed.event.toolUseId).toBe('toolu_r1');
+
+    // The resume's tool_result and its task-notification (by tool-use-id) update the same node.
+    flatten([
+      applyMessage(tree, {
+        type: 'user',
+        uuid: 'u1',
+        timestamp: 1_700_000_031_000,
+        message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_r1', content: 'resumed the task', is_error: false }] },
+      }),
+    ]);
+    const resultEvent = worker.events.find((e) => e.kind === 'tool_result')!;
+    expect(resultEvent.tool).toBe('Bash');
+    expect(resultEvent.toolUseId).toBe('toolu_r1');
+    expect(resultEvent.summary).toBe('resumed the task');
+
+    applyMessage(tree, notification('toolu_r1', 'completed', 'completed'));
+    expect(worker.status).toBe('done');
+    expect(worker.endedAt).toBe(1_700_000_020_000);
+  });
+
+  it('a resume of an unknown slug creates nothing', () => {
+    const tree = treeWithStartedWorker();
+    const events = flatten([
+      applyMessage(tree, {
+        type: 'assistant',
+        uuid: 'a2',
+        timestamp: 1_700_000_030_000,
+        message: {
+          id: 'msg_resume2',
+          model: 'claude-opus-4-5',
+          content: [{ type: 'tool_use', id: 'toolu_r2', name: 'Bash', input: { command: 'opencode-task resume ghost-slug' } }],
+        },
+      }),
+    ]);
+    expect(tree.nodes.get('toolu_r2')).toBeUndefined();
+    expect(tree.nodes.size).toBe(2);
+    // Only the plain Bash tool_use event happened; no worker was touched.
+    expect(events.filter((e) => e.type === 'node.upsert' && (e as { node: { id: string } }).node.id === 'toolu_w1')).toEqual([]);
+    expect(tree.nodes.get('toolu_w1')!.status).toBe('running');
+  });
+});

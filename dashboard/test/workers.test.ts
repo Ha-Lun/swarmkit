@@ -1,9 +1,9 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createTree } from '../server/model/reducer.ts';
+import { createTree, applyMessage } from '../server/model/reducer.ts';
 import type { AgentNode } from '../src/shared/types.ts';
-import { parseWorkerCommand, pollWorkers, repoKeyOf } from '../server/model/workers.ts';
+import { parseWorkerCommand, parseWorkerResumeCommand, pollWorkers, repoKeyOf } from '../server/model/workers.ts';
 
 function opencodeWorkerNode(id: string, slug: string): AgentNode {
   return {
@@ -97,6 +97,28 @@ describe('parseWorkerCommand', () => {
   it('returns undefined for unrelated commands', () => {
     expect(parseWorkerCommand('echo hi && npm test')).toBeUndefined();
     expect(parseWorkerCommand('')).toBeUndefined();
+  });
+});
+
+describe('parseWorkerResumeCommand', () => {
+  it('parses resume commands for both lanes', () => {
+    expect(parseWorkerResumeCommand('opencode-task resume fleet-server --wait keep going')).toEqual({
+      lane: 'opencode',
+      slug: 'fleet-server',
+    });
+    expect(parseWorkerResumeCommand("agy-task resume fleet-core <<'EOF'\nprompt\nEOF")).toEqual({
+      lane: 'agy',
+      slug: 'fleet-core',
+    });
+    // Same shape as start: prefixed/compound command lines work too.
+    expect(parseWorkerResumeCommand('cd /repo && agy-task resume fleet-core')).toEqual({ lane: 'agy', slug: 'fleet-core' });
+  });
+
+  it('returns undefined for start commands and unrelated text', () => {
+    expect(parseWorkerResumeCommand('agy-task start fleet-core')).toBeUndefined();
+    expect(parseWorkerResumeCommand("opencode-task start fleet-core <<'EOF'\nwork\nEOF")).toBeUndefined();
+    expect(parseWorkerResumeCommand('echo resume nothing here')).toBeUndefined();
+    expect(parseWorkerResumeCommand('')).toBeUndefined();
   });
 });
 
@@ -239,6 +261,44 @@ describe('pollWorkers', () => {
       const nodeB = tree2.nodes.get('wB')!;
       expect(nodeB.status).toBe('error');
       expect(nodeB.worker!.ok ?? false).toBe(false);
+    } finally {
+      if (old === undefined) delete process.env.AGY_TASK_DIR;
+      else process.env.AGY_TASK_DIR = old;
+      await rm(dir2, { recursive: true, force: true });
+    }
+  });
+
+  it('a result.json read after a failed notification overrides it (ok=true settles the node)', async () => {
+    const dir2 = await mkdtemp(join(tmpdir(), 'fleet-override-'));
+    const old = process.env.AGY_TASK_DIR;
+    process.env.AGY_TASK_DIR = dir2;
+    try {
+      await mkdir(join(dir2, 'repo-q', 'fleet-override'), { recursive: true });
+      const tree = createTree('wtest', { startedAt: Date.now() });
+      tree.nodes.set('w6', agyWorkerNode('w6', 'fleet-override'));
+      // The start failed according to the transcript: node error, result.json unknown.
+      applyMessage(tree, {
+        type: 'queue-operation',
+        operation: 'enqueue',
+        timestamp: Date.now(),
+        content:
+          '<task-notification>\n<tool-use-id>w6</tool-use-id>\n<status>failed</status>\n' +
+          '<summary>failed with exit code 2</summary>\n</task-notification>',
+      });
+      const failed = tree.nodes.get('w6')!;
+      expect(failed.status).toBe('error');
+      expect(failed.worker!.ok).toBeUndefined();
+
+      // The task actually finished fine: result.json appears and settles the verdict.
+      await writeFile(join(dir2, 'repo-q', 'fleet-override', 'result.json'), JSON.stringify({ ok: true, response: 'finished fine' }));
+      const events = await pollWorkers(tree);
+      expect(failed.status).toBe('done');
+      expect(failed.worker!.ok).toBe(true);
+      expect(failed.result).toBe('finished fine');
+      expect(events.some((e) => e.type === 'node.upsert' && (e as { node: { id: string } }).node.id === 'w6')).toBe(true);
+
+      // Settled: polling again changes nothing.
+      expect(await pollWorkers(tree)).toEqual([]);
     } finally {
       if (old === undefined) delete process.env.AGY_TASK_DIR;
       else process.env.AGY_TASK_DIR = old;

@@ -6,7 +6,7 @@ import type {
   TokenUsage,
 } from '../../src/shared/types.ts';
 import { estimateCost } from './pricing.ts';
-import { parseWorkerCommand } from './workers.ts';
+import { parseWorkerCommand, parseWorkerResumeCommand } from './workers.ts';
 
 export interface SessionTree {
   sessionId: string;
@@ -14,6 +14,8 @@ export interface SessionTree {
   nodes: Map<string, AgentNode>;
   /** tool_use_id -> id of the node that made that tool call (routes tool_results and permission requests). */
   toolOwner: Map<string, string>;
+  /** tool_use_id -> tool name of that call (fills the `tool` field of tool_result events). */
+  toolNames?: Map<string, string>;
   /** cwd seen in the transcript, when the messages carry one. */
   cwd?: string;
   /** SDK agent id (toolUseResult.agentId of async-launched subagents) -> node id. */
@@ -76,6 +78,7 @@ export function createTree(sessionId: string, init: TreeInit): SessionTree {
     sessionId,
     nodes: new Map<string, AgentNode>([['root', root]]),
     toolOwner: new Map<string, string>(),
+    toolNames: new Map<string, string>(),
     agentIds: new Map<string, string>(),
     costedMessages: new Map<string, Set<string>>(),
     seenBlocks: new Map<string, Set<string>>(),
@@ -96,6 +99,7 @@ export function applyMessage(tree: SessionTree, msg: unknown, opts?: ApplyOption
   tree.costedMessages ??= new Map<string, Set<string>>();
   tree.seenBlocks ??= new Map<string, Set<string>>();
   tree.placeholders ??= new Set<string>();
+  tree.toolNames ??= new Map<string, string>();
   tree.workerCommands ??= new Map<string, string>();
   const m = msg as Raw;
   try {
@@ -284,7 +288,9 @@ function applyAssistant(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerE
     addCapped(seen, key);
 
     if (block.type === 'text') {
-      const text = typeof block.text === 'string' ? block.text : '';
+      const rawText = typeof block.text === 'string' ? block.text : '';
+      // Subagent reports arrive wrapped ([Subagent hand-back]/<agent-message>): strip the framing.
+      const text = rawText ? unwrapAgentText(rawText) : '';
       if (!text) return;
       node.lastActivity = firstLine(text, 200);
       node.result = cap(text);
@@ -308,6 +314,7 @@ function applyAssistant(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerE
       const input = asRaw(block.input);
       node.toolCounts[name] = (node.toolCounts[name] ?? 0) + 1;
       tree.toolOwner.set(toolUseId, node.id);
+      putCapped(tree.toolNames!, toolUseId, name);
       const summary = toolSummary(name, input);
       node.lastActivity = summary;
       dirty = true;
@@ -320,7 +327,7 @@ function applyAssistant(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerE
         summary,
         detail: input ? cap(JSON.stringify(input)) : undefined,
       });
-      const child = toolChild(tree, node, name, input, ts, toolUseId);
+      const child = toolChild(tree, node, name, input, ts, toolUseId, out);
       if (child) out.touch(child);
     }
   });
@@ -375,11 +382,13 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
       const owner = tree.nodes.get(ownerOf(tree, toolUseId)) ?? tree.nodes.get('root')!;
       const ownerSeen = seenSet(tree, owner.id);
       const key = `${toolUseId}:result`;
-      const text = toolResultText(block.content);
+      // Subagent reports may come back wrapped; strip the framing before display.
+      const text = unwrapAgentText(toolResultText(block.content));
       const isError = block.is_error === true;
       if (!ownerSeen.has(key)) {
         addCapped(ownerSeen, key);
-        const summary = text ? firstLine(text, 200) : 'tool result';
+        let summary = text ? firstLine(text, 200) : 'tool result';
+        if (isError && DENIED_RE.test(text)) summary = `Denied: ${summary}`.slice(0, 200);
         if (owner.lastActivity !== summary) {
           owner.lastActivity = summary;
           dirty = true;
@@ -389,6 +398,7 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
           id: key,
           ts,
           kind: 'tool_result',
+          tool: tree.toolNames?.get(toolUseId),
           toolUseId,
           summary,
           detail: cap(text),
@@ -396,7 +406,12 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
         });
       }
       // Subagent lifecycle: async-launched ones stay running and register their agent id.
-      const sub = tree.nodes.get(toolUseId);
+      // A resumed worker's tool_use id is not a node id: it routes through the worker alias.
+      let sub = tree.nodes.get(toolUseId);
+      if (!sub) {
+        const alias = tree.nodes.get(tree.toolOwner.get(toolUseId) ?? '');
+        if (alias?.kind === 'worker') sub = alias;
+      }
       if (!sub) continue;
       if (sub.kind === 'worker') {
         // A failed Bash tool_result means the task never started: mark the error here
@@ -467,7 +482,13 @@ function applySystem(tree: SessionTree, m: Raw): ServerEvent[] {
     return [];
   }
   const nodeId = str(m.tool_use_id);
-  const node = nodeId ? tree.nodes.get(nodeId) : undefined;
+  let node = nodeId ? tree.nodes.get(nodeId) : undefined;
+  if (!node && nodeId) {
+    // A resumed worker's task notification carries the resume's tool-use id, not a node id:
+    // it routes through the alias recorded on the resume Bash tool_use.
+    const alias = tree.nodes.get(tree.toolOwner.get(nodeId) ?? '');
+    if (alias?.kind === 'worker') node = alias;
+  }
   if (!node) return [];
   const out = new Out();
   const ts = tsOf(m.timestamp);
@@ -579,7 +600,12 @@ function applyQueueOperation(tree: SessionTree, m: Raw): ServerEvent[] {
   const rawStatus = /<status>([^<]+)<\/status>/.exec(content)?.[1]?.trim();
   const summary = /<summary>([\s\S]*?)<\/summary>/.exec(content)?.[1]?.trim();
   if (!toolUseId || !rawStatus) return [];
-  const node = tree.nodes.get(toolUseId);
+  let node = tree.nodes.get(toolUseId);
+  if (!node) {
+    // A resume's task notification carries the resume tool-use id, not a node id: use its alias.
+    const alias = tree.nodes.get(tree.toolOwner.get(toolUseId) ?? '');
+    if (alias?.kind === 'worker') node = alias;
+  }
   if (!node) return [];
   if (node.status !== 'running' && node.status !== 'waiting') return [];
   let status = mapStatus(rawStatus);
@@ -626,6 +652,7 @@ function toolChild(
   input: Raw | undefined,
   ts: number,
   toolUseId: string,
+  out: Out,
 ): AgentNode | undefined {
   if (name === 'Agent' || name === 'Task') {
     const v = input ?? {};
@@ -655,10 +682,17 @@ function toolChild(
     return child;
   }
   if (name === 'Bash' && input) {
-    const wc = parseWorkerCommand(stringified(input.command) ?? '');
-    if (!wc) return undefined;
+    const command = stringified(input.command) ?? '';
+    const wc = parseWorkerCommand(command);
+    if (!wc) {
+      // `agy-task|opencode-task resume <slug>` must not create a node: reattach the run
+      // to the node that started the same lane+slug.
+      const resume = parseWorkerResumeCommand(command);
+      if (!resume) return undefined;
+      return resumeWorkerNode(tree, resume, ts, toolUseId, out);
+    }
     tree.workerCommands ??= new Map<string, string>();
-    tree.workerCommands.set(toolUseId, stringified(input.command) ?? '');
+    tree.workerCommands.set(toolUseId, command);
     return ensureNode(tree, toolUseId, {
       parentId: parent.id,
       kind: 'worker',
@@ -672,6 +706,44 @@ function toolChild(
     });
   }
   return undefined;
+}
+
+/**
+ * Applies a `agy-task|opencode-task resume <slug>` Bash call: finds the existing worker node
+ * with the same lane+slug, sets it back to 'running' (clearing endedAt), aliases the resume
+ * tool_use id to that node (so its tool_result and task-notification update the same node),
+ * and adds a 'system' event. Unknown slugs do nothing.
+ */
+function resumeWorkerNode(
+  tree: SessionTree,
+  resume: { lane: 'agy' | 'opencode'; slug: string },
+  ts: number,
+  toolUseId: string,
+  out: Out,
+): AgentNode | undefined {
+  const node = [...tree.nodes.values()].find(
+    (candidate) =>
+      candidate.kind === 'worker' &&
+      candidate.worker?.lane === resume.lane &&
+      candidate.worker?.slug === resume.slug,
+  );
+  if (!node) return undefined;
+  const changed = node.status !== 'running' || node.endedAt !== undefined;
+  node.status = 'running';
+  node.endedAt = undefined;
+  tree.toolOwner.set(toolUseId, node.id);
+  const event: ActivityEvent = {
+    id: `${toolUseId}:resume`,
+    ts,
+    kind: 'system',
+    tool: 'Bash',
+    toolUseId,
+    summary: 'resumed',
+  };
+  const eventAdded = !node.events.some((e) => e.id === event.id);
+  if (!changed && !eventAdded) return undefined; // nothing new: no upsert, no duplicate event
+  out.touch(node, event);
+  return node;
 }
 
 function toolSummary(name: string, input: Raw | undefined): string {
@@ -737,6 +809,49 @@ function seenSet(tree: SessionTree, nodeId: string): Set<string> {
 
 function isEnding(status: AgentNode['status']): boolean {
   return status === 'done' || status === 'error' || status === 'stopped';
+}
+
+/** Text of an error tool_result that means the permission was denied. */
+const DENIED_RE = /denied|rejected|doesn't want to proceed/i;
+
+/** Sets a bounded map entry: past MAX_DEDUPE entries the oldest insertion is dropped. */
+function putCapped(map: Map<string, string>, key: string, value: string): void {
+  if (!map.has(key) && map.size >= MAX_DEDUPE) {
+    for (const oldest of map.keys()) { map.delete(oldest); break; }
+  }
+  map.set(key, value);
+}
+
+const HANDBACK_PREFIX = '[Subagent hand-back]';
+const AGENT_MESSAGE_RE = /^<agent-message from="[^"]*">([\s\S]*)<\/agent-message>\s*$/;
+
+/**
+ * Strips Claude Code hand-back wrappers from subagent report text: the
+ * '[Subagent hand-back]' framing (everything up to and including the line
+ * 'The report follows:', with the report de-indented by two spaces) and
+ * `<agent-message from="...">...</agent-message>` tag pairs. Other text is untouched.
+ */
+function unwrapAgentText(text: string): string {
+  let out = text;
+  for (let pass = 0; pass < 4; pass++) {
+    if (out.startsWith(HANDBACK_PREFIX)) {
+      const marker = /^The report follows:.*$/m.exec(out);
+      if (marker) {
+        out = out
+          .slice(marker.index + marker[0].length)
+          .replace(/^\r?\n/, '')
+          .replace(/^ {2}/gm, '');
+        continue;
+      }
+    }
+    const wrapped = AGENT_MESSAGE_RE.exec(out);
+    if (wrapped) {
+      out = wrapped[1].replace(/^\r?\n/, '').replace(/\r?\n$/, '');
+      continue;
+    }
+    break;
+  }
+  return out;
 }
 
 function mapStatus(status: string | undefined): AgentNode['status'] | undefined {

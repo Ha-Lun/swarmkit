@@ -40,6 +40,20 @@ export function parseWorkerCommand(command: string): ParsedWorkerCommand | undef
   return { lane, slug, model, agent, prompt: extractPrompt(rest, cmdline) };
 }
 
+/** Matches `agy-task resume <slug>` / `opencode-task resume <slug>` anywhere in a command line. */
+const WORKER_RESUME_RE = /(?:^|[\s;&|(])(agy|opencode)-task[ \t]+resume[ \t]+([A-Za-z0-9._-]+)/;
+
+/**
+ * Parses a Bash command that resumes an already started headless worker task. Resuming never
+ * creates a worker node; the reducer reattaches the run to the node that started the slug.
+ */
+export function parseWorkerResumeCommand(command: string): { lane: 'agy' | 'opencode'; slug: string } | undefined {
+  if (typeof command !== 'string') return undefined;
+  const m = WORKER_RESUME_RE.exec(command);
+  if (!m) return undefined;
+  return { lane: m[1] as 'agy' | 'opencode', slug: m[2] };
+}
+
 /**
  * The command-line text before the prompt: cut at the first quoted argument after the slug,
  * at a heredoc marker `<<`, or at the standalone stdin dash (` - ` / trailing ` -`). Flags of
@@ -180,20 +194,26 @@ interface WorkerResultFile {
 }
 
 /**
- * Checks every running worker node in the tree against its result.json
+ * Checks every busy worker node in the tree against its result.json
  * (under root/<repo>/<slug>/result.json; root is AGY_TASK_DIR | ~/.agy-tasks for lane
  * agy, OPENCODE_TASK_DIR | ~/.opencode-tasks for lane opencode) and returns the events
  * for nodes that finished. Callers run it every few seconds for live sessions.
+ *
+ * A node that a task-notification already marked 'error' is rechecked until a result.json
+ * shows up: result.json (`worker.ok`) settles done/error once it is known.
  */
 export async function pollWorkers(tree: SessionTree): Promise<ServerEvent[]> {
   const out: ServerEvent[] = [];
-  const running = [...tree.nodes.values()].filter(
-    (node) => node.kind === 'worker' && node.worker && node.status === 'running',
+  const candidates = [...tree.nodes.values()].filter(
+    (node) =>
+      node.kind === 'worker' && node.worker &&
+      (node.status === 'running' || (node.status === 'error' && node.worker.ok === undefined)),
   );
-  if (running.length === 0) return out;
+  if (candidates.length === 0) return out;
   // One readdir per lane root per poll, shared across all nodes.
   const laneDirCache = new Map<'agy' | 'opencode', string[]>();
-  for (const node of running) {
+  for (const node of candidates) {
+    const awaitingResult = node.status === 'error'; // a notification already failed this run
     try {
       const result = await findWorkerResult(tree, node, laneDirCache);
       if (result) {
@@ -201,7 +221,7 @@ export async function pollWorkers(tree: SessionTree): Promise<ServerEvent[]> {
         out.push(...events);
         continue;
       }
-      if (tree.workerRepos?.get(node.id) !== undefined) {
+      if (!awaitingResult && tree.workerRepos?.get(node.id) !== undefined) {
         // The repo dir is known but has no result.json: the task either still runs or died.
         if (await taskDied(node, tree.workerRepos!.get(node.id)!)) out.push(...markFinished(node, 'error'));
       }
