@@ -1,6 +1,9 @@
 // Page sessions driven by the Claude Agent SDK: one query per browser-started session,
 // permission prompts resolved from the dashboard, a live agent tree per session.
 import { randomUUID } from 'node:crypto';
+import { readFileSync, realpathSync } from 'node:fs';
+import { realpath, stat } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { Options, PermissionResult, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -18,6 +21,14 @@ const POLL_MS = 3_000;
 const MAX_TEXT = 100_000;
 /** A transcript written within this window means a terminal session is still live. */
 const ACTIVE_MS = 60_000;
+/** Resume waits at most this long for the previous consume() to unwind. */
+const RESUME_UNWIND_MS = 5_000;
+/** Finished page sessions drop out of memory after this long (the watcher re-lists their transcripts). */
+export const EVICT_AFTER_MS = 6 * 60 * 60 * 1000;
+/** Max page sessions kept in memory (oldest finished ones are evicted first). */
+export const MAX_PAGE_SESSIONS = 50;
+/** Main-thread agent names must start alphanumerically and stay short (no '../', no path tricks). */
+export const AGENT_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const MODEL_RE = /^(opus|sonnet|haiku|claude-[a-z0-9.-]{1,60})$/;
 
 /** Typed error so the HTTP layer can answer with the right status code. */
@@ -94,6 +105,13 @@ interface PageSession {
   query: AsyncIterable<SDKMessage> | null;
   pending: Map<string, PendingPermission>;
   stopped: boolean;
+  /** True while consume() runs; the source of truth for "a live SDK process exists". */
+  consuming: boolean;
+  /** Bumped on every startQuery; stale consume()/canUseTool calls ignore their stream. */
+  generation: number;
+  consumePromise: Promise<void> | null;
+  /** True when the cwd's project settings are untrusted (only user settings are read). */
+  untrustedProject: boolean;
   upsertThrottle: { lastSent: number; timer: NodeJS.Timeout | null };
 }
 
@@ -102,9 +120,50 @@ const firstPromptLine = (prompt: string): string => {
   return line.length > 120 ? line.slice(0, 120) : line;
 };
 
+/** ~/.claude.json marks trusted projects: only then are project/local settings read (untrusted files are attacker-controlled). */
+function isProjectTrusted(cwd: string): boolean {
+  const candidates = [cwd];
+  try {
+    candidates.push(realpathSync(cwd));
+  } catch {
+    // Non-existing cwd: definitely untrusted.
+  }
+  try {
+    const raw = readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8');
+    const config = JSON.parse(raw) as { projects?: unknown };
+    const projects = config.projects;
+    if (!projects || typeof projects !== 'object' || Array.isArray(projects)) return false;
+    const byDir = projects as Record<string, { hasTrustDialogAccepted?: unknown }>;
+    return candidates.some(dir => byDir[dir]?.hasTrustDialogAccepted === true);
+  } catch {
+    return false;
+  }
+}
+
+/** Same cwd contract as the start path (index.ts resolveCwd): must exist, be a directory, inside $HOME. */
+async function resolveResumeCwd(raw: string | undefined): Promise<string> {
+  if (!raw || raw.length === 0) throw new SessionError(400, 'cwd is required');
+  let real: string;
+  let stats;
+  try {
+    real = await realpath(raw);
+    stats = await stat(real);
+  } catch {
+    throw new SessionError(400, 'cwd does not exist');
+  }
+  if (!stats.isDirectory()) throw new SessionError(400, 'cwd must be a directory');
+  const home = await realpath(os.homedir());
+  if (real !== home && !real.startsWith(home + path.sep)) {
+    throw new SessionError(400, 'cwd must be inside your home directory');
+  }
+  return real;
+}
+
 export class SdkSessions {
   private sessions = new Map<string, PageSession>();
   private pollTimer: NodeJS.Timeout;
+  /** Session ids with a pollWorkers call in flight (one poll at a time per session). */
+  private polling = new Set<string>();
 
   constructor(
     private emit: (e: ServerEvent) => void,
@@ -132,6 +191,10 @@ export class SdkSessions {
       query: null,
       pending: new Map(),
       stopped: false,
+      consuming: false,
+      generation: 0,
+      consumePromise: null,
+      untrustedProject: false,
       upsertThrottle: { lastSent: 0, timer: null },
     };
     this.sessions.set(id, session);
@@ -142,14 +205,18 @@ export class SdkSessions {
 
   /** Runs the SDK query for a session (fresh start or resumed continuation) and consumes it in the background. */
   private startQuery(session: PageSession, prompt: string, model: string | undefined, resume: boolean): void {
+    session.generation += 1;
+    const generation = session.generation;
     session.abort = new AbortController();
+    // Untrusted projects only get user settings: project/local settings files would be attacker-controlled.
+    session.untrustedProject = !isProjectTrusted(session.cwd);
     const options: Options = {
       cwd: session.cwd,
       abortController: session.abort,
-      settingSources: ['user', 'project', 'local'],
+      settingSources: session.untrustedProject ? ['user'] : ['user', 'project', 'local'],
       forwardSubagentText: true,
       permissionMode: 'default',
-      canUseTool: this.makeCanUseTool(session),
+      canUseTool: this.makeCanUseTool(session, generation),
       // A resumed session keeps its id and drops the fixed sessionId (the SDK continues the old one).
       ...(resume ? { resume: session.id } : { sessionId: session.id }),
       ...(session.agent ? { agent: session.agent } : {}),
@@ -162,7 +229,9 @@ export class SdkSessions {
       parent_tool_use_id: null,
       session_id: session.id,
     });
-    void this.consume(session);
+    session.consumePromise = this.consume(session, generation).catch(err => {
+      console.error(`Session ${session.id} consume crashed:`, err);
+    });
     if (resume) {
       for (const event of setStatus(session.tree, 'root', 'running')) this.emit(event);
     }
@@ -170,25 +239,36 @@ export class SdkSessions {
   }
 
   /** Consumes the SDK iterator and broadcasts tree events + throttled summaries. */
-  private async consume(session: PageSession): Promise<void> {
+  private async consume(session: PageSession, generation: number): Promise<void> {
+    session.consuming = true;
     try {
       for await (const message of session.query as AsyncIterable<SDKMessage>) {
+        if (generation !== session.generation) break; // Session restarted: this stream is obsolete.
         for (const event of applyMessage(session.tree, message)) this.emit(event);
         this.scheduleUpsert(session);
       }
-      if (!session.stopped) for (const event of setStatus(session.tree, 'root', 'done')) this.emit(event);
-      this.flushUpsert(session);
+      if (generation === session.generation && !session.stopped) {
+        for (const event of setStatus(session.tree, 'root', 'done')) this.emit(event);
+        this.flushUpsert(session);
+      }
     } catch (err) {
-      if (!session.stopped) {
+      if (generation === session.generation && !session.stopped) {
         console.error(`Session ${session.id} failed:`, err);
         for (const event of setStatus(session.tree, 'root', 'error')) this.emit(event);
+        this.flushUpsert(session);
       }
-      this.flushUpsert(session);
+    } finally {
+      session.consuming = false;
+      if (generation === session.generation) session.query = null;
     }
   }
 
-  private makeCanUseTool(session: PageSession): Options['canUseTool'] {
+  private makeCanUseTool(session: PageSession, generation: number): Options['canUseTool'] {
     return async (toolName, input, { signal, toolUseID, title }) => {
+      if (generation !== session.generation) {
+        // A stale tool request from a replaced query must not surface in the new turn.
+        return { behavior: 'deny', message: 'Session restarted' };
+      }
       const request: PermissionRequest = {
         id: randomUUID(),
         sessionId: session.id,
@@ -210,14 +290,23 @@ export class SdkSessions {
       this.scheduleUpsert(session);
 
       const onAbort = () => {
-        // The SDK's signal beat the user: deny and tell the dashboard.
-        this.decide(request.id, { allow: false }, session);
+        // The SDK's signal beat the user: deny without flipping the node back to running.
+        this.denyPending(session, request.id);
       };
       signal.addEventListener('abort', onAbort, { once: true });
       void promise.catch(() => {}).finally(() => signal.removeEventListener('abort', onAbort));
 
       return promise;
     };
+  }
+
+  /** Denies one pending permission without setting its node back to 'running' (abort/stop path). */
+  private denyPending(session: PageSession, permissionId: string): void {
+    const entry = session.pending.get(permissionId);
+    if (!entry) return;
+    session.pending.delete(permissionId);
+    this.emit({ type: 'permission.resolved', sessionId: session.id, id: permissionId, allow: false });
+    entry.resolve({ behavior: 'deny', message: 'Denied in Claude Fleet' });
   }
 
   /** Resolves one pending permission; false when the id is unknown (route answers 404). */
@@ -242,7 +331,10 @@ export class SdkSessions {
 
   send(id: string, text: string): boolean {
     const session = this.sessions.get(id);
-    if (!session || session.stopped) return false;
+    if (!session) return false;
+    if (session.stopped || !session.consuming || !session.query) {
+      throw new SessionError(409, 'Session has ended; use Continue');
+    }
     session.queue.push({
       type: 'user',
       message: { role: 'user', content: text },
@@ -256,7 +348,10 @@ export class SdkSessions {
 
   interrupt(id: string): boolean {
     const session = this.sessions.get(id);
-    if (!session || !session.query) return false;
+    if (!session) return false;
+    if (session.stopped || !session.consuming || !session.query) {
+      throw new SessionError(409, 'Session has ended; use Continue');
+    }
     const interrupt = (session.query as unknown as { interrupt?: () => Promise<unknown> }).interrupt;
     void interrupt?.call(session.query)?.catch(() => {});
     return true;
@@ -265,15 +360,25 @@ export class SdkSessions {
   stop(id: string): boolean {
     const session = this.sessions.get(id);
     if (!session) return false;
-    if (session.stopped) return true;
+    if (session.stopped && !session.consuming) return true;
     session.stopped = true;
-    this.interrupt(id);
+    // Best-effort interrupt of the current turn, then close the input queue and abort.
+    if (session.query) {
+      const interrupt = (session.query as unknown as { interrupt?: () => Promise<unknown> }).interrupt;
+      void interrupt?.call(session.query)?.catch(() => {});
+    }
     session.queue.close();
     session.abort.abort();
     // Anything still pending is denied here (the abort listener handles results
     // flowing through canUseTool's own signal; this is the fallback path).
     for (const { request } of [...session.pending.values()]) {
-      this.decide(request.id, { allow: false }, session);
+      this.denyPending(session, request.id);
+    }
+    // Running subagents and workers end, too; the abort listener above must not put them back to running.
+    for (const node of session.tree.nodes.values()) {
+      if (node.id !== 'root' && (node.status === 'running' || node.status === 'waiting')) {
+        for (const event of setStatus(session.tree, node.id, 'stopped')) this.emit(event);
+      }
     }
     for (const event of setStatus(session.tree, 'root', 'stopped')) this.emit(event);
     this.flushUpsert(session);
@@ -287,9 +392,11 @@ export class SdkSessions {
   /**
    * Continues a session with a new user message: like start() but with the SDK's `resume`
    * option, the same session id and (for terminal sessions) a tree rebuilt from the prior
-   * transcript nodes. Ends sessions can always resume; active ones throw SessionError.
+   * transcript nodes. Idle-but-live sessions just get the new message; active ones throw
+   * SessionError; the terminal-transcript 60 s freshness check never applies to sessions
+   * we own (page-owned stop must be continuable at once).
    */
-  resume(id: string, body: ResumeSessionBody, info: ResumeInfo): string {
+  async resume(id: string, body: ResumeSessionBody, info: ResumeInfo): Promise<string> {
     const text = body?.text;
     if (typeof text !== 'string' || text.trim().length === 0 || text.length > MAX_TEXT) {
       throw new SessionError(400, 'text must be a non-empty string of at most 100000 characters');
@@ -298,33 +405,58 @@ export class SdkSessions {
         (typeof body.model !== 'string' || !MODEL_RE.test(body.model))) {
       throw new SessionError(400, "model must be 'opus', 'sonnet', 'haiku' or a 'claude-*' model id");
     }
-    const stillLive =
-      info.transcriptMtimeMs !== undefined && Date.now() - info.transcriptMtimeMs < ACTIVE_MS;
+    // Same cwd validation as the start path, plus the agent regex on the stored agent.
+    const cwd = await resolveResumeCwd(info?.cwd);
     const existing = this.sessions.get(id);
+    const priorRoot = info.nodes?.find(n => n.id === 'root');
+    const storedAgent =
+      existing?.agent ??
+      (priorRoot && priorRoot.agentType !== 'main' ? priorRoot.agentType : undefined);
+    if (storedAgent !== undefined && !AGENT_RE.test(storedAgent)) {
+      throw new SessionError(400, `agent must match ${String(AGENT_RE)}`);
+    }
     if (existing) {
       const root = existing.tree.nodes.get('root');
-      if (root && (root.status === 'running' || root.status === 'waiting')) {
-        throw new SessionError(409, 'Session is still running');
+      if (!existing.stopped && existing.consuming) {
+        if (root && (root.status === 'running' || root.status === 'waiting')) {
+          throw new SessionError(409, 'Session is still running');
+        }
+        // Idle (turn ended, input queue open): the live process just takes the message.
+        existing.updatedAt = Date.now();
+        existing.queue.push({
+          type: 'user',
+          message: { role: 'user', content: text },
+          parent_tool_use_id: null,
+          session_id: id,
+        });
+        for (const event of setStatus(existing.tree, 'root', 'running')) this.emit(event);
+        this.scheduleUpsert(existing);
+        return id;
       }
-      if (stillLive) throw new SessionError(409, 'This session is still active in a terminal');
+      // The old process is gone (or stopping): unwind it before starting the new query.
+      existing.abort.abort();
+      await Promise.race([
+        existing.consumePromise ?? Promise.resolve(),
+        new Promise<void>(resolve => setTimeout(resolve, RESUME_UNWIND_MS).unref()),
+      ]);
+      existing.stopped = false;
+      existing.pending.clear();
       existing.queue = new InputQueue();
       existing.upsertThrottle = { lastSent: 0, timer: null };
       existing.updatedAt = Date.now();
       this.startQuery(existing, text, body.model, true);
       return id;
     }
+    const stillLive =
+      info.transcriptMtimeMs !== undefined && Date.now() - info.transcriptMtimeMs < ACTIVE_MS;
     if (stillLive) throw new SessionError(409, 'This session is still active in a terminal');
-    if (typeof info?.cwd !== 'string' || info.cwd.length === 0) {
-      throw new SessionError(400, 'cwd is required');
-    }
     const priorNodes = info.nodes ?? [];
-    const priorRoot = priorNodes.find(n => n.id === 'root');
     const title = info.title ?? priorRoot?.description ?? 'Resumed session';
     const tree = this.rebuildTree(id, priorNodes, title);
     const session: PageSession = {
       id,
-      cwd: info.cwd,
-      ...(priorRoot && priorRoot.agentType !== 'main' ? { agent: priorRoot.agentType } : {}),
+      cwd,
+      ...(storedAgent ? { agent: storedAgent } : {}),
       title: firstPromptLine(title),
       startedAt: priorRoot?.startedAt ?? Date.now(),
       updatedAt: Date.now(),
@@ -334,6 +466,10 @@ export class SdkSessions {
       query: null,
       pending: new Map(),
       stopped: false,
+      consuming: false,
+      generation: 0,
+      consumePromise: null,
+      untrustedProject: false,
       upsertThrottle: { lastSent: 0, timer: null },
     };
     this.sessions.set(id, session);
@@ -436,6 +572,7 @@ export class SdkSessions {
       ...(root?.model ? { model: root.model } : {}),
       nodeCount: session.tree.nodes.size,
       pendingPermissions: session.pending.size,
+      ...(session.untrustedProject ? { untrustedProject: true } : {}),
     };
   }
 
@@ -469,16 +606,56 @@ export class SdkSessions {
     this.emit({ type: 'session.upsert', session: this.summarize(session) });
   }
 
-  /** Every few seconds, refresh worker nodes of sessions whose root is still running. */
+  /**
+   * Every few seconds: evict old finished sessions, then refresh worker nodes.
+   * A session is polled when its root is running OR any node is a running worker,
+   * regardless of the query state, at most one poll in flight per session.
+   */
   private poll(): void {
+    this.evict();
     for (const session of this.sessions.values()) {
+      if (this.polling.has(session.id)) continue;
       const root = session.tree.nodes.get('root');
-      if (!session.query || !root || root.status !== 'running') continue;
+      const hasRunningWorker = [...session.tree.nodes.values()]
+        .some(node => node.kind === 'worker' && node.status === 'running');
+      if (!root || (root.status !== 'running' && !hasRunningWorker)) continue;
+      this.polling.add(session.id);
       void pollWorkers(session.tree)
         .then(events => {
           for (const event of events) this.emit(event);
         })
-        .catch(err => console.error(`Worker poll failed for session ${session.id}:`, err));
+        .catch(err => console.error(`Worker poll failed for session ${session.id}:`, err))
+        .finally(() => this.polling.delete(session.id));
+    }
+  }
+
+  /**
+   * Removes finished (stopped/done/error/stopped root) sessions that were idle for
+   * longer than `olderThanMs`, then the oldest finished ones beyond `maxSessions`.
+   * Removed transcripts re-appear as terminal sessions through the watcher.
+   */
+  evict(
+    now: number = Date.now(),
+    olderThanMs: number = EVICT_AFTER_MS,
+    maxSessions: number = MAX_PAGE_SESSIONS,
+  ): void {
+    const finished = (session: PageSession): boolean => {
+      if (session.consuming) return false;
+      if (session.stopped) return true;
+      const status = session.tree.nodes.get('root')?.status;
+      return status === 'done' || status === 'error' || status === 'stopped';
+    };
+    for (const [id, session] of this.sessions) {
+      if (finished(session) && now - session.updatedAt > olderThanMs) {
+        this.sessions.delete(id);
+        this.emit({ type: 'session.removed', sessionId: id });
+      }
+    }
+    const oldest = [...this.sessions.values()].filter(finished).sort((a, b) => a.updatedAt - b.updatedAt);
+    while (this.sessions.size > maxSessions && oldest.length > 0) {
+      const victim = oldest.shift()!;
+      if (!this.sessions.delete(victim.id)) continue;
+      this.emit({ type: 'session.removed', sessionId: victim.id });
     }
   }
 }

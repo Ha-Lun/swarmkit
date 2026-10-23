@@ -109,6 +109,8 @@ export interface SessionSummary {
   model?: string;
   nodeCount: number;
   pendingPermissions: number;
+  /** True when the project settings for cwd are not trusted (no hasTrustDialogAccepted); only user settings are read. */
+  untrustedProject?: boolean;
 }
 
 export interface SessionDetail extends SessionSummary {
