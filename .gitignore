@@ -93,3 +93,6 @@ public/frames/*.mp4
 
 # benchmark task inputs live in a folder named tasks/
 !scripts/bench/tasks/
+# Claude Fleet dashboard
+dashboard/dist/
+dashboard/.data/
