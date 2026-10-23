@@ -89,6 +89,8 @@ export function applyMessage(tree: SessionTree, msg: unknown, opts?: ApplyOption
         return applyResult(tree, m);
       case 'agent-setting':
         return applyAgentSetting(tree, m);
+      case 'queue-operation':
+        return applyQueueOperation(tree, m);
       default:
         return [];
     }
@@ -524,6 +526,44 @@ function applyAgentSetting(tree: SessionTree, m: Raw): ServerEvent[] {
   return [upsertEvent(root)];
 }
 
+/**
+ * Handles a transcript queue-operation line whose content carries a <task-notification>
+ * (background Bash / worker / async agent finished): completed -> done, failed -> error,
+ * killed/stopped -> stopped. Only nodes that are still running change; a worker's ok flag
+ * from result.json (already known through pollWorkers) wins over the notification status.
+ */
+function applyQueueOperation(tree: SessionTree, m: Raw): ServerEvent[] {
+  if (str(m.operation) !== 'enqueue') return []; // 'remove' and unknown operations are ignored
+  const content = str(m.content);
+  if (!content || !content.includes('<task-notification>')) return [];
+  const toolUseId = /<tool-use-id>([^<]+)<\/tool-use-id>/.exec(content)?.[1];
+  const rawStatus = /<status>([^<]+)<\/status>/.exec(content)?.[1]?.trim();
+  const summary = /<summary>([\s\S]*?)<\/summary>/.exec(content)?.[1]?.trim();
+  if (!toolUseId || !rawStatus) return [];
+  const node = tree.nodes.get(toolUseId);
+  if (!node) return [];
+  if (node.status !== 'running' && node.status !== 'waiting') return [];
+  let status = mapStatus(rawStatus);
+  if (rawStatus === 'killed') status = 'stopped';
+  if (!status || status === 'running') return [];
+  // A worker whose result.json was already read keeps the verdict from there.
+  if (node.kind === 'worker' && node.worker?.ok !== undefined) {
+    status = node.worker.ok ? 'done' : 'error';
+  }
+  let changed = node.status !== status;
+  node.status = status;
+  if (isEnding(status) && !node.endedAt) {
+    node.endedAt = tsOf(m.timestamp);
+    changed = true;
+  }
+  if (summary && !node.result) {
+    node.result = cap(summary);
+    if (!node.lastActivity) node.lastActivity = firstLine(summary, 200);
+    changed = true;
+  }
+  return changed ? [upsertEvent(node)] : [];
+}
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
@@ -565,7 +605,8 @@ function toolChild(
       parentId: parent.id,
       kind: 'worker',
       agentType: wc.lane === 'agy' ? 'agy-task' : 'opencode-task',
-      description: (wc.prompt ? cap(wc.prompt, 120) : stringified(input.description)) ?? undefined,
+      // The caller's own label when given, else the worker slug.
+      description: stringified(input.description) ?? wc.slug,
       prompt: wc.prompt,
       model: wc.model,
       worker: { lane: wc.lane, slug: wc.slug },

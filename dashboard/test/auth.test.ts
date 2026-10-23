@@ -82,4 +82,11 @@ describe('checkOrigin', () => {
   it('rejects malformed Origin headers', () => {
     expect(checkOrigin(req({ origin: 'not a url', host: 'localhost:4317' }))).toBe(false);
   });
+
+  it('allows the Host/Origin pair behind tailscale serve (same ts.net host and port)', () => {
+    expect(checkOrigin(req({
+      origin: 'https://ll-server.tail3e28e1.ts.net:4317',
+      host: 'll-server.tail3e28e1.ts.net:4317',
+    }))).toBe(true);
+  });
 });

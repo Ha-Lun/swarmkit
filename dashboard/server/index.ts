@@ -8,11 +8,14 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ViteDevServer } from 'vite';
 import { checkOrigin, isAuthorized, loadToken, tokenMatches } from './auth.ts';
 import { listAgents } from './agents.ts';
-import { SdkSessions } from './sdk/sessions.ts';
+import { DirError, listDirs } from './dirs.ts';
+import { WorkerRegistry } from './registry.ts';
+import { SdkSessions, SessionError } from './sdk/sessions.ts';
 import { TranscriptWatcher } from './watch/transcripts.ts';
-import type { ServerEvent, SessionSummary, StartSessionBody } from '../src/shared/types.ts';
+import type { ResumeSessionBody, ServerEvent, SessionSummary, StartSessionBody } from '../src/shared/types.ts';
+import type { AgentNode } from '../src/shared/types.ts';
 
-const HOST = process.env.HOST || '0.0.0.0';
+const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4317;
 /** Max JSON body size for POST endpoints. */
 const MAX_BODY = 1024 * 1024;
@@ -154,6 +157,52 @@ async function main(): Promise<void> {
   const watcher = new TranscriptWatcher({ emit: broadcast, skip: id => sdk.owns(id) });
   watcher.start();
 
+  const registry = new WorkerRegistry({
+    emit: broadcast,
+    link: (lane, slug) => sdk.findWorkerNode(lane, slug) ?? watcher.findWorkerNode(lane, slug),
+  });
+  registry.start();
+
+  /** POST /api/sessions/:id/resume: continue a page-owned or terminal session with a new message. */
+  async function resumeSession(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
+    const raw = requireObject(await readJson(req));
+    const body: ResumeSessionBody = { text: '' };
+    const text = raw.text;
+    if (typeof text !== 'string' || text.trim().length === 0) {
+      return sendJson(res, 400, { error: 'text must be a non-empty string' });
+    }
+    if (text.length > MAX_TEXT) {
+      return sendJson(res, 400, { error: `text must be at most ${MAX_TEXT} characters` });
+    }
+    body.text = text;
+    if (raw.model !== undefined && raw.model !== null) {
+      if (typeof raw.model !== 'string' || !/^(opus|sonnet|haiku|claude-[a-z0-9.-]{1,60})$/.test(raw.model)) {
+        return sendJson(res, 400, { error: "model must be 'opus', 'sonnet', 'haiku' or a 'claude-*' model id" });
+      }
+      body.model = raw.model;
+    }
+    let info: { cwd: string; transcriptMtimeMs?: number; nodes?: AgentNode[]; title?: string };
+    if (sdk.owns(id)) {
+      const file = sdk.fileInfo(id)!;
+      info = { cwd: file.cwd };
+    } else {
+      const file = watcher.fileInfo(id);
+      if (!file) return sendJson(res, 404, { error: 'session not found' });
+      // Rebuild the tree from the watcher's current parse so the continued session keeps
+      // its nodes; unknown cwd constellations fall back to the defaults inside resume().
+      const detail = await watcher.get(id);
+      info = { cwd: file.cwd, transcriptMtimeMs: file.mtimeMs, nodes: detail?.nodes ?? [], title: detail?.title };
+    }
+    try {
+      return sendJson(res, 200, { sessionId: sdk.resume(id, body, info) });
+    } catch (err) {
+      if (err instanceof SessionError) {
+        return sendJson(res, err.status, { error: err.message });
+      }
+      throw err;
+    }
+  }
+
   const mergedSessions = (): SessionSummary[] =>
     [...sdk.list(), ...watcher.list()].sort((a, b) => b.updatedAt - a.updatedAt);
 
@@ -171,6 +220,7 @@ async function main(): Promise<void> {
     });
     clients.add(res);
     res.write(`data: ${JSON.stringify({ type: 'hello', sessions: mergedSessions() })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'workers.update', workers: registry.list() })}\n\n`);
     res.on('close', () => clients.delete(res));
   }
 
@@ -244,6 +294,9 @@ async function main(): Promise<void> {
           ? sendJson(res, 200, { ok: true })
           : sendJson(res, 404, { error: 'session not found' });
       }
+      if (parts.length === 4 && parts[3] === 'resume' && method === 'POST') {
+        return resumeSession(req, res, id);
+      }
       return sendJson(res, 404, { error: 'not found' });
     }
 
@@ -268,6 +321,32 @@ async function main(): Promise<void> {
       if (method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
       const cwds = [...new Set([...sdk.cwds(), ...watcher.recentCwds()])];
       return sendJson(res, 200, cwds);
+    }
+
+    if (url.pathname === '/api/workers') {
+      if (method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+      return sendJson(res, 200, registry.list());
+    }
+
+    if (parts[1] === 'workers' && parts.length === 6 && parts[5] === 'log') {
+      if (method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+      const seg = (i: number): string => {
+        try {
+          return decodeURIComponent(parts[i] ?? '');
+        } catch {
+          return parts[i] ?? '';
+        }
+      };
+      const lines = await registry.log(seg(2), seg(3), seg(4));
+      if (!lines) return sendJson(res, 404, { error: 'worker log not found' });
+      return sendJson(res, 200, { lines });
+    }
+
+    if (url.pathname === '/api/dirs') {
+      if (method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+      const target = url.searchParams.get('path') ?? undefined;
+      const hidden = url.searchParams.get('hidden') === '1';
+      return sendJson(res, 200, await listDirs(target, hidden));
     }
 
     return sendJson(res, 404, { error: 'not found' });
@@ -297,8 +376,10 @@ async function main(): Promise<void> {
         const rest = new URLSearchParams(url.searchParams);
         rest.delete('token');
         const query = rest.toString();
+        // Behind an HTTPS proxy (e.g. tailscale serve) the cookie must be marked Secure.
+        const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
         res.writeHead(302, {
-          'Set-Cookie': `fleet_token=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000`,
+          'Set-Cookie': `fleet_token=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000${secure}`,
           Location: url.pathname + (query ? `?${query}` : ''),
         });
         res.end();
@@ -328,10 +409,13 @@ async function main(): Promise<void> {
 
   const server = http.createServer((req, res) => {
     void handle(req, res).catch(err => {
-      const httpError = err instanceof HttpError;
-      if (!httpError) console.error('Request failed:', err);
+      // SessionError / DirError carry their own status; everything else stays hidden as a 500.
+      const status = err instanceof HttpError || err instanceof SessionError || err instanceof DirError
+        ? err.status
+        : 500;
+      if (status === 500) console.error('Request failed:', err);
       if (!res.headersSent) {
-        sendJson(res, httpError ? err.status : 500, { error: httpError ? err.message : 'internal error' });
+        sendJson(res, status, { error: status === 500 ? 'internal error' : err.message });
       } else {
         res.destroy();
       }
@@ -345,6 +429,7 @@ async function main(): Promise<void> {
     console.log('Shutting down Claude Fleet…');
     for (const s of sdk.list()) sdk.stop(s.id);
     watcher.stop();
+    registry.stop();
     clearInterval(pingTimer);
     const exit = (): void => {
       server.close(() => process.exit(0));
@@ -366,11 +451,16 @@ async function main(): Promise<void> {
   await viteReady;
 
   server.listen(PORT, HOST, () => {
-    console.log(`Claude Fleet: http://localhost:${PORT}/?token=${token}`);
-    for (const addresses of Object.values(os.networkInterfaces())) {
-      for (const address of addresses ?? []) {
-        if (address.family === 'IPv4' && !address.internal) {
-          console.log(`Claude Fleet: http://${address.address}:${PORT}/?token=${token}`);
+    const shown = HOST === '0.0.0.0' ? 'localhost' : HOST;
+    console.log(`Claude Fleet: http://${shown}:${PORT}/?token=${token}`);
+    // Behind 0.0.0.0 (the LAN case), also print the LAN addresses worth reaching.
+    if (HOST === '0.0.0.0') {
+      for (const [name, addresses] of Object.entries(os.networkInterfaces())) {
+        if (/^(br-|docker|veth|lo)/.test(name)) continue; // bridges, containers, loopback noise
+        for (const address of addresses ?? []) {
+          if (address.family === 'IPv4' && !address.internal) {
+            console.log(`Claude Fleet: http://${address.address}:${PORT}/?token=${token}`);
+          }
         }
       }
     }

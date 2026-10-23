@@ -51,6 +51,38 @@ describe('parseWorkerCommand', () => {
     expect(parsed!.prompt).toBeUndefined();
   });
 
+  // Only the command line BEFORE the prompt is parsed: the heredoc/quoted prompt text is
+  // not a flag source, and a quoted --setup value cannot leak e.g. --model into the parse.
+  const SETUP_HEREDOC =
+    'cd /home/ha-lun/opencode-config && opencode-task start fleet-model ' +
+    '--agent backend-specialist --timeout 45m --setup "npm ci --prefix dashboard --no-audit --no-fund" ' +
+    "--wait - <<'EOF'\n--model opencode-go/mimo-v2.6-pro  (this is the PROMPT, not a flag)\nEOF";
+
+  it('parses the setup+heredoc command from the command line only', () => {
+    const parsed = parseWorkerCommand(SETUP_HEREDOC);
+    expect(parsed).toEqual({
+      lane: 'opencode',
+      slug: 'fleet-model',
+      agent: 'backend-specialist',
+      prompt: '--model opencode-go/mimo-v2.6-pro  (this is the PROMPT, not a flag)',
+    });
+  });
+
+  it('takes --model before a quoted prompt and keeps the quoted prompt intact', () => {
+    const parsed = parseWorkerCommand('agy-task start p1 --model gemini-3.8-flash "do X --model y"');
+    expect(parsed).toBeDefined();
+    expect(parsed!.lane).toBe('agy');
+    expect(parsed!.slug).toBe('p1');
+    expect(parsed!.model).toBe('gemini-3.8-flash');
+    expect(parsed!.agent).toBeUndefined();
+    expect(parsed!.prompt).toBe('do X --model y');
+  });
+
+  it('never matches a resume command: only start creates a worker node', () => {
+    expect(parseWorkerCommand('opencode-task resume fleet-server --wait keep going')).toBeUndefined();
+    expect(parseWorkerCommand("agy-task resume fleet-core <<'EOF'\nprompt\nEOF")).toBeUndefined();
+  });
+
   it('parses an agy-task command with a heredoc prompt', () => {
     const command = "agy-task start fleet-core <<'EOF'\nDo worker things now\nEOF";
     const parsed = parseWorkerCommand(command);
@@ -134,6 +166,29 @@ describe('pollWorkers', () => {
       const node = tree.nodes.get('w4')!;
       expect(node.status).toBe('done');
       expect(node.result).toBe('edited two files');
+    } finally {
+      if (old === undefined) delete process.env.OPENCODE_TASK_DIR;
+      else process.env.OPENCODE_TASK_DIR = old;
+      await rm(dir2, { recursive: true, force: true });
+    }
+  });
+
+  it('fills model/agent from opts.json of the newest matching task dir', async () => {
+    const dir2 = await mkdtemp(join(tmpdir(), 'fleet-opts-'));
+    const old = process.env.OPENCODE_TASK_DIR;
+    process.env.OPENCODE_TASK_DIR = dir2;
+    try {
+      await mkdir(join(dir2, 'repo-z', 'fleet-opts'), { recursive: true });
+      await writeFile(join(dir2, 'repo-z', 'fleet-opts', 'result.json'), JSON.stringify({ ok: true, response: 'patched the routes' }));
+      await writeFile(join(dir2, 'repo-z', 'fleet-opts', 'opts.json'), JSON.stringify({ model: 'opencode-go/mimo-v2.6-flash', effort: 'high', agent: 'backend-specialist' }));
+      const tree = createTree('wtest', { startedAt: Date.now() });
+      const node = opencodeWorkerNode('w5', 'fleet-opts'); // no --model in the command line
+      tree.nodes.set('w5', node);
+      await pollWorkers(tree);
+      expect(node.status).toBe('done');
+      expect(node.model).toBe('opencode-go/mimo-v2.6-flash');
+      expect(node.worker!.model).toBe('opencode-go/mimo-v2.6-flash');
+      expect(node.worker!.agent).toBe('backend-specialist');
     } finally {
       if (old === undefined) delete process.env.OPENCODE_TASK_DIR;
       else process.env.OPENCODE_TASK_DIR = old;
