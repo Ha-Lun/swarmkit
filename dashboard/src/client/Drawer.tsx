@@ -182,7 +182,7 @@ export function Drawer({ node, onClose }: Props) {
         </section>
 
         {node.result && (
-          <section aria-label="Result">
+          <section className="drawer-result" aria-label="Result">
             <h3>Result</h3>
             <p>{node.result}</p>
           </section>

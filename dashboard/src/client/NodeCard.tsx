@@ -28,6 +28,10 @@ export function NodeCard({ node, now, permission, open, task, workersAt, onOpen,
   const isWorker = node.kind === 'worker' && node.worker;
   const name = isWorker ? `${node.worker!.lane} · ${node.worker!.slug}` : node.agentType;
   const groups = toolGroups(node.toolCounts);
+  // Tool calls the user refused in the dashboard (workers report their own count via the task).
+  const deniedCalls = task
+    ? task.denied
+    : node.events.filter((e) => e.kind === 'tool_result' && e.isError && /denied/i.test(e.summary)).length;
 
   // Live worker overlay when a WorkerTask matches this node.
   const model = task?.model ?? node.model;
@@ -74,7 +78,7 @@ export function NodeCard({ node, now, permission, open, task, workersAt, onOpen,
         </div>
       )}
 
-      {task && task.denied > 0 && <span className="chip wk-denied">{task.denied} denied</span>}
+      {deniedCalls > 0 && <span className="chip wk-denied">{deniedCalls} denied</span>}
 
       {node.description && <p className="node-desc">{node.description}</p>}
       {activity && (

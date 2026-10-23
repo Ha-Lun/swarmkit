@@ -2,8 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 
 interface Props {
-  onSend: (text: string) => void;
-  onInterrupt: () => void;
+  onSend: (text: string) => Promise<void>;
+  onInterrupt: () => Promise<void>;
   onStop: () => void;
 }
 
@@ -18,11 +18,22 @@ export function Composer({ onSend, onInterrupt, onStop }: Props) {
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }, [text]);
 
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async (fn: () => Promise<void>, onOk?: () => void) => {
+    setError(null);
+    try {
+      await fn();
+      onOk?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Request failed.');
+    }
+  };
+
   const send = () => {
     const t = text.trim();
     if (!t) return;
-    onSend(t);
-    setText('');
+    void run(() => onSend(t), () => setText(''));
   };
 
   return (
@@ -42,7 +53,7 @@ export function Composer({ onSend, onInterrupt, onStop }: Props) {
         }}
       />
       <div className="composer-actions">
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onInterrupt}>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => void run(onInterrupt)}>
           Interrupt
         </button>
         <button type="button" className="btn btn-danger-ghost btn-sm" onClick={onStop}>
@@ -52,6 +63,11 @@ export function Composer({ onSend, onInterrupt, onStop }: Props) {
           Send
         </button>
       </div>
+      {error && (
+        <p className="continue-error" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

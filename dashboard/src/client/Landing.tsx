@@ -5,7 +5,7 @@ import type { FormEvent } from 'react';
 import type { AgentInfo, SessionSummary, StartSessionBody, StartSessionResponse } from '../shared/types';
 import type { FleetBackend, Guard } from './api';
 import { FolderPicker, resolveDefaultCwd } from './FolderPicker';
-import { fmtCost, relTime } from './format';
+import { fmtCost, relTime, UNTRUSTED_NOTICE } from './format';
 import { TerminalIcon } from './icons';
 
 interface Props {
@@ -90,6 +90,12 @@ export function Landing({ backend, guard, sessions, now, onSelect, onStarted }: 
           <p className="muted land-sub">Pick a project folder, describe the task, and the fleet fans out.</p>
 
           <FolderPicker backend={backend} guard={guard} cwd={cwd} onCwd={setCwd} />
+
+          {sessions.some((s) => s.cwd === cwd.trim() && s.untrustedProject) && (
+            <p className="notice" role="note">
+              {UNTRUSTED_NOTICE}
+            </p>
+          )}
 
           <label htmlFor="land-prompt">Prompt</label>
           <textarea

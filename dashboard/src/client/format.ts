@@ -131,3 +131,6 @@ export function workerElapsedS(task: WorkerTask, now: number, at: number): numbe
   if (task.state !== 'running' || at === 0) return task.elapsedS;
   return task.elapsedS + Math.max(0, Math.floor((now - at) / 1000));
 }
+
+export const UNTRUSTED_NOTICE =
+  'Untrusted folder: project settings and hooks are ignored. Open it once in Claude Code in a terminal to trust it.';

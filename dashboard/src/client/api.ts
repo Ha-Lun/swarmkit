@@ -51,6 +51,11 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** Trade the access token for the session cookie (same-origin POST). */
+export async function authenticate(token: string): Promise<void> {
+  await request('/api/auth', { method: 'POST', body: JSON.stringify({ token }) });
+}
+
 /** Everything the UI can do against the fleet server. The mock implements the same surface. */
 export interface FleetBackend {
   sessions(): Promise<SessionSummary[]>;

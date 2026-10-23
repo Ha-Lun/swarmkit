@@ -12,6 +12,8 @@ const NOMINAL_H = 156;
 const MIN_Z = 0.25;
 const MAX_Z = 2.5;
 const FIT_PAD = 24;
+/** Parents whose children are all leaves wrap them into rows of this many cards. */
+const WRAP_COLS = 5;
 
 interface Placed {
   node: AgentNode;
@@ -25,7 +27,8 @@ interface Layout {
   h: number;
 }
 
-/** Leaves take consecutive x slots; parents centre over their children; depth maps to y. */
+/** Leaves take consecutive x slots; parents centre over their children; depth maps to y.
+ * A parent with many leaf children wraps them into a grid so the tree stays readable. */
 function computeLayout(nodes: AgentNode[], heights: Record<string, number>): Layout {
   const byId = new Map(nodes.map((n) => [n.id, n] as const));
   const kids = new Map<string, string[]>();
@@ -58,6 +61,15 @@ function computeLayout(nodes: AgentNode[], heights: Record<string, number>): Lay
     if (!list || list.length === 0) {
       cx = cursor * slot + CARD_W / 2;
       cursor += 1;
+    } else if (list.length > WRAP_COLS && list.every((k) => !kids.has(k))) {
+      const cols = WRAP_COLS;
+      const base = cursor;
+      list.forEach((k, i) => {
+        depth.set(k, d + 1 + Math.floor(i / cols));
+        x.set(k, (base + (i % cols)) * slot + CARD_W / 2);
+      });
+      cursor += cols;
+      cx = base * slot + (cols * slot - H_GAP) / 2;
     } else {
       let min = Infinity;
       let max = -Infinity;

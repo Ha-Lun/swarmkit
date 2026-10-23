@@ -15,6 +15,14 @@ export function loadStoredCwd(): string {
   }
 }
 
+function rememberCwd(path: string): void {
+  try {
+    window.localStorage.setItem(CWD_KEY, path);
+  } catch {
+    // private mode — selection still works, it just won't persist
+  }
+}
+
 /** Last folder from localStorage ('fleet.cwd'), else the first recent cwd, else '' (home). */
 export function resolveDefaultCwd(backend: FleetBackend): Promise<string> {
   const stored = loadStoredCwd();
@@ -41,6 +49,7 @@ export function FolderPicker({ backend, guard, cwd, onCwd, labelledby }: Props) 
   const [recents, setRecents] = useState<string[]>([]);
   const [failed, setFailed] = useState(false);
   const [reload, setReload] = useState(0);
+  const [home, setHome] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -48,6 +57,20 @@ export function FolderPicker({ backend, guard, cwd, onCwd, labelledby }: Props) 
       .cwds()
       .then((list) => {
         if (alive) setRecents(list.slice(0, 6));
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [backend]);
+
+  // The server's default folder is $HOME: it anchors the "~" crumb.
+  useEffect(() => {
+    let alive = true;
+    backend
+      .dirs()
+      .then((l) => {
+        if (alive) setHome(l.path);
       })
       .catch(() => undefined);
     return () => {
@@ -65,25 +88,44 @@ export function FolderPicker({ backend, guard, cwd, onCwd, labelledby }: Props) 
         setFailed(!l);
       })
       .catch(() => {
-        if (alive) setFailed(true);
+        if (!alive) return;
+        if (!cwd.trim()) {
+          setFailed(true);
+          return;
+        }
+        // A remembered folder that no longer lists (moved, outside $HOME): fall back to the home folder.
+        backend
+          .dirs()
+          .then((l) => {
+            if (!alive) return;
+            rememberCwd(l.path);
+            onCwd(l.path);
+          })
+          .catch(() => {
+            if (alive) setFailed(true);
+          });
       });
     return () => {
       alive = false;
     };
+    // onCwd is deliberately not a dependency: the parent passes a state setter.
   }, [cwd, hidden, reload, backend, guard]);
 
   const choose = (path: string) => {
-    try {
-      window.localStorage.setItem(CWD_KEY, path);
-    } catch {
-      // private mode — selection still works, it just won't persist
-    }
+    rememberCwd(path);
     onCwd(path);
   };
 
   const path = listing?.path ?? cwd;
-  const parts = path.split('/').filter(Boolean);
-  const isHomeRoot = parts[0] === 'home';
+  const underHome = home !== '' && (path === home || path.startsWith(`${home}/`));
+  const rest = (underHome ? path.slice(home.length) : path).split('/').filter(Boolean);
+  const crumbs = [
+    ...(underHome ? [{ label: '~', path: home }] : []),
+    ...rest.map((name, i) => ({
+      label: name,
+      path: `${underHome ? home : ''}/${rest.slice(0, i + 1).join('/')}`,
+    })),
+  ];
 
   return (
     <div className="fp" role="group" aria-labelledby={labelledby} aria-label={labelledby ? undefined : 'Working folder'}>
@@ -106,8 +148,8 @@ export function FolderPicker({ backend, guard, cwd, onCwd, labelledby }: Props) 
           <UpIcon size={14} />
         </button>
         <nav className="crumbs" aria-label="Folder path">
-          {parts.map((p, i) => (
-            <Fragment key={`${i}-${p}`}>
+          {crumbs.map((c, i) => (
+            <Fragment key={`${i}-${c.path}`}>
               {i > 0 && (
                 <span className="crumb-sep" aria-hidden="true">
                   /
@@ -116,10 +158,10 @@ export function FolderPicker({ backend, guard, cwd, onCwd, labelledby }: Props) 
               <button
                 type="button"
                 className="crumb"
-                aria-current={i === parts.length - 1 || undefined}
-                onClick={() => choose(`/${parts.slice(0, i + 1).join('/')}`)}
+                aria-current={i === crumbs.length - 1 || undefined}
+                onClick={() => choose(c.path)}
               >
-                {i === 0 && isHomeRoot && parts.length > 1 ? '~' : p}
+                {c.label}
               </button>
             </Fragment>
           ))}

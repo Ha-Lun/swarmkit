@@ -2,12 +2,12 @@
 import { Component, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
 import type { PermissionRequest, SessionSummary, WorkerTask } from '../shared/types';
-import { ApiError, apiBackend } from './api';
+import { ApiError, apiBackend, authenticate } from './api';
 import type { FleetBackend, Guard } from './api';
 import { Composer } from './Composer';
 import { Continue } from './Continue';
 import { Drawer } from './Drawer';
-import { fmtCost } from './format';
+import { fmtCost, UNTRUSTED_NOTICE } from './format';
 import { MenuIcon } from './icons';
 import { Landing } from './Landing';
 import { createMockBackend } from './mock';
@@ -89,20 +89,52 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
 
 function TokenScreen() {
   const [token, setToken] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const signIn = useCallback(async (raw: string) => {
+    const t = raw.trim();
+    if (!t) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await authenticate(t);
+      window.location.reload();
+    } catch (e) {
+      setError(e instanceof ApiError && e.status === 401 ? 'That token was not accepted.' : e instanceof Error ? e.message : 'Sign-in failed.');
+      setBusy(false);
+    }
+  }, []);
+
+  // A `#token=…` fragment signs in once, then is stripped from the address bar.
+  useEffect(() => {
+    const fromHash = () => {
+      const m = /^#token=(.+)$/.exec(window.location.hash);
+      if (!m) return;
+      let t = m[1];
+      try {
+        t = decodeURIComponent(t);
+      } catch {
+        // keep the raw fragment
+      }
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      void signIn(t);
+    };
+    fromHash();
+    window.addEventListener('hashchange', fromHash);
+    return () => window.removeEventListener('hashchange', fromHash);
+  }, [signIn]);
+
   return (
     <div className="center-screen">
       <div className="token-card">
         <h1>Claude Fleet</h1>
         <p>This dashboard needs an access token. Paste it and press Open — the server will set a cookie.</p>
-        <p className="muted token-hint">
-          Open the link with ?token= once on this device; it stays signed in for 30 days.
-        </p>
+        <p className="muted token-hint">Enter it once on this device; it stays signed in for 30 days on this device.</p>
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            const t = token.trim();
-            if (!t) return;
-            window.location.href = `/?token=${encodeURIComponent(t)}`;
+            void signIn(token);
           }}
         >
           <input
@@ -113,10 +145,15 @@ function TokenScreen() {
             value={token}
             onChange={(e) => setToken(e.target.value)}
           />
-          <button type="submit" className="btn btn-primary">
-            Open
+          <button type="submit" className="btn btn-primary" disabled={busy || !token.trim()}>
+            {busy ? 'Opening…' : 'Open'}
           </button>
         </form>
+        {error && (
+          <p className="dialog-error" role="alert">
+            {error}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -174,6 +211,7 @@ function App() {
   const [retryNonce, setRetryNonce] = useState(0);
   const [view, setView] = useState<'session' | 'workers'>('session');
   const [workerDrawerKey, setWorkerDrawerKey] = useState<string | null>(null);
+  const [endedDraft, setEndedDraft] = useState<{ id: string; text: string } | null>(null);
   const [restartBusy, setRestartBusy] = useState(false);
   const [dismissedRestart, setDismissedRestart] = useState<string[]>(readDismissed);
   const workersAtRef = useRef(Date.now());
@@ -345,9 +383,28 @@ function App() {
     setRestartBusy(false);
   }, [backend, guard, restartBusy, dismissRestart]);
 
+  /** A 409 from message/interrupt means the query is gone: switch the composer to Continue, keeping the text. */
+  const callSession = useCallback(
+    async (call: (id: string) => Promise<unknown>, text = '') => {
+      const id = stateRef.current.selectedId;
+      if (!id) return;
+      try {
+        await guard(call(id));
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          setEndedDraft({ id, text });
+          return;
+        }
+        throw e;
+      }
+    },
+    [guard],
+  );
+
   // ---- continue (resume) ----
   const handleResumed = useCallback(
     (id: string) => {
+      setEndedDraft(null);
       setView('session');
       guardSilent(backend.detail(id)).then((d) => {
         if (d) dispatch({ type: 'detail', detail: d as never });
@@ -358,15 +415,17 @@ function App() {
 
   if (authNeeded) return <TokenScreen />;
 
-  const running = selected ? selected.status === 'running' || selected.status === 'waiting' : false;
+  const ended = !!selected && endedDraft?.id === selected.id;
+  const running = selected && !ended ? selected.status === 'running' || selected.status === 'waiting' : false;
   const canContinue =
     !!selected &&
     !running &&
+    (ended ||
     (selected.source === 'terminal' ||
       selected.status === 'done' ||
       selected.status === 'stopped' ||
       selected.status === 'error' ||
-      selected.status === 'idle');
+      selected.status === 'idle'));
 
   return (
     <div className="app">
@@ -397,6 +456,11 @@ function App() {
           title={view === 'workers' ? 'Workers' : undefined}
           onMenu={() => setSheetOpen(true)}
         />
+        {view === 'session' && selected?.untrustedProject && (
+          <p className="notice" role="note">
+            {UNTRUSTED_NOTICE}
+          </p>
+        )}
         {!state.connected && !MOCK && (
           <div className="conn-banner" aria-live="polite">
             Connection lost — reconnecting…
@@ -456,12 +520,8 @@ function App() {
         {view === 'session' && selected && (
           selected.source === 'page' && running ? (
             <Composer
-              onSend={(text) => {
-                if (state.selectedId) void guardSilent(backend.send(state.selectedId, text));
-              }}
-              onInterrupt={() => {
-                if (state.selectedId) void guardSilent(backend.interrupt(state.selectedId));
-              }}
+              onSend={(text) => callSession((id) => backend.send(id, text), text)}
+              onInterrupt={() => callSession((id) => backend.interrupt(id))}
               onStop={() => {
                 if (state.selectedId) void guardSilent(backend.stop(state.selectedId));
               }}
@@ -472,7 +532,9 @@ function App() {
             </div>
           ) : canContinue ? (
             <Continue
-              key={selected.id}
+              key={`${selected.id}:${ended ? 'ended' : ''}`}
+              initialText={ended ? endedDraft?.text : undefined}
+              ended={ended}
               backend={backend}
               guard={guard}
               sessionId={selected.id}
