@@ -2,13 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentNode, AgentNodeHead, ServerEvent } from '../src/shared/types';
 import type { SessionTree, TreeInit } from '../server/model/reducer';
+import type { QueryFn } from '../server/sdk/sessions';
 import { SdkSessions } from '../server/sdk/sessions';
 
 // The data-model team builds the real reducer in parallel this checkout only
 // has the throwing stub, so stand in a minimal tree fake with the final signatures.
 vi.mock('../server/model/reducer.ts', async importOriginal => {
   const actual = await importOriginal<typeof import('../server/model/reducer.ts')>();
-  const makeRoot = (sessionId: string, init: TreeInit = {}): AgentNode => ({
+  const makeRoot = (sessionId: string, init: TreeInit = { startedAt: Date.now() }): AgentNode => ({
     id: 'root',
     sessionId,
     parentId: null,
@@ -46,20 +47,21 @@ vi.mock('../server/model/reducer.ts', async importOriginal => {
 
 interface FakeState {
   options?: { sessionId?: string };
-  decision?: { behavior?: string };
+  decision?: { behavior?: string } | null;
 }
 
 /** Fake queryFn: yields an init message, asks for a Bash permission via canUseTool, then yields a result. */
 function makeFakeQuery(state: FakeState) {
-  return (params: { options: any }) => {
-    state.options = params.options;
-    const init = { type: 'system', subtype: 'init', session_id: params.options.sessionId, model: 'claude-opus-5-5' };
+  return (params: Parameters<QueryFn>[0]) => {
+    const options = params.options!;
+    state.options = options;
+    const init = { type: 'system', subtype: 'init', session_id: options.sessionId, model: 'claude-opus-5-5' };
     return (async function* generator(): AsyncGenerator<any, void> {
       yield init;
-      state.decision = await params.options.canUseTool(
+      state.decision = await options.canUseTool!(
         'Bash',
         { command: 'ls' },
-        { signal: params.options.abortController.signal, toolUseID: 't1' },
+        { signal: options.abortController!.signal, toolUseID: 't1', requestId: 'req-t1' },
       );
       yield { type: 'result', subtype: 'success' };
     })() as unknown as AsyncIterable<SDKMessage>;

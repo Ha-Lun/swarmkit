@@ -301,7 +301,8 @@ async function main(): Promise<void> {
           'Set-Cookie': `fleet_token=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000`,
           Location: url.pathname + (query ? `?${query}` : ''),
         });
-        return res.end();
+        res.end();
+        return;
       }
       // Invalid ?token: serve the app normally; the UI shows its token screen on 401.
     }
