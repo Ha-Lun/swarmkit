@@ -25,6 +25,7 @@ import { listAgents } from './agents.ts';
 import { DirError, listDirs } from './dirs.ts';
 import { WorkerRegistry } from './registry.ts';
 import { AGENT_RE, SdkSessions, SessionError } from './sdk/sessions.ts';
+import { freshTranscriptMtimeMs, holderMessage, liveHolder } from './livesessions.ts';
 import { TranscriptWatcher } from './watch/transcripts.ts';
 import type { ResumeSessionBody, ServerEvent, SessionSummary, StartSessionBody } from '../src/shared/types.ts';
 import type { AgentNode } from '../src/shared/types.ts';
@@ -241,13 +242,27 @@ async function main(): Promise<void> {
     if (sdk.owns(id)) {
       const file = sdk.fileInfo(id)!;
       info = { cwd: file.cwd };
+      // Page sessions are ours, but a leftover heartbeat from a non-dashboard process
+      // means the id is still held: sdk.resume() refuses that restart with the same 409.
     } else {
       const file = watcher.fileInfo(id);
       if (!file) return sendJson(res, 404, { error: 'session not found' });
+      // A terminal claude still holding this session id must not be forked: refuse
+      // before anything else moves (the cached-mtime check below can be stale).
+      const holder = await liveHolder(id);
+      if (holder) return sendJson(res, 409, { error: holderMessage(holder.pid) });
       // Rebuild the tree from the watcher's current parse so the continued session keeps
       // its nodes; unknown cwd constellations fall back to the defaults inside resume().
       const detail = await watcher.get(id);
-      info = { cwd: file.cwd, transcriptMtimeMs: file.mtimeMs, nodes: detail?.nodes ?? [], title: detail?.title };
+      // A fresh stat of the transcript beats the watcher's cached mtime (up to one scan
+      // interval (2 s) stale, enough to miss a live terminal). Unstatable path: cached.
+      const freshMtime = await freshTranscriptMtimeMs(id, file.cwd);
+      info = {
+        cwd: file.cwd,
+        transcriptMtimeMs: freshMtime ?? file.mtimeMs,
+        nodes: detail?.nodes ?? [],
+        title: detail?.title,
+      };
     }
     try {
       const sessionId = await sdk.resume(id, body, info);

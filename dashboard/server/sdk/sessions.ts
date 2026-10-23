@@ -10,6 +10,7 @@ import type { Options, PermissionResult, SDKMessage, SDKUserMessage } from '@ant
 import { applyMessage, createTree, ownerOf, setStatus } from '../model/reducer.ts';
 import type { SessionTree } from '../model/reducer.ts';
 import { pollWorkers } from '../model/workers.ts';
+import { DASHBOARD_ENTRYPOINTS, holderMessage, liveHolder } from '../livesessions.ts';
 import { MAX_EVENTS } from '../../src/shared/types.ts';
 import type { AgentNode, PermissionDecisionBody, PermissionRequest, ResumeSessionBody, ServerEvent, SessionDetail, SessionSummary, StartSessionBody } from '../../src/shared/types.ts';
 
@@ -394,7 +395,10 @@ export class SdkSessions {
    * option, the same session id and (for terminal sessions) a tree rebuilt from the prior
    * transcript nodes. Idle-but-live sessions just get the new message; active ones throw
    * SessionError; the terminal-transcript 60 s freshness check never applies to sessions
-   * we own (page-owned stop must be continuable at once).
+   * we own (page-owned stop must be continuable at once). A live heartbeat file
+   * (~/.claude/sessions/<pid>.json) naming this id refuses the resume for terminal
+   * sessions outright and for restarting page sessions when the holder is not one of
+   * the dashboard's own SDK processes (see livesessions.ts).
    */
   async resume(id: string, body: ResumeSessionBody, info: ResumeInfo): Promise<string> {
     const text = body?.text;
@@ -433,6 +437,13 @@ export class SdkSessions {
         this.scheduleUpsert(existing);
         return id;
       }
+      // Restarting a query left the session open elsewhere: a live heartbeat file for
+      // this id from a non-dashboard process (not sdk-cli / sdk-ts) means a terminal
+      // claude still holds the transcript, and our new query would fork it.
+      const leftover = await liveHolder(id);
+      if (leftover && !DASHBOARD_ENTRYPOINTS.has(leftover.entrypoint ?? '')) {
+        throw new SessionError(409, holderMessage(leftover.pid));
+      }
       // The old process is gone (or stopping): unwind it before starting the new query.
       existing.abort.abort();
       await Promise.race([
@@ -447,6 +458,10 @@ export class SdkSessions {
       this.startQuery(existing, text, body.model, true);
       return id;
     }
+    // A live heartbeat file from any process (terminal or SDK run) forked by adoption
+    // is the dangerous case this guard exists for: refuse before anything else moves.
+    const holder = await liveHolder(id);
+    if (holder) throw new SessionError(409, holderMessage(holder.pid));
     const stillLive =
       info.transcriptMtimeMs !== undefined && Date.now() - info.transcriptMtimeMs < ACTIVE_MS;
     if (stillLive) throw new SessionError(409, 'This session is still active in a terminal');

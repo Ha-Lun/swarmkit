@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -338,6 +338,82 @@ describe('SdkSessions', () => {
           expect((err as SessionError).status).toBe(400);
         }
       }
+    });
+
+    describe('with a live heartbeat holder (CLAUDE_CONFIG_DIR injected)', () => {
+      const base = mkdtempSync(path.join(homedir(), 'fleet-live-resume-test-'));
+      const sessionsDir = path.join(base, 'sessions');
+      mkdirSync(sessionsDir);
+
+      afterAll(() => rmSync(base, { recursive: true, force: true }));
+
+      /** Points liveHolder at the temp sessions dir for the duration of fn. */
+      const withConfigDir = async (fn: () => Promise<void>): Promise<void> => {
+        const prev = process.env.CLAUDE_CONFIG_DIR;
+        process.env.CLAUDE_CONFIG_DIR = base;
+        try {
+          await fn();
+        } finally {
+          if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+          else process.env.CLAUDE_CONFIG_DIR = prev;
+        }
+      };
+
+      const writeHolder = (sessionId: string, entrypoint: string): void =>
+        writeFileSync(
+          path.join(sessionsDir, `${process.pid}.json`),
+          JSON.stringify({
+            pid: process.pid, // alive, so the default probe reports it as a holder
+            sessionId,
+            cwd: homeDir,
+            kind: 'interactive',
+            entrypoint,
+            status: 'busy',
+          }),
+        );
+
+      it('refuses a terminal session with a live holder (409, names the pid)', async () => {
+        await withConfigDir(async () => {
+          writeHolder('term-held', 'cli');
+          const sdk = new SdkSessions(() => {}, makeRecordingQuery([]));
+          try {
+            await sdk.resume('term-held', { text: 'once more' }, { cwd: homeDir });
+            expect.unreachable('resume should have thrown');
+          } catch (err) {
+            expect(err).toBeInstanceOf(SessionError);
+            expect((err as SessionError).status).toBe(409);
+            expect((err as SessionError).message)
+              .toBe(`This session is open in another Claude Code process (pid ${process.pid}). Exit it there first, or continue it there.`);
+          }
+          rmSync(path.join(sessionsDir, `${process.pid}.json`));
+        });
+      });
+
+      it('refuses a restart of an ended page session held by a non-dashboard process, allows sdk-ts', async () => {
+        await withConfigDir(async () => {
+          const optionsSeen: (Record<string, unknown> | undefined)[] = [];
+          const sdk = new SdkSessions(() => {}, makeRecordingQuery(optionsSeen));
+          const id = sdk.start({ prompt: 'leftover check', cwd: homeDir });
+          await vi.waitFor(() => {
+            expect(sdk.get(id)?.status).toBe('done');
+          });
+          sdk.stop(id);
+
+          writeHolder(id, 'cli');
+          await expect(sdk.resume(id, { text: 'fork me' }, { cwd: homeDir })).rejects.toMatchObject({
+            status: 409,
+          });
+
+          // A dashboard-spawned holder (our own SDK process) does not block the restart.
+          writeHolder(id, 'sdk-ts');
+          await expect(sdk.resume(id, { text: 'ours' }, { cwd: homeDir })).resolves.toBe(id);
+          await vi.waitFor(() => {
+            expect(sdk.get(id)?.status).toBe('done');
+          });
+          expect(optionsSeen.at(-1)?.resume).toBe(id);
+          rmSync(path.join(sessionsDir, `${process.pid}.json`));
+        });
+      });
     });
   });
 
