@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { MAX_DETAIL } from '../../src/shared/types.ts';
 import type { AgentNode, ServerEvent, WorkerInfo } from '../../src/shared/types.ts';
 import type { SessionTree } from './reducer.ts';
@@ -16,6 +18,10 @@ export interface ParsedWorkerCommand {
 
 /** Matches `agy-task start <slug>` / `opencode-task start <slug>` anywhere in a command line. */
 const WORKER_RE = /(?:^|[\s;&|(])(agy|opencode)-task[ \t]+start[ \t]+([A-Za-z0-9._-]+)/;
+
+/** Bounded git-root lookup cache shared by all trees (cwd -> git root / undefined). */
+const GIT_ROOT_CACHE = new Map<string, string | undefined>();
+const MAX_GIT_ROOT_CACHE = 200;
 
 /**
  * Parses a Bash command that starts a headless worker task. Returns undefined when the
@@ -118,54 +124,184 @@ function workerRoot(lane: 'agy' | 'opencode'): string {
 }
 
 /**
+ * The task-dir repo key, exactly as scripts/agy-task computes it:
+ * `<basename of the git root>-<first 6 hex of sha1(git root path)>`.
+ */
+export function repoKeyOf(gitRoot: string): string {
+  const hash = createHash('sha1').update(gitRoot).digest('hex').slice(0, 6);
+  return `${basename(gitRoot)}-${hash}`;
+}
+
+/** The `cd <dir> &&` prefix directory of a command line, when present. */
+function cdPrefixDir(command: string | undefined): string | undefined {
+  if (!command) return undefined;
+  const m = /(?:^|[;&|\n])[ \t]*cd[ \t]+((?:"[^"]*"|'[^']*'|\S+))[ \t]*&&/.exec(command);
+  if (!m) return undefined;
+  return m[1].replace(/^["']|["']$/g, '');
+}
+
+/** Walks up from dir to the closest ancestor containing .git; cached per dir across polls. */
+function findGitRoot(dir: string): string | undefined {
+  if (GIT_ROOT_CACHE.has(dir)) return GIT_ROOT_CACHE.get(dir);
+  let root: string | undefined;
+  let cur = dir;
+  outer: for (let hops = 0; hops < 48; hops++) {
+    if (existsSync(join(cur, '.git'))) { root = cur; break; }
+    const parent = dirname(cur);
+    if (parent === cur) break outer;
+    cur = parent;
+  }
+  if (root !== undefined) {
+    if (GIT_ROOT_CACHE.size >= MAX_GIT_ROOT_CACHE) GIT_ROOT_CACHE.delete(GIT_ROOT_CACHE.keys().next().value!);
+    GIT_ROOT_CACHE.set(dir, root);
+  }
+  return root;
+}
+
+/**
+ * The repo key the node's worker task runs in, or undefined when unknown. Derived from the
+ * command's `cd <dir> &&` prefix or the session cwd; recorded once on the tree.
+ */
+async function workerRepo(tree: SessionTree, node: AgentNode): Promise<string | undefined> {
+  tree.workerRepos ??= new Map<string, string | undefined>();
+  if (tree.workerRepos.has(node.id)) return tree.workerRepos.get(node.id);
+  const fromCommand = cdPrefixDir(tree.workerCommands?.get(node.id));
+  const startDir = fromCommand ?? tree.cwd;
+  const gitRoot = startDir ? findGitRoot(startDir) : undefined;
+  const key = gitRoot ? repoKeyOf(gitRoot) : undefined;
+  tree.workerRepos.set(node.id, key);
+  return key;
+}
+
+interface WorkerResultFile {
+  path: string;
+  text: string;
+  opts: Record<string, unknown>;
+}
+
+/**
  * Checks every running worker node in the tree against its result.json
- * (under root/any-lane/slug/result.json; root is AGY_TASK_DIR | ~/.agy-tasks for lane
+ * (under root/<repo>/<slug>/result.json; root is AGY_TASK_DIR | ~/.agy-tasks for lane
  * agy, OPENCODE_TASK_DIR | ~/.opencode-tasks for lane opencode) and returns the events
  * for nodes that finished. Callers run it every few seconds for live sessions.
  */
 export async function pollWorkers(tree: SessionTree): Promise<ServerEvent[]> {
   const out: ServerEvent[] = [];
-  for (const node of tree.nodes.values()) {
-    if (node.kind !== 'worker' || !node.worker || node.status !== 'running') continue;
+  const running = [...tree.nodes.values()].filter(
+    (node) => node.kind === 'worker' && node.worker && node.status === 'running',
+  );
+  if (running.length === 0) return out;
+  // One readdir per lane root per poll, shared across all nodes.
+  const laneDirCache = new Map<'agy' | 'opencode', string[]>();
+  for (const node of running) {
     try {
-      const result = await findWorkerResult(node);
-      if (!result) continue;
-      const data = JSON.parse(result.text) as Record<string, unknown>;
-      const worker = node.worker as WorkerInfo;
-      worker.ok = data.ok === true;
-      worker.stoppedBy = typeof data.stopped_by === 'string' ? data.stopped_by : undefined;
-      // What the task was actually started with (opts.json of the newest matching task dir).
-      const opts = result.opts;
-      const optsModel = typeof opts.model === 'string' && opts.model ? opts.model : undefined;
-      const optsAgent = typeof opts.agent === 'string' && opts.agent ? opts.agent : undefined;
-      if (optsModel) worker.model = optsModel;
-      if (optsAgent) worker.agent = optsAgent;
-      const text =
-        typeof data.response === 'string' ? data.response :
-        typeof data.changes === 'string' ? data.changes :
-        undefined;
-      if (text !== undefined) node.result = cap(text);
-      node.status = worker.ok ? 'done' : 'error';
-      node.endedAt = Date.now();
-      node.lastActivity = node.result ? node.result.split('\n', 1)[0] : undefined;
-      if (optsModel && !node.model) node.model = optsModel;
-      out.push({ type: 'node.upsert', node: headOf(node) });
+      const result = await findWorkerResult(tree, node, laneDirCache);
+      if (result) {
+        const events = await applyResult(tree, node, result);
+        out.push(...events);
+        continue;
+      }
+      if (tree.workerRepos?.get(node.id) !== undefined) {
+        // The repo dir is known but has no result.json: the task either still runs or died.
+        if (await taskDied(node, tree.workerRepos!.get(node.id)!)) out.push(...markFinished(node, 'error'));
+      }
     } catch {
-      // unreadable result file: leave the worker running, retry next pass
+      // unreadable/task dirs missing: leave the worker running, retry next pass
     }
   }
   return out;
 }
 
-async function findWorkerResult(
-  node: AgentNode,
-): Promise<{ path: string; text: string; opts: Record<string, unknown> } | undefined> {
-  const rootDir = workerRoot(node.worker!.lane);
-  let laneDirs: string[];
+/** Marks a still-running worker node 'error' when its task noted a pid that is no longer alive. */
+async function taskDied(node: AgentNode, repo: string): Promise<boolean> {
+  const taskDir = join(workerRoot(node.worker!.lane), repo, node.worker!.slug);
+  let pidText: string;
   try {
-    laneDirs = await readdir(rootDir);
+    // No pid file (yet) means we cannot tell: leave the node running.
+    pidText = await readFile(join(taskDir, 'pid'), 'utf8');
   } catch {
-    return undefined;
+    return false;
+  }
+  const pid = Number.parseInt(pidText.trim(), 10);
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return false; // still running
+  } catch {
+    return true;
+  }
+}
+
+function markFinished(node: AgentNode, status: AgentNode['status']): ServerEvent[] {
+  node.status = status;
+  node.endedAt = Date.now();
+  if (!node.result) node.lastActivity = status === 'error' ? 'unfinished (pid gone)' : node.lastActivity;
+  return [{ type: 'node.upsert', node: headOf(node) }];
+}
+
+async function applyResult(
+  tree: SessionTree,
+  node: AgentNode,
+  result: WorkerResultFile,
+): Promise<ServerEvent[]> {
+  const data = JSON.parse(result.text) as Record<string, unknown>;
+  const worker = node.worker as WorkerInfo;
+  worker.ok = data.ok === true;
+  worker.stoppedBy = typeof data.stopped_by === 'string' ? data.stopped_by : undefined;
+  // What the task was actually started with (opts.json of the matching task dir).
+  const opts = result.opts;
+  const optsModel = typeof opts.model === 'string' && opts.model ? opts.model : undefined;
+  const optsAgent = typeof opts.agent === 'string' && opts.agent ? opts.agent : undefined;
+  if (optsModel) worker.model = optsModel;
+  if (optsAgent) worker.agent = optsAgent;
+  const text =
+    typeof data.response === 'string' ? data.response :
+    typeof data.changes === 'string' ? data.changes :
+    undefined;
+  if (text !== undefined) node.result = cap(text);
+  node.status = worker.ok ? 'done' : 'error';
+  node.endedAt = Date.now();
+  node.lastActivity = node.result ? node.result.split('\n', 1)[0] : undefined;
+  if (optsModel && !node.model) node.model = optsModel;
+  void tree;
+  return [{ type: 'node.upsert', node: headOf(node) }];
+}
+
+/**
+ * Finds the result.json of the worker task. When the repo key is known, only
+ * <root>/<repo>/<slug>/result.json is consulted; unknown repos fall back to scanning
+ * every lane dir (readdir shared across nodes through `laneDirCache`).
+ */
+async function findWorkerResult(
+  tree: SessionTree,
+  node: AgentNode,
+  laneDirCache: Map<'agy' | 'opencode', string[]>,
+): Promise<WorkerResultFile | undefined> {
+  const lane = node.worker!.lane;
+  const rootDir = workerRoot(lane);
+  const repo = await workerRepo(tree, node);
+  if (repo !== undefined) {
+    const resultPath = join(rootDir, repo, node.worker!.slug, 'result.json');
+    try {
+      const st = await stat(resultPath);
+      if (st.isFile() && st.mtimeMs >= node.startedAt - 5000) {
+        return { path: resultPath, text: await readFile(resultPath, 'utf8'), opts: await readFileObject(join(dirname(resultPath), 'opts.json')) };
+      }
+      return undefined;
+    } catch {
+      return undefined; // no result yet for the known repo
+    }
+  }
+  let laneDirs: string[];
+  const cached = laneDirCache.get(lane);
+  if (cached) laneDirs = cached;
+  else {
+    try {
+      laneDirs = (await readdir(rootDir, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name);
+    } catch {
+      laneDirs = [];
+    }
+    laneDirCache.set(lane, laneDirs);
   }
   let best: { path: string; mtimeMs: number } | undefined;
   for (const laneDir of laneDirs) {

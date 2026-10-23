@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTree } from '../server/model/reducer.ts';
 import type { AgentNode } from '../src/shared/types.ts';
-import { parseWorkerCommand, pollWorkers } from '../server/model/workers.ts';
+import { parseWorkerCommand, pollWorkers, repoKeyOf } from '../server/model/workers.ts';
 
 function opencodeWorkerNode(id: string, slug: string): AgentNode {
   return {
@@ -192,6 +192,92 @@ describe('pollWorkers', () => {
     } finally {
       if (old === undefined) delete process.env.OPENCODE_TASK_DIR;
       else process.env.OPENCODE_TASK_DIR = old;
+      await rm(dir2, { recursive: true, force: true });
+    }
+  });
+
+  // --- findings -----------------------------------------------------------
+
+  it('matches the worker repo by git root: the same slug in two repos resolves to the right one', async () => {
+    const dir2 = await mkdtemp(join(tmpdir(), 'fleet-repos-'));
+    const home = join(dir2, 'home');
+    // Two independent git roots with distinct repo keys. projectB was touched later,
+    // so a repo-agnostic scan would pick ITS result for the shared slug.
+    const rootA = join(home, 'alpha');
+    const rootB = join(home, 'beta');
+    await mkdir(join(rootA, '.git'), { recursive: true });
+    await mkdir(join(rootB, '.git'), { recursive: true });
+    await mkdir(join(rootA, 'deep', 'nested'), { recursive: true }); // the session cwd
+    const keyA = repoKeyOf(rootA);
+    const keyB = repoKeyOf(rootB);
+    expect(keyA).not.toBe(keyB);
+
+    const old = process.env.AGY_TASK_DIR;
+    process.env.AGY_TASK_DIR = dir2;
+    try {
+      await mkdir(join(dir2, keyA, 'shared-slug'), { recursive: true });
+      await mkdir(join(dir2, keyB, 'shared-slug'), { recursive: true });
+      await writeFile(join(dir2, keyA, 'shared-slug', 'result.json'), JSON.stringify({ ok: true, response: 'from repo alpha' }));
+      await writeFile(join(dir2, keyB, 'shared-slug', 'result.json'), JSON.stringify({ ok: false, stopped_by: 'wrong repo' }));
+      const tree = createTree('wtest', { startedAt: Date.now() });
+      tree.cwd = join(rootA, 'deep', 'nested'); // walk-up finds rootA/.git
+      tree.nodes.set('wA', agyWorkerNode('wA', 'shared-slug'));
+      await pollWorkers(tree);
+      const node = tree.nodes.get('wA')!;
+      expect(node.status).toBe('done'); // the alpha result: the beta result is never consulted
+      expect(node.worker!.ok).toBe(true);
+      expect(node.result).toBe('from repo alpha');
+
+      // A `cd <dir> &&` prefix in the command works without a session cwd too.
+      const tree2 = createTree('wtest', { startedAt: Date.now() });
+      tree2.nodes.set('wB', agyWorkerNode('wB', 'shared-slug'));
+      (tree2 as unknown as { workerCommands: Map<string, string> }).workerCommands.set(
+        'wB',
+        `cd ${rootB} && agy-task start shared-slug <<'EOF'\nwork\nEOF`,
+      );
+      await pollWorkers(tree2);
+      const nodeB = tree2.nodes.get('wB')!;
+      expect(nodeB.status).toBe('error');
+      expect(nodeB.worker!.ok ?? false).toBe(false);
+    } finally {
+      if (old === undefined) delete process.env.AGY_TASK_DIR;
+      else process.env.AGY_TASK_DIR = old;
+      await rm(dir2, { recursive: true, force: true });
+    }
+  });
+
+  it('marks an unfinished task (dead pid, no result.json) as error instead of running', async () => {
+    const dir2 = await mkdtemp(join(tmpdir(), 'fleet-dead-'));
+    const home = join(dir2, 'home');
+    const rootA = join(home, 'alpha');
+    await mkdir(join(rootA, '.git'), { recursive: true });
+    const keyA = repoKeyOf(rootA);
+    // Dead pid: the first candidate the kernel reports as nonexistent (ESRCH) in a high, unused range.
+    let dead = -1;
+    for (let cand = 4_100_000; cand < 4_110_000 && dead < 0; cand++) {
+      try {
+        process.kill(cand, 0);
+      } catch (err) {
+        if ((err as { code?: string }).code === 'ESRCH') dead = cand;
+      }
+    }
+    expect(dead).toBeGreaterThan(0); // the test environment must have an unused high pid
+    const old = process.env.AGY_TASK_DIR;
+    process.env.AGY_TASK_DIR = dir2;
+    try {
+      await mkdir(join(dir2, keyA, 'died'), { recursive: true });
+      await writeFile(join(dir2, keyA, 'died', 'pid'), String(dead));
+      const tree = createTree('wtest', { startedAt: Date.now() });
+      tree.cwd = rootA;
+      tree.nodes.set('w9', agyWorkerNode('w9', 'died'));
+      const events = await pollWorkers(tree);
+      const node = tree.nodes.get('w9')!;
+      expect(node.status).toBe('error');
+      expect(node.endedAt).toBeDefined();
+      expect(events.some((e) => e.type === 'node.upsert' && (e as { node: { id: string } }).node.id === 'w9')).toBe(true);
+    } finally {
+      if (old === undefined) delete process.env.AGY_TASK_DIR;
+      else process.env.AGY_TASK_DIR = old;
       await rm(dir2, { recursive: true, force: true });
     }
   });

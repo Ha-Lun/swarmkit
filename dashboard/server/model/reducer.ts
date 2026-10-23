@@ -22,6 +22,12 @@ export interface SessionTree {
   costedMessages?: Map<string, Set<string>>;
   /** node id -> block keys already applied; prevents duplicate events/counts when a line is re-applied. */
   seenBlocks?: Map<string, Set<string>>;
+  /** Node ids created before their real Agent tool_use was seen (parent_tool_use_id, forced node, meta.json). */
+  placeholders?: Set<string>;
+  /** tool_use_id of the Bash call that started a worker -> its command line. */
+  workerCommands?: Map<string, string>;
+  /** Worker node id -> task-dir repo key (git root derived), or undefined while unknown. */
+  workerRepos?: Map<string, string | undefined>;
 }
 
 export interface TreeInit {
@@ -39,6 +45,17 @@ export interface ApplyOptions {
 type Raw = Record<string, unknown>;
 
 const emptyTokens = (): TokenUsage => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+/** Dedupe sets (costed message ids, seen block keys) keep at most this many entries. */
+const MAX_DEDUPE = 5000;
+
+/** Adds a key keeping the set bounded: past MAX_DEDUPE entries the oldest insertion is dropped. */
+function addCapped(set: Set<string>, key: string): void {
+  if (set.has(key)) return;
+  set.add(key);
+  if (set.size > MAX_DEDUPE) {
+    for (const oldest of set) { set.delete(oldest); break; }
+  }
+}
 
 export function createTree(sessionId: string, init: TreeInit): SessionTree {
   const root: AgentNode = {
@@ -62,6 +79,8 @@ export function createTree(sessionId: string, init: TreeInit): SessionTree {
     agentIds: new Map<string, string>(),
     costedMessages: new Map<string, Set<string>>(),
     seenBlocks: new Map<string, Set<string>>(),
+    placeholders: new Set<string>(),
+    workerCommands: new Map<string, string>(),
   };
 }
 
@@ -76,6 +95,8 @@ export function applyMessage(tree: SessionTree, msg: unknown, opts?: ApplyOption
   tree.agentIds ??= new Map<string, string>();
   tree.costedMessages ??= new Map<string, Set<string>>();
   tree.seenBlocks ??= new Map<string, Set<string>>();
+  tree.placeholders ??= new Set<string>();
+  tree.workerCommands ??= new Map<string, string>();
   const m = msg as Raw;
   try {
     switch (m.type) {
@@ -171,6 +192,12 @@ export function upsertEvent(node: AgentNode): ServerEvent {
   return { type: 'node.upsert', node: headOf(node) };
 }
 
+/** Records a node as a placeholder so a later Agent tool_use for its id can reparent it. */
+export function markPlaceholder(tree: SessionTree, nodeId: string): void {
+  tree.placeholders ??= new Set<string>();
+  tree.placeholders.add(nodeId);
+}
+
 /** A node without its events, for the wire format. */
 export function headOf(node: AgentNode): Omit<AgentNode, 'events'> {
   const { events, ...head } = node;
@@ -254,7 +281,7 @@ function applyAssistant(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerE
     if (!block) return;
     const key = `${uuid}:${index}`;
     if (seen.has(key)) return;
-    seen.add(key);
+    addCapped(seen, key);
 
     if (block.type === 'text') {
       const text = typeof block.text === 'string' ? block.text : '';
@@ -319,7 +346,7 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
     if (m.isMeta !== true && !content.startsWith('<')) {
       const key = `${str(m.uuid) ?? `user:${ts}`}:user`;
       if (!seen.has(key)) {
-        seen.add(key);
+        addCapped(seen, key);
         if (node.prompt === undefined) {
           node.prompt = content;
           dirty = true;
@@ -351,7 +378,7 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
       const text = toolResultText(block.content);
       const isError = block.is_error === true;
       if (!ownerSeen.has(key)) {
-        ownerSeen.add(key);
+        addCapped(ownerSeen, key);
         const summary = text ? firstLine(text, 200) : 'tool result';
         if (owner.lastActivity !== summary) {
           owner.lastActivity = summary;
@@ -370,7 +397,19 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
       }
       // Subagent lifecycle: async-launched ones stay running and register their agent id.
       const sub = tree.nodes.get(toolUseId);
-      if (!sub || sub.kind !== 'subagent') continue;
+      if (!sub) continue;
+      if (sub.kind === 'worker') {
+        // A failed Bash tool_result means the task never started: mark the error here
+        // (a finished task is otherwise only ever resolved through its result.json).
+        if (isError && sub.status === 'running' && sub.worker?.ok === undefined) {
+          sub.status = 'error';
+          sub.endedAt = ts || Date.now();
+          dirty = true;
+          out.touch(sub);
+        }
+        continue;
+      }
+      if (sub.kind !== 'subagent') continue;
       const operation = asRaw(m.toolUseResult);
       if (operation?.status === 'async_launched') {
         const agentId = str(operation.agentId);
@@ -504,7 +543,7 @@ function applyResult(tree: SessionTree, m: Raw): ServerEvent[] {
   const seen = seenSet(tree, root.id);
   const key = `${str(m.uuid) ?? `result:${str(m.subtype) ?? ''}`}:result`;
   if (!seen.has(key)) {
-    seen.add(key);
+    addCapped(seen, key);
     out.touch(root, {
       id: key,
       ts: tsOf(m.timestamp),
@@ -573,6 +612,8 @@ function resolveNode(tree: SessionTree, m: Raw, opts?: ApplyOptions): { node: Ag
   const forced = opts?.nodeId ?? str(m.parent_tool_use_id);
   if (forced) {
     if (tree.nodes.has(forced)) return { node: tree.nodes.get(forced)!, fresh: false };
+    tree.placeholders ??= new Set<string>();
+    tree.placeholders.add(forced);
     return { node: ensureNode(tree, forced, { kind: 'subagent' }), fresh: true };
   }
   return { node: tree.nodes.get('root')!, fresh: false };
@@ -588,7 +629,8 @@ function toolChild(
 ): AgentNode | undefined {
   if (name === 'Agent' || name === 'Task') {
     const v = input ?? {};
-    return ensureNode(tree, toolUseId, {
+    const wasPlaceholder = tree.placeholders?.delete(toolUseId) ?? false;
+    const child = ensureNode(tree, toolUseId, {
       parentId: parent.id,
       kind: 'subagent',
       agentType: str(v.subagent_type) ?? 'general-purpose',
@@ -597,10 +639,26 @@ function toolChild(
       model: stringified(v.model),
       startedAt: ts,
     });
+    if (wasPlaceholder) {
+      // The node existed before its Agent tool_use: reparent it and fill in what was missing.
+      child.parentId = parent.id;
+      if (ts < child.startedAt) child.startedAt = ts;
+      const agentType = str(v.subagent_type);
+      const description = stringified(v.description);
+      const prompt = stringified(v.prompt);
+      const model = stringified(v.model);
+      if (agentType && (child.agentType === 'general-purpose' || child.agentType === 'main')) child.agentType = agentType;
+      if (description && child.description === undefined) child.description = description;
+      if (prompt && child.prompt === undefined) child.prompt = prompt;
+      if (model && child.model === undefined) child.model = model;
+    }
+    return child;
   }
   if (name === 'Bash' && input) {
     const wc = parseWorkerCommand(stringified(input.command) ?? '');
     if (!wc) return undefined;
+    tree.workerCommands ??= new Map<string, string>();
+    tree.workerCommands.set(toolUseId, stringified(input.command) ?? '');
     return ensureNode(tree, toolUseId, {
       parentId: parent.id,
       kind: 'worker',
@@ -654,7 +712,7 @@ function countCost(tree: SessionTree, node: AgentNode, messageId: string, usage:
     tree.costedMessages!.set(node.id, set);
   }
   if (set.has(messageId)) return;
-  set.add(messageId);
+  addCapped(set, messageId);
   const tokens: TokenUsage = {
     input: num(usage.input_tokens),
     output: num(usage.output_tokens),

@@ -1,6 +1,6 @@
 // Workers registry: scans agy-task / opencode-task task dirs (<root>/<repo>/<slug>/) and
 // reports their live state, mirroring scripts/agy-task (see alive(), list_extra(), tool_failure()).
-import { open, readdir, readFile, stat } from 'node:fs/promises';
+import { open, lstat, readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, sep } from 'node:path';
 import { realpath } from 'node:fs/promises';
@@ -39,6 +39,16 @@ interface ParsedLog {
   toolCounts: Record<string, number>;
   lastTool?: string;
   denied: number;
+}
+
+/** Incremental opencode.log read state for one task dir. */
+interface LogCacheEntry extends ParsedLog {
+  mtimeMs: number;
+  size: number;
+  /** Offset of complete-line consumption (next append starts here). */
+  offset: number;
+  /** Unparsed trailing partial line after offset. */
+  rest: Buffer;
 }
 
 /** Default liveness check, exactly scripts/agy-task's alive(): the pid must be a live task CLI. */
@@ -148,7 +158,8 @@ export class WorkerRegistry {
   private timer: NodeJS.Timeout | undefined;
   private scanning = false;
   private cached: WorkerTask[] = [];
-  private lastJson = '';
+  private lastSig = '';
+  private logCache = new Map<string, LogCacheEntry>();
 
   constructor(opts: RegistryOptions) {
     this.emitFn = opts.emit;
@@ -228,9 +239,10 @@ export class WorkerRegistry {
         const rb = b.state === 'running' ? 0 : 1;
         return ra - rb || b.startedAt - a.startedAt;
       });
-      const json = JSON.stringify(workers);
-      if (json !== this.lastJson) {
-        this.lastJson = json;
+      // Change detection via the fields that can move, in 5 s elapsed buckets, not full JSON.
+      const sig = signatureOf(workers);
+      if (sig !== this.lastSig) {
+        this.lastSig = sig;
         this.cached = workers;
         this.emitFn({ type: 'workers.update', workers });
       }
@@ -285,14 +297,14 @@ export class WorkerRegistry {
     let toolCounts: Record<string, number> = {};
     let lastTool: string | undefined;
     if (running && lane === 'opencode') {
-      const text = await readTail(join(dir, 'opencode.log'), MAX_LOG_BYTES);
-      if (text) {
-        const parsed = parseOpencodeLog(text);
-        denied = parsed.denied;
-        toolCounts = parsed.toolCounts;
-        lastTool = parsed.lastTool;
+      const parsedLog = await this.readOpencodeLogCached(dir);
+      if (parsedLog) {
+        denied = parsedLog.denied;
+        toolCounts = parsedLog.toolCounts;
+        lastTool = parsedLog.lastTool;
       }
     } else if (!running && resultText !== undefined) {
+      // no longer running: the cached incremental log state is obsolete then
       const deniedActions = result.denied_actions;
       denied = Array.isArray(deniedActions) ? deniedActions.length : 0;
     }
@@ -334,6 +346,82 @@ export class WorkerRegistry {
   }
 
   /**
+   * Incrementally reads opencode.log: unchanged (mtime,size) reuses the cache, growth reads
+   * only the appended range, shrink recomputes the tail. Undefined when the log cannot be read.
+   */
+  private async readOpencodeLogCached(dir: string): Promise<ParsedLog | undefined> {
+    const path = join(dir, 'opencode.log');
+    const st = await lstat(path).catch(() => undefined);
+    if (!st || st.isSymbolicLink() || !st.isFile()) {
+      this.logCache.delete(dir);
+      return undefined;
+    }
+    const cached = this.logCache.get(dir);
+    if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
+      return cached;
+    }
+    if (cached && st.size >= cached.offset) {
+      // Only the appended bytes are new.
+      const appended = await readRangeBytes(path, cached.offset, st.size - cached.offset);
+      if (appended) {
+        const buf = Buffer.concat([cached.rest, appended]);
+        const { lines, rest } = extractCompleteLines(buf);
+        if (lines.length > 0) {
+          const parsedLog = parseOpencodeLogLines(lines);
+          const toolCounts = { ...cached.toolCounts };
+          for (const [tool, n] of Object.entries(parsedLog.toolCounts)) toolCounts[tool] = (toolCounts[tool] ?? 0) + n;
+          const entry: LogCacheEntry = {
+            ...cached,
+            toolCounts,
+            lastTool: parsedLog.lastTool ?? cached.lastTool,
+            denied: cached.denied + parsedLog.denied,
+            mtimeMs: st.mtimeMs,
+            size: st.size,
+            offset: cached.offset + (buf.length - rest.length),
+            rest,
+          };
+          return this.saveLogCache(dir, entry);
+        }
+        // Nothing complete yet (partial line): just extend the rest.
+        if (buf.length > cached.rest.length) {
+          return this.saveLogCache(dir, { ...cached, rest: buf, mtimeMs: st.mtimeMs, size: st.size });
+        }
+      }
+    }
+    // Shrunk or first read: recompute from the tail.
+    const from = Math.max(0, st.size - MAX_LOG_BYTES);
+    let buf = await readRangeBytes(path, from, st.size - from);
+    if (buf === undefined) {
+      this.logCache.delete(dir);
+      return undefined;
+    }
+    let cutAt = from;
+    if (from > 0) {
+      const nl = buf.indexOf(0x0a); // drop a possibly cut first line
+      if (nl >= 0) {
+        cutAt += nl + 1;
+        buf = buf.subarray(nl + 1);
+      }
+    }
+    const { lines, rest } = extractCompleteLines(buf);
+    // best-effort: also parse a trailing partial line (a rewritten log may end without '\n')
+    if (lines.length === 0 && rest.length > 0) lines.push(rest.toString('utf8'));
+    const parsed = parseOpencodeLogLines(lines.length > 0 ? lines : []);
+    return this.saveLogCache(dir, {
+      ...parsed,
+      mtimeMs: st.mtimeMs,
+      size: st.size,
+      offset: cutAt + buf.length, // fully consumed (the tail spec covers the partial line)
+      rest: Buffer.alloc(0),
+    });
+  }
+
+  private saveLogCache(dir: string, entry: LogCacheEntry): LogCacheEntry {
+    this.logCache.set(dir, entry);
+    return entry;
+  }
+
+  /**
    * The worker's log, last 200 lines: opencode JSON events rendered as one readable line each,
    * agy (and any non-JSON line) passed through as raw text. Undefined for unknown or unreadable logs.
    */
@@ -342,16 +430,22 @@ export class WorkerRegistry {
     if (!NAME_RE.test(repo) || !NAME_RE.test(slug)) return undefined;
     const root = this.laneRoot(lane);
     let rootReal: string;
-    let target: string;
+    let targetReal: string;
     try {
       rootReal = await realpath(root);
-      target = await realpath(join(root, repo, slug));
+      targetReal = await realpath(join(root, repo, slug));
     } catch {
       return undefined;
     }
-    if (target !== rootReal && !target.startsWith(rootReal + sep)) return undefined;
+    // Exactly two path segments below the lane root: <repo>/<slug>; symlinks inside resolve elsewhere.
+    if (!targetReal.startsWith(rootReal + sep)) return undefined;
+    const target = join(rootReal, repo, slug);
+    if (targetReal !== target) return undefined;
     const fileName = lane === 'agy' ? 'agy.log' : 'opencode.log';
-    const text = await readTail(join(target, fileName), MAX_LOG_BYTES);
+    const logPath = join(target, fileName);
+    const logSt = await lstat(logPath).catch(() => undefined);
+    if (!logSt || logSt.isSymbolicLink() || !logSt.isFile()) return undefined;
+    const text = await readTail(logPath, MAX_LOG_BYTES);
     if (text === undefined) return undefined;
     const lines = text.split('\n');
     if (text.length >= MAX_LOG_BYTES && lines.length > 0) lines.shift(); // drop a possibly cut first line
@@ -376,6 +470,61 @@ export class WorkerRegistry {
     }
     return out.slice(-200);
   }
+}
+
+/** Change-detection digest: identity plus only the fields that can move between scans. */
+function signatureOf(workers: WorkerTask[]): string {
+  return workers
+    .map((w) => [
+      w.lane,
+      w.repo,
+      w.slug,
+      w.state,
+      Math.floor(w.elapsedS / 5), // elapsed in 5 s buckets
+      w.denied,
+      w.lastTool ?? '',
+      w.endedAt ?? -1,
+    ].join(':'))
+    .join('|');
+}
+
+/** Reads exactly [offset, offset+length) bytes of a file. */
+async function readRangeBytes(path: string, offset: number, length: number): Promise<Buffer | undefined> {
+  if (length <= 0) return Buffer.alloc(0);
+  const handle = await open(path, 'r').catch(() => undefined);
+  if (!handle) return undefined;
+  try {
+    const buf = Buffer.alloc(length);
+    const { bytesRead } = await handle.read(buf, 0, length, offset);
+    return buf.subarray(0, bytesRead);
+  } catch {
+    return undefined;
+  } finally {
+    await handle.close().catch(() => {});
+  }
+}
+
+/** Splits a buffer into complete newline-terminated lines; the trailing partial line is not included. */
+function extractCompleteLines(buf: Buffer): { lines: string[]; rest: Buffer } {
+  const lines: string[] = [];
+  let start = 0;
+  while (start < buf.length) {
+    const nl = buf.indexOf(0x0a, start);
+    if (nl < 0) break;
+    const line = buf.subarray(start, nl).toString('utf8');
+    if (line.trim().length > 0) lines.push(line);
+    start = nl + 1;
+  }
+  return { lines, rest: buf.subarray(start) };
+}
+
+/** parseOpencodeLog over already-split lines. */
+function parseOpencodeLogLines(lines: string[]): ParsedLog {
+  const toolCounts: Record<string, number> = {};
+  let lastTool: string | undefined;
+  let denied = 0;
+  const joined = lines.length > 0 ? lines.join('\n') : '';
+  return joined ? { ...parseOpencodeLog(joined) } : { toolCounts, lastTool, denied };
 }
 
 /** Counts denied tool_use lines and collects toolCounts / lastTool from an opencode.log tail. */

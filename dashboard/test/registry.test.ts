@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorkerRegistry } from '../server/registry.ts';
@@ -178,6 +178,57 @@ describe('WorkerRegistry', () => {
       // agy logs are passed through as raw lines.
       const agyLines = await registry.log('agy', 'repo-b', 'done1');
       expect(agyLines).toEqual(['banner line', 'work log line']);
+    });
+
+    it('rejects symlinked repos and symlinked log files', async () => {
+      const { registry } = env;
+      // A repo entry that is a symlink to a directory outside the lane root.
+      const outside = await mkdtemp(join(tmpdir(), 'fleet-out-'));
+      try {
+        await mkdir(join(outside, 'w2'), { recursive: true });
+        await writeFile(join(outside, 'w2', 'opencode.log'), JSON.stringify({ type: 'text', part: { text: 'sneak' }, timestamp: CLK }));
+        await symlink(join(outside), join(opencodeRoot, 'repo-sym'), 'dir');
+        expect(await registry.log('opencode', 'repo-sym', 'w2')).toBeUndefined();
+        // A symlinked log file inside a plain repo dir.
+        await mkdir(join(opencodeRoot, 'repo-fsln', 'w3'), { recursive: true });
+        await symlink(join(outside, 'w2', 'opencode.log'), join(opencodeRoot, 'repo-fsln', 'w3', 'opencode.log'), 'file');
+        expect(await registry.log('opencode', 'repo-fsln', 'w3')).toBeUndefined();
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('incremental opencode.log cache', () => {
+    it('re-reads growth and shrink without re-parsing everything each poll', async () => {
+      const { registry, recorder } = env;
+      const logPath = join(opencodeRoot, 'repo-a', 'w1', 'opencode.log');
+      const before = recorder.events.length;
+      await registry.scanNow(); // poll 1 (baseline, unchanged)
+      expect(recorder.events.length).toBe(before); // no change, no emit
+
+      // Growth: an appended denied bash call changes denied/lastTool -> the list moves.
+      await appendFile(logPath, '\n' + JSON.stringify({ type: 'tool_use', part: { tool: 'bash', state: { status: 'error', error: 'a rule which prevents it', input: { command: 'curl evil' } } }, timestamp: CLK }) + '\n');
+      await registry.scanNow();
+      const grown = registry.list().find(w => w.slug === 'w1')!;
+      expect(grown.denied).toBe(3); // 2 initial + 1 appended
+      expect(grown.lastTool).toBe('bash curl evil');
+      expect(recorder.events.length).toBe(before + 1);
+
+      // Unchanged size/mtime: cached values are reused, nothing happens.
+      const deniedBefore = registry.list().find(w => w.slug === 'w1')!.denied;
+      await registry.scanNow();
+      expect(registry.list().find(w => w.slug === 'w1')!.denied).toBe(deniedBefore);
+      expect(recorder.events.length).toBe(before + 1);
+
+      // Shrink: a rewritten smaller log resets the counts from scratch.
+      await writeFile(logPath, JSON.stringify({ type: 'tool_use', part: { tool: 'edit', state: { status: 'running', input: { filePath: 'x.ts' } } }, timestamp: CLK }));
+      await registry.scanNow();
+      const shrunk = registry.list().find(w => w.slug === 'w1')!;
+      expect(shrunk.denied).toBe(0); // recomputed, not imported from the larger past
+      expect(shrunk.lastTool).toBe('edit x.ts');
+      expect(shrunk.toolCounts).toEqual({ edit: 1 });
+      expect(recorder.events.length).toBe(before + 2);
     });
   });
 });
