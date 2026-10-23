@@ -304,21 +304,158 @@ describe('TranscriptWatcher', () => {
       cwd: '/repo/alpha',
       message: { role: 'user', content: 'Big session: budget check' },
     });
+    // A much later user prompt lives inside the parsed tail: the head title must win.
+    const tailUser = JSON.stringify({
+      type: 'user',
+      uuid: 'u5',
+      timestamp: T2,
+      message: { role: 'user', content: 'Tail prompt: late follow-up' },
+    });
     const padding = Array.from({ length: 12_000 }, () => PAD_LINE).join('\n') + '\n'; // ~5 MB
-    await writeFile(file, `${bigFirst}\n${padding}${tailLine}\n`);
+    await writeFile(file, `${bigFirst}\n${padding}${tailUser}\n${tailLine}\n`);
     const w = new TranscriptWatcher({ root: temp, emit: (e) => seen.push(e), skip: () => false });
     try {
       const summary = w.list().find((s) => s.id === 'big')!;
       expect(summary.title).toBe('Big session: budget check'); // head read, no full parse needed
       const detail = await w.get('big');
       expect(detail!.title).toBe('Big session: budget check'); // preserved despite tail-only tree
+      // The head's first prompt wins over the tail's later user prompt everywhere.
+      expect(detail!.title).not.toBe('Tail prompt: late follow-up');
+      const root = detail!.nodes.find((n) => n.id === 'root')!;
+      expect(root.description).toBe('Big session: budget check');
+      expect(root.prompt).toBe('Big session: budget check');
+      expect(root.lastActivity).toBe('End of the big session.'); // activity follows the latest tail message
       expect(detail!.nodes.some((n) => n.id === 'root')).toBe(true);
       expect(detail!.nodes.find((n) => n.id === 'root')!.result).toBe('End of the big session.');
+      // Broadcast summaries carry the head title too, not the tail prompt.
+      const upserts = seen.filter(
+        (e) => e.type === 'session.upsert' && (e as { session?: { id?: string; title?: string } }).session?.id === 'big',
+      );
+      expect(upserts.length).toBeGreaterThan(0);
+      expect(upserts.every((e) => (e as { session?: { title?: string } }).session?.title === 'Big session: budget check')).toBe(true);
       // The early padding was not converted into thousands of events.
       const emitted = seen.filter((e) => e.type === 'node.event' && (e as { sessionId?: string }).sessionId === 'big').length;
       expect(emitted).toBeLessThan(50);
     } finally {
       w.stop();
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('TranscriptWatcher: terminal status from the live-session registry', () => {
+  type TreePeek = Map<string, { tree: { nodes: Map<string, { status: string }> } }>;
+
+  /** Read-only view on the watcher's live map trees. */
+  function treesOf(w: TranscriptWatcher): TreePeek {
+    return (w as unknown as { live: TreePeek }).live;
+  }
+
+  const holderRecord = (sessionId: string, status: string): string =>
+    JSON.stringify({
+      pid: process.pid, // this process is alive, so the default probe reports it
+      sessionId,
+      cwd: '/repo/holder',
+      kind: 'interactive',
+      entrypoint: 'cli',
+      status,
+    });
+
+  /** A temp CLAUDE_CONFIG_DIR (sessions/) + projects root, and a watcher for it. */
+  async function setup(): Promise<{
+    temp: string;
+    projects: string;
+    sessionsDir: string;
+    seen: ServerEvent[];
+    watcher: TranscriptWatcher;
+  }> {
+    const temp = await mkdtemp(join(tmpdir(), 'fleet-liveholder-'));
+    const projects = join(temp, 'projects');
+    const sessionsDir = join(temp, 'sessions');
+    await mkdir(projects, { recursive: true });
+    await mkdir(sessionsDir, { recursive: true });
+    const seen: ServerEvent[] = [];
+    const watcher = new TranscriptWatcher({ root: projects, emit: (e) => seen.push(e), skip: () => false });
+    return { temp, projects, sessionsDir, seen, watcher };
+  }
+
+  async function withConfigDir(temp: string, fn: () => Promise<void>): Promise<void> {
+    const prev = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = temp;
+    try {
+      await fn();
+    } finally {
+      if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = prev;
+    }
+  }
+
+  it('a live holder decides the status: busy -> running, idle -> idle', async () => {
+    const { temp, projects, sessionsDir, watcher } = await setup();
+    try {
+      // Both transcripts are long past the mtime cap: without holders they would be done.
+      await mkdir(join(projects, 'p'), { recursive: true });
+      await writeFile(join(projects, 'p', 'busy-held.jsonl'), `${userLine}\n${baseAssistant}\n`);
+      await writeFile(join(projects, 'p', 'idle-held.jsonl'), `${userLine}\n${baseAssistant}\n`);
+      const past = Date.now() - 10 * 60_000;
+      await utimes(join(projects, 'p', 'busy-held.jsonl'), past / 1000, past / 1000);
+      await utimes(join(projects, 'p', 'idle-held.jsonl'), past / 1000, past / 1000);
+      await writeFile(join(sessionsDir, `${process.pid}.json`), holderRecord('busy-held', 'busy'));
+      await writeFile(join(sessionsDir, `${process.pid}-second.json`), holderRecord('idle-held', 'idle'));
+      await withConfigDir(temp, async () => {
+        await watcher.scanNow(); // primes the holder snapshot
+        const list = watcher.list();
+        expect(list.find((s) => s.id === 'busy-held')!.status).toBe('running'); // busy beats the mtime cap
+        expect(list.find((s) => s.id === 'idle-held')!.status).toBe('idle'); // idle holder, any mtime
+      });
+    } finally {
+      watcher.stop();
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+
+  it('without a holder the mtime cap applies: done after 30 s, running before', async () => {
+    const { temp, projects, watcher, seen } = await setup();
+    try {
+      await mkdir(join(projects, 'p'), { recursive: true });
+      await writeFile(join(projects, 'p', 'aged.jsonl'), `${userLine}\n${baseAssistant}\n`);
+      await writeFile(join(projects, 'p', 'fresh.jsonl'), `${userLine}\n${baseAssistant}\n`);
+      const past = Date.now() - 40_000;
+      await utimes(join(projects, 'p', 'aged.jsonl'), past / 1000, past / 1000);
+      await withConfigDir(temp, async () => {
+        await watcher.scanNow();
+        const list = watcher.list();
+        expect(list.find((s) => s.id === 'aged')!.status).toBe('done'); // 40 s old, no holder
+        expect(list.find((s) => s.id === 'fresh')!.status).toBe('running'); // written right now
+        // The broadcast summaries agree with list().
+        const upserts = seen.filter(
+          (e) => e.type === 'session.upsert' &&
+            ((e as { session?: { id?: string; status?: string } }).session?.id === 'aged'),
+        );
+        expect(upserts.every((e) => (e as { session?: { status?: string } }).session?.status === 'done')).toBe(true);
+      });
+    } finally {
+      watcher.stop();
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+
+  it('a waiting permission beats a busy holder', async () => {
+    const { temp, projects, sessionsDir, watcher } = await setup();
+    try {
+      await mkdir(join(projects, 'p'), { recursive: true });
+      await writeFile(join(projects, 'p', 'waitf.jsonl'), `${userLine}\n${baseAssistant}\n`);
+      await writeFile(join(sessionsDir, `${process.pid}.json`), holderRecord('waitf', 'busy'));
+      await withConfigDir(temp, async () => {
+        await watcher.get('waitf');
+        // Simulate a node blocked on a permission decision.
+        const node = treesOf(watcher).get('waitf')!.tree.nodes.get('root')!;
+        node.status = 'waiting';
+        await watcher.scanNow();
+        expect(watcher.list().find((s) => s.id === 'waitf')!.status).toBe('waiting');
+      });
+    } finally {
+      watcher.stop();
       await rm(temp, { recursive: true, force: true });
     }
   });

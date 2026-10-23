@@ -1,6 +1,7 @@
 // Restart reminder: a finished Bash `install.sh --pack` run means new agents exist and
 // the session should be restarted so Claude can use them.
 import type { AgentNode, SessionSource } from '../shared/types';
+import { runsPackInstall } from './packInstall';
 import { CloseIcon, WarnIcon } from './icons';
 
 /** True when any node ran Bash with install.sh --pack and got a non-error tool_result back. */
@@ -9,8 +10,8 @@ export function packInstallDone(nodes: AgentNode[]): boolean {
     for (let i = 0; i < n.events.length; i++) {
       const e = n.events[i];
       if (e.kind !== 'tool_use' || e.tool !== 'Bash') continue;
-      const text = `${e.summary}\n${e.detail ?? ''}`;
-      if (!text.includes('install.sh') || !text.includes('--pack')) continue;
+      // The summary may be the caller's description; the full command is in the detail.
+      if (!runsPackInstall(e.summary) && !runsPackInstall(e.detail ?? '')) continue;
       const key = e.toolUseId ?? e.id;
       const matched = n.events.some(
         (r, j) =>

@@ -499,6 +499,119 @@ describe('reducer: hand-back unwrapping', () => {
   });
 });
 
+describe('reducer: hand-back JSON tool_results', () => {
+  const handbackUse = {
+    type: 'assistant',
+    uuid: 'a1',
+    timestamp: 1_700_000_001_000,
+    message: {
+      id: 'msg_sub1',
+      model: 'claude-opus-4-5',
+      content: [{ type: 'tool_use', id: 'toolu_hb', name: 'SubagentHandback', input: { report: 'nothing' } }],
+    },
+  };
+  const bashUse = {
+    type: 'assistant',
+    uuid: 'b1',
+    timestamp: 1_700_000_002_000,
+    message: {
+      id: 'msg_sub2',
+      model: 'claude-opus-4-5',
+      content: [{ type: 'tool_use', id: 'toolu_plain', name: 'Bash', input: { command: 'npm test' } }],
+    },
+  };
+  const userResult = (toolUseId: string, text: string) => ({
+    type: 'user',
+    uuid: `u_${toolUseId}`,
+    timestamp: 1_700_000_003_000,
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content: text, is_error: false }] },
+  });
+
+  it('keeps the previous lastActivity/result for SubagentHandback JSON results', () => {
+    const tree = createTree('hb5', { startedAt: 1_700_000_000_000 });
+    flatten([
+      applyMessage(tree, {
+        type: 'user',
+        uuid: 'u_first',
+        message: { role: 'user', content: 'Fix the fleet thing' },
+      }),
+      applyMessage(tree, {
+        type: 'assistant',
+        uuid: 'a0',
+        message: { id: 'msg_0', model: 'claude-opus-4-5', content: [{ type: 'text', text: 'Report written and verified.' }] },
+      }),
+      applyMessage(tree, handbackUse),
+      applyMessage(tree, userResult('toolu_hb', '{"success":true,"message":"Report delivered"}')),
+    ]);
+    const root = tree.nodes.get('root')!;
+    // The hand-back envelope was ignored: the honest text stands.
+    expect(root.lastActivity).toBe('Report written and verified.');
+    expect(root.result).toBe('Report written and verified.');
+    // The tool_result event itself was still recorded.
+    expect(root.events.filter((e) => e.kind === 'tool_result')).toHaveLength(1);
+
+    // A tool_result whose text merely mentions such JSON is no hand-back at all,
+    // and ordinary tool results still update the activity.
+    const tree2 = createTree('hb5b', { startedAt: 1_700_000_000_000 });
+    flatten([
+      applyMessage(tree2, bashUse),
+      applyMessage(tree2, userResult('toolu_plain', 'Usage note: {"success":true,"message":"x"} is ignored')),
+      applyMessage(tree2, handbackUse),
+    ]);
+    const root2 = tree2.nodes.get('root')!;
+    expect(root2.lastActivity).toBe('Usage note: {"success":true,"message":"x"} is ignored');
+    // The invisible hand-back tool use did not clobber the honest activity either.
+    expect(root2.lastActivity).toBe('Usage note: {"success":true,"message":"x"} is ignored');
+  });
+
+  it('finishes a subagent as done on a hand-back result but keeps its real report', () => {
+    const tree = createTree('hb6', { startedAt: 1_700_000_000_000 });
+    flatten([
+      applyMessage(tree, {
+        type: 'assistant',
+        uuid: 'a1',
+        timestamp: 1_700_000_001_000,
+        message: { id: 'msg_1', model: 'claude-opus-4-5', content: [{ type: 'tool_use', id: 'toolu_s1', name: 'Agent', input: { subagent_type: 'tester' } }] },
+      }),
+      applyMessage(tree, {
+        type: 'assistant',
+        uuid: 'a2',
+        parent_tool_use_id: 'toolu_s1',
+        timestamp: 1_700_000_002_000,
+        message: { id: 'msg_2', model: 'claude-sonnet-4-5', content: [{ type: 'text', text: 'All checks green.' }] },
+      }),
+      applyMessage(tree, userResult('toolu_s1', ' {"success":true,"message":"Report delivered to the parent"} ')),
+    ]);
+    const sub = tree.nodes.get('toolu_s1')!;
+    expect(sub.status).toBe('done'); // the tool_result still finishes the subagent
+    expect(sub.endedAt).toBeDefined();
+    expect(sub.result).toBe('All checks green.'); // the envelope did not become the report
+  });
+
+  it('only ignores JSON objects with a boolean success and a message key', () => {
+    const tree = createTree('hb7', { startedAt: 1_700_000_000_000 });
+    flatten([
+      applyMessage(tree, {
+        type: 'user',
+        uuid: 'u_first',
+        message: { role: 'user', content: 'Kick off' },
+      }),
+      applyMessage(tree, bashUse),
+      // {"ok":...} is not a hand-back envelope: it is ordinary activity.
+      applyMessage(tree, userResult('toolu_plain', '{"ok":true,"message":"done"}')),
+    ]);
+    const root = tree.nodes.get('root')!;
+    expect(root.lastActivity).toBe('{"ok":true,"message":"done"}');
+    // Text that merely contains such JSON (not only it) still counts as activity.
+    const tree2 = createTree('hb8', { startedAt: 1_700_000_000_000 });
+    flatten([
+      applyMessage(tree2, bashUse),
+      applyMessage(tree2, userResult('toolu_plain', 'Result: {"success":true,"message":"x"} was stored')),
+    ]);
+    expect(tree2.nodes.get('root')!.lastActivity).toBe('Result: {"success":true,"message":"x"} was stored');
+  });
+});
+
 describe('reducer: worker resume', () => {
   const notification = (id: string, status: string, summary: string) => ({
     type: 'queue-operation',

@@ -316,7 +316,9 @@ function applyAssistant(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerE
       tree.toolOwner.set(toolUseId, node.id);
       putCapped(tree.toolNames!, toolUseId, name);
       const summary = toolSummary(name, input);
-      node.lastActivity = summary;
+      // The hand-back tool call itself is invisible on cards: its tool_result (the
+      // subagent's report envelope) is ignored too, so the previous text stands.
+      if (name !== 'SubagentHandback') node.lastActivity = summary;
       dirty = true;
       out.touch(node, {
         id: `${toolUseId}:use`,
@@ -384,12 +386,16 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
       const key = `${toolUseId}:result`;
       // Subagent reports may come back wrapped; strip the framing before display.
       const text = unwrapAgentText(toolResultText(block.content));
+      // Hand-back envelopes (raw tool results of a SubagentHandback call, or any result
+      // that is just a {"success":bool,"message":...} object) never become visible
+      // activity or the node's result: keep the previous text.
+      const noise = isHandbackNoise(tree.toolNames?.get(toolUseId), text);
       const isError = block.is_error === true;
       if (!ownerSeen.has(key)) {
         addCapped(ownerSeen, key);
         let summary = text ? firstLine(text, 200) : 'tool result';
         if (isError && DENIED_RE.test(text)) summary = `Denied: ${summary}`.slice(0, 200);
-        if (owner.lastActivity !== summary) {
+        if (!noise && owner.lastActivity !== summary) {
           owner.lastActivity = summary;
           dirty = true;
         }
@@ -445,7 +451,7 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
           dirty = true;
           out.touch(sub);
         }
-        if (text && sub.result !== text) {
+        if (text && !noise && sub.result !== text) {
           sub.result = cap(text);
           dirty = true;
           out.touch(sub);
@@ -813,6 +819,27 @@ function isEnding(status: AgentNode['status']): boolean {
 
 /** Text of an error tool_result that means the permission was denied. */
 const DENIED_RE = /denied|rejected|doesn't want to proceed/i;
+
+/**
+ * True when a tool_result text must never become the node's visible activity or result:
+ * the raw result of a `SubagentHandback` tool call, or any text that is nothing but a
+ * hand-back envelope object like {"success":true,"message":"Report delivered ..." }
+ * (parses as a JSON object with a boolean `success` key and a `message` key).
+ */
+export function isHandbackNoise(tool: string | undefined, text: string): boolean {
+  if (tool === 'SubagentHandback') return true;
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return false;
+  }
+  const obj = asRaw(parsed);
+  if (!obj) return false;
+  return typeof obj.success === 'boolean' && 'message' in obj;
+}
 
 /** Sets a bounded map entry: past MAX_DEDUPE entries the oldest insertion is dropped. */
 function putCapped(map: Map<string, string>, key: string, value: string): void {

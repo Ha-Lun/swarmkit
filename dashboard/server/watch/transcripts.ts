@@ -5,6 +5,8 @@ import type { Dirent } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type { ServerEvent, SessionDetail, SessionSummary } from '../../src/shared/types.ts';
 import { applyMessage, createTree, ensureNode, markPlaceholder, setStatus, upsertEvent, type SessionTree } from '../model/reducer.ts';
+import type { LiveHolder } from '../livesessions.ts';
+import { liveHolders } from '../livesessions.ts';
 import { pollWorkers } from '../model/workers.ts';
 import { claudeConfigDir } from '../paths.ts';
 import { extractLines, parseObject, readRange } from '../fsutil.ts';
@@ -60,10 +62,13 @@ const PARSE_PER_TICK = 2;
 const TAIL_BYTES = 4 * 1024 * 1024;
 /** Yield to the event loop between this many applied lines. */
 const LINE_CHUNK = 2000;
-/** Sessions newer than this mtime age are classified as running in summaries. */
+/**
+ * Sessions newer than this mtime age are classified as running in summaries (mtime
+ * cap only: without a live holder a terminal session is done once it ages past this).
+ */
 const LIVE_MS = 10 * 60_000;
 /** A freshly written session file counts as running in summaries. */
-const RUNNING_MS = 2 * 60_000;
+const FRESH_MS = 30_000;
 /** A live session not accessed via get() within this many ms can be evicted (when also mtime-stale). */
 const ACCESS_MS = 10 * 60_000;
 /** Live sessions are capped; the LRU (by lastAccess / mtime) is dropped beyond this. */
@@ -80,6 +85,8 @@ export class TranscriptWatcher {
   private live = new Map<string, LiveSession>();
   private cwds = new Map<string, number>();
   private metaCache = new Map<string, { mtimeMs: number; size: number; data: Record<string, unknown> }>();
+  /** Live-registry snapshot (sessionId -> holder), refreshed from liveHolders() at most every 2 s. */
+  private holders = new Map<string, LiveHolder>();
   private timer: ReturnType<typeof setInterval> | undefined;
   private scanning = false;
 
@@ -113,6 +120,7 @@ export class TranscriptWatcher {
     this.scanning = true;
     try {
       this.refreshHeadsSync();
+      await this.refreshHolders();
       const now = Date.now();
       await this.evictLive(now);
       // Only sessions modified in the last 2 min are parsed eagerly (at most 2 per tick).
@@ -199,7 +207,7 @@ export class TranscriptWatcher {
       const head = this.heads.get(id);
       this.emitFn({
         type: 'session.upsert',
-        session: head ? headSummary(head) : liveSummary(live),
+        session: head ? headSummary(head, this.holders) : liveSummary(live, this.holders),
       });
       this.live.delete(id);
     }
@@ -211,12 +219,12 @@ export class TranscriptWatcher {
     const out = new Map<string, SessionSummary>();
     for (const [id, head] of this.heads) {
       if (this.skipFn(id)) continue;
-      out.set(id, headSummary(head));
+      out.set(id, headSummary(head, this.holders));
     }
     for (const [id, live] of this.live) {
       if (this.skipFn(id)) continue;
       const head = this.heads.get(id);
-      const summary = liveSummary(live);
+      const summary = liveSummary(live, this.holders);
       if (!summary.cwd && head) {
         summary.cwd = head.cwd;
         summary.project = basename(head.cwd);
@@ -246,6 +254,7 @@ export class TranscriptWatcher {
     }
     const events = await this.refreshLive(live);
     live.lastAccess = Date.now();
+    await this.refreshHolders();
     this.flushEvents(events, live);
     return this.detailFor(live);
   }
@@ -285,9 +294,14 @@ export class TranscriptWatcher {
 
   // -------------------------------------------------------------------------
 
+  /** Fresh live-registry snapshot (cached in livesessions, at most one dir read per 2 s). */
+  private async refreshHolders(): Promise<void> {
+    this.holders = await liveHolders();
+  }
+
   private flushEvents(events: ServerEvent[], live: LiveSession): void {
     for (const e of events) this.emitFn(e);
-    const summary = liveSummary(live);
+    const summary = liveSummary(live, this.holders);
     const key = JSON.stringify(summary);
     if (key !== live.lastSummary) {
       live.lastSummary = key;
@@ -320,6 +334,7 @@ export class TranscriptWatcher {
     let sawTs = false;
     let startedAt = st.mtimeMs;
     let agentType: string | undefined;
+    let headTitle: string | undefined;
     const msgs: Record<string, unknown>[] = [];
     for (const line of lines) {
       const m = parseObject(line);
@@ -337,12 +352,25 @@ export class TranscriptWatcher {
         if (a) agentType = a;
       }
     }
-    // A tail-only start has no first timestamp: the head read already established it.
+    // A tail-only start has no first timestamp or first prompt: the head read already
+    // established both (the tail parse may only fill them when the head had none).
     if (start > 0) {
-      const head = this.heads.get(id);
-      if (head) startedAt = head.startedAt;
+      let head = this.heads.get(id);
+      if (!head) {
+        // get() before the first scan/list: derive the head fields now, uncached.
+        try {
+          head = readHeadSync(file, st, `${file}:${st.mtimeMs}:${st.size}`);
+        } catch {
+          head = undefined;
+        }
+      }
+      if (head) {
+        startedAt = head.startedAt;
+        if (head.title) headTitle = head.title;
+      }
     }
-    const tree = createTree(id, { startedAt, agentType });
+    const tree = createTree(id, { startedAt, agentType, prompt: headTitle });
+    if (headTitle) tree.nodes.get('root')!.description = headTitle;
     if (cwd) tree.cwd = cwd;
     const live: LiveSession = {
       id,
@@ -418,7 +446,7 @@ export class TranscriptWatcher {
       for (const node of parsed.live.tree.nodes.values()) {
         events.push(upsertEvent(node));
       }
-      events.push({ type: 'session.upsert', session: liveSummary(parsed.live) });
+      events.push({ type: 'session.upsert', session: liveSummary(parsed.live, this.holders) });
     } catch {
       // file vanished mid-rebuild: the old state stands
     }
@@ -630,7 +658,7 @@ export class TranscriptWatcher {
   }
 
   private detailFor(live: LiveSession): SessionDetail {
-    const summary = liveSummary(live);
+    const summary = liveSummary(live, this.holders);
     const head = this.heads.get(live.id);
     if (!summary.cwd && head) summary.cwd = head.cwd;
     if (!summary.title && head) summary.title = head.title;
@@ -647,12 +675,17 @@ export class TranscriptWatcher {
 // summaries
 // ---------------------------------------------------------------------------
 
-function liveSummary(live: LiveSession): SessionSummary {
+function liveSummary(live: LiveSession, holders: Map<string, LiveHolder>): SessionSummary {
   const nodes = [...live.tree.nodes.values()];
   const root = nodes.find((n) => n.id === 'root');
   const now = Date.now();
-  const status =
-    now - live.mtimeMs < RUNNING_MS || nodes.some((n) => n.status === 'waiting') ? 'running' : 'done';
+  const status = terminalStatus(
+    now,
+    live.mtimeMs,
+    live.id,
+    nodes.some((n) => n.status === 'waiting'),
+    holders,
+  );
   return {
     id: live.id,
     source: 'terminal',
@@ -670,7 +703,25 @@ function liveSummary(live: LiveSession): SessionSummary {
   };
 }
 
-function headSummary(head: HeadEntry): SessionSummary {
+/**
+ * Terminal status: a live holder wins (running while busy, idle when idle), waiting
+ * permissions still beat it, and without a holder the mtime cap decides (running
+ * only while the file was written within 30 s, done afterwards).
+ */
+function terminalStatus(
+  now: number,
+  mtimeMs: number,
+  sessionId: string,
+  waiting: boolean,
+  holders: Map<string, LiveHolder>,
+): SessionSummary['status'] {
+  if (waiting) return 'waiting';
+  const holder = holders.get(sessionId);
+  if (holder) return holder.status === 'idle' ? 'idle' : 'running';
+  return now - mtimeMs < FRESH_MS ? 'running' : 'done';
+}
+
+function headSummary(head: HeadEntry, holders: Map<string, LiveHolder>): SessionSummary {
   const now = Date.now();
   return {
     id: basename(head.path, '.jsonl'),
@@ -678,7 +729,7 @@ function headSummary(head: HeadEntry): SessionSummary {
     project: basename(head.cwd),
     cwd: head.cwd,
     title: head.title,
-    status: now - head.mtimeMs < RUNNING_MS ? 'running' : 'done',
+    status: terminalStatus(now, head.mtimeMs, basename(head.path, '.jsonl'), false, holders),
     startedAt: head.startedAt,
     updatedAt: head.mtimeMs,
     costUsd: 0,
