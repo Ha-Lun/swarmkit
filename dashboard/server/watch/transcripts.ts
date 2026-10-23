@@ -169,6 +169,27 @@ export class TranscriptWatcher {
       .filter((cwd) => cwd.length > 0);
   }
 
+  /** The tree node that started a worker with this lane+slug, in any live watcher tree. */
+  findWorkerNode(lane: 'agy' | 'opencode', slug: string): { sessionId: string; nodeId: string } | undefined {
+    for (const live of this.live.values()) {
+      for (const node of live.tree.nodes.values()) {
+        if (node.kind === 'worker' && node.worker?.lane === lane && node.worker?.slug === slug) {
+          return { sessionId: live.id, nodeId: node.id };
+        }
+      }
+    }
+    return undefined;
+  }
+
+  /** cwd and transcript mtime of a terminal session, when the file is known. */
+  fileInfo(id: string): { cwd: string; mtimeMs: number } | undefined {
+    const live = this.live.get(id);
+    if (live) return { cwd: live.cwd, mtimeMs: live.mtimeMs };
+    const head = this.heads.get(id);
+    if (head) return { cwd: head.cwd, mtimeMs: head.mtimeMs };
+    return undefined;
+  }
+
   // -------------------------------------------------------------------------
 
   private flushEvents(events: ServerEvent[], live: LiveSession): void {

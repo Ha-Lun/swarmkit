@@ -7,18 +7,42 @@ import type { Options, PermissionResult, SDKMessage, SDKUserMessage } from '@ant
 import { applyMessage, createTree, ownerOf, setStatus } from '../model/reducer.ts';
 import type { SessionTree } from '../model/reducer.ts';
 import { pollWorkers } from '../model/workers.ts';
-import type { PermissionDecisionBody, PermissionRequest, ServerEvent, SessionDetail, SessionSummary, StartSessionBody } from '../../src/shared/types.ts';
+import { MAX_EVENTS } from '../../src/shared/types.ts';
+import type { AgentNode, PermissionDecisionBody, PermissionRequest, ResumeSessionBody, ServerEvent, SessionDetail, SessionSummary, StartSessionBody } from '../../src/shared/types.ts';
 
 /** Throttle for session.upsert broadcasts: at most one per this many ms per session. */
 const UPSERT_MS = 250;
 /** Interval for polling worker result files of running sessions. */
 const POLL_MS = 3_000;
+/** Max characters of a resume prompt. */
+const MAX_TEXT = 100_000;
+/** A transcript written within this window means a terminal session is still live. */
+const ACTIVE_MS = 60_000;
+const MODEL_RE = /^(opus|sonnet|haiku|claude-[a-z0-9.-]{1,60})$/;
+
+/** Typed error so the HTTP layer can answer with the right status code. */
+export class SessionError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+  }
+}
 
 /** Injectable so tests can drive a fake query. */
 export type QueryFn = (params: {
   prompt: string | AsyncIterable<SDKUserMessage>;
   options?: Options;
 }) => AsyncIterable<SDKMessage>;
+
+/** What the caller knows about the session being resumed (page-owned or terminal). */
+export interface ResumeInfo {
+  cwd: string;
+  /** Transcript mtime; within the last minute means the session is still live in a terminal. */
+  transcriptMtimeMs?: number;
+  /** Prior tree nodes (from the transcript watcher) the tree is rebuilt from. */
+  nodes?: AgentNode[];
+  /** First line of the old title, used as the rebuilt root prompt when there are no nodes. */
+  title?: string;
+}
 
 /** Minimal push/close queue used as the SDK's streaming prompt input. */
 class InputQueue implements AsyncIterable<SDKUserMessage> {
@@ -95,8 +119,6 @@ export class SdkSessions {
     const id = randomUUID();
     const startedAt = Date.now();
     const tree = createTree(id, { startedAt, agentType: body.agent || 'main', prompt: body.prompt });
-    const queue = new InputQueue();
-    const abort = new AbortController();
     const session: PageSession = {
       id,
       cwd: body.cwd,
@@ -105,8 +127,8 @@ export class SdkSessions {
       startedAt,
       updatedAt: startedAt,
       tree,
-      queue,
-      abort,
+      queue: new InputQueue(),
+      abort: new AbortController(),
       query: null,
       pending: new Map(),
       stopped: false,
@@ -114,27 +136,37 @@ export class SdkSessions {
     };
     this.sessions.set(id, session);
 
+    this.startQuery(session, body.prompt, body.model, false);
+    return id;
+  }
+
+  /** Runs the SDK query for a session (fresh start or resumed continuation) and consumes it in the background. */
+  private startQuery(session: PageSession, prompt: string, model: string | undefined, resume: boolean): void {
+    session.abort = new AbortController();
     const options: Options = {
       cwd: session.cwd,
-      sessionId: id,
-      abortController: abort,
+      abortController: session.abort,
       settingSources: ['user', 'project', 'local'],
       forwardSubagentText: true,
       permissionMode: 'default',
       canUseTool: this.makeCanUseTool(session),
+      // A resumed session keeps its id and drops the fixed sessionId (the SDK continues the old one).
+      ...(resume ? { resume: session.id } : { sessionId: session.id }),
       ...(session.agent ? { agent: session.agent } : {}),
-      ...(body.model ? { model: body.model } : {}),
+      ...(model ? { model } : {}),
     };
-    session.query = this.queryFn({ prompt: queue, options });
-    queue.push({
+    session.query = this.queryFn({ prompt: session.queue, options });
+    session.queue.push({
       type: 'user',
-      message: { role: 'user', content: body.prompt },
+      message: { role: 'user', content: prompt },
       parent_tool_use_id: null,
-      session_id: id,
+      session_id: session.id,
     });
     void this.consume(session);
+    if (resume) {
+      for (const event of setStatus(session.tree, 'root', 'running')) this.emit(event);
+    }
     this.scheduleUpsert(session);
-    return id;
   }
 
   /** Consumes the SDK iterator and broadcasts tree events + throttled summaries. */
@@ -250,6 +282,120 @@ export class SdkSessions {
 
   owns(id: string): boolean {
     return this.sessions.has(id);
+  }
+
+  /**
+   * Continues a session with a new user message: like start() but with the SDK's `resume`
+   * option, the same session id and (for terminal sessions) a tree rebuilt from the prior
+   * transcript nodes. Ends sessions can always resume; active ones throw SessionError.
+   */
+  resume(id: string, body: ResumeSessionBody, info: ResumeInfo): string {
+    const text = body?.text;
+    if (typeof text !== 'string' || text.trim().length === 0 || text.length > MAX_TEXT) {
+      throw new SessionError(400, 'text must be a non-empty string of at most 100000 characters');
+    }
+    if (body.model !== undefined && body.model !== null &&
+        (typeof body.model !== 'string' || !MODEL_RE.test(body.model))) {
+      throw new SessionError(400, "model must be 'opus', 'sonnet', 'haiku' or a 'claude-*' model id");
+    }
+    const stillLive =
+      info.transcriptMtimeMs !== undefined && Date.now() - info.transcriptMtimeMs < ACTIVE_MS;
+    const existing = this.sessions.get(id);
+    if (existing) {
+      const root = existing.tree.nodes.get('root');
+      if (root && (root.status === 'running' || root.status === 'waiting')) {
+        throw new SessionError(409, 'Session is still running');
+      }
+      if (stillLive) throw new SessionError(409, 'This session is still active in a terminal');
+      existing.queue = new InputQueue();
+      existing.upsertThrottle = { lastSent: 0, timer: null };
+      existing.updatedAt = Date.now();
+      this.startQuery(existing, text, body.model, true);
+      return id;
+    }
+    if (stillLive) throw new SessionError(409, 'This session is still active in a terminal');
+    if (typeof info?.cwd !== 'string' || info.cwd.length === 0) {
+      throw new SessionError(400, 'cwd is required');
+    }
+    const priorNodes = info.nodes ?? [];
+    const priorRoot = priorNodes.find(n => n.id === 'root');
+    const title = info.title ?? priorRoot?.description ?? 'Resumed session';
+    const tree = this.rebuildTree(id, priorNodes, title);
+    const session: PageSession = {
+      id,
+      cwd: info.cwd,
+      ...(priorRoot && priorRoot.agentType !== 'main' ? { agent: priorRoot.agentType } : {}),
+      title: firstPromptLine(title),
+      startedAt: priorRoot?.startedAt ?? Date.now(),
+      updatedAt: Date.now(),
+      tree,
+      queue: new InputQueue(),
+      abort: new AbortController(),
+      query: null,
+      pending: new Map(),
+      stopped: false,
+      upsertThrottle: { lastSent: 0, timer: null },
+    };
+    this.sessions.set(id, session);
+    this.startQuery(session, text, body.model, true);
+    return id;
+  }
+
+  /** Rebuilds a SessionTree from transcript nodes: statuses become terminal states, the root restarts. */
+  private rebuildTree(id: string, priorNodes: AgentNode[], title: string | undefined): SessionTree {
+    const priorRoot = priorNodes.find(n => n.id === 'root');
+    const prompt = priorRoot?.prompt ?? (firstPromptLine(title ?? '') || undefined);
+    const tree = createTree(id, {
+      startedAt: priorRoot?.startedAt ?? Date.now(),
+      agentType: priorRoot?.agentType ?? 'main',
+      ...(prompt ? { prompt } : {}),
+    });
+    const root = tree.nodes.get('root')!;
+    if (priorRoot) {
+      root.prompt = priorRoot.prompt;
+      if (priorRoot.description) root.description = priorRoot.description;
+      else if (title) root.description = firstPromptLine(title);
+      if (priorRoot.model) root.model = priorRoot.model;
+      root.result = priorRoot.result;
+      root.lastActivity = priorRoot.lastActivity;
+      root.costUsd = priorRoot.costUsd;
+      root.tokens = { ...priorRoot.tokens };
+      root.toolCounts = { ...priorRoot.toolCounts };
+      root.events = [...priorRoot.events];
+    }
+    for (const node of priorNodes) {
+      if (node.id === 'root') continue;
+      tree.nodes.set(node.id, { ...node, sessionId: id, events: node.events.slice(-MAX_EVENTS) });
+    }
+    // Rebuild the tool_use_id ownership map from the kept events.
+    for (const node of tree.nodes.values()) {
+      for (const event of node.events) {
+        if (event.toolUseId && !tree.toolOwner.has(event.toolUseId)) {
+          tree.toolOwner.set(event.toolUseId, node.id);
+        }
+      }
+    }
+    root.status = 'running';
+    root.endedAt = undefined;
+    return tree;
+  }
+
+  /** The tree node that started a worker with this lane+slug, when any page session has one. */
+  findWorkerNode(lane: 'agy' | 'opencode', slug: string): { sessionId: string; nodeId: string } | undefined {
+    for (const session of this.sessions.values()) {
+      for (const node of session.tree.nodes.values()) {
+        if (node.kind === 'worker' && node.worker?.lane === lane && node.worker?.slug === slug) {
+          return { sessionId: session.id, nodeId: node.id };
+        }
+      }
+    }
+    return undefined;
+  }
+
+  /** cwd (and no transcript mtime: page sessions do not own one) of a page session. */
+  fileInfo(id: string): { cwd: string; mtimeMs?: number } | undefined {
+    const session = this.sessions.get(id);
+    return session ? { cwd: session.cwd } : undefined;
   }
 
   list(): SessionSummary[] {

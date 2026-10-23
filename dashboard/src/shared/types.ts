@@ -39,6 +39,10 @@ export interface WorkerInfo {
   /** From result.json once the worker has finished. */
   ok?: boolean;
   stoppedBy?: string;
+  /** From opts.json (start flags) or the parsed command line. */
+  model?: string;
+  /** The --agent specialist the worker runs as, when any. */
+  agent?: string;
 }
 
 export interface AgentNode {
@@ -120,7 +124,34 @@ export type ServerEvent =
   | { type: 'node.upsert'; node: AgentNodeHead }
   | { type: 'node.event'; sessionId: string; nodeId: string; event: ActivityEvent }
   | { type: 'permission.request'; request: PermissionRequest }
-  | { type: 'permission.resolved'; sessionId: string; id: string; allow: boolean };
+  | { type: 'permission.resolved'; sessionId: string; id: string; allow: boolean }
+  | { type: 'workers.update'; workers: WorkerTask[] };
+
+/** One agy-task / opencode-task directory scanned from the task roots. */
+export interface WorkerTask {
+  lane: 'agy' | 'opencode';
+  /** Task-dir repo key, e.g. 'opencode-config-5dbfaa'. */
+  repo: string;
+  slug: string;
+  state: 'running' | 'ok' | 'not-ok' | 'unfinished';
+  model?: string;      // opts.json model, or result.json model
+  effort?: string;
+  agent?: string;
+  startedAt: number;   // epoch ms: mtime of the pid file, else of `base`, else of the dir
+  endedAt?: number;    // mtime of result.json
+  elapsedS: number;    // running: now - pid mtime; finished: result.json wall_s (else endedAt - startedAt)
+  denied: number;
+  changes?: string;
+  stoppedBy?: string;
+  warnings?: string[];
+  response?: string;   // first 4000 chars
+  branch?: string;
+  lastTool?: string;   // e.g. 'edit src/app.ts' (opencode only)
+  toolCounts: Record<string, number>;
+  /** Tree node that started it, when a known session has a worker node with this lane+slug. */
+  sessionId?: string;
+  nodeId?: string;
+}
 
 // HTTP API bodies. All endpoints need the token (cookie `fleet_token` or header `x-fleet-token`).
 // GET  /api/sessions                    -> SessionSummary[]
@@ -128,10 +159,14 @@ export type ServerEvent =
 // POST /api/sessions                    StartSessionBody -> StartSessionResponse
 // POST /api/sessions/:id/message        SendMessageBody -> { ok: true }
 // POST /api/sessions/:id/interrupt      -> { ok: true }
+// POST /api/sessions/:id/resume         ResumeSessionBody -> StartSessionResponse
 // DELETE /api/sessions/:id              -> { ok: true }   (stops a page session)
 // POST /api/permissions/:id             PermissionDecisionBody -> { ok: true }
 // GET  /api/agents?cwd=<abs path>       -> AgentsResponse
 // GET  /api/cwds                        -> string[]       (recent cwds, most recent first)
+// GET  /api/workers                     -> WorkerTask[]
+// GET  /api/workers/:lane/:repo/:slug/log -> { lines: string[] }
+// GET  /api/dirs?path=<abs>&hidden=1    -> DirListing     (path defaults to $HOME)
 // GET  /events                          -> text/event-stream of ServerEvent
 
 export interface StartSessionBody {
@@ -161,3 +196,6 @@ export interface AgentInfo {
 export interface AgentsResponse {
   agents: AgentInfo[];
 }
+export interface DirEntry { name: string; path: string; isGitRepo: boolean }
+export interface DirListing { path: string; parent?: string; entries: DirEntry[] }
+export interface ResumeSessionBody { text: string; model?: string }

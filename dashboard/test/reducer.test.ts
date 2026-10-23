@@ -74,7 +74,8 @@ describe('reducer: transcript fixture', () => {
     expect(worker.kind).toBe('worker');
     expect(worker.agentType).toBe('agy-task');
     expect(worker.worker).toEqual({ lane: 'agy', slug: 'fleet-core' });
-    expect(worker.description).toBe('Do worker things now');
+    // The caller's own Bash description wins; the slug is the fallback.
+    expect(worker.description).toBe('Start agy worker');
     expect(worker.prompt).toBe('Do worker things now');
     expect(worker.startedAt).toBe(Date.parse('2025-01-01T10:00:07.000Z'));
     expect(worker.status).toBe('running');
@@ -203,5 +204,78 @@ describe('reducer: SDK sequence', () => {
     expect(upsert).toHaveLength(1);
     expect(tree.nodes.get('root')!.status).toBe('waiting');
     expect(setStatus(tree, 'missing', 'done')).toEqual([]);
+  });
+
+  describe('queue-operation task notifications', () => {
+    const notification = (id: string, status: string, summary: string, operation = 'enqueue') => ({
+      type: 'queue-operation',
+      operation,
+      timestamp: 1_700_000_010_000,
+      content:
+        `<task-notification>\n<task-id>b7f813pau</task-id>\n<tool-use-id>${id}</tool-use-id>\n` +
+        `<output-file>/tmp/fleet/output.txt</output-file>\n<status>${status}</status>\n` +
+        `<summary>Background command ${JSON.stringify('npm test')} ${summary}</summary>\n</task-notification>`,
+    });
+
+    function treeWithWorkerAndSubagent() {
+      const tree = createTree('notif1', { startedAt: 1_700_000_000_000 });
+      applyMessage(tree, {
+        type: 'assistant',
+        uuid: 'm1',
+        timestamp: 1_700_000_001_000,
+        message: {
+          id: 'msg_1',
+          model: 'claude-opus-4-5',
+          content: [
+            { type: 'tool_use', id: 'toolu_w1', name: 'Bash', input: { command: "agy-task start p1 <<'EOF'\nwork\nEOF" } },
+            { type: 'tool_use', id: 'toolu_s1', name: 'Agent', input: { subagent_type: 'tester', description: 'Run checks' } },
+          ],
+        },
+      });
+      return tree;
+    }
+
+    it('marks a failed worker node as error from the notification', () => {
+      const tree = treeWithWorkerAndSubagent();
+      const events = flatten([
+        applyMessage(tree, notification('toolu_w1', 'failed', 'failed with exit code 1')),
+      ]);
+      const worker = tree.nodes.get('toolu_w1')!;
+      expect(worker.status).toBe('error');
+      expect(worker.endedAt).toBe(1_700_000_010_000);
+      // The summary becomes the result when there is none yet.
+      expect(worker.result).toContain('failed with exit code 1');
+      expect(events.some((e) => e.type === 'node.upsert' && (e as { node: { id: string } }).node.id === 'toolu_w1')).toBe(true);
+    });
+
+    it('marks a completed subagent done and keeps an earlier result text', () => {
+      const tree = treeWithWorkerAndSubagent();
+      tree.nodes.get('toolu_s1')!.result = 'Checks all green.';
+      applyMessage(tree, notification('toolu_s1', 'completed', 'completed'));
+      const sub = tree.nodes.get('toolu_s1')!;
+      expect(sub.status).toBe('done');
+      expect(sub.endedAt).toBe(1_700_000_010_000);
+      expect(sub.result).toBe('Checks all green.'); // result was not empty: summary does not win
+      // A second notification is ignored: the node is no longer running.
+      expect(applyMessage(tree, notification('toolu_s1', 'failed', 'failed now'))).toEqual([]);
+      expect(sub.status).toBe('done');
+    });
+
+    it('keeps a known worker.ok verdict over the notification status', () => {
+      const tree = treeWithWorkerAndSubagent();
+      // The registry already read result.json (ok false) before the transcript line arrives.
+      const worker = tree.nodes.get('toolu_w1')!;
+      worker.worker = { lane: 'agy', slug: 'p1', ok: false };
+      applyMessage(tree, notification('toolu_w1', 'completed', 'completed'));
+      expect(worker.status).toBe('error'); // worker.ok false wins over the notification
+    });
+
+    it('ignores remove operations and unknown ids', () => {
+      const tree = treeWithWorkerAndSubagent();
+      expect(applyMessage(tree, notification('toolu_w1', 'failed', 'failed', 'remove'))).toEqual([]);
+      expect(tree.nodes.get('toolu_w1')!.status).toBe('running');
+      expect(applyMessage(tree, notification('toolu_ghost', 'completed', 'completed'))).toEqual([]);
+      expect(applyMessage(tree, { type: 'queue-operation', operation: 'enqueue', content: 'no tags in here' })).toEqual([]);
+    });
   });
 });
