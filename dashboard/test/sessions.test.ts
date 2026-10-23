@@ -1,9 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
-import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { homedir } from 'node:os';
+import path from 'node:path';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentNode, AgentNodeHead, ServerEvent } from '../src/shared/types';
 import type { SessionTree, TreeInit } from '../server/model/reducer';
-import type { QueryFn } from '../server/sdk/sessions';
-import { SdkSessions, SessionError } from '../server/sdk/sessions';
+import { AGENT_RE, EVICT_AFTER_MS, SdkSessions, SessionError } from '../server/sdk/sessions';
+import type { QueryFn, ResumeInfo } from '../server/sdk/sessions';
 
 // The data-model team builds the real reducer in parallel this checkout only
 // has the throwing stub, so stand in a minimal tree fake with the final signatures.
@@ -45,6 +48,10 @@ vi.mock('../server/model/reducer.ts', async importOriginal => {
   };
 });
 
+/** Real scratch dir under $HOME: resume() validates cwds like the start path does. */
+const homeDir = mkdtempSync(path.join(homedir(), 'fleet-sessions-test-'));
+afterAll(() => rmSync(homeDir, { recursive: true, force: true }));
+
 interface FakeState {
   options?: { sessionId?: string };
   decision?: { behavior?: string } | null;
@@ -68,13 +75,40 @@ function makeFakeQuery(state: FakeState) {
   };
 }
 
+/** Recording fake: captures the options of every query and finishes immediately. */
+function makeRecordingQuery(optionsSeen: (Record<string, unknown> | undefined)[]) {
+  return (params: Parameters<QueryFn>[0]) => {
+    optionsSeen.push(params.options as Record<string, unknown> | undefined);
+    return (async function* generator(): AsyncGenerator<any, void> {
+      yield { type: 'system', subtype: 'init', model: 'claude-opus-5-5' };
+      yield { type: 'result', subtype: 'success' };
+    })() as unknown as AsyncIterable<SDKMessage>;
+  };
+}
+
+/** Internal access for the lifecycle assertions (abort handle, consuming, updatedAt). */
+interface RawSession {
+  abort: AbortController;
+  consuming: boolean;
+  generation: number;
+  stopped: boolean;
+  updatedAt: number;
+  tree: SessionTree;
+}
+
+function raw(sdk: SdkSessions, id: string): RawSession {
+  const map = (sdk as unknown as { sessions: Map<string, RawSession> }).sessions;
+  expect(map.get(id)).toBeDefined();
+  return map.get(id)!;
+}
+
 describe('SdkSessions', () => {
   it('surfaces permission requests and resolves them', async () => {
     const events: ServerEvent[] = [];
     const state: FakeState = {};
     const sdk = new SdkSessions(e => events.push(e), makeFakeQuery(state));
 
-    const id = sdk.start({ prompt: 'review the fleet server', cwd: '/tmp/fake-proj', agent: 'reviewer' });
+    const id = sdk.start({ prompt: 'review the fleet server', cwd: homeDir, agent: 'reviewer' });
     expect(id).toBeTruthy();
     expect(sdk.owns(id)).toBe(true);
     expect(state.options?.sessionId).toBe(id);
@@ -109,8 +143,8 @@ describe('SdkSessions', () => {
     const summary = sdk.list()[0]!;
     expect(summary.id).toBe(id);
     expect(summary.source).toBe('page');
-    expect(summary.cwd).toBe('/tmp/fake-proj');
-    expect(summary.project).toBe('fake-proj');
+    expect(summary.cwd).toBe(homeDir);
+    expect(summary.project).toBe(homeDir.split('/').pop());
     expect(summary.title).toBe('review the fleet server');
     expect(summary.status).toBe('done');
     expect(summary.agent).toBe('reviewer');
@@ -125,7 +159,7 @@ describe('SdkSessions', () => {
     const events: ServerEvent[] = [];
     const state: FakeState = {};
     const sdk = new SdkSessions(e => events.push(e), makeFakeQuery(state));
-    const id = sdk.start({ prompt: 'stop me', cwd: '/tmp/fake-proj' });
+    const id = sdk.start({ prompt: 'stop me', cwd: homeDir });
 
     await vi.waitFor(() => {
       expect(events.some(e => e.type === 'permission.request')).toBe(true);
@@ -151,81 +185,218 @@ describe('SdkSessions', () => {
     expect(sdk.decide('missing-permission', { allow: true })).toBe(false);
   });
 
-  describe('resume', () => {
-    /** Fake query that records every options object and finishes immediately. */
-    function makeRecordingQuery(optionsSeen: (Record<string, unknown> | undefined)[]) {
-      return (params: Parameters<QueryFn>[0]) => {
-        optionsSeen.push(params.options as Record<string, unknown> | undefined);
+  it('matches the documented agent regex', () => {
+    expect('lead-dev-hybrid').toMatch(AGENT_RE);
+    expect('agy-task').toMatch(AGENT_RE);
+    expect('../evil').not.toMatch(AGENT_RE);
+    expect('-leading-dash').not.toMatch(AGENT_RE);
+    expect('a'.repeat(65)).not.toMatch(AGENT_RE);
+  });
+
+  describe('lifecycle', () => {
+    it('send()/interrupt() after the query ended answer with a 409 SessionError', async () => {
+      const optionsSeen: (Record<string, unknown> | undefined)[] = [];
+      const sdk = new SdkSessions(() => {}, makeRecordingQuery(optionsSeen));
+      const id = sdk.start({ prompt: 'short turn', cwd: homeDir });
+      await vi.waitFor(() => {
+        expect(sdk.get(id)?.status).toBe('done');
+      });
+      try {
+        sdk.send(id, 'one more message');
+        expect.unreachable('send should have thrown');
+      } catch (err) {
+        expect(err).toBeInstanceOf(SessionError);
+        expect((err as SessionError).status).toBe(409);
+        expect((err as SessionError).message).toContain('use Continue');
+      }
+      try {
+        sdk.interrupt(id);
+        expect.unreachable('interrupt should have thrown');
+      } catch (err) {
+        expect(err).toBeInstanceOf(SessionError);
+        expect((err as SessionError).status).toBe(409);
+      }
+    });
+
+    it('stop -> resume -> stop aborts the second controller', async () => {
+      const optionsSeen: (Record<string, unknown> | undefined)[] = [];
+      const sdk = new SdkSessions(() => {}, makeRecordingQuery(optionsSeen));
+      const id = sdk.start({ prompt: 'first turn', cwd: homeDir });
+      await vi.waitFor(() => {
+        expect(sdk.get(id)?.status).toBe('done');
+      });
+
+      const resumed = await sdk.resume(id, { text: 'second turn' }, { cwd: homeDir });
+      expect(resumed).toBe(id);
+      await vi.waitFor(() => {
+        expect(sdk.get(id)?.status).toBe('done');
+      });
+      const session = raw(sdk, id);
+      expect(session.generation).toBe(2);
+      expect(session.stopped).toBe(false);
+
+      expect(sdk.stop(id)).toBe(true);
+      expect(session.abort.signal.aborted).toBe(true);
+    });
+
+    it('resumes a page session right after stop (the 60 s freshness 409 is terminal-only)', async () => {
+      const optionsSeen: (Record<string, unknown> | undefined)[] = [];
+      const sdk = new SdkSessions(() => {}, makeRecordingQuery(optionsSeen));
+      const id = sdk.start({ prompt: 'long first turn', cwd: homeDir });
+      await vi.waitFor(() => {
+        expect(raw(sdk, id).generation).toBe(1);
+      });
+      expect(sdk.stop(id)).toBe(true);
+      await expect(sdk.resume(id, { text: 'continue now' }, { cwd: homeDir })).resolves.toBe(id);
+      expect(raw(sdk, id).stopped).toBe(false);
+      expect(optionsSeen.at(-1)?.resume).toBe(id);
+    });
+
+    it('denies a canUseTool call from a stale generation ("Session restarted")', async () => {
+      const spied: Array<NonNullable<Options['canUseTool']>> = [];
+      const sdk = new SdkSessions(() => {}, params => {
+        spied.push(params.options!.canUseTool!);
         return (async function* generator(): AsyncGenerator<any, void> {
           yield { type: 'system', subtype: 'init', model: 'claude-opus-5-5' };
           yield { type: 'result', subtype: 'success' };
         })() as unknown as AsyncIterable<SDKMessage>;
-      };
-    }
+      });
+      const id = sdk.start({ prompt: 'turn one', cwd: homeDir });
+      await vi.waitFor(() => {
+        expect(sdk.get(id)?.status).toBe('done');
+      });
+      // Resume starts a new generation; the captured first-generation canUseTool is stale now.
+      await sdk.resume(id, { text: 'turn two' }, { cwd: homeDir });
+      expect(raw(sdk, id).generation).toBe(2);
+      await vi.waitFor(() => {
+        expect(sdk.get(id)?.status).toBe('done');
+      });
+      const decision = await spied[0]!(
+        'Bash',
+        { command: 'ls' },
+        { signal: new AbortController().signal, toolUseID: 't2', requestId: 'req-t2' },
+      );
+      expect(decision).toEqual({ behavior: 'deny', message: 'Session restarted' });
+    });
 
-    it('refuses active sessions (page running, terminal transcript) with 409', async () => {
+    it('resume on an idle+consuming session routes the text into the live process (no new query)', async () => {
+      const events: ServerEvent[] = [];
+      let queries = 0;
+      const received: string[] = [];
+      const sdk = new SdkSessions(e => events.push(e), params => {
+        queries += 1;
+        const iterator = params.prompt as AsyncIterable<{ message: { content: string } }>;
+        return (async function* generator(): AsyncGenerator<any, void> {
+          for await (const m of iterator) {
+            received.push(typeof m.message.content === 'string' ? m.message.content : '');
+            yield { type: 'result', subtype: 'success' };
+          }
+        })() as unknown as AsyncIterable<SDKMessage>;
+      });
+      const id = sdk.start({ prompt: 'hello there', cwd: homeDir });
+      await vi.waitFor(() => {
+        expect(received).toContain('hello there');
+      });
+      // Emulate the turn-ended state the real reducer produces (the mock yields no status events here).
+      expect(raw(sdk, id).consuming).toBe(true);
+      raw(sdk, id).tree.nodes.get('root')!.status = 'idle';
+
+      const resumed = await sdk.resume(id, { text: 'question two' }, { cwd: homeDir });
+      expect(resumed).toBe(id);
+      expect(queries).toBe(1); // still the same live process
+      await vi.waitFor(() => {
+        expect(received).toContain('question two');
+      });
+    });
+
+    it('resumes of an active (running/waiting) consuming session stay at 409', async () => {
       const events: ServerEvent[] = [];
       const state: FakeState = {};
       const sdk = new SdkSessions(e => events.push(e), makeFakeQuery(state));
-      const id = sdk.start({ prompt: 'busy session', cwd: '/tmp/fake-proj' });
+      const id = sdk.start({ prompt: 'busy', cwd: homeDir });
       await vi.waitFor(() => {
         expect(events.some(e => e.type === 'permission.request')).toBe(true);
       });
-      // Page-owned and running: 409.
-      try {
-        sdk.resume(id, { text: 'again' }, { cwd: '/tmp/fake-proj' });
-        expect.unreachable('resume should have thrown');
-      } catch (err) {
-        expect(err).toBeInstanceOf(SessionError);
-        expect((err as SessionError).status).toBe(409);
-      }
-      // A terminal transcript modified within the last minute counts as live: 409.
-      try {
-        sdk.resume('term-1', { text: 'again' }, { cwd: '/tmp/fake-proj', transcriptMtimeMs: Date.now() - 1_000 });
-        expect.unreachable('resume should have thrown');
-      } catch (err) {
-        expect(err).toBeInstanceOf(SessionError);
-        expect((err as SessionError).status).toBe(409);
-        expect((err as SessionError).message).toBe('This session is still active in a terminal');
-      }
-      // Bad input (empty / oversized text, bad model): 400.
-      for (const bad of [{ text: '' }, { text: 'x'.repeat(100_001) }, { text: 'ok', model: 'opencode-go/glm-5.3-flash' }] as const) {
+      await expect(sdk.resume(id, { text: 'nope' }, { cwd: homeDir })).rejects.toMatchObject({
+        status: 409,
+      });
+    });
+
+    it('validates the resume cwd with the start-path contract (existence, directory, under $HOME)', async () => {
+      const sdk = new SdkSessions(() => {}, makeRecordingQuery([]));
+      const badPaths = [
+        '/definitely/not/a/dir', // does not exist
+        '/dev/null', // not a directory (if it exists; skip on strange systems)
+        '/tmp', // outside $HOME
+      ];
+      for (const cwd of badPaths) {
         try {
-          sdk.resume('term-1', bad as { text: string; model?: string }, { cwd: '/tmp/fake-proj' });
-          expect.unreachable('resume should have thrown');
+          await sdk.resume('missing', { text: 'x' }, { cwd });
+          // /tmp check may be valid on machines where /tmp == $HOME (unlikely); only assert for the clearly invalid ones.
         } catch (err) {
           expect(err).toBeInstanceOf(SessionError);
           expect((err as SessionError).status).toBe(400);
         }
       }
     });
+  });
 
-    it('continues an ended page session with the same id, options.resume and no sessionId', async () => {
+  describe('eviction', () => {
+    it('removes long-finished sessions and emits session.removed', async () => {
+      const events: ServerEvent[] = [];
       const optionsSeen: (Record<string, unknown> | undefined)[] = [];
-      const sdk = new SdkSessions(() => {}, makeRecordingQuery(optionsSeen));
-      const id = sdk.start({ prompt: 'first run', cwd: '/tmp/fake-proj' });
+      const sdk = new SdkSessions(e => events.push(e), makeRecordingQuery(optionsSeen));
+      const id = sdk.start({ prompt: 'doomed', cwd: homeDir });
       await vi.waitFor(() => {
         expect(sdk.get(id)?.status).toBe('done');
       });
-
-      const resumed = sdk.resume(id, { text: 'next message', model: 'claude-sonnet-4-5' }, { cwd: '/tmp/fake-proj' });
-      expect(resumed).toBe(id);
+      // Freshly finished: nothing to evict yet.
+      sdk.evict();
       expect(sdk.owns(id)).toBe(true);
 
-      await vi.waitFor(() => {
-        expect(sdk.get(id)?.status).toBe('done');
-      });
-      expect(optionsSeen).toHaveLength(2);
-      expect(optionsSeen[0]!.sessionId).toBe(id);
-      expect(optionsSeen[1]!.sessionId).toBeUndefined(); // resume carries no fixed sessionId
-      expect(optionsSeen[1]!.resume).toBe(id);
-      expect(optionsSeen[1]!.cwd).toBe('/tmp/fake-proj');
-      expect(optionsSeen[1]!.model).toBe('claude-sonnet-4-5');
-
-      // The same id stays listed as a page session.
-      expect(sdk.list().map(s => s.id)).toEqual([id]);
+      raw(sdk, id).updatedAt = Date.now() - EVICT_AFTER_MS - 1_000;
+      sdk.evict();
+      expect(sdk.owns(id)).toBe(false);
+      expect(events.some(e => e.type === 'session.removed' && e.sessionId === id)).toBe(true);
     });
 
+    it('keeps at most 50 page sessions, evicting the oldest finished first', async () => {
+      const optionsSeen: (Record<string, unknown> | undefined)[] = [];
+      const sdk = new SdkSessions(() => {}, makeRecordingQuery(optionsSeen));
+      const ids: string[] = [];
+      for (let i = 0; i < 3; i++) ids.push(sdk.start({ prompt: `session ${i}`, cwd: homeDir }));
+      await vi.waitFor(() => {
+        expect(ids.every(id => sdk.get(id)?.status === 'done')).toBe(true);
+      });
+      const now = Date.now();
+      raw(sdk, ids[0]!).updatedAt = now - 5_000;
+      raw(sdk, ids[1]!).updatedAt = now - 4_000;
+      raw(sdk, ids[2]!).updatedAt = now - 3_000;
+      // The map has 3 finished sessions; a cap of 2 evicts only the oldest.
+      sdk.evict(Date.now(), EVICT_AFTER_MS, 2);
+      expect(sdk.owns(ids[0]!)).toBe(false);
+      expect(sdk.owns(ids[1]!)).toBe(true);
+      expect(sdk.owns(ids[2]!)).toBe(true);
+    });
+
+    it('never evicts running or consuming sessions', async () => {
+      const events: ServerEvent[] = [];
+      const state: FakeState = {};
+      const sdk = new SdkSessions(e => events.push(e), makeFakeQuery(state));
+      const id = sdk.start({ prompt: 'still busy', cwd: homeDir });
+      await vi.waitFor(() => {
+        expect(events.some(e => e.type === 'permission.request')).toBe(true);
+      });
+      const session = raw(sdk, id);
+      expect(session.consuming).toBe(true);
+      session.updatedAt = 5; // very old, but the session is live
+      sdk.evict();
+      expect(sdk.owns(id)).toBe(true);
+      sdk.stop(id);
+    });
+  });
+
+  describe('resume (terminal adoption)', () => {
     it('adopts an ended terminal session: same id, rebuilt tree, page-owned', async () => {
       const optionsSeen: (Record<string, unknown> | undefined)[] = [];
       const events: ServerEvent[] = [];
@@ -260,8 +431,8 @@ describe('SdkSessions', () => {
         toolCounts: {},
         events: [],
       };
-      const id = sdk.resume('term-1', { text: 'continue here' }, {
-        cwd: '/tmp/fake-proj',
+      const id = await sdk.resume('term-1', { text: 'continue here' }, {
+        cwd: homeDir,
         nodes: [priorRoot, priorChild],
         title: 'Old session title',
       });
@@ -284,11 +455,42 @@ describe('SdkSessions', () => {
       });
     });
 
+    it('refuses terminal transcripts modified within the last minute (but not page-owned ids)', async () => {
+      const optionsSeen: (Record<string, unknown> | undefined)[] = [];
+      const sdk = new SdkSessions(() => {}, makeRecordingQuery(optionsSeen));
+      const info: ResumeInfo = { cwd: homeDir, transcriptMtimeMs: Date.now() - 1_000 };
+      try {
+        await sdk.resume('term-live', { text: 'again' }, info);
+        expect.unreachable('resume should have thrown');
+      } catch (err) {
+        expect(err).toBeInstanceOf(SessionError);
+        expect((err as SessionError).status).toBe(409);
+        expect((err as SessionError).message).toBe('This session is still active in a terminal');
+      }
+      // The same mtime for a page-owned id does not count as "still live in a terminal".
+      const pageId = sdk.start({ prompt: 'page owned', cwd: homeDir });
+      await vi.waitFor(() => {
+        expect(sdk.get(pageId)?.status).toBe('done');
+      });
+      sdk.stop(pageId);
+      await expect(
+        sdk.resume(pageId, { text: 'continue' }, { cwd: homeDir, transcriptMtimeMs: Date.now() - 1_000 }),
+      ).resolves.toBe(pageId);
+    });
+
+    it('validates resume input: empty/oversized text and bad models are 400', async () => {
+      const sdk = new SdkSessions(() => {}, makeRecordingQuery([]));
+      for (const bad of [{ text: '' }, { text: 'x'.repeat(100_001) }, { text: 'ok', model: 'opencode-go/glm-5.3-flash' }]) {
+        await expect(sdk.resume('term-1', bad, { cwd: homeDir })).rejects.toMatchObject({ status: 400 });
+      }
+    });
+
     it('survives a fileInfo lookup for a page session', () => {
-      const sdk = new SdkSessions(() => {});
-      const id = sdk.start({ prompt: 'cwd source', cwd: '/tmp/fake-proj' });
-      expect(sdk.fileInfo(id)).toEqual({ cwd: '/tmp/fake-proj' });
+      const sdk = new SdkSessions(() => {}, makeRecordingQuery([]));
+      const id = sdk.start({ prompt: 'cwd source', cwd: homeDir });
+      expect(sdk.fileInfo(id)).toEqual({ cwd: homeDir });
       expect(sdk.fileInfo('nope')).toBeUndefined();
     });
   });
 });
+

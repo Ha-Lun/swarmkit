@@ -20,26 +20,53 @@ For development with hot reload: `npm run dev` (Vite middleware mode, no build n
 Open the URL the server prints on startup, e.g.
 
 ```
-Claude Fleet: http://localhost:4317/?token=m4BF...
+Claude Fleet: http://127.0.0.1:4317
+Claude Fleet: token: /home/you/.config/claude-fleet/token
 ```
 
-The first visit with `?token=…` hands your browser a session cookie and redirects to the clean URL.
+The first visit with `?token=…` (printed on an interactive terminal — on a TTY only)
+hands your browser a session cookie and redirects to the clean URL. You can also
+`POST /api/auth` with `{"token": "…"}` (same-origin, rate-limited to 10 attempts
+per minute per address) to get the cookie.
 
 ## Configuration (environment)
 
-| Env          | Default     | Meaning                                            |
-| ------------ | ----------- | -------------------------------------------------- |
-| `PORT`       | `4317`      | HTTP port                                          |
-| `HOST`       | `127.0.0.1` | Bind address (`0.0.0.0` also prints LAN URLs)      |
-| `FLEET_TOKEN`| generated   | Shared token; stored in `.data/token` otherwise    |
+| Env            | Default                                                                    | Meaning                                                      |
+| -------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `PORT`         | `4317`                                                                     | HTTP port                                                     |
+| `HOST`         | `127.0.0.1`                                                                | Bind address (`0.0.0.0` also prints LAN URLs)                 |
+| `FLEET_TOKEN`  | stored at `$XDG_CONFIG_HOME/claude-fleet/token` (default `~/.config/claude-fleet/token`, dir `0700`, file `0600`) | Shared token; must be **≥ 32 chars** when set |
+| `FLEET_HOSTS`  | `127.0.0.1:<PORT>,localhost:<PORT>,ll-server.tail3e28e1.ts.net:<PORT>`      | Comma-separated Host allowlist; other Hosts get `421`         |
+| `FLEET_OWNER`  | unset                                                                      | When set, requests carrying a different `tailscale-user-login` header are rejected with `403` (requests without the header, i.e. local access, pass) |
+
+A legacy `dashboard/.data/token` is migrated to `$XDG_CONFIG_HOME/claude-fleet/token`
+on start (the old file is deleted). `FLEET_TOKEN` is scrubbed from the environment
+right after reading, so child agents never see it.
+
+**Auth shapes.** The raw token is accepted via the `x-fleet-token` header and the
+`?token=` URL. Browsers get a *derived* cookie value: `fleet_token` =
+`HMAC-SHA256(token, 'fleet-cookie-v1')` base64url — the raw token never lives in a
+cookie, so a leaked browser cookie is not the shared secret. POST/DELETE without an
+`Origin` header are only accepted when authenticated by the `x-fleet-token` header,
+not the cookie.
 
 ## API
 
 `GET /api/sessions`, `GET /api/sessions/:id`, `POST /api/sessions`,
 `POST /api/sessions/:id/message`, `POST /api/sessions/:id/interrupt`,
 `DELETE /api/sessions/:id`, `POST /api/permissions/:id`, `GET /api/agents?cwd=…`,
-`GET /api/cwds`, and `GET /events` (server-sent events). Every endpoint needs the token
-(cookie `fleet_token` or header `x-fleet-token`). See `src/shared/types.ts` for the shapes.
+`GET /api/cwds`, `POST /api/auth`, and `GET /events` (server-sent events). Every
+endpoint needs the token (cookie `fleet_token` or header `x-fleet-token`) except
+`POST /api/auth`. See `src/shared/types.ts` for the shapes.
+
+## Security headers
+
+Every response carries `X-Frame-Options: DENY`, `Content-Security-Policy`
+(default-src 'self' …, production only — dev omits it because Vite injects inline
+scripts), `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`;
+`/api` and `/events` answers are `Cache-Control: no-store`. The dev server
+(`vite.config.ts`) refuses to serve secret files: `.env*`, certificates/keys,
+`.npmrc`, `.git/**` and `.data/**`.
 
 ## Workers panel
 
@@ -65,18 +92,35 @@ are flagged with `isGitRepo`.
 `POST /api/sessions/:id/resume` continues an **ended** session — page-owned or
 a terminal transcript picked up by the watcher — with a new prompt. The tree is
 rebuilt from the existing transcript, the same session id is kept, and the
-terminal session becomes page-owned (watched by the page from then on). Refused
-with `409` while the session is still active (root running on the page, or the
-transcript file modified within the last minute), `400` for bad input, `404`
-for unknown ids.
+terminal session becomes page-owned (watched by the page from then on).
+Page-owned sessions can continue immediately after Stop (the "transcript
+recently modified" freshness check applies only to terminal sessions).
+Refused with `409` while the session is still active (root running on the page,
+or the transcript file modified within the last minute), `400` for bad input
+(including a resume `cwd` that fails the same validation as the start path:
+existing directory under `$HOME`), `404` for unknown ids. Sending/interrupting a
+session whose process has ended answers `409 "Session has ended; use Continue"`.
+
+## Project settings trust (untrusted projects)
+
+The SDK normally reads `user`, `project` and `local` settings. For a project
+directory that Claude Code has **not** marked trusted in `~/.claude.json`
+(`projects[<cwd>].hasTrustDialogAccepted !== true`, checked for both the given and
+the realpath of the cwd), the server silently degrades to `settingSources: ['user']`
+so untrusted `settings.json` files in some repo you just started a session from can
+not add hooks or run commands as you. Such sessions carry
+`untrustedProject: true` in their `SessionSummary`.
 
 ## Run always-on (systemd user service + tailscale serve)
 
-Create `dashboard/deploy/claude-fleet.service` (a simple user unit running
-`npm start` in the dashboard directory), then:
+Run the service from a **pinned deployment worktree**, not from the development
+checkout. One-time setup:
 
 ```sh
-ln -sf <repo>/dashboard/deploy/claude-fleet.service ~/.config/systemd/user/
+git -C /home/ha-lun/opencode-config branch fleet-live dashboard
+git -C /home/ha-lun/opencode-config worktree add /home/ha-lun/apps/claude-fleet fleet-live
+npm ci --prefix /home/ha-lun/apps/claude-fleet/dashboard
+ln -sf /home/ha-lun/apps/claude-fleet/dashboard/deploy/claude-fleet.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now claude-fleet.service
 ```
@@ -87,16 +131,27 @@ Expose it to your tailnet only (never Funnel):
 tailscale serve --bg --https=4317 http://127.0.0.1:4317
 ```
 
+To update the service to the latest dashboard code (fast-forward only):
+
+```sh
+git -C /home/ha-lun/apps/claude-fleet merge --ff-only dashboard && systemctl --user restart claude-fleet
+```
+
 Undo with `tailscale serve --https=4317 off` and
 `systemctl --user disable --now claude-fleet.service`.
 
 ## Security notes
 
-- **Every API call is token-gated.** The token is generated on first start (dir mode `0700`,
-  file mode `0600`) or taken from `FLEET_TOKEN`.
-- `HOST=0.0.0.0` exposes the dashboard **to your whole network** (the default is
-  `127.0.0.1`, local only), but each visitor still needs the token; POST/DELETE
-  requests additionally get a same-origin check.
+- **Every API call is token-gated.** The token is generated on first start
+  (`$XDG_CONFIG_HOME/claude-fleet/token`, dir mode `0700`, file mode `0600`, legacy
+  `.data/token` migrated) or taken from `FLEET_TOKEN` (≥ 32 chars, scrubbed from the
+  environment after reading).
+- Startup logs never contain the token — only the token file path; the full
+  `?token=` URL is printed on interactive terminals only.
+- Browsers authenticate with the derived HMAC cookie, so a stolen cookie value is
+  not the raw shared secret; `FLEET_OWNER` optionally pins the allowed
+  Tailscale login; unexpected `Host` headers get `421`; state-changing requests
+  need a matching `Origin` (or header-token auth).
 - The dashboard drives **your own Claude Code login** — starts, prompts and tool runs bill to
   your account, at real cost.
 - Tool permissions normally asked by Claude Code in the terminal are **approved in the dashboard

@@ -6,11 +6,25 @@ import { readFile, realpath, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ViteDevServer } from 'vite';
-import { checkOrigin, isAuthorized, loadToken, tokenMatches } from './auth.ts';
+import {
+  allowedHosts,
+  checkAuth,
+  checkOrigin,
+  cookieValueFor,
+  createRateLimiter,
+  fleetCookie,
+  hostAllowed,
+  loadToken,
+  ownerAllows,
+  redirectLocation,
+  securityHeaders,
+  tokenFilePath,
+  tokenMatches,
+} from './auth.ts';
 import { listAgents } from './agents.ts';
 import { DirError, listDirs } from './dirs.ts';
 import { WorkerRegistry } from './registry.ts';
-import { SdkSessions, SessionError } from './sdk/sessions.ts';
+import { AGENT_RE, SdkSessions, SessionError } from './sdk/sessions.ts';
 import { TranscriptWatcher } from './watch/transcripts.ts';
 import type { ResumeSessionBody, ServerEvent, SessionSummary, StartSessionBody } from '../src/shared/types.ts';
 import type { AgentNode } from '../src/shared/types.ts';
@@ -20,6 +34,14 @@ const PORT = Number(process.env.PORT) || 4317;
 /** Max JSON body size for POST endpoints. */
 const MAX_BODY = 1024 * 1024;
 const MAX_TEXT = 100_000;
+/** SSE clients buffered more than this are dropped instead of written to. */
+const MAX_STREAM_QUEUE = 4 * 1024 * 1024;
+/** Max concurrent SSE clients (the oldest is dropped beyond this). */
+const MAX_SSE_CLIENTS = 50;
+/** POST /api/auth attempts per remote address per minute. */
+const AUTH_ATTEMPTS_PER_MINUTE = 10;
+/** Hosts a dev server may bind to (Vite serves source files; never anywhere else). */
+const DEV_HOSTS = ['127.0.0.1', 'localhost', '::1'];
 
 class HttpError extends Error {
   constructor(readonly status: number, message: string) {
@@ -104,8 +126,8 @@ async function validateSessionBody(body: unknown): Promise<StartSessionBody> {
   if (prompt.length > MAX_TEXT) throw new HttpError(400, `prompt must be at most ${MAX_TEXT} characters`);
   const start: StartSessionBody = { prompt, cwd: await resolveCwd(raw.cwd) };
   if (raw.agent !== undefined && raw.agent !== null) {
-    if (typeof raw.agent !== 'string' || !/^[A-Za-z0-9._-]{1,64}$/.test(raw.agent)) {
-      throw new HttpError(400, 'agent must match /^[A-Za-z0-9._-]{1,64}$/');
+    if (typeof raw.agent !== 'string' || !AGENT_RE.test(raw.agent)) {
+      throw new HttpError(400, 'agent must match /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/');
     }
     start.agent = raw.agent;
   }
@@ -141,16 +163,50 @@ function validateDecisionBody(body: unknown): { allow: boolean; message?: string
 }
 
 async function main(): Promise<void> {
-  const dashboardDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const development = process.env.NODE_ENV === 'development';
+  if (development && !DEV_HOSTS.includes(HOST)) {
+    // Development serves source files; never bind it to an exposed interface.
+    console.error(
+      `Claude Fleet refuses NODE_ENV=development on HOST=${HOST}. ` +
+      `Use 127.0.0.1, localhost or ::1, or run without NODE_ENV=development.`,
+    );
+    process.exit(1);
+  }
+  const dashboardDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const distDir = path.resolve(dashboardDir, 'dist');
-  const token = loadToken(dashboardDir);
+  const load = loadToken(dashboardDir);
+  const token = load.token;
+  const tokenFile = load.file || tokenFilePath();
+  const hosts = allowedHosts(PORT);
+  const fleetOwner = process.env.FLEET_OWNER;
+  const allowAuthAttempt = createRateLimiter(AUTH_ATTEMPTS_PER_MINUTE, 60_000);
 
   const clients = new Set<ServerResponse>();
   let vite: ViteDevServer | undefined;
 
+  /** Writeable-by-us-now: not ended, not destroyed, not already flooding. */
+  const clientWritable = (client: ServerResponse): boolean =>
+    !client.destroyed && !client.writableEnded && client.writableLength <= MAX_STREAM_QUEUE;
+
+  const dropClient = (client: ServerResponse): void => {
+    clients.delete(client);
+    client.destroy();
+  };
+
   function broadcast(event: ServerEvent): void {
-    for (const client of clients) client.write(`data: ${JSON.stringify(event)}\n\n`);
+    // Serialise each event once, no matter how many clients receive it.
+    const data = `data: ${JSON.stringify(event)}\n\n`;
+    for (const client of [...clients]) {
+      if (!clientWritable(client)) {
+        dropClient(client);
+        continue;
+      }
+      try {
+        client.write(data);
+      } catch {
+        dropClient(client);
+      }
+    }
   }
 
   const sdk = new SdkSessions(broadcast);
@@ -194,7 +250,8 @@ async function main(): Promise<void> {
       info = { cwd: file.cwd, transcriptMtimeMs: file.mtimeMs, nodes: detail?.nodes ?? [], title: detail?.title };
     }
     try {
-      return sendJson(res, 200, { sessionId: sdk.resume(id, body, info) });
+      const sessionId = await sdk.resume(id, body, info);
+      return sendJson(res, 200, { sessionId });
     } catch (err) {
       if (err instanceof SessionError) {
         return sendJson(res, err.status, { error: err.message });
@@ -207,14 +264,30 @@ async function main(): Promise<void> {
     [...sdk.list(), ...watcher.list()].sort((a, b) => b.updatedAt - a.updatedAt);
 
   const pingTimer = setInterval(() => {
-    for (const client of clients) client.write(': ping\n\n');
+    for (const client of [...clients]) {
+      if (!clientWritable(client)) {
+        dropClient(client);
+        continue;
+      }
+      try {
+        client.write(': ping\n\n');
+      } catch {
+        dropClient(client);
+      }
+    }
   }, 15_000);
   pingTimer.unref();
 
   function serveEvents(res: ServerResponse): void {
+    // Cap the SSE fan-out: drop the oldest clients beyond the limit.
+    while (clients.size >= MAX_SSE_CLIENTS) {
+      const oldest = clients.values().next().value;
+      if (!oldest) break;
+      dropClient(oldest);
+    }
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache',
+      'Cache-Control': 'no-store',
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     });
@@ -222,6 +295,7 @@ async function main(): Promise<void> {
     res.write(`data: ${JSON.stringify({ type: 'hello', sessions: mergedSessions() })}\n\n`);
     res.write(`data: ${JSON.stringify({ type: 'workers.update', workers: registry.list() })}\n\n`);
     res.on('close', () => clients.delete(res));
+    res.on('error', () => clients.delete(res));
   }
 
   /** Static files (production). SPA fallback to index.html, no token needed. */
@@ -257,6 +331,86 @@ async function main(): Promise<void> {
     } catch {
       sendJson(res, 404, { error: 'not found — run `npm run build` to create dist/' });
     }
+  }
+
+  /**
+   * POST /api/auth: exchange the raw token for the derived cookie. Needs no auth,
+   * but the Origin must match; rate-limited to 10 attempts per minute per address.
+   */
+  async function handleAuthPost(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const remote = req.socket.remoteAddress ?? 'unknown';
+    if (!allowAuthAttempt(remote)) {
+      return sendJson(res, 429, { error: 'too many attempts; try again in a minute' });
+    }
+    if (!checkOrigin(req, 'header')) {
+      return sendJson(res, 403, { error: 'cross-origin request rejected' });
+    }
+    const body = requireObject(await readJson(req));
+    const provided = body.token;
+    if (typeof provided !== 'string' || !tokenMatches(provided, token)) {
+      return sendJson(res, 401, { error: 'invalid token' });
+    }
+    // Behind an HTTPS proxy (e.g. tailscale serve) the cookie must be marked Secure.
+    const secure = req.headers['x-forwarded-proto'] === 'https';
+    res.setHeader('Set-Cookie', fleetCookie(cookieValueFor(token), secure));
+    return sendJson(res, 200, { ok: true });
+  }
+
+  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const url = new URL(req.url ?? '/', 'http://localhost');
+    // Security headers on every response (writeHead merges them).
+    for (const [header, value] of Object.entries(securityHeaders(development))) res.setHeader(header, value);
+
+    if (!hostAllowed(req.headers.host, hosts)) {
+      return sendJson(res, 421, { error: 'unknown host; use one of ' + hosts.join(', ') });
+    }
+
+    if (url.pathname === '/api/auth' && (req.method ?? 'GET') === 'POST') {
+      return handleAuthPost(req, res);
+    }
+
+    const isApi = url.pathname === '/api' || url.pathname.startsWith('/api/') || url.pathname === '/events';
+    if (isApi) {
+      const via = checkAuth(req, token);
+      if (!via) return sendJson(res, 401, { error: 'unauthorized' });
+      if (!ownerAllows(req.headers['tailscale-user-login'], fleetOwner)) {
+        return sendJson(res, 403, { error: 'wrong tailscale user' });
+      }
+      const method = req.method ?? 'GET';
+      if ((method === 'POST' || method === 'DELETE' || method === 'PUT' || method === 'PATCH') && !checkOrigin(req, via)) {
+        return sendJson(res, 403, { error: 'cross-origin request rejected' });
+      }
+      res.setHeader('Cache-Control', 'no-store');
+      if (url.pathname === '/events') {
+        if (method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+        return serveEvents(res);
+      }
+      return handleApi(req, res, url);
+    }
+
+    // First visit with ?token=<valid>: hand out the derived cookie and drop the token from the URL.
+    if (req.method === 'GET' && url.searchParams.has('token')) {
+      const provided = url.searchParams.get('token') ?? '';
+      if (tokenMatches(provided, token)) {
+        const rest = new URLSearchParams(url.searchParams);
+        rest.delete('token');
+        const location = redirectLocation(url.pathname, rest.toString());
+        const secure = req.headers['x-forwarded-proto'] === 'https' ? true : false;
+        res.writeHead(302, {
+          'Set-Cookie': fleetCookie(cookieValueFor(token), secure),
+          Location: location,
+        });
+        res.end();
+        return;
+      }
+      // Invalid ?token: serve the app normally; the UI shows its token screen on 401.
+    }
+
+    if (development) {
+      vite?.middlewares(req, res, () => sendJson(res, 404, { error: 'not found' }));
+      return;
+    }
+    await serveStatic(req, res, url);
   }
 
   async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
@@ -352,49 +506,6 @@ async function main(): Promise<void> {
     return sendJson(res, 404, { error: 'not found' });
   }
 
-  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const url = new URL(req.url ?? '/', 'http://localhost');
-    const isApi = url.pathname === '/api' || url.pathname.startsWith('/api/') || url.pathname === '/events';
-
-    if (isApi) {
-      if (!isAuthorized(req, token)) return sendJson(res, 401, { error: 'unauthorized' });
-      const method = req.method ?? 'GET';
-      if ((method === 'POST' || method === 'DELETE' || method === 'PUT' || method === 'PATCH') && !checkOrigin(req)) {
-        return sendJson(res, 403, { error: 'cross-origin request rejected' });
-      }
-      if (url.pathname === '/events') {
-        if (method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
-        return serveEvents(res);
-      }
-      return handleApi(req, res, url);
-    }
-
-    // First visit with ?token=<valid>: hand out the cookie and drop the token from the URL.
-    if (req.method === 'GET' && url.searchParams.has('token')) {
-      const provided = url.searchParams.get('token') ?? '';
-      if (tokenMatches(provided, token)) {
-        const rest = new URLSearchParams(url.searchParams);
-        rest.delete('token');
-        const query = rest.toString();
-        // Behind an HTTPS proxy (e.g. tailscale serve) the cookie must be marked Secure.
-        const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
-        res.writeHead(302, {
-          'Set-Cookie': `fleet_token=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000${secure}`,
-          Location: url.pathname + (query ? `?${query}` : ''),
-        });
-        res.end();
-        return;
-      }
-      // Invalid ?token: serve the app normally; the UI shows its token screen on 401.
-    }
-
-    if (development) {
-      vite?.middlewares(req, res, () => sendJson(res, 404, { error: 'not found' }));
-      return;
-    }
-    await serveStatic(req, res, url);
-  }
-
   let viteReady: Promise<void> | undefined;
   if (development) {
     viteReady = (async () => {
@@ -452,14 +563,19 @@ async function main(): Promise<void> {
 
   server.listen(PORT, HOST, () => {
     const shown = HOST === '0.0.0.0' ? 'localhost' : HOST;
-    console.log(`Claude Fleet: http://${shown}:${PORT}/?token=${token}`);
+    console.log(`Claude Fleet: http://${shown}:${PORT}`);
+    console.log(`Claude Fleet: token: ${tokenFile}`);
+    // The token-in-URL link leaks through logs; print it only on an interactive terminal.
+    if (process.stdout.isTTY) {
+      console.log(`Claude Fleet: http://${shown}:${PORT}/?token=${token}`);
+    }
     // Behind 0.0.0.0 (the LAN case), also print the LAN addresses worth reaching.
     if (HOST === '0.0.0.0') {
       for (const [name, addresses] of Object.entries(os.networkInterfaces())) {
         if (/^(br-|docker|veth|lo)/.test(name)) continue; // bridges, containers, loopback noise
         for (const address of addresses ?? []) {
           if (address.family === 'IPv4' && !address.internal) {
-            console.log(`Claude Fleet: http://${address.address}:${PORT}/?token=${token}`);
+            console.log(`Claude Fleet: http://${address.address}:${PORT}`);
           }
         }
       }

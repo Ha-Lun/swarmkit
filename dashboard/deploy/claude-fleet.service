@@ -1,5 +1,8 @@
 # Claude Fleet: always-on dashboard, reachable only through `tailscale serve` (see dashboard/README.md).
-# Install: ln -sf /home/ha-lun/opencode-config/dashboard/deploy/claude-fleet.service ~/.config/systemd/user/
+#
+# Runs from the pinned deployment worktree at /home/ha-lun/apps/claude-fleet (branch `fleet-live`),
+# NOT from the development checkout — see README "Run always-on" for the one-time setup and update flow.
+# Install: ln -sf /home/ha-lun/apps/claude-fleet/dashboard/deploy/claude-fleet.service ~/.config/systemd/user/
 #          systemctl --user daemon-reload && systemctl --user enable --now claude-fleet.service
 [Unit]
 Description=Claude Fleet — Claude Code control dashboard (127.0.0.1:4317, served on the tailnet)
@@ -8,13 +11,13 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/ha-lun/opencode-config/dashboard
+WorkingDirectory=/home/ha-lun/apps/claude-fleet/dashboard
 Environment=HOST=127.0.0.1
 Environment=PORT=4317
 Environment=NODE_ENV=production
 Environment=PATH=/home/ha-lun/.local/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStartPre=/home/linuxbrew/.linuxbrew/bin/npm run build
-ExecStart=/home/ha-lun/opencode-config/dashboard/node_modules/.bin/tsx server/index.ts
+ExecStart=/home/ha-lun/apps/claude-fleet/dashboard/node_modules/.bin/tsx server/index.ts
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes
