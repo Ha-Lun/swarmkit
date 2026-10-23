@@ -373,14 +373,16 @@ export class TranscriptWatcher {
     let truncated = false;
     try {
       const st = await stat(live.path);
-      truncated = st.size < live.offset; // truncated or rewritten from scratch
+      // rest already holds the bytes after the last complete newline: never read them twice.
+      const readFrom = live.offset + live.rest.length;
+      truncated = st.size < readFrom; // truncated or rewritten from scratch
       live.mtimeMs = st.mtimeMs;
-      if (!truncated && st.size > live.offset) {
-        const chunk = await readRange(live.path, live.offset);
-        live.offset += chunk.length;
+      if (!truncated && st.size > readFrom) {
+        const chunk = await readRange(live.path, readFrom);
         const buf = Buffer.concat([live.rest, chunk]);
         const { lines, rest } = extractLines(buf);
         live.rest = rest;
+        live.offset = readFrom + chunk.length - rest.length;
         for (const line of lines) {
           const m = parseJsonLine(line);
           if (!m) continue;
@@ -469,7 +471,7 @@ export class TranscriptWatcher {
       // unreadable subagent file: retry next pass
       return false;
     }
-    if (st.size < state.offset) return true;
+    if (st.size < state.offset + state.rest.length) return true; // truncated/rewritten subagent file
     const meta = await this.readMetaCached(path);
     const nodeId = str(meta.toolUseId);
     if (!nodeId) return false;
@@ -485,13 +487,11 @@ export class TranscriptWatcher {
       markPlaceholder(live.tree, nodeId);
       events.push(upsertEvent(node));
     }
-    let offset = state.offset;
-    let chunk: Buffer;
-    if (offset === 0) {
+    if (state.offset === 0 && state.rest.length === 0) {
       // Initial read; above TAIL_BYTES the subagent file is tail-only.
       let start = 0;
       if (st.size > TAIL_BYTES) start = st.size - TAIL_BYTES;
-      chunk = await readRange(path, start);
+      let chunk = await readRange(path, start);
       if (start > 0) {
         const nl = chunk.indexOf(0x0a);
         if (nl >= 0) {
@@ -503,8 +503,7 @@ export class TranscriptWatcher {
         }
       }
       const { lines, rest } = extractLines(chunk);
-      offset = start + (chunk.length - rest.length);
-      state.offset = offset;
+      state.offset = start + (chunk.length - rest.length);
       state.rest = rest;
       for (const line of lines) {
         const m = parseJsonLine(line);
@@ -513,12 +512,14 @@ export class TranscriptWatcher {
       this.finishSubMeta(live, meta, nodeId, events);
       return false;
     }
-    chunk = await readRange(path, state.offset).catch(() => Buffer.alloc(0));
-    if (chunk.length > 0) {
-      state.offset += chunk.length;
-      const buf = Buffer.concat([state.rest, chunk]);
+    // Incremental tail: rest already holds the bytes after the last newline from the read before last.
+    const readFrom = state.offset + state.rest.length;
+    const incChunk = await readRange(path, readFrom).catch(() => Buffer.alloc(0));
+    if (incChunk.length > 0) {
+      const buf = Buffer.concat([state.rest, incChunk]);
       const { lines, rest } = extractLines(buf);
       state.rest = rest;
+      state.offset = readFrom + incChunk.length - rest.length;
       for (const line of lines) {
         const m = parseJsonLine(line);
         if (m) events.push(...applyMessage(live.tree, m, { nodeId }));

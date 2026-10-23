@@ -181,18 +181,8 @@ describe('TranscriptWatcher', () => {
       expect(root0.result).toBeUndefined(); // the partial line could not be parsed yet
       expect(root0.description).toBe('Fix the fleet overlays');
       await appendFile(file, appended.slice(30) + '\n');
-      const bytes2 = (await import('node:fs/promises')).readFileSync(file).toString().length;
-      console.log('DIAG bytesAfterAppend', bytes2, 'full appended len', appended.length, 'slice30len', appended.slice(0, 30).length);
       await w.scanNow();
-      const live1 = liveOf(w).get('part') as unknown as { offset: number | undefined } | undefined;
-      if (live1) {
-        console.log('DIAG', JSON.stringify({
-          offset: live1.offset,
-          nodeIds: [...((liveOf(w).get('part') as unknown as { tree: { nodes: Map<string, unknown> } }).tree.nodes.keys())],
-        }));
-      } else console.log('DIAG live gone');
       const after = (await w.get('part'))!.nodes.find((n) => n.id === 'root')!;
-      console.log('DIAG root', JSON.stringify(after, (k, v) => (k === 'events' && Array.isArray(v) ? v.length : v)));
       expect(after.result).toBe('Overlays are aligned now.'); // the completed line was applied
     } finally {
       w.stop();

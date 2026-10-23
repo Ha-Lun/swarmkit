@@ -288,7 +288,7 @@ describe('reducer: SDK sequence', () => {
         },
       });
       // The Agent tool_use arrives from within the nested caller's context.
-      const use = structuredClone(agentUse) as typeof agentUse;
+      const use = structuredClone(agentUse) as typeof agentUse & { parent_tool_use_id?: string };
       use.parent_tool_use_id = 'toolu_c1';
       use.message = {
         id: 'msg_g2b',

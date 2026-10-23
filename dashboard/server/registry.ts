@@ -361,30 +361,33 @@ export class WorkerRegistry {
       return cached;
     }
     if (cached && st.size >= cached.offset) {
-      // Only the appended bytes are new.
-      const appended = await readRangeBytes(path, cached.offset, st.size - cached.offset);
-      if (appended) {
-        const buf = Buffer.concat([cached.rest, appended]);
-        const { lines, rest } = extractCompleteLines(buf);
-        if (lines.length > 0) {
-          const parsedLog = parseOpencodeLogLines(lines);
-          const toolCounts = { ...cached.toolCounts };
-          for (const [tool, n] of Object.entries(parsedLog.toolCounts)) toolCounts[tool] = (toolCounts[tool] ?? 0) + n;
-          const entry: LogCacheEntry = {
-            ...cached,
-            toolCounts,
-            lastTool: parsedLog.lastTool ?? cached.lastTool,
-            denied: cached.denied + parsedLog.denied,
-            mtimeMs: st.mtimeMs,
-            size: st.size,
-            offset: cached.offset + (buf.length - rest.length),
-            rest,
-          };
-          return this.saveLogCache(dir, entry);
-        }
-        // Nothing complete yet (partial line): just extend the rest.
-        if (buf.length > cached.rest.length) {
-          return this.saveLogCache(dir, { ...cached, rest: buf, mtimeMs: st.mtimeMs, size: st.size });
+      // Only bytes past the cached partial tail are new.
+      const readFrom = cached.offset + cached.rest.length;
+      if (st.size >= readFrom) {
+        const appended = await readRangeBytes(path, readFrom, st.size - readFrom);
+        if (appended) {
+          const buf = Buffer.concat([cached.rest, appended]);
+          const { lines, rest } = extractCompleteLines(buf);
+          if (lines.length > 0) {
+            const parsedLog = parseOpencodeLogLines(lines);
+            const toolCounts = { ...cached.toolCounts };
+            for (const [tool, n] of Object.entries(parsedLog.toolCounts)) toolCounts[tool] = (toolCounts[tool] ?? 0) + n;
+            const entry: LogCacheEntry = {
+              ...cached,
+              toolCounts,
+              lastTool: parsedLog.lastTool ?? cached.lastTool,
+              denied: cached.denied + parsedLog.denied,
+              mtimeMs: st.mtimeMs,
+              size: st.size,
+              offset: readFrom + appended.length - rest.length,
+              rest,
+            };
+            return this.saveLogCache(dir, entry);
+          }
+          // Nothing complete yet (partial line): just extend the rest.
+          if (buf.length > cached.rest.length) {
+            return this.saveLogCache(dir, { ...cached, rest: buf, mtimeMs: st.mtimeMs, size: st.size });
+          }
         }
       }
     }
