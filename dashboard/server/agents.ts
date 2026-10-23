@@ -2,22 +2,14 @@
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { realpath } from 'node:fs/promises';
 import type { AgentInfo } from '../src/shared/types.ts';
+import { resolveDirInHome } from './paths.ts';
 
 /** Absolute existing directory under $HOME (like the POST /api/sessions cwd check), or null. */
 async function validCwd(cwd: string | undefined): Promise<string | null> {
   if (!cwd) return null;
-  try {
-    const real = await realpath(cwd);
-    if (real === os.homedir()) return real;
-    const home = await realpath(os.homedir());
-    if (!real.startsWith(home + path.sep)) return null;
-    const st = await fsp.stat(real);
-    return st.isDirectory() ? real : null;
-  } catch {
-    return null;
-  }
+  const resolved = await resolveDirInHome(cwd);
+  return 'dir' in resolved ? resolved.dir : null;
 }
 
 async function readAgentDir(dir: string, scope: AgentInfo['scope']): Promise<AgentInfo[]> {

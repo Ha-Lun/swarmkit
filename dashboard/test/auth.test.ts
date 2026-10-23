@@ -11,7 +11,6 @@ import {
   createRateLimiter,
   fleetCookie,
   hostAllowed,
-  isAuthorized,
   loadToken,
   ownerAllows,
   redirectLocation,
@@ -148,18 +147,17 @@ function readToken(file: string): string {
   return readFileSync(file, 'utf8').trim();
 }
 
-describe('isAuthorized', () => {
+describe('checkAuth', () => {
   it('accepts the x-fleet-token header (raw token)', () => {
-    expect(isAuthorized(req(HEADER_AUTH), TOKEN)).toBe(true);
     expect(checkAuth(req(HEADER_AUTH), TOKEN)).toBe('header');
   });
 
   it('accepts the fleet_token cookie only when it carries the derived HMAC value', () => {
     expect(checkAuth(req({ cookie: `other=1; fleet_token=${DERIVED}` }), TOKEN)).toBe('cookie');
-    expect(isAuthorized(req({ cookie: `fleet_token=${DERIVED}` }), TOKEN)).toBe(true);
+    expect(checkAuth(req({ cookie: `fleet_token=${DERIVED}` }), TOKEN)).toBe('cookie');
     // The raw token inside the cookie is rejected: only the derived value is accepted there.
     expect(checkAuth(req({ cookie: `fleet_token=${TOKEN}` }), TOKEN)).toBe(null);
-    expect(isAuthorized(req({ cookie: `fleet_token=${TOKEN}` }), TOKEN)).toBe(false);
+    expect(checkAuth(req({ cookie: `fleet_token=${TOKEN}` }), TOKEN)).toBe(null);
   });
 
   it('accepts the ?token value via tokenMatches (raw token, never the derived one)', () => {
@@ -170,10 +168,10 @@ describe('isAuthorized', () => {
   });
 
   it('rejects wrong or missing tokens', () => {
-    expect(isAuthorized(req({ 'x-fleet-token': 'wrong' }), TOKEN)).toBe(false);
-    expect(isAuthorized(req({ cookie: 'fleet_token=wrong' }), TOKEN)).toBe(false);
-    expect(isAuthorized(req({}), TOKEN)).toBe(false);
-    expect(isAuthorized(req({ 'x-fleet-token': `${TOKEN}x` }), TOKEN)).toBe(false);
+    expect(checkAuth(req({ 'x-fleet-token': 'wrong' }), TOKEN)).toBe(null);
+    expect(checkAuth(req({ cookie: 'fleet_token=wrong' }), TOKEN)).toBe(null);
+    expect(checkAuth(req({}), TOKEN)).toBe(null);
+    expect(checkAuth(req({ 'x-fleet-token': `${TOKEN}x` }), TOKEN)).toBe(null);
   });
 });
 

@@ -159,7 +159,7 @@ export interface WorkerTask {
 // GET  /api/sessions                    -> SessionSummary[]
 // GET  /api/sessions/:id                -> SessionDetail
 // POST /api/sessions                    StartSessionBody -> StartSessionResponse
-// POST /api/sessions/:id/message        SendMessageBody -> { ok: true }
+// POST /api/sessions/:id/message        -> { text: string } -> { ok: true }
 // POST /api/sessions/:id/interrupt      -> { ok: true }
 // POST /api/sessions/:id/resume         ResumeSessionBody -> StartSessionResponse
 // DELETE /api/sessions/:id              -> { ok: true }   (stops a page session)
@@ -181,9 +181,6 @@ export interface StartSessionBody {
 }
 export interface StartSessionResponse {
   sessionId: string;
-}
-export interface SendMessageBody {
-  text: string;
 }
 export interface PermissionDecisionBody {
   allow: boolean;

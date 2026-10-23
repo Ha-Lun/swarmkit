@@ -1,10 +1,7 @@
 // HTTP + SSE wrappers around the server contract in ../shared/types.
 import type {
-  ActivityEvent,
-  AgentNodeHead,
   AgentsResponse,
   DirListing,
-  PermissionRequest,
   ServerEvent,
   SessionDetail,
   SessionSummary,
@@ -129,15 +126,4 @@ export const apiBackend: FleetBackend = {
     es.onerror = () => onStatus(false);
     return () => es.close();
   },
-};
-
-// Re-exported so other modules can share the exact event payload types.
-export type {
-  ActivityEvent,
-  AgentNodeHead,
-  DirListing,
-  PermissionRequest,
-  SessionDetail,
-  SessionSummary,
-  WorkerTask,
 };

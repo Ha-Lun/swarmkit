@@ -2,7 +2,7 @@
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { readFile, realpath, stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ViteDevServer } from 'vite';
@@ -24,17 +24,17 @@ import {
 import { listAgents } from './agents.ts';
 import { DirError, listDirs } from './dirs.ts';
 import { WorkerRegistry } from './registry.ts';
-import { AGENT_RE, SdkSessions, SessionError } from './sdk/sessions.ts';
+import { SdkSessions, SessionError } from './sdk/sessions.ts';
+import { AGENT_RE, validModel, validText, ValidationError } from './validate.ts';
+import { resolveDirInHome } from './paths.ts';
 import { freshTranscriptMtimeMs, holderMessage, liveHolder } from './livesessions.ts';
 import { TranscriptWatcher } from './watch/transcripts.ts';
-import type { ResumeSessionBody, ServerEvent, SessionSummary, StartSessionBody } from '../src/shared/types.ts';
-import type { AgentNode } from '../src/shared/types.ts';
+import type { AgentNode, ResumeSessionBody, ServerEvent, SessionSummary, StartSessionBody } from '../src/shared/types.ts';
 
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4317;
 /** Max JSON body size for POST endpoints. */
 const MAX_BODY = 1024 * 1024;
-const MAX_TEXT = 100_000;
 /** SSE clients buffered more than this are dropped instead of written to. */
 const MAX_STREAM_QUEUE = 4 * 1024 * 1024;
 /** Max concurrent SSE clients (the oldest is dropped beyond this). */
@@ -101,55 +101,29 @@ function requireObject(body: unknown): Record<string, unknown> {
 
 /** cwd must resolve to an existing directory inside (or equal to) $HOME. */
 async function resolveCwd(raw: unknown): Promise<string> {
-  if (typeof raw !== 'string' || raw.length === 0) throw new HttpError(400, 'cwd is required');
-  let real: string;
-  let stats;
-  try {
-    real = await realpath(raw);
-    stats = await stat(real);
-  } catch {
-    throw new HttpError(400, 'cwd does not exist');
-  }
-  if (!stats.isDirectory()) throw new HttpError(400, 'cwd must be a directory');
-  const home = await realpath(os.homedir());
-  if (real !== home && !real.startsWith(home + path.sep)) {
-    throw new HttpError(400, 'cwd must be inside your home directory');
-  }
-  return real;
+  const resolved = await resolveDirInHome(raw);
+  if ('error' in resolved) throw new HttpError(400, resolved.error);
+  return resolved.dir;
 }
 
 async function validateSessionBody(body: unknown): Promise<StartSessionBody> {
   const raw = requireObject(body);
-  const prompt = raw.prompt;
-  if (typeof prompt !== 'string' || prompt.trim().length === 0) {
-    throw new HttpError(400, 'prompt must be a non-empty string');
-  }
-  if (prompt.length > MAX_TEXT) throw new HttpError(400, `prompt must be at most ${MAX_TEXT} characters`);
+  const prompt = validText(raw.prompt, 'prompt');
   const start: StartSessionBody = { prompt, cwd: await resolveCwd(raw.cwd) };
   if (raw.agent !== undefined && raw.agent !== null) {
     if (typeof raw.agent !== 'string' || !AGENT_RE.test(raw.agent)) {
-      throw new HttpError(400, 'agent must match /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/');
+      throw new ValidationError('agent must match /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/');
     }
     start.agent = raw.agent;
   }
-  if (raw.model !== undefined && raw.model !== null) {
-    const model = raw.model;
-    if (typeof model !== 'string' || !/^(opus|sonnet|haiku|claude-[a-z0-9.-]{1,60})$/.test(model)) {
-      throw new HttpError(400, "model must be 'opus', 'sonnet', 'haiku' or a 'claude-*' model id");
-    }
-    start.model = model;
-  }
+  const model = validModel(raw.model);
+  if (model !== undefined) start.model = model;
   return start;
 }
 
 function validateMessageBody(body: unknown): string {
   const raw = requireObject(body);
-  const text = raw.text;
-  if (typeof text !== 'string' || text.trim().length === 0) {
-    throw new HttpError(400, 'text must be a non-empty string');
-  }
-  if (text.length > MAX_TEXT) throw new HttpError(400, `text must be at most ${MAX_TEXT} characters`);
-  return text;
+  return validText(raw.text);
 }
 
 function validateDecisionBody(body: unknown): { allow: boolean; message?: string } {
@@ -223,20 +197,14 @@ async function main(): Promise<void> {
   /** POST /api/sessions/:id/resume: continue a page-owned or terminal session with a new message. */
   async function resumeSession(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
     const raw = requireObject(await readJson(req));
-    const body: ResumeSessionBody = { text: '' };
-    const text = raw.text;
-    if (typeof text !== 'string' || text.trim().length === 0) {
-      return sendJson(res, 400, { error: 'text must be a non-empty string' });
-    }
-    if (text.length > MAX_TEXT) {
-      return sendJson(res, 400, { error: `text must be at most ${MAX_TEXT} characters` });
-    }
-    body.text = text;
-    if (raw.model !== undefined && raw.model !== null) {
-      if (typeof raw.model !== 'string' || !/^(opus|sonnet|haiku|claude-[a-z0-9.-]{1,60})$/.test(raw.model)) {
-        return sendJson(res, 400, { error: "model must be 'opus', 'sonnet', 'haiku' or a 'claude-*' model id" });
-      }
-      body.model = raw.model;
+    let body: ResumeSessionBody;
+    try {
+      const text = validText(raw.text);
+      const model = validModel(raw.model);
+      body = model === undefined ? { text } : { text, model };
+    } catch (err) {
+      if (err instanceof ValidationError) return sendJson(res, 400, { error: err.message });
+      throw err;
     }
     let info: { cwd: string; transcriptMtimeMs?: number; nodes?: AgentNode[]; title?: string };
     if (sdk.owns(id)) {
@@ -410,7 +378,7 @@ async function main(): Promise<void> {
         const rest = new URLSearchParams(url.searchParams);
         rest.delete('token');
         const location = redirectLocation(url.pathname, rest.toString());
-        const secure = req.headers['x-forwarded-proto'] === 'https' ? true : false;
+        const secure = req.headers['x-forwarded-proto'] === 'https';
         res.writeHead(302, {
           'Set-Cookie': fleetCookie(cookieValueFor(token), secure),
           Location: location,
@@ -536,7 +504,7 @@ async function main(): Promise<void> {
   const server = http.createServer((req, res) => {
     void handle(req, res).catch(err => {
       // SessionError / DirError carry their own status; everything else stays hidden as a 500.
-      const status = err instanceof HttpError || err instanceof SessionError || err instanceof DirError
+      const status = err instanceof HttpError || err instanceof SessionError || err instanceof DirError || err instanceof ValidationError
         ? err.status
         : 500;
       if (status === 500) console.error('Request failed:', err);

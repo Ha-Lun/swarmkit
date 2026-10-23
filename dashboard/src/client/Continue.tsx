@@ -28,7 +28,7 @@ export function Continue({ backend, guard, sessionId, source, onResumed, initial
     setError(null);
     try {
       const res = await guard(backend.resume(sessionId, { text: t }));
-      if (res) onResumed((res as { sessionId: string }).sessionId);
+      if (res) onResumed(res.sessionId);
       else setBusy(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not continue this session.');

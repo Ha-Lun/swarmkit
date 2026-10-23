@@ -1,12 +1,13 @@
 import { setImmediate } from 'node:timers/promises';
-import { open, readdir, readFile, stat } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { closeSync, openSync, readSync, readdirSync, statSync } from 'node:fs';
 import type { Dirent } from 'node:fs';
-import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import type { ServerEvent, SessionDetail, SessionSummary } from '../../src/shared/types.ts';
 import { applyMessage, createTree, ensureNode, markPlaceholder, setStatus, upsertEvent, type SessionTree } from '../model/reducer.ts';
 import { pollWorkers } from '../model/workers.ts';
+import { claudeConfigDir } from '../paths.ts';
+import { extractLines, parseObject, readRange } from '../fsutil.ts';
 
 export interface WatcherOptions {
   /** Defaults to ~/.claude/projects. */
@@ -23,7 +24,6 @@ interface HeadEntry {
   key: string;
   path: string;
   mtimeMs: number;
-  size: number;
   cwd: string;
   title: string;
   agent?: string;
@@ -84,7 +84,7 @@ export class TranscriptWatcher {
   private scanning = false;
 
   constructor(opts: WatcherOptions) {
-    this.root = opts.root ?? join(homedir(), '.claude', 'projects');
+    this.root = opts.root ?? join(claudeConfigDir(), 'projects');
     this.maxAgeMs = opts.maxAgeMs ?? 24 * 60 * 60_000;
     this.emitFn = opts.emit;
     this.skipFn = opts.skip;
@@ -135,7 +135,7 @@ export class TranscriptWatcher {
         }
       }
       // Eager parses can have overshot the cap again: trim once more.
-      await this.trimLiveToCap(Date.now());
+      await this.trimLiveToCap();
       for (const [id, entry] of [...this.live.entries()]) {
         if (this.skipFn(id)) {
           this.live.delete(id);
@@ -172,12 +172,12 @@ export class TranscriptWatcher {
         }
       }
     }
-    await this.dropLive(drop, now);
-    if (this.live.size > MAX_LIVE) await this.trimLiveToCap(now);
+    await this.dropLive(drop);
+    if (this.live.size > MAX_LIVE) await this.trimLiveToCap();
   }
 
   /** Cap-only LRU trim (used after eager parses): no file probing needed. */
-  private async trimLiveToCap(now: number): Promise<void> {
+  private async trimLiveToCap(): Promise<void> {
     if (this.live.size <= MAX_LIVE) return;
     const candidates = [...this.live.keys()];
     candidates.sort((a, b) => {
@@ -188,11 +188,11 @@ export class TranscriptWatcher {
       return ka - kb;
     });
     const over = candidates.length - MAX_LIVE;
-    await this.dropLive(candidates.slice(0, over), now);
+    await this.dropLive(candidates.slice(0, over));
   }
 
   /** The shared drop step: final session.upsert then delete. */
-  private async dropLive(ids: string[], _now: number): Promise<void> {
+  private async dropLive(ids: string[]): Promise<void> {
     for (const id of ids) {
       const live = this.live.get(id);
       if (!live) continue;
@@ -322,8 +322,8 @@ export class TranscriptWatcher {
     let agentType: string | undefined;
     const msgs: Record<string, unknown>[] = [];
     for (const line of lines) {
-      const m = parseJsonLine(line);
-      if (!m) continue;
+      const m = parseObject(line);
+      if (Object.keys(m).length === 0) continue;
       msgs.push(m);
       const c = str(m.cwd);
       if (c && !cwd) cwd = c;
@@ -363,7 +363,7 @@ export class TranscriptWatcher {
       for (const m of msgs.slice(i, i + LINE_CHUNK)) events.push(...applyMessage(tree, m));
       if (i + LINE_CHUNK < msgs.length) await setImmediate();
     }
-    await this.ensureSubs(live, events, true);
+    await this.ensureSubs(live, events);
     return { live, events };
   }
 
@@ -384,8 +384,8 @@ export class TranscriptWatcher {
         live.rest = rest;
         live.offset = readFrom + chunk.length - rest.length;
         for (const line of lines) {
-          const m = parseJsonLine(line);
-          if (!m) continue;
+          const m = parseObject(line);
+          if (Object.keys(m).length === 0) continue;
           const c = str(m.cwd);
           if (c && !live.cwd) live.cwd = c;
           events.push(...applyMessage(live.tree, m));
@@ -395,7 +395,7 @@ export class TranscriptWatcher {
       // missing/rotated file: keep the last parsed state
     }
     if (!truncated) {
-      truncated = await this.ensureSubs(live, events, false);
+      truncated = await this.ensureSubs(live, events);
     }
     if (truncated) return this.rebuild(live);
     try {
@@ -426,13 +426,12 @@ export class TranscriptWatcher {
   }
 
   /** Discovers and tails subagents/agent-<agentId>.jsonl files for a live session. */
-  private async ensureSubs(live: LiveSession, events: ServerEvent[], initial: boolean): Promise<boolean> {
+  private async ensureSubs(live: LiveSession, events: ServerEvent[]): Promise<boolean> {
     const subDir = join(dirname(live.path), live.id, 'subagents');
     let entries: Dirent[];
     try {
       entries = await readdir(subDir, { withFileTypes: true });
     } catch {
-      void initial;
       return false;
     }
     const seen = new Set<string>();
@@ -506,8 +505,8 @@ export class TranscriptWatcher {
       state.offset = start + (chunk.length - rest.length);
       state.rest = rest;
       for (const line of lines) {
-        const m = parseJsonLine(line);
-        if (m) events.push(...applyMessage(live.tree, m, { nodeId }));
+        const m = parseObject(line);
+        if (Object.keys(m).length > 0) events.push(...applyMessage(live.tree, m, { nodeId }));
       }
       this.finishSubMeta(live, meta, nodeId, events);
       return false;
@@ -521,8 +520,8 @@ export class TranscriptWatcher {
       state.rest = rest;
       state.offset = readFrom + incChunk.length - rest.length;
       for (const line of lines) {
-        const m = parseJsonLine(line);
-        if (m) events.push(...applyMessage(live.tree, m, { nodeId }));
+        const m = parseObject(line);
+        if (Object.keys(m).length > 0) events.push(...applyMessage(live.tree, m, { nodeId }));
       }
     }
     this.finishSubMeta(live, meta, nodeId, events);
@@ -622,13 +621,7 @@ export class TranscriptWatcher {
     if (!st) return {};
     const cached = this.metaCache.get(metaPath);
     if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) return cached.data;
-    let data: Record<string, unknown> = {};
-    try {
-      const parsed: unknown = JSON.parse(await readFile(metaPath, 'utf8'));
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) data = parsed as Record<string, unknown>;
-    } catch {
-      data = {};
-    }
+    const data = parseObject(await readFile(metaPath, 'utf8').catch(() => undefined));
     this.metaCache.set(metaPath, { mtimeMs: st.mtimeMs, size: st.size, data });
     if (this.metaCache.size > MAX_META_CACHE) {
       this.metaCache.delete(this.metaCache.keys().next().value!);
@@ -699,48 +692,8 @@ function headSummary(head: HeadEntry): SessionSummary {
 // file helpers (only *.jsonl and *.meta.json are read; symlinks are ignored)
 // ---------------------------------------------------------------------------
 
-/** Splits a buffer into complete newline-terminated lines, keeping the trailing partial line. */
-function extractLines(buf: Buffer): { lines: string[]; rest: Buffer } {
-  const lines: string[] = [];
-  let start = 0;
-  while (start < buf.length) {
-    const nl = buf.indexOf(0x0a, start);
-    if (nl < 0) break;
-    let line = buf.subarray(start, nl).toString('utf8');
-    if (line.endsWith('\r')) line = line.slice(0, -1);
-    if (line.trim().length > 0) lines.push(line);
-    start = nl + 1;
-  }
-  return { lines, rest: buf.subarray(start) };
-}
-
-function parseJsonLine(line: string): Record<string, unknown> | undefined {
-  try {
-    const parsed: unknown = JSON.parse(line);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-async function readRange(path: string, offset: number): Promise<Buffer> {
-  const handle = await open(path, 'r');
-  try {
-    const st = await handle.stat();
-    const length = Math.max(0, st.size - offset);
-    if (length === 0) return Buffer.alloc(0);
-    const buf = Buffer.alloc(length);
-    const { bytesRead } = await handle.read(buf, 0, length, offset);
-    return buf.subarray(0, bytesRead);
-  } finally {
-    await handle.close();
-  }
-}
-
 function readHeadSync(path: string, st: { mtimeMs: number; size: number }, key: string): HeadEntry {
-  const head: HeadEntry = { key, path, mtimeMs: st.mtimeMs, size: st.size, cwd: '', title: '', startedAt: st.mtimeMs };
+  const head: HeadEntry = { key, path, mtimeMs: st.mtimeMs, cwd: '', title: '', startedAt: st.mtimeMs };
   const handle = openSync(path, 'r');
   try {
     const length = Math.min(HEAD_BYTES, st.size);
@@ -752,8 +705,8 @@ function readHeadSync(path: string, st: { mtimeMs: number; size: number }, key: 
     let sawTs = false;
     for (const line of complete.split('\n')) {
       // One bad line must not break the head parsing.
-      const m = parseJsonLine(line.trim());
-      if (!m) continue;
+      const m = parseObject(line.trim());
+      if (Object.keys(m).length === 0) continue;
       const c = str(m.cwd);
       if (c && !head.cwd) head.cwd = c;
       const t = tsOf(m.timestamp);

@@ -19,12 +19,10 @@ export interface AppState {
 }
 
 export type Action =
-  | { type: 'sessions'; sessions: SessionSummary[] }
   | { type: 'ev'; ev: ServerEvent }
   | { type: 'detail'; detail: SessionDetail }
   | { type: 'select'; sessionId: string | null }
-  | { type: 'connected'; connected: boolean }
-  | { type: 'workers'; workers: WorkerTask[] };
+  | { type: 'connected'; connected: boolean };
 
 export const initialState: AppState = { sessions: [], selectedId: null, details: {}, connected: false, workers: [] };
 
@@ -72,11 +70,6 @@ function appendPermission(detail: SessionDetail, request: PermissionRequest): Se
 
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
-    case 'sessions': {
-      const sessions = [...action.sessions].sort(byRecency);
-      return { ...state, sessions, selectedId: state.selectedId ?? pickDefault(sessions) };
-    }
-
     case 'ev': {
       const ev = action.ev;
       switch (ev.type) {
@@ -146,8 +139,9 @@ export function reducer(state: AppState, action: Action): AppState {
         }
         case 'workers.update':
           return { ...state, workers: ev.workers };
+        default:
+          return state;
       }
-      return state;
     }
 
     case 'detail': {
@@ -166,9 +160,6 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'connected':
       return { ...state, connected: action.connected };
 
-    case 'workers':
-      return { ...state, workers: action.workers };
-
     default:
       return state;
   }
@@ -176,11 +167,4 @@ export function reducer(state: AppState, action: Action): AppState {
 
 export function nodeById(detail: SessionDetail | undefined, id: string): AgentNode | undefined {
   return detail?.nodes.find((n) => n.id === id);
-}
-
-export function permissionFor(
-  detail: SessionDetail | undefined,
-  nodeId: string,
-): PermissionRequest | undefined {
-  return detail?.permissions.find((p) => p.nodeId === nodeId);
 }

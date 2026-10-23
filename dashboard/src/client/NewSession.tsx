@@ -1,9 +1,7 @@
 // New session dialog: prompt, folder picker (shared with the landing page), agent, model.
-import { useEffect, useState } from 'react';
-import type { FormEvent } from 'react';
-import type { AgentInfo, StartSessionBody, StartSessionResponse } from '../shared/types';
 import type { FleetBackend, Guard } from './api';
-import { FolderPicker, resolveDefaultCwd } from './FolderPicker';
+import { FolderPicker } from './FolderPicker';
+import { AgentModelFields, useStartForm } from './StartForm';
 
 interface Props {
   backend: FleetBackend;
@@ -13,67 +11,20 @@ interface Props {
 }
 
 export function NewSession({ backend, guard, onClose, onStarted }: Props) {
-  const [prompt, setPrompt] = useState('');
-  const [cwd, setCwd] = useState('');
-  const [agent, setAgent] = useState('');
-  const [model, setModel] = useState('');
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [starting, setStarting] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    void resolveDefaultCwd(backend).then((c) => {
-      if (alive && c) setCwd(c);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [backend]);
-
-  useEffect(() => {
-    if (!cwd.trim()) {
-      setAgents([]);
-      return;
-    }
-    let alive = true;
-    const t = window.setTimeout(() => {
-      guard(backend.agents(cwd.trim()))
-        .then((r) => {
-          if (alive) setAgents(r?.agents ?? []);
-        })
-        .catch(() => {
-          if (alive) setAgents([]);
-        });
-    }, 250);
-    return () => {
-      alive = false;
-      window.clearTimeout(t);
-    };
-  }, [cwd, backend, guard]);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    const p = prompt.trim();
-    const c = cwd.trim();
-    if (!p || !c || starting) return;
-    setStarting(true);
-    setError(null);
-    try {
-      const body: StartSessionBody = {
-        prompt: p,
-        cwd: c,
-        agent: agent || undefined,
-        model: model || undefined,
-      };
-      const res = await guard(backend.start(body));
-      if (res) onStarted((res as StartSessionResponse).sessionId);
-      else setStarting(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not start the session.');
-      setStarting(false);
-    }
-  };
+  const {
+    cwd,
+    setCwd,
+    prompt,
+    setPrompt,
+    agent,
+    setAgent,
+    model,
+    setModel,
+    agents,
+    starting,
+    error,
+    submit,
+  } = useStartForm(backend, guard, onStarted);
 
   return (
     <div
@@ -101,24 +52,16 @@ export function NewSession({ backend, guard, onClose, onStarted }: Props) {
         <p className="dialog-label" id="ns-cwd-label">Working directory</p>
         <FolderPicker backend={backend} guard={guard} cwd={cwd} onCwd={setCwd} labelledby="ns-cwd-label" />
 
-        <label htmlFor="ns-agent">Agent</label>
-        <select id="ns-agent" value={agent} onChange={(e) => setAgent(e.target.value)}>
-          <option value="">Default (no agent)</option>
-          {agents.map((a) => (
-            <option key={a.name} value={a.name}>
-              {a.name}
-              {a.description ? ` — ${a.description}` : ''}
-            </option>
-          ))}
-        </select>
-
-        <label htmlFor="ns-model">Model</label>
-        <select id="ns-model" value={model} onChange={(e) => setModel(e.target.value)}>
-          <option value="">Default</option>
-          <option value="opus">Opus</option>
-          <option value="sonnet">Sonnet</option>
-          <option value="haiku">Haiku</option>
-        </select>
+        <AgentModelFields
+          agents={agents}
+          agent={agent}
+          model={model}
+          onAgent={setAgent}
+          onModel={setModel}
+          agentId="ns-agent"
+          modelId="ns-model"
+          layout="stack"
+        />
 
         {error && (
           <p className="dialog-error" role="alert">

@@ -796,7 +796,6 @@ details.collapsible > summary:hover { color: var(--text); }
   word-break: break-word;
 }
 
-.tl-detail pre,
 .tl-detail-pre {
   margin: 6px 0 0;
   padding: 8px 10px;
@@ -811,7 +810,6 @@ details.collapsible > summary:hover { color: var(--text); }
   max-height: 220px;
   overflow: auto;
 }
-.tl-error .tl-detail pre,
 .tl-error .tl-detail-pre { background: #fdf1f0; border-color: #f3c6c2; }
 
 .thinking-body { font-style: italic; color: var(--text-3); }
@@ -957,6 +955,7 @@ details.collapsible > summary:hover { color: var(--text); }
 }
 .token-card h1 { font-size: 16px; font-weight: 600; }
 .token-card p { font-size: 12.5px; color: var(--text-2); }
+.token-hint { font-size: 12px; color: var(--text-3); }
 .token-card form {
   display: flex;
   gap: 8px;

@@ -2,7 +2,6 @@
 // permission prompts resolved from the dashboard, a live agent tree per session.
 import { randomUUID } from 'node:crypto';
 import { readFileSync, realpathSync } from 'node:fs';
-import { realpath, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
@@ -13,13 +12,16 @@ import { pollWorkers } from '../model/workers.ts';
 import { DASHBOARD_ENTRYPOINTS, holderMessage, liveHolder } from '../livesessions.ts';
 import { MAX_EVENTS } from '../../src/shared/types.ts';
 import type { AgentNode, PermissionDecisionBody, PermissionRequest, ResumeSessionBody, ServerEvent, SessionDetail, SessionSummary, StartSessionBody } from '../../src/shared/types.ts';
+import { AGENT_RE, validModel, validText } from '../validate.ts';
+import { resolveDirInHome } from '../paths.ts';
+
+/** Main-thread agent names must start alphanumerically and stay short (no '../', no path tricks). */
+export { AGENT_RE };
 
 /** Throttle for session.upsert broadcasts: at most one per this many ms per session. */
 const UPSERT_MS = 250;
 /** Interval for polling worker result files of running sessions. */
 const POLL_MS = 3_000;
-/** Max characters of a resume prompt. */
-const MAX_TEXT = 100_000;
 /** A transcript written within this window means a terminal session is still live. */
 const ACTIVE_MS = 60_000;
 /** Resume waits at most this long for the previous consume() to unwind. */
@@ -28,9 +30,6 @@ const RESUME_UNWIND_MS = 5_000;
 export const EVICT_AFTER_MS = 6 * 60 * 60 * 1000;
 /** Max page sessions kept in memory (oldest finished ones are evicted first). */
 export const MAX_PAGE_SESSIONS = 50;
-/** Main-thread agent names must start alphanumerically and stay short (no '../', no path tricks). */
-export const AGENT_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-const MODEL_RE = /^(opus|sonnet|haiku|claude-[a-z0-9.-]{1,60})$/;
 
 /** Typed error so the HTTP layer can answer with the right status code. */
 export class SessionError extends Error {
@@ -143,21 +142,9 @@ function isProjectTrusted(cwd: string): boolean {
 
 /** Same cwd contract as the start path (index.ts resolveCwd): must exist, be a directory, inside $HOME. */
 async function resolveResumeCwd(raw: string | undefined): Promise<string> {
-  if (!raw || raw.length === 0) throw new SessionError(400, 'cwd is required');
-  let real: string;
-  let stats;
-  try {
-    real = await realpath(raw);
-    stats = await stat(real);
-  } catch {
-    throw new SessionError(400, 'cwd does not exist');
-  }
-  if (!stats.isDirectory()) throw new SessionError(400, 'cwd must be a directory');
-  const home = await realpath(os.homedir());
-  if (real !== home && !real.startsWith(home + path.sep)) {
-    throw new SessionError(400, 'cwd must be inside your home directory');
-  }
-  return real;
+  const resolved = await resolveDirInHome(raw);
+  if ('error' in resolved) throw new SessionError(400, resolved.error);
+  return resolved.dir;
 }
 
 export class SdkSessions {
@@ -311,9 +298,8 @@ export class SdkSessions {
   }
 
   /** Resolves one pending permission; false when the id is unknown (route answers 404). */
-  decide(permissionId: string, body: PermissionDecisionBody, session?: PageSession): boolean {
+  decide(permissionId: string, body: PermissionDecisionBody): boolean {
     const target =
-      session ??
       [...this.sessions.values()].find(s => s.pending.has(permissionId));
     if (!target) return false;
     const entry = target.pending.get(permissionId);
@@ -401,13 +387,14 @@ export class SdkSessions {
    * the dashboard's own SDK processes (see livesessions.ts).
    */
   async resume(id: string, body: ResumeSessionBody, info: ResumeInfo): Promise<string> {
-    const text = body?.text;
-    if (typeof text !== 'string' || text.trim().length === 0 || text.length > MAX_TEXT) {
-      throw new SessionError(400, 'text must be a non-empty string of at most 100000 characters');
-    }
-    if (body.model !== undefined && body.model !== null &&
-        (typeof body.model !== 'string' || !MODEL_RE.test(body.model))) {
-      throw new SessionError(400, "model must be 'opus', 'sonnet', 'haiku' or a 'claude-*' model id");
+    // The HTTP layer already validated the body; keep one guard so direct callers still get a 400.
+    let text: string;
+    let model: string | undefined;
+    try {
+      text = validText(body?.text);
+      model = validModel(body.model);
+    } catch (err) {
+      throw new SessionError(400, (err as Error).message);
     }
     // Same cwd validation as the start path, plus the agent regex on the stored agent.
     const cwd = await resolveResumeCwd(info?.cwd);
@@ -455,7 +442,7 @@ export class SdkSessions {
       existing.queue = new InputQueue();
       existing.upsertThrottle = { lastSent: 0, timer: null };
       existing.updatedAt = Date.now();
-      this.startQuery(existing, text, body.model, true);
+      this.startQuery(existing, text, model, true);
       return id;
     }
     // A live heartbeat file from any process (terminal or SDK run) forked by adoption
@@ -488,7 +475,7 @@ export class SdkSessions {
       upsertThrottle: { lastSent: 0, timer: null },
     };
     this.sessions.set(id, session);
-    this.startQuery(session, text, body.model, true);
+    this.startQuery(session, text, model, true);
     return id;
   }
 
@@ -544,7 +531,7 @@ export class SdkSessions {
   }
 
   /** cwd (and no transcript mtime: page sessions do not own one) of a page session. */
-  fileInfo(id: string): { cwd: string; mtimeMs?: number } | undefined {
+  fileInfo(id: string): { cwd: string } | undefined {
     const session = this.sessions.get(id);
     return session ? { cwd: session.cwd } : undefined;
   }
