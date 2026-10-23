@@ -1,7 +1,7 @@
 // Session list: narrow column on desktop, slide-over sheet on <=768px.
 import type { SessionSummary, WorkerTask } from '../shared/types';
-import { fmtCost, relTime } from './format';
-import { PlusIcon, TerminalIcon } from './icons';
+import { PlusIcon } from './icons';
+import { SessionRow } from './SessionRow';
 import { WorkersSection } from './Workers';
 
 interface Props {
@@ -53,31 +53,13 @@ export function Sidebar({
           </p>
         ) : (
           sessions.map((s) => (
-            <button
+            <SessionRow
               key={s.id}
-              type="button"
-              className={`sess${s.id === selectedId ? ' is-selected' : ''}`}
-              onClick={() => onSelect(s.id)}
-              aria-current={s.id === selectedId || undefined}
-            >
-              <span className="sess-top">
-                <span className={`badge src-${s.source}`}>
-                  {s.source === 'terminal' && <TerminalIcon size={10} />}
-                  {s.source}
-                </span>
-                <span className="sess-project">{s.project}</span>
-                {s.pendingPermissions > 0 && (
-                  <span className="sess-pending" title={`${s.pendingPermissions} pending permission(s)`}>
-                    {s.pendingPermissions}
-                  </span>
-                )}
-                <span className={`dot st-${s.status}`} aria-hidden="true" />
-              </span>
-              <span className="sess-title">{s.title || s.project}</span>
-              <span className="sess-meta">
-                {relTime(s.updatedAt, now)} · {fmtCost(s.costUsd)}
-              </span>
-            </button>
+              session={s}
+              now={now}
+              selected={s.id === selectedId}
+              onSelect={onSelect}
+            />
           ))
         )}
       </div>

@@ -1,9 +1,9 @@
 // Folder picker backend: lists directories under $HOME only (never outside it).
 import { readdir, realpath, stat } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import type { Dirent } from 'node:fs';
 import type { DirEntry, DirListing } from '../src/shared/types';
+import { homeReal, isInside } from './paths.ts';
 
 /** Thrown for requests the folder picker must answer with an HTTP error status. */
 export class DirError extends Error {
@@ -21,14 +21,14 @@ const MAX_ENTRIES = 500;
  * dotfiles unless `hidden`, and never node_modules. Entries are sorted case-insensitively.
  */
 export async function listDirs(rawPath?: string, hidden = false): Promise<DirListing> {
-  const home = await realpath(os.homedir());
+  const home = await homeReal();
   let target: string;
   try {
     target = await realpath(rawPath && rawPath.length > 0 ? rawPath : home);
   } catch {
     throw new DirError(400, 'path does not exist');
   }
-  if (target !== home && !target.startsWith(home + path.sep)) {
+  if (!isInside(home, target)) {
     throw new DirError(400, 'path must be inside your home directory');
   }
   let dirents: Dirent[];
@@ -51,7 +51,7 @@ export async function listDirs(rawPath?: string, hidden = false): Promise<DirLis
       } catch {
         continue;
       }
-      if (real !== home && !real.startsWith(home + path.sep)) continue;
+      if (!isInside(home, real)) continue;
       const st = await stat(real).catch(() => undefined);
       if (!st?.isDirectory()) continue;
     }

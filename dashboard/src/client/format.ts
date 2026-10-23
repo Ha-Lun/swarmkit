@@ -7,8 +7,7 @@ export function modelLabel(model?: string): string {
   const m = /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)/.exec(model);
   if (m) return `${cap(m[1])} ${m[2]}.${m[3]}`;
   if (/^(opus|sonnet|haiku)$/.test(model)) return cap(model);
-  const slash = model.lastIndexOf('/');
-  return slash >= 0 ? model.slice(slash + 1) : model;
+  return shortModel(model);
 }
 
 function cap(s: string): string {

@@ -1,8 +1,8 @@
-// Top-level app: backend wiring (real or mock), routing state, chrome.
+// Top-level app: routing state and chrome (the backend is resolved in main.tsx).
 import { Component, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
 import type { PermissionRequest, SessionSummary, WorkerTask } from '../shared/types';
-import { ApiError, apiBackend, authenticate } from './api';
+import { ApiError, authenticate } from './api';
 import type { FleetBackend, Guard } from './api';
 import { Composer } from './Composer';
 import { Continue } from './Continue';
@@ -10,7 +10,6 @@ import { Drawer } from './Drawer';
 import { fmtCost, UNTRUSTED_NOTICE } from './format';
 import { MenuIcon } from './icons';
 import { Landing } from './Landing';
-import { createMockBackend } from './mock';
 import { NewSession } from './NewSession';
 import { packInstallDone, RestartBanner } from './RestartBanner';
 import { Sidebar } from './Sidebar';
@@ -18,8 +17,6 @@ import { initialState, nodeById, reducer } from './state';
 import { Tree } from './Tree';
 import { WorkerDrawer } from './WorkerDrawer';
 import { workerKey, WorkersView } from './Workers';
-
-const MOCK = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mock') === '1';
 
 const RESTART_KEY = 'fleet.restart-dismissed';
 
@@ -199,7 +196,7 @@ function Topbar({
   );
 }
 
-function App() {
+function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -216,8 +213,6 @@ function App() {
   const [dismissedRestart, setDismissedRestart] = useState<string[]>(readDismissed);
   const workersAtRef = useRef(Date.now());
 
-  const backend = useMemo<FleetBackend>(() => (MOCK ? createMockBackend() : apiBackend), []);
-
   /** Wrap every call: a 401 surfaces the token screen instead of crashing. */
   const guard = useCallback<Guard>(async (p) => {
     try {
@@ -232,7 +227,7 @@ function App() {
   }, []);
 
   const guardSilent = useCallback(
-    (p: Promise<unknown>) => guard(p).catch(() => undefined),
+    <T,>(p: Promise<T>) => guard(p).catch((): undefined => undefined),
     [guard],
   );
 
@@ -253,7 +248,7 @@ function App() {
           const sel = stateRef.current.selectedId;
           if (sel) {
             guardSilent(backend.detail(sel)).then((d) => {
-              if (d) dispatch({ type: 'detail', detail: d as never });
+              if (d) dispatch({ type: 'detail', detail: d });
             });
           }
         }
@@ -264,7 +259,7 @@ function App() {
   // Initial session list (the hello event also refreshes it).
   useEffect(() => {
     guardSilent(backend.sessions()).then((sessions) => {
-      if (sessions) dispatch({ type: 'sessions', sessions: sessions as never });
+      if (sessions) dispatch({ type: 'ev', ev: { type: 'hello', sessions } });
     });
   }, [backend, guardSilent]);
 
@@ -273,7 +268,7 @@ function App() {
     guardSilent(backend.workers()).then((w) => {
       if (w) {
         workersAtRef.current = Date.now();
-        dispatch({ type: 'workers', workers: w as WorkerTask[] });
+        dispatch({ type: 'ev', ev: { type: 'workers.update', workers: w } });
       }
     });
   }, [backend, guardSilent]);
@@ -281,7 +276,7 @@ function App() {
   // Load (or retry) the selected session's detail.
   const detail = state.selectedId ? state.details[state.selectedId] : undefined;
   const selected = useMemo(
-    () => state.sessions.find((s) => s.id === state.selectedId) ?? (detail as SessionSummary | undefined),
+    () => state.sessions.find((s) => s.id === state.selectedId) ?? detail,
     [state.sessions, state.selectedId, detail],
   );
 
@@ -295,7 +290,7 @@ function App() {
     if (state.selectedId && !state.details[state.selectedId]) {
       guard(backend.detail(state.selectedId))
         .then((d) => {
-          if (d) dispatch({ type: 'detail', detail: d as never });
+          if (d) dispatch({ type: 'detail', detail: d });
           else setLoadError(true);
         })
         .catch(() => setLoadError(true));
@@ -375,7 +370,7 @@ function App() {
         }),
       );
       const d = await guard(backend.detail(id));
-      if (d) dispatch({ type: 'detail', detail: d as never });
+      if (d) dispatch({ type: 'detail', detail: d });
       dismissRestart();
     } catch {
       // keep the banner up so the user can retry
@@ -407,7 +402,7 @@ function App() {
       setEndedDraft(null);
       setView('session');
       guardSilent(backend.detail(id)).then((d) => {
-        if (d) dispatch({ type: 'detail', detail: d as never });
+        if (d) dispatch({ type: 'detail', detail: d });
       });
     },
     [backend, guardSilent],
@@ -417,15 +412,7 @@ function App() {
 
   const ended = !!selected && endedDraft?.id === selected.id;
   const running = selected && !ended ? selected.status === 'running' || selected.status === 'waiting' : false;
-  const canContinue =
-    !!selected &&
-    !running &&
-    (ended ||
-    (selected.source === 'terminal' ||
-      selected.status === 'done' ||
-      selected.status === 'stopped' ||
-      selected.status === 'error' ||
-      selected.status === 'idle'));
+  const canContinue = !!selected && !running;
 
   return (
     <div className="app">
@@ -434,7 +421,7 @@ function App() {
         workers={state.workers}
         selectedId={state.selectedId}
         open={sheetOpen}
-        connected={state.connected || MOCK}
+        connected={state.connected || mock}
         now={now}
         workersAt={workersAtRef.current}
         onSelect={selectSession}
@@ -461,7 +448,7 @@ function App() {
             {UNTRUSTED_NOTICE}
           </p>
         )}
-        {!state.connected && !MOCK && (
+        {!state.connected && !mock && (
           <div className="conn-banner" aria-live="polite">
             Connection lost — reconnecting…
           </div>
@@ -508,9 +495,9 @@ function App() {
           />
         )}
 
-        {view === 'session' && selected && detail && showRestart && (
+        {detail && showRestart && (
           <RestartBanner
-            source={selected.source}
+            source={detail.source}
             busy={restartBusy}
             onRestart={() => void restartSession()}
             onDismiss={dismissRestart}
@@ -571,10 +558,10 @@ function App() {
   );
 }
 
-export default function AppRoot() {
+export default function AppRoot({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   return (
     <ErrorBoundary>
-      <App />
+      <App backend={backend} mock={mock} />
     </ErrorBoundary>
   );
 }

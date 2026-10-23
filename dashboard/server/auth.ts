@@ -119,11 +119,6 @@ export function checkAuth(req: IncomingMessage, token: string): 'header' | 'cook
   return null;
 }
 
-/** True when the request carries the valid token (header or derived cookie). */
-export function isAuthorized(req: IncomingMessage, token: string): boolean {
-  return checkAuth(req, token) !== null;
-}
-
 /**
  * CSRF guard for state-changing requests (POST/DELETE). A request without an
  * Origin header (curl, tests) is accepted only when it authenticated with the

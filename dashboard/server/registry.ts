@@ -1,11 +1,12 @@
 // Workers registry: scans agy-task / opencode-task task dirs (<root>/<repo>/<slug>/) and
 // reports their live state, mirroring scripts/agy-task (see alive(), list_extra(), tool_failure()).
-import { open, lstat, readdir, readFile, stat } from 'node:fs/promises';
+import { lstat, readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, sep } from 'node:path';
 import { realpath } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
 import type { WorkerTask } from '../src/shared/types';
+import { extractLines, parseObject, readRange } from './fsutil.ts';
 
 /** Matches the permission refusals opencode writes into its JSON stream (same as agy-task's DENIED). */
 const DENIED = /rule which prevents|permission|rejected/i;
@@ -74,18 +75,6 @@ async function readText(path: string): Promise<string | undefined> {
   }
 }
 
-function parseObject(text: string | undefined): Record<string, unknown> {
-  if (!text) return {};
-  try {
-    const parsed: unknown = JSON.parse(text);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
-}
-
 function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 ? v : undefined;
 }
@@ -134,19 +123,11 @@ function clockOf(v: unknown): string {
 
 /** Reads at most the last `max` bytes of a file. */
 async function readTail(path: string, max: number): Promise<string | undefined> {
-  const handle = await open(path, 'r').catch(() => undefined);
-  if (!handle) return undefined;
-  try {
-    const st = await handle.stat();
-    const len = Math.min(st.size, max);
-    const buf = Buffer.alloc(len);
-    await handle.read(buf, 0, len, st.size - len);
-    return buf.toString('utf8');
-  } catch {
-    return undefined;
-  } finally {
-    await handle.close().catch(() => {});
-  }
+  const st = await stat(path).catch(() => undefined);
+  if (!st || !st.isFile()) return undefined;
+  const from = Math.max(0, st.size - max);
+  const buf = await readRange(path, from, st.size - from).catch(() => undefined);
+  return buf?.toString('utf8');
 }
 
 export class WorkerRegistry {
@@ -364,12 +345,12 @@ export class WorkerRegistry {
       // Only bytes past the cached partial tail are new.
       const readFrom = cached.offset + cached.rest.length;
       if (st.size >= readFrom) {
-        const appended = await readRangeBytes(path, readFrom, st.size - readFrom);
+        const appended = await readRange(path, readFrom, st.size - readFrom).catch(() => undefined);
         if (appended) {
           const buf = Buffer.concat([cached.rest, appended]);
-          const { lines, rest } = extractCompleteLines(buf);
+          const { lines, rest } = extractLines(buf);
           if (lines.length > 0) {
-            const parsedLog = parseOpencodeLogLines(lines);
+            const parsedLog = parseOpencodeLog(lines.join('\n'));
             const toolCounts = { ...cached.toolCounts };
             for (const [tool, n] of Object.entries(parsedLog.toolCounts)) toolCounts[tool] = (toolCounts[tool] ?? 0) + n;
             const entry: LogCacheEntry = {
@@ -382,18 +363,21 @@ export class WorkerRegistry {
               offset: readFrom + appended.length - rest.length,
               rest,
             };
-            return this.saveLogCache(dir, entry);
+            this.logCache.set(dir, entry);
+            return entry;
           }
           // Nothing complete yet (partial line): just extend the rest.
           if (buf.length > cached.rest.length) {
-            return this.saveLogCache(dir, { ...cached, rest: buf, mtimeMs: st.mtimeMs, size: st.size });
+            const entry: LogCacheEntry = { ...cached, rest: buf, mtimeMs: st.mtimeMs, size: st.size };
+            this.logCache.set(dir, entry);
+            return entry;
           }
         }
       }
     }
     // Shrunk or first read: recompute from the tail.
     const from = Math.max(0, st.size - MAX_LOG_BYTES);
-    let buf = await readRangeBytes(path, from, st.size - from);
+    let buf = await readRange(path, from, st.size - from).catch(() => undefined);
     if (buf === undefined) {
       this.logCache.delete(dir);
       return undefined;
@@ -406,20 +390,17 @@ export class WorkerRegistry {
         buf = buf.subarray(nl + 1);
       }
     }
-    const { lines, rest } = extractCompleteLines(buf);
+    const { lines, rest } = extractLines(buf);
     // best-effort: also parse a trailing partial line (a rewritten log may end without '\n')
     if (lines.length === 0 && rest.length > 0) lines.push(rest.toString('utf8'));
-    const parsed = parseOpencodeLogLines(lines.length > 0 ? lines : []);
-    return this.saveLogCache(dir, {
+    const parsed = parseOpencodeLog(lines.join('\n'));
+    const entry: LogCacheEntry = {
       ...parsed,
       mtimeMs: st.mtimeMs,
       size: st.size,
       offset: cutAt + buf.length, // fully consumed (the tail spec covers the partial line)
       rest: Buffer.alloc(0),
-    });
-  }
-
-  private saveLogCache(dir: string, entry: LogCacheEntry): LogCacheEntry {
+    };
     this.logCache.set(dir, entry);
     return entry;
   }
@@ -491,47 +472,8 @@ function signatureOf(workers: WorkerTask[]): string {
     .join('|');
 }
 
-/** Reads exactly [offset, offset+length) bytes of a file. */
-async function readRangeBytes(path: string, offset: number, length: number): Promise<Buffer | undefined> {
-  if (length <= 0) return Buffer.alloc(0);
-  const handle = await open(path, 'r').catch(() => undefined);
-  if (!handle) return undefined;
-  try {
-    const buf = Buffer.alloc(length);
-    const { bytesRead } = await handle.read(buf, 0, length, offset);
-    return buf.subarray(0, bytesRead);
-  } catch {
-    return undefined;
-  } finally {
-    await handle.close().catch(() => {});
-  }
-}
-
-/** Splits a buffer into complete newline-terminated lines; the trailing partial line is not included. */
-function extractCompleteLines(buf: Buffer): { lines: string[]; rest: Buffer } {
-  const lines: string[] = [];
-  let start = 0;
-  while (start < buf.length) {
-    const nl = buf.indexOf(0x0a, start);
-    if (nl < 0) break;
-    const line = buf.subarray(start, nl).toString('utf8');
-    if (line.trim().length > 0) lines.push(line);
-    start = nl + 1;
-  }
-  return { lines, rest: buf.subarray(start) };
-}
-
-/** parseOpencodeLog over already-split lines. */
-function parseOpencodeLogLines(lines: string[]): ParsedLog {
-  const toolCounts: Record<string, number> = {};
-  let lastTool: string | undefined;
-  let denied = 0;
-  const joined = lines.length > 0 ? lines.join('\n') : '';
-  return joined ? { ...parseOpencodeLog(joined) } : { toolCounts, lastTool, denied };
-}
-
 /** Counts denied tool_use lines and collects toolCounts / lastTool from an opencode.log tail. */
-export function parseOpencodeLog(text: string): ParsedLog {
+function parseOpencodeLog(text: string): ParsedLog {
   const toolCounts: Record<string, number> = {};
   let lastTool: string | undefined;
   let denied = 0;

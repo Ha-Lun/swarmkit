@@ -6,8 +6,10 @@
 // Resuming a session that such a process still owns would fork it: a second process
 // appending to the same transcript. This file answers "who holds this session id".
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import path from 'node:path';
+import { claudeConfigDir } from './paths.ts';
+
+export { claudeConfigDir };
 
 /** A running Claude Code process that claims the session id. */
 export interface LiveHolder {
@@ -15,13 +17,6 @@ export interface LiveHolder {
   kind?: string;
   status?: string;
   entrypoint?: string;
-}
-
-/** Claude config dir: CLAUDE_CONFIG_DIR overrides ~/.claude (non-empty wins). */
-export function claudeConfigDir(): string {
-  const override = process.env.CLAUDE_CONFIG_DIR;
-  if (typeof override === 'string' && override.trim().length > 0) return override;
-  return path.join(homedir(), '.claude');
 }
 
 /** Entrypoints of claude processes this dashboard itself spawned (agent SDK runs). */
@@ -112,7 +107,7 @@ export async function freshTranscriptMtimeMs(
   opts?: { root?: string },
 ): Promise<number | undefined> {
   if (sessionId.length === 0 || cwd.length === 0) return undefined;
-  const root = opts?.root ?? path.join(homedir(), '.claude', 'projects');
+  const root = opts?.root ?? path.join(claudeConfigDir(), 'projects');
   const file = path.join(root, cwd.replace(/[^a-zA-Z0-9]/g, '-'), `${sessionId}.jsonl`);
   try {
     return (await stat(file)).mtimeMs;

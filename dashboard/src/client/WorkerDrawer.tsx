@@ -57,7 +57,7 @@ export function WorkerDrawer({ task, backend, guard, now, at, onClose, onViewInT
     const pull = () => {
       guard(backend.workerLog(task.lane, task.repo, task.slug))
         .then((r) => {
-          if (alive && r) setLog((r as { lines: string[] }).lines);
+          if (alive && r) setLog(r.lines);
         })
         .catch(() => {
           if (alive) setLog(null);

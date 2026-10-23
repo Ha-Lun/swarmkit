@@ -11,12 +11,6 @@ export function workerKey(t: WorkerTask): string {
   return `${t.lane}/${t.repo}/${t.slug}`;
 }
 
-const byRunning = (a: WorkerTask, b: WorkerTask) => {
-  const ar = a.state === 'running' ? 0 : 1;
-  const br = b.state === 'running' ? 0 : 1;
-  return ar - br || b.startedAt - a.startedAt;
-};
-
 interface SectionProps {
   workers: WorkerTask[];
   now: number;
@@ -27,7 +21,7 @@ interface SectionProps {
 
 export function WorkersSection({ workers, now, at, onOpen, onOpenAll }: SectionProps) {
   const running = workers.filter((w) => w.state === 'running').length;
-  const top = [...workers].sort(byRunning).slice(0, 5);
+  const top = workers.slice(0, 5);
   return (
     <section className="wk-section" aria-label="Worker tasks">
       <header className="wk-head">
