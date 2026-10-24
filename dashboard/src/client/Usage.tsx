@@ -1,6 +1,6 @@
 // Usage panel: Claude plan limits + opencode / agy consumption. Polled every 60s
 // while the tab is visible; keeps the last good report through failures.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { FleetBackend, Guard } from './api';
 import type { UsageLimit, UsageReport } from '../shared/types';
@@ -13,48 +13,50 @@ export function useUsage(
   active: boolean,
 ): { report: UsageReport | null; loading: boolean; refresh: () => void } {
   const [report, setReport] = useState<UsageReport | null>(null);
-  const [loading, setLoading] = useState(active);
+  // Request sequence: only the newest in-flight response may call setReport.
+  const seq = useRef(0);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
+  const pull = useCallback(
+    (refresh: boolean) => {
+      if (!active) return;
+      const id = ++seq.current;
+      guard(backend.usage(refresh))
+        .then((r) => {
+          if (alive.current && r && id === seq.current) setReport(r);
+        })
+        .catch(() => undefined); // stale report stays; a 401 flips the UI via guard
+    },
+    [active, backend, guard],
+  );
 
   useEffect(() => {
     if (!active) return;
-    let alive = true;
-    const pull = (refresh?: boolean) => {
-      guard(backend.usage(refresh))
-        .then((r) => {
-          if (alive && r) setReport(r);
-        })
-        .catch(() => undefined) // stale report stays; a 401 flips the UI via guard
-        .finally(() => {
-          if (alive) setLoading(false);
-        });
-    };
-    pull();
+    // Skip the mount pull when the tab is hidden — visibilitychange handles the wake-up.
+    if (document.visibilityState !== 'hidden') pull(false);
     const id = window.setInterval(() => {
-      if (document.visibilityState === 'visible') pull();
+      if (document.visibilityState === 'visible') pull(false);
     }, 60_000);
     const onVisible = () => {
-      if (document.visibilityState === 'visible') pull();
+      if (document.visibilityState === 'visible') pull(false);
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => {
-      alive = false;
       window.clearInterval(id);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [active, backend, guard]);
+  }, [active, pull]);
 
-  const refresh = useCallback(() => {
-    if (!active) return;
-    setLoading(true);
-    guard(backend.usage(true))
-      .then((r) => {
-        if (r) setReport(r);
-      })
-      .catch(() => undefined)
-      .finally(() => setLoading(false));
-  }, [active, backend, guard]);
+  const refresh = useCallback(() => pull(true), [pull]);
 
-  return { report, loading, refresh };
+  // `loading` is derived: the very first report hasn't landed yet while we poll.
+  return { report, loading: report === null && active, refresh };
 }
 
 function RefreshIcon({ size = 13 }: { size?: number }) {
@@ -80,7 +82,7 @@ function RefreshIcon({ size = 13 }: { size?: number }) {
 function UsageCard({ source, title, children }: { source: string; title: string; children: ReactNode }) {
   return (
     <div className={`usage-card is-${source}`}>
-      <p className="usage-name">{title}</p>
+      <h3 className="usage-name">{title}</h3>
       {children}
     </div>
   );
@@ -90,17 +92,20 @@ function Segmented({
   options,
   value,
   onChange,
+  label,
 }: {
-  options: Array<{ days: number; label: string }>;
+  options: Array<{ days: number; label: string; a11y: string }>;
   value: number;
   onChange: (days: number) => void;
+  label: string;
 }) {
   return (
-    <div className="usage-seg" role="group" aria-label="Window">
+    <div className="usage-seg" role="group" aria-label={label}>
       {options.map((o) => (
         <button
           key={o.days}
           type="button"
+          aria-label={o.a11y}
           aria-pressed={o.days === value || undefined}
           onClick={() => onChange(o.days)}
         >
@@ -111,16 +116,22 @@ function Segmented({
   );
 }
 
+const SEG_OPTIONS = [
+  { days: 1, label: '1d', a11y: 'Last 1 day' },
+  { days: 7, label: '7d', a11y: 'Last 7 days' },
+  { days: 30, label: '30d', a11y: 'Last 30 days' },
+];
+
+const AGY_OPTIONS = SEG_OPTIONS.slice(0, 2);
+
 function UsageBar({ label, limit }: { label: string; limit: UsageLimit }) {
   const u = limit.utilization;
-  if (u == null) {
+  if (u == null || !Number.isFinite(u)) {
     return (
-      <div className="usage-limit">
-        <div className="usage-limit-top">
-          <span className="usage-label">{label}</span>
-          <span className="usage-pct muted">—</span>
-        </div>
-      </div>
+      <p className="usage-limit-top">
+        <span className="usage-label">{label}</span>
+        <span className="usage-pct muted">—</span>
+      </p>
     );
   }
   const pct = Math.round(Math.min(100, Math.max(0, u)));
@@ -141,9 +152,14 @@ function UsageBar({ label, limit }: { label: string; limit: UsageLimit }) {
       >
         <div className={`usage-fill tone-${tone}`} style={{ width: `${pct}%` }} />
       </div>
-      {limit.resetsAt && <p className="usage-reset muted">resets {fmtResetIn(limit.resetsAt)}</p>}
+      {limit.resetsAt ? textOrNothing('resets ', fmtResetIn(limit.resetsAt)) : null}
     </div>
   );
+}
+
+/** Renders nothing when the formatted value is empty (unparseable date). */
+function textOrNothing(prefix: string, value: string): ReactNode {
+  return value ? <p className="usage-reset muted">{prefix}{value}</p> : null;
 }
 
 type LimitKey = 'fiveHour' | 'sevenDay' | 'sevenDayOpus' | 'sevenDaySonnet';
@@ -177,8 +193,15 @@ function ClaudeCard({ claude }: { claude: UsageReport['claude'] }) {
   );
 }
 
-function OpenCodeCard({ oc }: { oc: UsageReport['opencode'] }) {
-  const [days, setDays] = useState(1);
+function OpenCodeCard({
+  oc,
+  days,
+  onDays,
+}: {
+  oc: UsageReport['opencode'];
+  days: number;
+  onDays: (d: number) => void;
+}) {
   if (!oc.available) {
     return (
       <UsageCard source="opencode" title="OpenCode">
@@ -189,18 +212,10 @@ function OpenCodeCard({ oc }: { oc: UsageReport['opencode'] }) {
   const win = oc.windows.find((w) => w.days === days);
   return (
     <UsageCard source="opencode" title="OpenCode">
-      <Segmented
-        options={[
-          { days: 1, label: '1d' },
-          { days: 7, label: '7d' },
-          { days: 30, label: '30d' },
-        ]}
-        value={days}
-        onChange={setDays}
-      />
+      <Segmented options={SEG_OPTIONS} value={days} onChange={onDays} label="OpenCode window" />
       <p className="usage-big">
-        {fmtTokens(win?.tokens ?? 0)}
-        {typeof win?.costUsd === 'number' && (
+        {win ? fmtTokens(win.tokens) : '—'}
+        {win && typeof win.costUsd === 'number' && (
           <span className="usage-cost muted"> ≈ {fmtCost(win.costUsd)} est.</span>
         )}
       </p>
@@ -209,8 +224,15 @@ function OpenCodeCard({ oc }: { oc: UsageReport['opencode'] }) {
   );
 }
 
-function AgyCard({ a }: { a: UsageReport['agy'] }) {
-  const [days, setDays] = useState(1);
+function AgyCard({
+  a,
+  days,
+  onDays,
+}: {
+  a: UsageReport['agy'];
+  days: number;
+  onDays: (d: number) => void;
+}) {
   if (!a.available) {
     return (
       <UsageCard source="agy" title="agy">
@@ -222,22 +244,21 @@ function AgyCard({ a }: { a: UsageReport['agy'] }) {
   const win = a.windows.find((w) => w.days === days);
   return (
     <UsageCard source="agy" title="agy">
-      <Segmented
-        options={[
-          { days: 1, label: '1d' },
-          { days: 7, label: '7d' },
-        ]}
-        value={days}
-        onChange={setDays}
-      />
+      <Segmented options={AGY_OPTIONS} value={days} onChange={onDays} label="agy window" />
       {noRuns ? (
-        <p className="usage-big usage-big-empty">No agy runs this week</p>
+        <p className="usage-big usage-big-empty">
+          {days === 1 ? 'No agy runs in the last day' : 'No agy runs this week'}
+        </p>
       ) : (
         <>
-          <p className="usage-big">{fmtTokens(win?.tokens ?? 0)}</p>
-          <p className="usage-runs">
-            {win?.runs ?? 0} runs · {win?.stopped ?? 0} stopped
-          </p>
+          <p className="usage-big">{win ? fmtTokens(win.tokens) : '—'}</p>
+          {win ? (
+            <p className="usage-runs">
+              {win.runs ?? 0} runs · {win.stopped ?? 0} stopped
+            </p>
+          ) : (
+            <p className="usage-runs">—</p>
+          )}
         </>
       )}
       <p className="usage-note muted">Consumption only — agy exposes no quota.</p>
@@ -254,27 +275,49 @@ export function UsagePanel({
   loading: boolean;
   onRefresh: () => void;
 }) {
+  // Selected windows per source live here (not in the cards) so they survive card remounts.
+  const [daysBySource, setDaysBySource] = useState<Record<'opencode' | 'agy', number>>({
+    opencode: 1,
+    agy: 1,
+  });
   if (!report) {
     return (
-      <div className="usage" aria-live="polite">
+      <div className="usage">
+        <p className="sr-only" aria-live="polite">
+          {loading ? 'Loading usage…' : 'Usage unavailable.'}
+        </p>
         <p className="muted">{loading ? 'Loading…' : 'Usage unavailable.'}</p>
       </div>
     );
   }
   const asOf = report.claude.asOf ?? report.opencode.asOf ?? report.agy.asOf;
+  const asOfLabel = asOf ? fmtClockShort(asOf) : '';
   return (
     <div className="usage">
+      <p className="sr-only" aria-live="polite">
+        Usage updated
+      </p>
       <div className="usage-grid">
         <ClaudeCard claude={report.claude} />
-        <OpenCodeCard oc={report.opencode} />
-        <AgyCard a={report.agy} />
+        <OpenCodeCard
+          oc={report.opencode}
+          days={daysBySource.opencode}
+          onDays={(d) => setDaysBySource((p) => ({ ...p, opencode: d }))}
+        />
+        <AgyCard
+          a={report.agy}
+          days={daysBySource.agy}
+          onDays={(d) => setDaysBySource((p) => ({ ...p, agy: d }))}
+        />
       </div>
       <div className="usage-foot">
-        <span className="usage-asof muted">as of {asOf ? fmtClockShort(asOf) : '—'}</span>
+        {asOfLabel ? <span className="usage-asof muted">as of {asOfLabel}</span> : null}
         <button
           type="button"
           className="icon-btn usage-refresh"
           aria-label="Refresh usage"
+          aria-busy={loading || undefined}
+          disabled={loading}
           title="Refresh"
           onClick={onRefresh}
         >

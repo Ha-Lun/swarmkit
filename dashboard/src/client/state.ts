@@ -34,13 +34,6 @@ function mergeSessions(list: SessionSummary[], s: SessionSummary): SessionSummar
   return next.sort(byRecency);
 }
 
-function pickDefault(list: SessionSummary[]): null {
-  // The landing page is the home screen on every width: the dashboard never
-  // auto-selects a session, the user always picks (or starts) one.
-  void list;
-  return null;
-}
-
 function mergeHead(detail: SessionDetail, head: AgentNodeHead): SessionDetail {
   const i = detail.nodes.findIndex((n) => n.id === head.id);
   const nodes: AgentNode[] =
@@ -75,7 +68,8 @@ export function reducer(state: AppState, action: Action): AppState {
       switch (ev.type) {
         case 'hello': {
           const sessions = [...ev.sessions].sort(byRecency);
-          return { ...state, sessions, selectedId: state.selectedId ?? pickDefault(sessions) };
+          // The landing page is the home screen on every width: never auto-select.
+          return { ...state, sessions };
         }
         case 'session.upsert': {
           const sessions = mergeSessions(state.sessions, ev.session);
@@ -89,8 +83,7 @@ export function reducer(state: AppState, action: Action): AppState {
           const sessions = state.sessions.filter((s) => s.id !== ev.sessionId);
           const details = { ...state.details };
           delete details[ev.sessionId];
-          const selectedId =
-            state.selectedId === ev.sessionId ? pickDefault(sessions) : state.selectedId;
+          const selectedId = state.selectedId === ev.sessionId ? null : state.selectedId;
           return { ...state, sessions, details, selectedId };
         }
         case 'node.upsert': {
@@ -150,7 +143,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         sessions,
         details: { ...state.details, [action.detail.id]: action.detail },
-        selectedId: state.selectedId ?? action.detail.id,
+        selectedId: state.selectedId,
       };
     }
 

@@ -253,7 +253,8 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   useKeyboardInset();
 
   // Usage report shared by the landing panel and the sidebar pill.
-  const usage = useUsage(backend, guard, true);
+  // Inactive until auth succeeds: the token screen shouldn't poll the API.
+  const usage = useUsage(backend, guard, !authNeeded);
 
   // Live event stream.
   useEffect(() => {
@@ -332,13 +333,11 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
 
   const openNode = useCallback((nodeId: string) => setDrawerNodeId(nodeId), []);
   const selectSession = useCallback((id: string) => {
-    setPinnedHome(false);
     dispatch({ type: 'select', sessionId: id });
     setSheetOpen(false);
     setView('session');
   }, []);
   const onStarted = useCallback((id: string) => {
-    setPinnedHome(false);
     setNewOpen(false);
     setSheetOpen(false);
     setDrawerNodeId(null);
@@ -348,19 +347,14 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
 
   const openWorker = useCallback((task: WorkerTask) => setWorkerDrawerKey(workerKey(task)), []);
 
-  // Home: clear the selection and return to the landing. pickDefault now never
-  // re-selects, but later 'detail' events still cache under the cleared id — a
-  // local pinnedHome flag keeps home sticky until the user picks or starts a session.
-  const [pinnedHome, setPinnedHome] = useState(false);
+  // Home just clears the selection: the landing page is the home screen, and the
+  // reducer never re-selects a session, so later 'detail' events can't pull us
+  // back into a session.
   const goHome = useCallback(() => {
-    setPinnedHome(true);
     dispatch({ type: 'select', sessionId: null });
     setSheetOpen(false);
     setView('session');
   }, []);
-  useEffect(() => {
-    if (pinnedHome && state.selectedId) dispatch({ type: 'select', sessionId: null });
-  }, [pinnedHome, state.selectedId]);
 
   // Sheet close (X button, backdrop, Escape): hand focus back to the opener
   // so mobile users' keyboard focus stays on the menu button.
