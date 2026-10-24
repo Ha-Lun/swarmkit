@@ -205,6 +205,13 @@ function OpenCodeCard({
   );
 }
 
+function shortAgyGroupLabel(group: string): string {
+  const lower = group.toLowerCase();
+  if (lower.includes('gemini')) return 'Gemini';
+  if (lower.includes('claude') || lower.includes('gpt') || lower.includes('3p')) return 'Claude/GPT';
+  return group;
+}
+
 function AgyCard({
   a,
   days,
@@ -223,26 +230,47 @@ function AgyCard({
   }
   const noRuns = a.windows.every((w) => (w.runs ?? 0) === 0);
   const win = a.windows.find((w) => w.days === days);
+  const limits = [...(a.limits ?? [])].sort((x, y) => {
+    const gx = shortAgyGroupLabel(x.group);
+    const gy = shortAgyGroupLabel(y.group);
+    const gi = (g: string) => (g === 'Gemini' ? 0 : g === 'Claude/GPT' ? 1 : 2);
+    const wi = (w: string) => (w === '5h' ? 0 : 1);
+    return gi(gx) - gi(gy) || wi(x.window) - wi(y.window) || gx.localeCompare(gy);
+  });
   return (
     <UsageCard source="agy" title="agy">
-      <Segmented options={AGY_OPTIONS} value={days} onChange={onDays} label="agy window" />
-      {noRuns ? (
-        <p className="usage-big usage-big-empty">
-          {days === 1 ? 'No agy runs in the last day' : 'No agy runs this week'}
-        </p>
+      {limits.length > 0 ? (
+        <div className="usage-limits">
+          {limits.map((l, i) => (
+            <UsageBar
+              key={`${l.group}-${l.window}-${i}`}
+              label={`${shortAgyGroupLabel(l.group)} · ${l.window}`}
+              limit={{ utilization: l.utilization, resetsAt: l.resetsAt }}
+            />
+          ))}
+        </div>
       ) : (
-        <>
-          <p className="usage-big">{win ? fmtTokens(win.tokens) : '—'}</p>
-          {win ? (
-            <p className="usage-runs">
-              {win.runs ?? 0} runs · {win.stopped ?? 0} stopped
-            </p>
-          ) : (
-            <p className="usage-runs">—</p>
-          )}
-        </>
+        a.error ? <p className="usage-note muted">{a.error}</p> : null
       )}
-      <p className="usage-note muted">Consumption only — agy exposes no quota.</p>
+      <div className="usage-agy-consumption">
+        <Segmented options={AGY_OPTIONS} value={days} onChange={onDays} label="agy window" />
+        {noRuns ? (
+          <p className="usage-big usage-big-empty">
+            {days === 1 ? 'No agy runs in the last day' : 'No agy runs this week'}
+          </p>
+        ) : (
+          <>
+            <p className="usage-big">{win ? fmtTokens(win.tokens) : '—'}</p>
+            {win ? (
+              <p className="usage-runs">
+                {win.runs ?? 0} runs · {win.stopped ?? 0} stopped
+              </p>
+            ) : (
+              <p className="usage-runs">—</p>
+            )}
+          </>
+        )}
+      </div>
     </UsageCard>
   );
 }

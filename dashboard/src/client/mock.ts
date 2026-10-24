@@ -638,6 +638,12 @@ export function createMockBackend(): FleetBackend {
         { days: 1, tokens: 96_000, runs: 5, stopped: 1 },
         { days: 7, tokens: 640_000, runs: 23, stopped: 4 },
       ],
+      limits: [
+        { group: 'Gemini', window: '5h', utilization: 12, resetsAt: new Date(base + 4 * 3_600_000).toISOString() },
+        { group: 'Gemini', window: 'weekly', utilization: 31, resetsAt: new Date(base + 3 * 86_400_000).toISOString() },
+        { group: 'Claude/GPT', window: '5h', utilization: 0, resetsAt: new Date(base + 5 * 3_600_000).toISOString() },
+        { group: 'Claude/GPT', window: 'weekly', utilization: 8, resetsAt: new Date(base + 4 * 86_400_000).toISOString() },
+      ],
     },
   };
 

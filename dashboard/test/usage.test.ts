@@ -66,6 +66,7 @@ function fakeStats(responses: Record<string, string>): { exec: UsageExec; calls:
   const exec: UsageExec = async (file, args, execOpts) => {
     void execOpts;
     calls.push(`${file} ${args.join(' ')}`);
+    if (file === 'agy') throw Object.assign(new Error('spawn agy ENOENT'), { code: 'ENOENT' });
     if (file !== 'opencode') throw Object.assign(new Error(`not opencode: ${file}`), { code: 'ENOENT' });
     const daysIdx = args.indexOf('--days');
     const days = daysIdx >= 0 ? args[daysIdx + 1] : args[0];
@@ -76,6 +77,16 @@ function fakeStats(responses: Record<string, string>): { exec: UsageExec; calls:
   return { exec, calls };
 }
 
+/** Only opencode invocations: the shared fake also records the `agy -p /usage` call. */
+function opencodeCallsOnly(calls: string[]): string[] {
+  return calls.filter((c) => c.startsWith('opencode '));
+}
+
+/** Fast fake for tests that don't care about collectors: never spawns, answers ENOENT for any binary. */
+const enoentExec: UsageExec = async () => {
+  throw Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' });
+};
+
 describe('opencode collector', () => {
   it('parses tokens (input+output+reasoning+cache read/write) and cost per window', async () => {
     const responses: Record<string, string> = {
@@ -84,7 +95,7 @@ describe('opencode collector', () => {
       '30': JSON.stringify({ tokens: { input: 1, output: 2 }, cost: 0.01 }),
     };
     const { exec, calls } = fakeStats(responses);
-    const report = await getUsage({ execFile: exec, queryFactory: noProbeFactory, state: createUsageState() });
+    const report = await getUsage({ execFile: exec, queryFactory: noProbeFactory, state: createUsageState(), taskDir: join(tmpdir(), 'no-such-usage-stats-dir') });
     expect(report.opencode.available).toBe(true);
     expect(report.opencode.windows).toHaveLength(3);
     expect(report.opencode.windows.map((w) => w.days)).toEqual([1, 7, 30]);
@@ -99,7 +110,7 @@ describe('opencode collector', () => {
     const exec: UsageExec = async () => {
       throw Object.assign(new Error('spawn opencode ENOENT'), { code: 'ENOENT' });
     };
-    const report = await getUsage({ execFile: exec, queryFactory: noProbeFactory, state: createUsageState() });
+    const report = await getUsage({ execFile: exec, queryFactory: noProbeFactory, taskDir: join(tmpdir(), 'no-such-usage-dir'), state: createUsageState() });
     expect(report.opencode).toMatchObject({ available: false, asOf: null, error: 'opencode not installed' });
   });
 
@@ -154,7 +165,7 @@ describe('agy collector', () => {
   });
 
   it('aggregates tokens/runs/stopped per window by result.json mtime', async () => {
-    const report = await getUsage({ queryFactory: noProbeFactory, taskDir: dir, state: createUsageState() });
+    const report = await getUsage({ execFile: enoentExec, queryFactory: noProbeFactory, taskDir: dir, state: createUsageState() });
     expect(report.agy.available).toBe(true);
     expect(report.agy.windows).toHaveLength(2);
     const [day1, day7] = report.agy.windows;
@@ -164,7 +175,7 @@ describe('agy collector', () => {
   });
 
   it('answers available:false when the task dir is missing', async () => {
-    const report = await getUsage({ queryFactory: noProbeFactory, taskDir: join(dir, 'no-such-dir'), state: createUsageState() });
+    const report = await getUsage({ execFile: enoentExec, queryFactory: noProbeFactory, taskDir: join(dir, 'no-such-dir'), state: createUsageState() });
     expect(report.agy).toMatchObject({ available: false, asOf: null, error: 'agy task dir unreadable' });
   });
 });
@@ -183,18 +194,18 @@ describe('cache TTL', () => {
     const base = (): UsageOptions => ({ execFile: stats.exec, queryFactory: noProbeFactory, now: clock.now, taskDir: agyDir, state });
     try {
       await getUsage(base()); // prime: opencode + agy computed, claude from session (no factory)
-      expect(stats.calls.length).toBe(3);
+      expect(opencodeCallsOnly(stats.calls).length).toBe(3);
 
       clock.advance(30_000);
       const warm = await getUsage(base());
-      expect(stats.calls.length).toBe(3); // exec never invoked again: all within TTL
+      expect(opencodeCallsOnly(stats.calls).length).toBe(3); // exec never invoked again: all within TTL
       expect(warm.opencode.windows[0]!.tokens).toBe(3);
 
       clock.advance(61_000); // opencode/agy caches (60 s) expire
       const after = fakeStats(responses);
       stats = after;
       const cold = await getUsage(base());
-      expect(after.calls.length).toBe(3);
+      expect(opencodeCallsOnly(after.calls).length).toBe(3);
       expect(cold.opencode.available).toBe(true);
     } finally {
       await rm(agyDir, { recursive: true, force: true });
@@ -212,9 +223,9 @@ describe('cache TTL', () => {
     const agyDir = await mkdtemp(join(tmpdir(), 'usage-empty-'));
     try {
       await getUsage({ execFile: exec, queryFactory: noProbeFactory, taskDir: agyDir, state });
-      expect(calls.length).toBe(3);
+      expect(opencodeCallsOnly(calls).length).toBe(3);
       await getUsage({ execFile: exec, queryFactory: noProbeFactory, taskDir: agyDir, state, refresh: true });
-      expect(calls.length).toBe(6); // all windows recomputed despite the fresh TTL
+      expect(opencodeCallsOnly(calls).length).toBe(6); // all windows recomputed despite the fresh TTL
     } finally {
       await rm(agyDir, { recursive: true, force: true });
     }
@@ -235,7 +246,7 @@ describe('claude probe', () => {
 
   it('maps the usage response and always closes the query', async () => {
     const { factory, queries } = fakeQuery(() => Promise.resolve(probeResponse));
-    const report = await getUsage({ queryFactory: factory, state: createUsageState() });
+    const report = await getUsage({ execFile: enoentExec, queryFactory: factory, taskDir: join(tmpdir(), 'no-such-usage-dir'), state: createUsageState() });
     expect(report.claude).toMatchObject({
       available: true,
       source: 'probe',
@@ -273,7 +284,7 @@ describe('claude probe', () => {
     const { factory, queries } = fakeQuery(() =>
       Promise.resolve({ subscription_type: null, rate_limits_available: false, rate_limits: null }),
     );
-    const report = await getUsage({ queryFactory: factory, state });
+    const report = await getUsage({ execFile: enoentExec, queryFactory: factory, taskDir: join(tmpdir(), 'no-such-usage-dir'), state });
     expect(report.claude).toMatchObject({
       available: true,
       source: 'session',
@@ -290,7 +301,7 @@ describe('claude probe', () => {
       resetsAt: undefined,
     } as SDKRateLimitInfo, state);
     const { factory, queries } = fakeQuery(() => Promise.reject(new Error('usage endpoint down')));
-    const report = await getUsage({ queryFactory: factory, state });
+    const report = await getUsage({ execFile: enoentExec, queryFactory: factory, taskDir: join(tmpdir(), 'no-such-usage-dir'), state });
     expect(report.claude).toMatchObject({ available: true, source: 'session' });
     expect(report.claude.fiveHour).toBeUndefined();
     expect(report.claude.sevenDay).toMatchObject({ utilization: 100, resetsAt: null });
@@ -303,7 +314,7 @@ describe('claude probe', () => {
     const state = createUsageState();
     noteRateLimit({ rateLimitType: 'overage', utilization: 99 } as SDKRateLimitInfo, state); // must be ignored
     const { factory } = fakeQuery(() => Promise.reject(new Error('down')));
-    const report = await getUsage({ queryFactory: factory, state });
+    const report = await getUsage({ execFile: enoentExec, queryFactory: factory, taskDir: join(tmpdir(), 'no-such-usage-dir'), state });
     expect(report.claude).toMatchObject({ available: false, error: 'no limits recorded yet' });
   });
 });
@@ -357,7 +368,7 @@ describe('utilisation scaling', () => {
         },
       }),
     );
-    const report = await getUsage({ queryFactory: factory, state: createUsageState() });
+    const report = await getUsage({ execFile: enoentExec, queryFactory: factory, taskDir: join(tmpdir(), 'no-such-usage-dir'), state: createUsageState() });
     expect(report.claude.fiveHour!.utilization).toBe(1);
     expect(report.claude.sevenDay!.utilization).toBe(1); // 0.5 rounds, not x100
     expect(report.claude.sevenDayOpus!.utilization).toBe(100);
@@ -376,16 +387,17 @@ describe('single-flight', () => {
     const agyDir = await mkdtemp(join(tmpdir(), 'usage-empty-'));
     try {
       await Promise.all([1, 2, 3].map(() => getUsage({ execFile: slow, queryFactory: noProbeFactory, taskDir: agyDir, state })));
-      expect(stats.calls).toHaveLength(3);
+      expect(opencodeCallsOnly(stats.calls)).toHaveLength(3);
     } finally {
       await rm(agyDir, { recursive: true, force: true });
     }
   });
 
   it('negative-caches a non-ENOENT opencode failure for 60 s', async () => {
-    let calls = 0;
-    const exec: UsageExec = async () => {
-      calls += 1;
+    let opencodeCalls = 0;
+    const exec: UsageExec = async (file) => {
+      if (file === 'opencode') opencodeCalls += 1;
+      if (file === 'agy') throw Object.assign(new Error('spawn agy ENOENT'), { code: 'ENOENT' });
       throw new Error('boom');
     };
     const clock = clockOf();
@@ -393,10 +405,10 @@ describe('single-flight', () => {
     const o = { execFile: exec, queryFactory: noProbeFactory, state, now: clock.now, taskDir: join(tmpdir(), 'no-such-usage-dir') };
     await getUsage(o);
     await getUsage(o);
-    expect(calls).toBe(3); // one parallel round (three windows), the second poll is negative-cached
+    expect(opencodeCalls).toBe(3); // one parallel round (three windows), the second poll is negative-cached
     clock.advance(61_000);
     await getUsage(o);
-    expect(calls).toBe(6);
+    expect(opencodeCalls).toBe(6);
   });
 });
 
@@ -412,7 +424,7 @@ describe('agy scan hardening', () => {
       await writeFile(join(dir, 'target.json'), ok);
       await symlink(join(dir, 'target.json'), join(dir, 'r', 'link', 'result.json'));
       await writeFile(join(dir, 'r', 'big', 'result.json'), JSON.stringify({ ok: true, usage: { input: 5 }, pad: 'x'.repeat(1024 * 1024 + 1) }));
-      const report = await getUsage({ queryFactory: noProbeFactory, taskDir: dir, state: createUsageState() });
+      const report = await getUsage({ execFile: enoentExec, queryFactory: noProbeFactory, taskDir: dir, state: createUsageState() });
       expect(report.agy.windows[0]).toEqual({ days: 1, tokens: 5, runs: 1, stopped: 0 });
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -430,7 +442,7 @@ describe('noteRateLimit', () => {
     const { factory } = fakeQuery(() =>
       Promise.resolve({ subscription_type: null, rate_limits_available: false, rate_limits: null }),
     );
-    const report = await getUsage({ queryFactory: factory, state });
+    const report = await getUsage({ execFile: enoentExec, queryFactory: factory, taskDir: join(tmpdir(), 'no-such-usage-dir'), state });
     expect(report.claude.source).toBe('session');
     expect(report.claude.sevenDaySonnet).toEqual({ utilization: 100, resetsAt: null });
     expect(report.claude.fiveHour).toEqual({ utilization: 64, resetsAt: new Date(FUTURE_RESET * 1000).toISOString() });
@@ -458,7 +470,7 @@ describe('review fixes', () => {
     const r2 = await at(2 * DAY_MS);
     expect(r2.claude).toMatchObject({ available: false, error: 'no limits recorded yet' });
     // empty session answer carries the same error
-    const empty = await getUsage({ queryFactory: fakeQuery(() => Promise.resolve(unavailable)).factory, state: createUsageState() });
+    const empty = await getUsage({ execFile: enoentExec, queryFactory: fakeQuery(() => Promise.resolve(unavailable)).factory, taskDir: join(tmpdir(), 'no-such-usage-dir'), state: createUsageState() });
     expect(empty.claude).toMatchObject({ available: false, error: 'no limits recorded yet' });
   });
 
@@ -467,7 +479,7 @@ describe('review fixes', () => {
     noteRateLimit({ rateLimitType: 'five_hour', utilization: 1, resetsAt: FUTURE_RESET } as SDKRateLimitInfo, state);
     noteRateLimit({ rateLimitType: 'seven_day', utilization: 0.5, resetsAt: FUTURE_RESET } as SDKRateLimitInfo, state);
     const { factory } = fakeQuery(() => Promise.resolve(unavailable));
-    const report = await getUsage({ queryFactory: factory, state });
+    const report = await getUsage({ execFile: enoentExec, queryFactory: factory, taskDir: join(tmpdir(), 'no-such-usage-dir'), state });
     expect(report.claude.fiveHour!.utilization).toBe(1);
     expect(report.claude.sevenDay!.utilization).toBe(50);
   });
@@ -498,11 +510,13 @@ describe('review fixes', () => {
     const release: Array<() => void> = [];
     const exec: UsageExec = (file, args) => {
       started.push(`${file} ${args.join(' ')}`);
+      if (file === 'agy') return Promise.resolve(JSON.stringify({ status: 'ERROR' }));
       return new Promise<string>((resolve) => { release.push(() => resolve('{}')); });
     };
     const p = getUsage({ execFile: exec, queryFactory: noProbeFactory, taskDir: join(tmpdir(), 'no-such-usage-dir'), state: createUsageState() });
-    await vi.waitFor(() => expect(started).toHaveLength(3));
-    expect(started.every((c) => c.startsWith('opencode stats --days '))).toBe(true);
+    await vi.waitFor(() => expect(started.filter((c) => c.startsWith('opencode '))).toHaveLength(3));
+    expect(started.filter((c) => c.startsWith('opencode stats --days '))).toHaveLength(3);
+    expect(started.every((c) => c.startsWith('opencode stats --days ') || c.startsWith('agy '))).toBe(true);
     expect(started.some((c) => c.startsWith('opencode stats --days 1 '))).toBe(true);
     release.forEach((r) => r());
     const report = await p;
