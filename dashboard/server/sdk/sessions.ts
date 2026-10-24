@@ -4,8 +4,6 @@ import { randomUUID } from 'node:crypto';
 import { closeSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import os from 'node:os';
-import path from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { Options, PermissionResult, SDKMessage, SDKRateLimitEvent, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { applyMessage, createTree, ownerOf, setStatus } from '../model/reducer.ts';
