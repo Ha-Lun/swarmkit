@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "NODE_ENV=development tsx watch server/index.ts",
     "build": "vite build",
+    "build:demo": "VITE_DEMO=1 vite build --outDir dist-demo --base ./",
     "start": "NODE_ENV=production tsx server/index.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json"
