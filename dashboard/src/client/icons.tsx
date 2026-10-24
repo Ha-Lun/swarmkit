@@ -1,4 +1,5 @@
 // Tiny inline stroke icons (16-24 viewBox), currentColor, no icon library.
+import { useId } from 'react';
 import type { ReactNode } from 'react';
 import type { NodeKind } from '../shared/types';
 import type { ToolKey } from './format';
@@ -27,6 +28,38 @@ function Svg({ size = 14, className, children }: IconProps & { children: ReactNo
     </svg>
   );
 }
+
+/** SwarmKit brand mark: hexagon in the violet->teal gradient, optional wordmark. */
+export function Logo({ size = 22, withWordmark = false }: IconProps & { withWordmark?: boolean }) {
+  // Gradient id must be unique per mounted instance.
+  const gid = `swk-grad-${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
+  return (
+    <span className="logo">
+      <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id={gid} x1="4" y1="5" x2="27" y2="28" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#d9ccff" />
+            <stop offset="1" stopColor="#2ee6c8" />
+          </linearGradient>
+        </defs>
+        <path d="M16 2l12 7v14l-12 7-12-7V9z" fill={`url(#${gid})`} />
+        <path d="M16 8.5l6.5 3.75v7.5L16 23.5l-6.5-3.75v-7.5L16 8.5z" fill="rgba(5,6,10,0.45)" />
+      </svg>
+      {withWordmark && (
+        <span className="logo-word" style={{ fontSize: Math.max(13, Math.round(size * 0.82)) }}>
+          SwarmKit
+        </span>
+      )}
+    </span>
+  );
+}
+
+export const HomeIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 11l8-7 8 7" />
+    <path d="M6 9.5V20h12V9.5" />
+  </Svg>
+);
 
 export const MenuIcon = (p: IconProps) => (
   <Svg {...p}>

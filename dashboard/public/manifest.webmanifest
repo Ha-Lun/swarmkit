@@ -1,10 +1,10 @@
 {
-  "name": "Claude Fleet",
-  "short_name": "Fleet",
+  "name": "SwarmKit",
+  "short_name": "SwarmKit",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f7f7f8",
-  "theme_color": "#f7f7f8",
+  "background_color": "#05060a",
+  "theme_color": "#05060a",
   "icons": [
     {
       "src": "/icon.svg",

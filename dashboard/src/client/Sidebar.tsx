@@ -1,6 +1,6 @@
 // Session list: narrow column on desktop, slide-over sheet on <=768px.
 import type { SessionSummary, WorkerTask } from '../shared/types';
-import { PlusIcon } from './icons';
+import { Logo, PlusIcon } from './icons';
 import { SessionRow } from './SessionRow';
 import { WorkersSection } from './Workers';
 
@@ -13,6 +13,7 @@ interface Props {
   now: number;
   workersAt: number;
   onSelect: (id: string) => void;
+  onHome: () => void;
   onOpenWorker: (task: WorkerTask) => void;
   onOpenWorkers: () => void;
   onNew: () => void;
@@ -28,6 +29,7 @@ export function Sidebar({
   now,
   workersAt,
   onSelect,
+  onHome,
   onOpenWorker,
   onOpenWorkers,
   onNew,
@@ -35,10 +37,14 @@ export function Sidebar({
 }: Props) {
   return (
     <nav className={`sidebar${open ? ' is-open' : ''}`} aria-label="Sessions">
-      <div className="side-brand">
-        <span className="brand-dot" aria-hidden="true" />
-        Claude Fleet
-      </div>
+      <button
+        type="button"
+        className="side-brand"
+        aria-label="SwarmKit — go to the dashboard home"
+        onClick={onHome}
+      >
+        <Logo size={22} withWordmark />
+      </button>
       <div className="side-actions">
         <button type="button" className="btn btn-primary side-new" onClick={onNew}>
           <PlusIcon size={13} />

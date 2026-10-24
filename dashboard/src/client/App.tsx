@@ -8,7 +8,7 @@ import { Composer } from './Composer';
 import { Continue } from './Continue';
 import { Drawer } from './Drawer';
 import { fmtCost, UNTRUSTED_NOTICE } from './format';
-import { MenuIcon } from './icons';
+import { HomeIcon, Logo, MenuIcon } from './icons';
 import { Landing } from './Landing';
 import { NewSession } from './NewSession';
 import { packInstallDone, RestartBanner } from './RestartBanner';
@@ -64,14 +64,15 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
     return { error };
   }
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('Claude Fleet crashed:', error, info.componentStack);
+    console.error('SwarmKit crashed:', error, info.componentStack);
   }
   render() {
     if (this.state.error) {
       return (
         <div className="crash">
           <div>
-            <p style={{ fontWeight: 600 }}>Claude Fleet hit an error.</p>
+            <Logo size={40} />
+            <p style={{ fontWeight: 600 }}>SwarmKit hit an error.</p>
             <p className="muted" style={{ fontSize: 12.5 }}>{this.state.error.message}</p>
             <button type="button" className="btn btn-primary" onClick={() => this.setState({ error: null })}>
               Try again
@@ -125,9 +126,10 @@ function TokenScreen() {
   return (
     <div className="center-screen">
       <div className="token-card">
-        <h1>Claude Fleet</h1>
+        <Logo size={40} />
+        <h1>SwarmKit</h1>
         <p>This dashboard needs an access token. Paste it and press Open — the server will set a cookie.</p>
-        <p className="muted token-hint">Enter it once on this device; it stays signed in for 30 days on this device.</p>
+        <p className="muted token-hint">Enter your SwarmKit access token once on this device; it stays signed in for 30 days.</p>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -138,7 +140,7 @@ function TokenScreen() {
             aria-label="Access token"
             type="password"
             autoComplete="off"
-            placeholder="fleet access token"
+            placeholder="swarmkit access token"
             value={token}
             onChange={(e) => setToken(e.target.value)}
           />
@@ -159,10 +161,12 @@ function TokenScreen() {
 function Topbar({
   session,
   onMenu,
+  onHome,
   title,
 }: {
   session?: SessionSummary;
   onMenu: () => void;
+  onHome: () => void;
   title?: string;
 }) {
   return (
@@ -170,8 +174,13 @@ function Topbar({
       <button type="button" className="icon-btn menu-btn" aria-label="Open session list" onClick={onMenu}>
         <MenuIcon />
       </button>
+      {(session || title) && (
+        <button type="button" className="icon-btn home-btn" aria-label="Go home" onClick={onHome}>
+          <HomeIcon size={16} />
+        </button>
+      )}
       <div className="topbar-title">
-        <h1>{title ?? (session ? session.title || session.project : 'Claude Fleet')}</h1>
+        <h1>{title ?? (session ? session.title || session.project : 'SwarmKit')}</h1>
         {session && (
           <p className="topbar-cwd" title={session.cwd}>
             {session.cwd}
@@ -310,11 +319,13 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
 
   const openNode = useCallback((nodeId: string) => setDrawerNodeId(nodeId), []);
   const selectSession = useCallback((id: string) => {
+    setPinnedHome(false);
     dispatch({ type: 'select', sessionId: id });
     setSheetOpen(false);
     setView('session');
   }, []);
   const onStarted = useCallback((id: string) => {
+    setPinnedHome(false);
     setNewOpen(false);
     setSheetOpen(false);
     setDrawerNodeId(null);
@@ -323,6 +334,21 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   }, []);
 
   const openWorker = useCallback((task: WorkerTask) => setWorkerDrawerKey(workerKey(task)), []);
+
+  // Home: clear the selection and return to the landing. The reducer's 'select'
+  // accepts null, but a later 'hello' event can re-run pickDefault — so a local
+  // pinnedHome flag keeps home sticky until the user picks (or starts) a session.
+  const [pinnedHome, setPinnedHome] = useState(false);
+  const goHome = useCallback(() => {
+    setPinnedHome(true);
+    dispatch({ type: 'select', sessionId: null });
+    setSheetOpen(false);
+    setView('session');
+  }, []);
+  useEffect(() => {
+    if (pinnedHome && state.selectedId) dispatch({ type: 'select', sessionId: null });
+  }, [pinnedHome, state.selectedId]);
+
   const viewWorkerInTree = useCallback(
     (sessionId: string, nodeId: string) => {
       setWorkerDrawerKey(null);
@@ -442,6 +468,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
           session={view === 'workers' ? undefined : selected ?? undefined}
           title={view === 'workers' ? 'Workers' : undefined}
           onMenu={() => setSheetOpen(true)}
+          onHome={goHome}
         />
         {view === 'session' && selected?.untrustedProject && (
           <p className="notice" role="note">
@@ -461,8 +488,11 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
             backend={backend}
             guard={guard}
             sessions={state.sessions}
+            workers={state.workers}
             now={now}
+            connected={state.connected || mock}
             onSelect={selectSession}
+            onOpenWorker={openWorker}
             onStarted={onStarted}
           />
         ) : !detail ? (
