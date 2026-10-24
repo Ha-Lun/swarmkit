@@ -1,6 +1,6 @@
 // Top-level app: routing state and chrome (the backend is resolved in main.tsx).
 import { Component, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import type { ErrorInfo, ReactNode } from 'react';
+import type { ErrorInfo, ReactNode, Ref } from 'react';
 import type { PermissionRequest, SessionSummary, WorkerTask } from '../shared/types';
 import { ApiError, authenticate } from './api';
 import type { FleetBackend, Guard } from './api';
@@ -15,6 +15,7 @@ import { packInstallDone, RestartBanner } from './RestartBanner';
 import { Sidebar } from './Sidebar';
 import { initialState, nodeById, reducer } from './state';
 import { Tree } from './Tree';
+import { useUsage } from './Usage';
 import { WorkerDrawer } from './WorkerDrawer';
 import { workerKey, WorkersView } from './Workers';
 
@@ -163,15 +164,23 @@ function Topbar({
   onMenu,
   onHome,
   title,
+  menuRef,
 }: {
   session?: SessionSummary;
   onMenu: () => void;
   onHome: () => void;
   title?: string;
+  menuRef?: Ref<HTMLButtonElement>;
 }) {
   return (
     <header className="topbar">
-      <button type="button" className="icon-btn menu-btn" aria-label="Open session list" onClick={onMenu}>
+      <button
+        type="button"
+        ref={menuRef}
+        className="icon-btn menu-btn"
+        aria-label="Open session list"
+        onClick={onMenu}
+      >
         <MenuIcon />
       </button>
       {(session || title) && (
@@ -221,6 +230,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   const [restartBusy, setRestartBusy] = useState(false);
   const [dismissedRestart, setDismissedRestart] = useState<string[]>(readDismissed);
   const workersAtRef = useRef(Date.now());
+  const menuBtnRef = useRef<HTMLButtonElement | null>(null);
 
   /** Wrap every call: a 401 surfaces the token screen instead of crashing. */
   const guard = useCallback<Guard>(async (p) => {
@@ -241,6 +251,9 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   );
 
   useKeyboardInset();
+
+  // Usage report shared by the landing panel and the sidebar pill.
+  const usage = useUsage(backend, guard, true);
 
   // Live event stream.
   useEffect(() => {
@@ -335,9 +348,9 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
 
   const openWorker = useCallback((task: WorkerTask) => setWorkerDrawerKey(workerKey(task)), []);
 
-  // Home: clear the selection and return to the landing. The reducer's 'select'
-  // accepts null, but a later 'hello' event can re-run pickDefault — so a local
-  // pinnedHome flag keeps home sticky until the user picks (or starts) a session.
+  // Home: clear the selection and return to the landing. pickDefault now never
+  // re-selects, but later 'detail' events still cache under the cleared id — a
+  // local pinnedHome flag keeps home sticky until the user picks or starts a session.
   const [pinnedHome, setPinnedHome] = useState(false);
   const goHome = useCallback(() => {
     setPinnedHome(true);
@@ -348,6 +361,21 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   useEffect(() => {
     if (pinnedHome && state.selectedId) dispatch({ type: 'select', sessionId: null });
   }, [pinnedHome, state.selectedId]);
+
+  // Sheet close (X button, backdrop, Escape): hand focus back to the opener
+  // so mobile users' keyboard focus stays on the menu button.
+  const closeSheet = useCallback(() => {
+    setSheetOpen(false);
+    menuBtnRef.current?.focus();
+  }, []);
+  useEffect(() => {
+    if (!sheetOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeSheet();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sheetOpen, closeSheet]);
 
   const viewWorkerInTree = useCallback(
     (sessionId: string, nodeId: string) => {
@@ -450,6 +478,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
         connected={state.connected || mock}
         now={now}
         workersAt={workersAtRef.current}
+        usage={usage.report ?? undefined}
         onSelect={selectSession}
         onHome={goHome}
         onOpenWorker={openWorker}
@@ -458,16 +487,17 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
           setView('workers');
         }}
         onNew={() => setNewOpen(true)}
-        onClose={() => setSheetOpen(false)}
+        onClose={closeSheet}
       />
       {sheetOpen && (
-        <button type="button" className="sheet-backdrop" aria-label="Close session list" onClick={() => setSheetOpen(false)} />
+        <button type="button" className="sheet-backdrop" aria-label="Close session list" onClick={closeSheet} />
       )}
 
       <div className="main">
         <Topbar
           session={view === 'workers' ? undefined : selected ?? undefined}
           title={view === 'workers' ? 'Workers' : undefined}
+          menuRef={menuBtnRef}
           onMenu={() => setSheetOpen(true)}
           onHome={goHome}
         />
@@ -492,6 +522,9 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
             workers={state.workers}
             now={now}
             connected={state.connected || mock}
+            usage={usage.report}
+            usageLoading={usage.loading}
+            onRefreshUsage={usage.refresh}
             onSelect={selectSession}
             onOpenWorker={openWorker}
             onStarted={onStarted}

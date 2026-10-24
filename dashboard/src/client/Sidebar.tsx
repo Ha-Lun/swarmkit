@@ -1,8 +1,9 @@
 // Session list: narrow column on desktop, slide-over sheet on <=768px.
-import type { SessionSummary, WorkerTask } from '../shared/types';
-import { Logo, PlusIcon } from './icons';
+import type { SessionSummary, UsageReport, WorkerTask } from '../shared/types';
+import { CloseIcon, Logo, PlusIcon } from './icons';
 import { SessionRow } from './SessionRow';
 import { WorkersSection } from './Workers';
+import { fmtResetIn, usageTone } from './format';
 
 interface Props {
   sessions: SessionSummary[];
@@ -12,6 +13,8 @@ interface Props {
   connected: boolean;
   now: number;
   workersAt: number;
+  /** Shared with the landing panel; drives the compact Claude pill near the bottom. */
+  usage?: UsageReport;
   onSelect: (id: string) => void;
   onHome: () => void;
   onOpenWorker: (task: WorkerTask) => void;
@@ -28,6 +31,7 @@ export function Sidebar({
   connected,
   now,
   workersAt,
+  usage,
   onSelect,
   onHome,
   onOpenWorker,
@@ -35,16 +39,28 @@ export function Sidebar({
   onNew,
   onClose,
 }: Props) {
+  const fiveHour = usage?.claude.available === true ? usage.claude.fiveHour : undefined;
+  const utilization = fiveHour?.utilization ?? null;
   return (
     <nav className={`sidebar${open ? ' is-open' : ''}`} aria-label="Sessions">
-      <button
-        type="button"
-        className="side-brand"
-        aria-label="SwarmKit — go to the dashboard home"
-        onClick={onHome}
-      >
-        <Logo size={22} withWordmark />
-      </button>
+      <div className="side-head">
+        <button
+          type="button"
+          className="side-brand"
+          aria-label="SwarmKit — go to the dashboard home"
+          onClick={onHome}
+        >
+          <Logo size={22} withWordmark />
+        </button>
+        <button
+          type="button"
+          className="icon-btn side-close"
+          aria-label="Close session list"
+          onClick={onClose}
+        >
+          <CloseIcon size={16} />
+        </button>
+      </div>
       <div className="side-actions">
         <button type="button" className="btn btn-primary side-new" onClick={onNew}>
           <PlusIcon size={13} />
@@ -77,6 +93,17 @@ export function Sidebar({
         onOpen={onOpenWorker}
         onOpenAll={onOpenWorkers}
       />
+
+      {utilization != null && (
+        <div className="side-usage">
+          <span
+            className={`usage-pill tone-${usageTone(utilization)}`}
+            title={fiveHour?.resetsAt ? `resets ${fmtResetIn(fiveHour.resetsAt)}` : undefined}
+          >
+            Claude 5h <b>{Math.round(Math.min(100, Math.max(0, utilization)))}%</b>
+          </span>
+        </div>
+      )}
 
       <div className="side-foot">
         <span className={`dot ${connected ? 'st-running' : 'st-error'}`} aria-hidden="true" />

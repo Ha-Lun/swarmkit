@@ -1780,6 +1780,114 @@ details.collapsible > summary:hover { color: var(--ink); }
   font-size: 12px;
 }
 
+/* ---------- usage panel ---------- */
+
+.usage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: var(--space-2);
+}
+.usage-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-left-width: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.usage-card.is-claude { border-left-color: var(--violet); }
+.usage-card.is-opencode { border-left-color: var(--teal); }
+.usage-card.is-agy { border-left-color: var(--amber); }
+
+.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); }
+.usage-none { font-size: 12.5px; overflow-wrap: anywhere; }
+.usage-note { font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
+
+.usage-limit { display: flex; flex-direction: column; gap: 3px; }
+.usage-limit-top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
+.usage-label { font-size: 12px; color: var(--text-2); }
+.usage-pct { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.usage-pct.tone-teal { color: var(--teal); }
+.usage-pct.tone-amber { color: var(--amber); }
+.usage-pct.tone-fail { color: var(--fail); }
+
+.usage-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.usage-fill { height: 100%; border-radius: inherit; }
+.usage-fill.tone-teal { background: var(--teal); }
+.usage-fill.tone-amber { background: var(--amber); }
+.usage-fill.tone-fail { background: var(--fail); }
+.usage-reset { font-size: 11px; }
+
+.usage-big {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.usage-big.usage-big-empty { font-family: var(--font); font-size: 13.5px; color: var(--text-2); }
+.usage-cost { font-size: 12px; font-weight: 400; margin-left: 6px; }
+.usage-runs { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+.usage-seg {
+  display: inline-flex;
+  gap: 2px;
+  width: max-content;
+  max-width: 100%;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+}
+.usage-seg button {
+  min-height: 44px;
+  padding: 4px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.usage-seg button:hover { color: var(--ink); }
+.usage-seg button[aria-pressed='true'] { background: var(--surface-3); color: var(--ink); }
+
+.usage-foot { display: flex; align-items: center; min-height: 32px; margin-top: var(--space-2); }
+.usage-asof { flex: 1; font-family: var(--mono); font-size: 11px; }
+.usage-foot .icon-btn { width: 32px; height: 32px; }
+
+/* sidebar Claude pill */
+.side-usage { padding: var(--space-2) var(--space-4) 0; }
+.side-head { display: flex; align-items: center; gap: 2px; padding-right: 10px; }
+.side-head .side-brand { margin-right: auto; }
+.side-close { display: none; width: 44px; height: 44px; flex: none; }
+.usage-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 11px;
+  color: var(--text-2);
+}
+.usage-pill b { font-family: var(--mono); font-weight: 500; font-variant-numeric: tabular-nums; }
+.usage-pill.tone-teal { color: var(--teal); }
+.usage-pill.tone-amber { color: var(--amber); }
+.usage-pill.tone-fail { color: var(--fail); }
+
 /* ---------- responsive ---------- */
 
 @media (max-width: 768px) {
@@ -1827,6 +1935,27 @@ details.collapsible > summary:hover { color: var(--ink); }
   .land-row { grid-template-columns: 1fr; }
   .wk-view { padding: 14px 12px 24px; }
   .wk-grid { grid-template-columns: 1fr; }
+
+  /* usage cards stack one per row on phones */
+  .usage-grid { grid-template-columns: minmax(0, 1fr); }
+
+  /* repo chips: no native horizontal scrollbar; a right fade hints more chips */
+  .land-repos-wrap { position: relative; }
+  .land-repos-wrap::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    width: 24px;
+    background: linear-gradient(to left, var(--surface) 30%, transparent);
+    pointer-events: none;
+  }
+  .land-repos { scrollbar-width: none; }
+  .land-repos::-webkit-scrollbar { display: none; }
+
+  /* sheet: show the header close button while the sheet is open */
+  .sidebar.is-open .side-close { display: inline-flex; }
 }
 
 /* Bigger tap targets on touch devices. */

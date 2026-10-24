@@ -1,13 +1,14 @@
 // Landing: hero, what's running, start form, usage slot and recent sessions.
 // Shown whenever no session is selected; on phones it is the first screen.
 import { useEffect, useState } from 'react';
-import type { SessionSummary, WorkerTask } from '../shared/types';
+import type { SessionSummary, UsageReport, WorkerTask } from '../shared/types';
 import type { FleetBackend, Guard } from './api';
 import { fmtCost, fmtDuration, shortModel, UNTRUSTED_NOTICE } from './format';
 import { FolderPicker } from './FolderPicker';
 import { Logo } from './icons';
 import { AgentModelFields, useStartForm } from './StartForm';
 import { SessionRow } from './SessionRow';
+import { UsagePanel } from './Usage';
 
 interface Props {
   backend: FleetBackend;
@@ -16,6 +17,10 @@ interface Props {
   workers: WorkerTask[];
   now: number;
   connected: boolean;
+  /** Owned by App so the sidebar pill shares the same report. */
+  usage: UsageReport | null;
+  usageLoading: boolean;
+  onRefreshUsage: () => void;
   onSelect: (id: string) => void;
   onOpenWorker: (task: WorkerTask) => void;
   onStarted: (id: string) => void;
@@ -33,6 +38,9 @@ export function Landing({
   workers,
   now,
   connected,
+  usage,
+  usageLoading,
+  onRefreshUsage,
   onSelect,
   onOpenWorker,
   onStarted,
@@ -113,7 +121,7 @@ export function Landing({
                           </span>
                         )}
                         <span className={`node-status st-${s.status}`}>
-                          <i className="dot" aria-hidden="true" />
+                          <i className={`dot st-${s.status}`} aria-hidden="true" />
                           {s.status}
                         </span>
                       </span>
@@ -147,8 +155,9 @@ export function Landing({
               <p className="muted land-sub">Pick a repo, describe the task, and the swarm fans out.</p>
 
               {cwds.length > 0 && (
-                <div className="land-repos" aria-label="Recent repos">
-                  {cwds.map((path) => {
+                <div className="land-repos-wrap" aria-label="Recent repos">
+                  <div className="land-repos">
+                    {cwds.map((path) => {
                     const { name, parent } = splitPath(path);
                     return (
                       <button
@@ -163,7 +172,8 @@ export function Landing({
                         <span className="repo-chip-path">{parent}</span>
                       </button>
                     );
-                  })}
+                    })}
+                  </div>
                 </div>
               )}
 
@@ -217,7 +227,7 @@ export function Landing({
           <div className="land-col">
             <section className="land-usage land-card" data-slot="usage" aria-label="Usage limits">
               <h2>Usage</h2>
-              <p className="muted">Loading…</p>
+              <UsagePanel report={usage} loading={usageLoading} onRefresh={onRefreshUsage} />
             </section>
 
             <section className="land-recent" aria-label="Recent sessions">

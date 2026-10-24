@@ -34,11 +34,11 @@ function mergeSessions(list: SessionSummary[], s: SessionSummary): SessionSummar
   return next.sort(byRecency);
 }
 
-function pickDefault(list: SessionSummary[]): string | null {
-  // On phones the landing page is the first screen — never auto-select a session.
-  if (typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches) return null;
-  if (list.length === 0) return null;
-  return (list.find((s) => s.source === 'page') ?? list[0]).id;
+function pickDefault(list: SessionSummary[]): null {
+  // The landing page is the home screen on every width: the dashboard never
+  // auto-selects a session, the user always picks (or starts) one.
+  void list;
+  return null;
 }
 
 function mergeHead(detail: SessionDetail, head: AgentNodeHead): SessionDetail {
