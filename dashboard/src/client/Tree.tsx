@@ -14,6 +14,30 @@ const MAX_Z = 2.5;
 const FIT_PAD = 24;
 /** A parent with more leaf children than this wraps them into a grid placed after its subtrees. */
 const WRAP_COLS = 4;
+/** Header strip above a wrapped leaf grid + padding around its cards. */
+const GROUP_PAD = 10;
+const GROUP_HEAD = 20;
+/** Gutter (in slots) kept on each side of a wrapped leaf group so it never touches neighbours. */
+const GROUP_GUTTER = 0.2;
+const FIT_MIN_Z = 0.6;
+const FIT_MIN_Z_NARROW = 0.7;
+/** Corner radius for rounded orthogonal edge elbows. */
+const ELBOW_R = 8;
+
+function elbow(px: number, py: number, cx: number, cy: number): string {
+  if (px === cx) return `M ${px} ${py} L ${cx} ${cy}`;
+  const midY = (py + cy) / 2;
+  const r = Math.max(0, Math.min(ELBOW_R, Math.abs(cx - px) / 2, Math.abs(cy - py) / 2));
+  if (r <= 0.5) return `M ${px} ${py} L ${px} ${midY} L ${cx} ${midY} L ${cx} ${cy}`;
+  const dx = cx > px ? 1 : -1;
+  return (
+    `M ${px} ${py} L ${px} ${midY - r} ` +
+    `Q ${px} ${midY} ${px + dx * r} ${midY} ` +
+    `L ${cx - dx * r} ${midY} ` +
+    `Q ${cx} ${midY} ${cx} ${midY + r} ` +
+    `L ${cx} ${cy}`
+  );
+}
 
 interface Placed {
   node: AgentNode;
@@ -28,7 +52,6 @@ interface GroupBox {
   y: number;
   w: number;
   h: number;
-  count: number;
   live: boolean;
 }
 
@@ -37,13 +60,8 @@ interface Layout {
   groups: GroupBox[];
   w: number;
   h: number;
+  rootCx: number;
 }
-
-/** Header strip above a wrapped leaf grid + padding around its cards. */
-const GROUP_PAD = 10;
-const GROUP_HEAD = 20;
-/** Gutter (in slots) kept on each side of a wrapped leaf group so it never touches neighbours. */
-const GROUP_GUTTER = 0.2;
 
 /** Leaves take consecutive x slots; parents centre over their children; depth maps to y.
  * A parent with many leaf children wraps them into a grid so the tree stays readable. */
@@ -91,16 +109,15 @@ function computeLayout(nodes: AgentNode[], heights: Record<string, number>): Lay
           min = Math.min(min, kx);
           max = Math.max(max, kx);
         }
-        const cols = WRAP_COLS;
         cursor += GROUP_GUTTER;
         const base = cursor;
         leaves.forEach((k, i) => {
-          depth.set(k, d + 1 + Math.floor(i / cols));
-          x.set(k, (base + (i % cols)) * slot + CARD_W / 2);
+          depth.set(k, d + 1 + Math.floor(i / WRAP_COLS));
+          x.set(k, (base + (i % WRAP_COLS)) * slot + CARD_W / 2);
         });
-        cursor += cols;
+        cursor += WRAP_COLS;
         cursor += GROUP_GUTTER;
-        const gcx = base * slot + (cols * slot - H_GAP) / 2;
+        const gcx = base * slot + (WRAP_COLS * slot - H_GAP) / 2;
         min = Math.min(min, gcx);
         max = Math.max(max, gcx);
         cx = (min + max) / 2;
@@ -144,8 +161,9 @@ function computeLayout(nodes: AgentNode[], heights: Record<string, number>): Lay
     if (groupedIds.has(p.node.id)) p.y += GROUP_HEAD;
   }
 
+  const byPlaced = new Map(placed.map((p) => [p.node.id, p] as const));
   const groups: GroupBox[] = wrapGroups.map((g) => {
-    const members = placed.filter((p) => g.kids.includes(p.node.id));
+    const members = g.kids.map((id) => byPlaced.get(id)).filter((p): p is Placed => p !== undefined);
     const left = Math.min(...members.map((p) => p.x));
     const right = Math.max(...members.map((p) => p.x + CARD_W));
     const top = Math.min(...members.map((p) => p.y));
@@ -157,7 +175,6 @@ function computeLayout(nodes: AgentNode[], heights: Record<string, number>): Lay
       y: top - GROUP_HEAD - GROUP_PAD,
       w: right - left + GROUP_PAD * 2,
       h: bottom - top + GROUP_HEAD + GROUP_PAD * 2,
-      count: g.kids.length,
       live: members.some((p) => p.node.status === 'running'),
     };
   });
@@ -168,7 +185,8 @@ function computeLayout(nodes: AgentNode[], heights: Record<string, number>): Lay
     w = Math.max(w, g.x + g.w);
     h = Math.max(h, g.y + g.h);
   }
-  return { placed, groups, w, h };
+  const rootCx = roots.length > 0 ? (x.get(roots[0]) ?? w / 2) : w / 2;
+  return { placed, groups, w, h, rootCx };
 }
 
 interface Props {
@@ -218,31 +236,27 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
     const el = wrapRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const fitMin = r.width < 700 ? 0.7 : 0.6;
+    const fitMin = r.width < 700 ? FIT_MIN_Z_NARROW : FIT_MIN_Z;
     const zw = (r.width - FIT_PAD * 2) / layout.w;
     const zh = (r.height - FIT_PAD * 2) / layout.h;
     const z = Math.max(fitMin, Math.min(zw, zh, 1));
+    let nx: number;
+    let ny: number;
     if (layout.w * z <= r.width - FIT_PAD * 2 && layout.h * z <= r.height - FIT_PAD * 2) {
-      setView({
-        x: (r.width - layout.w * z) / 2,
-        y: (r.height - layout.h * z) / 2,
-        z,
-      });
-      return;
+      nx = (r.width - layout.w * z) / 2;
+      ny = (r.height - layout.h * z) / 2;
+    } else {
+      // Readable floor: the tree overflows at this zoom, so anchor the root
+      // pill on screen instead of zooming out further.
+      nx = Math.min(r.width / 2 - layout.rootCx * z, FIT_PAD);
+      ny = FIT_PAD;
     }
-    // Readable floor: the tree overflows at this zoom, so anchor the root
-    // pill on screen instead of zooming out further.
-    const ids = new Set(layout.placed.map((p) => p.node.id));
-    const firstRoot = layout.placed
-      .filter((p) => !p.node.parentId || !ids.has(p.node.parentId))
-      .sort((a, b) => (a.node.startedAt ?? 0) - (b.node.startedAt ?? 0) || a.node.id.localeCompare(b.node.id))[0];
-    const rootCx = firstRoot ? firstRoot.x + CARD_W / 2 : layout.w / 2;
-    setView({
-      x: Math.min(r.width / 2 - rootCx * z, FIT_PAD),
-      y: FIT_PAD,
-      z,
-    });
-  }, [layout]);
+    setView((prev) =>
+      Math.abs(nx - prev.x) < 0.5 && Math.abs(ny - prev.y) < 0.5 && z === prev.z
+        ? prev
+        : { x: nx, y: ny, z },
+    );
+  }, [layout.w, layout.h, layout.rootCx]);
 
   // Auto-fit on mount and whenever the layout size changes (nodes appearing,
   // cards growing), unless the user has panned/zoomed manually.
@@ -392,25 +406,6 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
   });
   useEffect(() => () => roRef.current?.disconnect(), []);
 
-  // Connectors: rounded orthogonal elbows from parent bottom-centre to child
-  // top-centre (or to a wrapped group's top-centre). 8px corner radius.
-  const ELBOW_R = 8;
-
-  function elbow(px: number, py: number, cx: number, cy: number): string {
-    if (px === cx) return `M ${px} ${py} L ${cx} ${cy}`;
-    const midY = (py + cy) / 2;
-    const r = Math.max(0, Math.min(ELBOW_R, Math.abs(cx - px) / 2, Math.abs(cy - py) / 2));
-    if (r <= 0.5) return `M ${px} ${py} L ${px} ${midY} L ${cx} ${midY} L ${cx} ${cy}`;
-    const dx = cx > px ? 1 : -1;
-    return (
-      `M ${px} ${py} L ${px} ${midY - r} ` +
-      `Q ${px} ${midY} ${px + dx * r} ${midY} ` +
-      `L ${cx - dx * r} ${midY} ` +
-      `Q ${cx} ${midY} ${cx} ${midY + r} ` +
-      `L ${cx} ${cy}`
-    );
-  }
-
   const edges = useMemo(() => {
     const byId = new Map(layout.placed.map((p) => [p.node.id, p] as const));
     // Children inside a wrapped grid get no individual edges.
@@ -472,7 +467,7 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
             aria-hidden="true"
             style={{ left: g.x, top: g.y, width: g.w, height: g.h }}
           >
-            <span className="node-group-label">{g.count} agents</span>
+            <span className="node-group-label">{g.members.length} agents</span>
           </div>
         ))}
         {layout.placed.map(({ node, x, y }) => (
