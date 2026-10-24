@@ -338,11 +338,11 @@ def gate_name(s):
 
 
 def agy_tool_calls(conv):
-    """The tool names agy's transcript of this conversation records, in order, or None if it cannot be read."""
+    """(tool names agy's transcript of this conversation records, in order; number of INVALID calls skipped), or None if it cannot be read."""
     if not conv or not re.fullmatch(r"[0-9a-f-]{8,64}", str(conv)):
         return None
     brain = Path(os.environ.get("SWARMKIT_AGY_BRAIN_DIR", Path.home() / ".gemini" / "antigravity-cli" / "brain"))
-    steps, names = [], []
+    steps, names, skipped = [], [], 0
     try:
         for line in read_nofollow(brain / conv / ".system_generated" / "logs" / "transcript_full.jsonl").splitlines():
             try:
@@ -356,11 +356,12 @@ def agy_tool_calls(conv):
             calls = step.get("tool_calls") or []
             # one call whose arguments agy rejected (next step INVALID): it never reached the hook or ran
             if len(calls) == 1 and isinstance(nxt, dict) and nxt.get("status") == "INVALID":
+                skipped += 1
                 continue
             names += [gate_name(c.get("name")) for c in calls]
         except (AttributeError, TypeError):
             pass
-    return names
+    return names, skipped
 
 
 def read_nofollow(path):
@@ -719,7 +720,7 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     nf = task / "nested-git"  # what --setup left (e.g. a submodule); anything else is the worker's
     nested_before = json.loads(nf.read_text()) if nf.exists() else {}
     gated = CLI == "agy" and not a.yolo
-    calls_before = (agy_tool_calls(resume_id) if resume_id else []) if gated else None
+    calls_before, skipped_before = ((agy_tool_calls(resume_id) if resume_id else ([], 0)) or (None, 0)) if gated else (None, 0)
     cmd = BACKEND["cmd"](task, prompt, a, resume_id, pinned)
     banner(task, o, resume_id)
     dispatch_log("start", task.name, o.get("model"), effort=o.get("effort") or None, agent=o.get("agent"))
@@ -838,7 +839,7 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
                 blocked.append(f"worker moved HEAD to {head or 'a detached commit'}")
     quiet = sum(x.startswith("deny-quiet ") for x in gate_log)
     if gated:  # agy runs a hook that crashed or printed nothing as if it allowed (fails open): catch that before the commit
-        calls = agy_tool_calls(res["conversation_id"])
+        calls, skipped = agy_tool_calls(res["conversation_id"]) or (None, 0)
         seen = [(x.split(" ") + [""])[1] for x in gate_log]  # every decision, deny-quiet too: the transcript has those calls
         new = calls[len(calls_before):] if calls is not None and calls_before is not None else None
         if resume_id and res["conversation_id"] != resume_id:
@@ -848,6 +849,8 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
         elif calls[:len(calls_before)] != calls_before or new != seen:
             blocked.append(f"gate hook inactive: {len(seen)} gate decisions for {len(new)} tool calls"
                            f" ({' '.join(seen[:8])} | {' '.join(new[:8])}); inspect anything the worker could reach")
+        elif not gate_log and skipped > skipped_before:
+            blocked.append(f"gate hook inactive: {skipped - skipped_before} skipped INVALID calls and no gate decisions")
         elif not gate_log and not meta and wt_git(pinned, "status", "--porcelain", *spec(task), check=False):
             blocked.append("gate hook inactive: files changed with no gate decision")
         if quiet > 3:

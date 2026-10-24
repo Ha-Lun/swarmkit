@@ -60,7 +60,7 @@ chmod +x "$T/bin/opencode"
 # ($STUB_CALL, @WT@ = the worktree; default: write stub.txt), then writes stub.txt only if allowed. STUB_NOHOOK skips the hook (a hook
 # agy did not run). Its transcript (in the --conversation, else a new one; STUB_CONV overrides) records that call
 # (named STUB_TNAME if set, plus a STUB_EXTRA call), then a STUB_INVALID call whose next step has status
-# $STUB_INVALID_STATUS (INVALID: agy rejected its arguments before the hook); STUB_NOTRANSCRIPT writes none.
+# $STUB_INVALID_STATUS (INVALID: agy rejected its arguments before the hook); STUB_NOTRANSCRIPT writes none; STUB_ONLYINVALID drops the first call.
 # --version prints $STUB_VERSION (1.4.7).
 cat > "$T/bin/agy" <<'S'
 #!/bin/sh
@@ -78,7 +78,7 @@ conv=${STUB_CONV:-${conv:-$(cat /proc/sys/kernel/random/uuid)}}
 if [ -z "$STUB_NOTRANSCRIPT" ]; then
   l="$SWARMKIT_AGY_BRAIN_DIR/$conv/.system_generated/logs"; mkdir -p "$l"
   extra=""; [ -n "$STUB_EXTRA" ] && extra=",{\"name\":\"$STUB_EXTRA\"}"
-  printf '{"type":"PLANNER_RESPONSE","tool_calls":[{"name":"%s"}%s]}\n' \
+  [ -z "$STUB_ONLYINVALID" ] && printf '{"type":"PLANNER_RESPONSE","tool_calls":[{"name":"%s"}%s]}\n' \
     "${STUB_TNAME:-$(printf '%s' "$call" | jq -r .toolCall.name)}" "$extra" >> "$l/transcript_full.jsonl"
   [ -n "$STUB_INVALID" ] && printf '{"type":"PLANNER_RESPONSE","tool_calls":[{"name":"%s"}]}\n{"type":"GENERIC","status":"%s"}\n' \
     "$STUB_INVALID" "${STUB_INVALID_STATUS:-INVALID}" >> "$l/transcript_full.jsonl"
@@ -521,6 +521,10 @@ STUB_INVALID=run_command "$AGY_TASK" start gp10 "p" >/dev/null 2>&1 || fail "INV
 STUB_INVALID=run_command STUB_INVALID_STATUS=ERROR "$AGY_TASK" start gp11 "p" >/dev/null 2>&1 && fail "ERROR call not counted"
 ares gp11 '.warnings[]' | grep -q "^gate hook inactive: 1 gate decisions for 2 tool calls" || fail "ERROR step: $(ares gp11 .warnings)"
 uncommitted gp11
+# ... but skipped INVALID calls with no gate decision at all (hook inactive) are not ok
+STUB_NOHOOK=1 STUB_ONLYINVALID=1 STUB_INVALID=run_command "$AGY_TASK" start gp12 "p" >/dev/null 2>&1 && fail "inactive gate with only INVALID calls reported ok"
+ares gp12 '.warnings[]' | grep -q "^gate hook inactive: 1 skipped INVALID calls and no gate decisions" || fail "skipped check: $(ares gp12 .warnings)"
+uncommitted gp12
 # a missing transcript is not ok either, and neither is a resume that answered for another conversation
 STUB_NOTRANSCRIPT=1 "$AGY_TASK" start gp9 "p" >/dev/null 2>&1 && fail "run without a transcript reported ok"
 ares gp9 '.warnings[]' | grep -q "^gate check unavailable" || fail "no unavailable warning: $(ares gp9 .warnings)"
