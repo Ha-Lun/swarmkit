@@ -609,6 +609,33 @@ describe('SdkSessions', () => {
       expect(optionsSeen2.at(0)).not.toHaveProperty('effort');
     });
 
+    it('trusted projects omit permissionMode (SDK picks the CLI mode); untrusted ones force default', async () => {
+      const fakeHome = mkdtempSync(path.join(tmpdir(), 'fleet-perm-home-'));
+      const trusted = path.join(fakeHome, 'trusted');
+      const untrusted = path.join(fakeHome, 'untrusted');
+      mkdirSync(trusted);
+      mkdirSync(untrusted);
+      writeFileSync(path.join(fakeHome, '.claude.json'), JSON.stringify({ projects: { [trusted]: { hasTrustDialogAccepted: true } } }));
+      const oldHome = process.env.HOME;
+      process.env.HOME = fakeHome;
+      try {
+        const optionsSeen: (Record<string, unknown> | undefined)[] = [];
+        const sdk = new SdkSessions(() => {}, makeRecordingQuery(optionsSeen));
+        const a = sdk.start({ prompt: 'trusted', cwd: trusted });
+        const b = sdk.start({ prompt: 'untrusted', cwd: untrusted });
+        await vi.waitFor(() => {
+          expect(sdk.get(a)?.status).toBe('done');
+          expect(sdk.get(b)?.status).toBe('done');
+        });
+        expect(optionsSeen.at(0)).not.toHaveProperty('permissionMode');
+        expect(optionsSeen.at(0)?.settingSources).toContain('project');
+        expect(optionsSeen.at(1)?.permissionMode).toBe('default');
+      } finally {
+        process.env.HOME = oldHome;
+        rmSync(fakeHome, { recursive: true, force: true });
+      }
+    });
+
     it('resume uses the new effort if given, else the stored one', async () => {
       const optionsSeen: (Record<string, unknown> | undefined)[] = [];
       const sdk = new SdkSessions(() => {}, makeRecordingQuery(optionsSeen));

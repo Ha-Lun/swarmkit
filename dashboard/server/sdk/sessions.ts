@@ -271,7 +271,8 @@ export class SdkSessions {
       abortController: session.abort,
       settingSources: session.untrustedProject ? ['user'] : ['user', 'project', 'local'],
       forwardSubagentText: true,
-      permissionMode: 'default',
+      // Trusted: omit permissionMode so the SDK resolves it like the CLI (permissions.defaultMode, else auto); untrusted: always ask.
+      ...(session.untrustedProject ? { permissionMode: 'default' as const } : {}),
       canUseTool: this.makeCanUseTool(session, generation),
       // A resumed session keeps its id and drops the fixed sessionId (the SDK continues the old one).
       ...(resume ? { resume: session.id } : { sessionId: session.id }),
