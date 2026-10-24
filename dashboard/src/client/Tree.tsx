@@ -12,8 +12,8 @@ const NOMINAL_H = 60;
 const MIN_Z = 0.25;
 const MAX_Z = 2.5;
 const FIT_PAD = 24;
-/** Parents whose children are all leaves wrap them into rows of this many cards. */
-const WRAP_COLS = 5;
+/** A parent with more leaf children than this wraps them into a grid placed after its subtrees. */
+const WRAP_COLS = 4;
 
 interface Placed {
   node: AgentNode;
@@ -78,25 +78,39 @@ function computeLayout(nodes: AgentNode[], heights: Record<string, number>): Lay
     if (!list || list.length === 0) {
       cx = cursor * slot + CARD_W / 2;
       cursor += 1;
-    } else if (list.length > WRAP_COLS && list.every((k) => !kids.has(k))) {
-      const cols = WRAP_COLS;
-      const base = cursor;
-      list.forEach((k, i) => {
-        depth.set(k, d + 1 + Math.floor(i / cols));
-        x.set(k, (base + (i % cols)) * slot + CARD_W / 2);
-      });
-      cursor += cols;
-      cx = base * slot + (cols * slot - H_GAP) / 2;
-      wrapGroups.push({ parentId: id, kids: [...list] });
     } else {
-      let min = Infinity;
-      let max = -Infinity;
-      for (const k of list) {
-        const kx = place(k, d + 1);
-        min = Math.min(min, kx);
-        max = Math.max(max, kx);
+      const subtrees = list.filter((k) => kids.has(k));
+      const leaves = list.filter((k) => !kids.has(k));
+      if (leaves.length > WRAP_COLS) {
+        let min = Infinity;
+        let max = -Infinity;
+        for (const k of subtrees) {
+          const kx = place(k, d + 1);
+          min = Math.min(min, kx);
+          max = Math.max(max, kx);
+        }
+        const cols = WRAP_COLS;
+        const base = cursor;
+        leaves.forEach((k, i) => {
+          depth.set(k, d + 1 + Math.floor(i / cols));
+          x.set(k, (base + (i % cols)) * slot + CARD_W / 2);
+        });
+        cursor += cols;
+        const gcx = base * slot + (cols * slot - H_GAP) / 2;
+        min = Math.min(min, gcx);
+        max = Math.max(max, gcx);
+        cx = (min + max) / 2;
+        wrapGroups.push({ parentId: id, kids: [...leaves] });
+      } else {
+        let min = Infinity;
+        let max = -Infinity;
+        for (const k of list) {
+          const kx = place(k, d + 1);
+          min = Math.min(min, kx);
+          max = Math.max(max, kx);
+        }
+        cx = (min + max) / 2;
       }
-      cx = (min + max) / 2;
     }
     x.set(id, cx);
     return cx;
@@ -200,15 +214,31 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
     const el = wrapRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
+    const fitMin = r.width < 700 ? 0.7 : 0.6;
     const zw = (r.width - FIT_PAD * 2) / layout.w;
     const zh = (r.height - FIT_PAD * 2) / layout.h;
-    const z = Math.max(MIN_Z, Math.min(zw, zh, 1));
+    const z = Math.max(fitMin, Math.min(zw, zh, 1));
+    if (layout.w * z <= r.width - FIT_PAD * 2 && layout.h * z <= r.height - FIT_PAD * 2) {
+      setView({
+        x: (r.width - layout.w * z) / 2,
+        y: (r.height - layout.h * z) / 2,
+        z,
+      });
+      return;
+    }
+    // Readable floor: the tree overflows at this zoom, so anchor the root
+    // pill on screen instead of zooming out further.
+    const ids = new Set(layout.placed.map((p) => p.node.id));
+    const firstRoot = layout.placed
+      .filter((p) => !p.node.parentId || !ids.has(p.node.parentId))
+      .sort((a, b) => (a.node.startedAt ?? 0) - (b.node.startedAt ?? 0) || a.node.id.localeCompare(b.node.id))[0];
+    const rootCx = firstRoot ? firstRoot.x + CARD_W / 2 : layout.w / 2;
     setView({
-      x: (r.width - layout.w * z) / 2,
-      y: (r.height - layout.h * z) / 2,
+      x: Math.min(r.width / 2 - rootCx * z, FIT_PAD),
+      y: FIT_PAD,
       z,
     });
-  }, [layout.w, layout.h]);
+  }, [layout]);
 
   // Auto-fit on mount and whenever the layout size changes (nodes appearing,
   // cards growing), unless the user has panned/zoomed manually.

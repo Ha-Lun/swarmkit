@@ -2347,4 +2347,4 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
 @media (hover: none) {
   .fp-row-star { opacity: 1; }
 }
-.repo-chip.is-starred svg { color: var(--amber); }
+.repo-chip.is-starred svg { color: var(--amber); margin-right: 4px; vertical-align: -1px; }
