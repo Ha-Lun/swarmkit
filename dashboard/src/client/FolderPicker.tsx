@@ -51,7 +51,7 @@ export function FolderPicker({ backend, guard, cwd, onCwd, labelledby }: Props) 
   const [failed, setFailed] = useState(false);
   const [reload, setReload] = useState(0);
   const [home, setHome] = useState('');
-  const { stars, isStarred, toggle } = useStars(backend);
+  const { stars, toggle } = useStars(backend);
 
   useEffect(() => {
     let alive = true;
@@ -139,11 +139,11 @@ export function FolderPicker({ backend, guard, cwd, onCwd, labelledby }: Props) 
           <button
             type="button"
             className="star-btn"
-            aria-pressed={isStarred(path)}
-            aria-label={isStarred(path) ? 'Unstar this folder' : 'Star this folder'}
+            aria-pressed={stars.includes(path)}
+            aria-label={stars.includes(path) ? 'Unstar this folder' : 'Star this folder'}
             onClick={() => toggle(path)}
           >
-            <StarIcon size={15} filled={isStarred(path)} />
+            <StarIcon size={15} filled={stars.includes(path)} />
           </button>
         )}
         {path && <span className="fp-current-tag">Selected folder</span>}
@@ -218,7 +218,7 @@ export function FolderPicker({ backend, guard, cwd, onCwd, labelledby }: Props) 
       ) : (
         <ul className="fp-list" aria-label="Subfolders">
           {(listing?.entries ?? []).map((e) => (
-            <li key={e.path} className={isStarred(e.path) ? 'fp-item is-starred' : 'fp-item'}>
+            <li key={e.path} className={stars.includes(e.path) ? 'fp-item is-starred' : 'fp-item'}>
               <button
                 type="button"
                 className="fp-row"
@@ -232,11 +232,11 @@ export function FolderPicker({ backend, guard, cwd, onCwd, labelledby }: Props) 
               <button
                 type="button"
                 className="star-btn fp-row-star"
-                aria-pressed={isStarred(e.path)}
-                aria-label={isStarred(e.path) ? 'Unstar this folder' : 'Star this folder'}
+                aria-pressed={stars.includes(e.path)}
+                aria-label={stars.includes(e.path) ? 'Unstar this folder' : 'Star this folder'}
                 onClick={() => toggle(e.path)}
               >
-                <StarIcon size={14} filled={isStarred(e.path)} />
+                <StarIcon size={14} filled={stars.includes(e.path)} />
               </button>
             </li>
           ))}

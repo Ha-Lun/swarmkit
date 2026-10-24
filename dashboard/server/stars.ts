@@ -21,13 +21,8 @@ export function starsFilePath(): string {
 }
 
 async function readStored(): Promise<string[]> {
-  let raw: string;
   try {
-    raw = await readFile(starsFilePath(), 'utf8');
-  } catch {
-    return [];
-  }
-  try {
+    const raw = await readFile(starsFilePath(), 'utf8');
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return parsed.filter((p): p is string => typeof p === 'string');
@@ -46,13 +41,18 @@ async function isValidStored(p: string): Promise<boolean> {
   }
 }
 
-/** Stored stars that still validate (stale, out-of-home, or symlink-swapped ones are hidden). */
-export async function listStars(): Promise<string[]> {
+/** Read stored entries, keep those that still validate, then cap. */
+async function validStored(): Promise<string[]> {
   const out: string[] = [];
-  for (const p of (await readStored()).slice(0, MAX_STARS)) {
+  for (const p of await readStored()) {
     if (await isValidStored(p)) out.push(p);
   }
-  return out;
+  return out.slice(0, MAX_STARS);
+}
+
+/** Stored stars that still validate (stale, out-of-home, or symlink-swapped ones are hidden). */
+export async function listStars(): Promise<string[]> {
+  return validStored();
 }
 
 async function writeStored(next: string[]): Promise<void> {
@@ -69,29 +69,24 @@ async function writeStored(next: string[]): Promise<void> {
 }
 
 async function applySetStar(rawPath: unknown, starred: boolean): Promise<string[]> {
+  const resolved = await resolveDirInHome(rawPath);
   if (!starred) {
-    const resolved = await resolveDirInHome(rawPath);
     const dir = 'dir' in resolved ? resolved.dir : undefined;
     const stored = await readStored();
     const next = stored.filter(p => p !== rawPath && p !== dir);
     await writeStored(next);
     return listStars();
   }
-  const resolved = await resolveDirInHome(rawPath);
   if ('error' in resolved) throw new DirError(400, resolved.error);
   const dir = resolved.dir;
-  const stored = await readStored();
-  const valid: string[] = [];
-  for (const p of stored) {
-    if (await isValidStored(p)) valid.push(p);
-  }
+  const valid = await validStored();
   const next = valid.filter(p => p !== dir);
   if (!valid.includes(dir) && next.length >= MAX_STARS) {
     throw new DirError(400, 'too many starred folders');
   }
   next.push(dir);
   await writeStored(next);
-  return listStars();
+  return next;
 }
 
 /** Star or unstar a folder (validated to an existing dir inside $HOME); resolves with the fresh list. */
