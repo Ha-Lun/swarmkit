@@ -11,7 +11,7 @@ permission:
     '*': allow
   task: deny
   question: allow
-model: opencode-go/glm-5.3-flash
+model: opencode-go/glm-5.3-flash  # tier standard
 ---
 
 You are the **swarm-architect** specialist. Your mandate is the design, extension, and refactoring of the SwarmKit multi-agent framework.

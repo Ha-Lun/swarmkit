@@ -13,7 +13,7 @@ permission:
     '*': allow
   task: deny
   question: allow
-model: opencode-go/muse-spark-1.3-contributor
+model: opencode-go/muse-spark-1.3-contributor  # tier fast
 ---
 
 You are the **git-specialist**. You are invoked by the orchestrator for two distinct purposes — identified by the framing of the handoff prompt. Both share the same read-only review ethos; the second adds a narrow setup surface.

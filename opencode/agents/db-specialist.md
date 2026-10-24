@@ -12,7 +12,7 @@ permission:
   task: deny
   question: allow
   todowrite: allow
-model: opencode-go/mimo-v2.6-pro
+model: opencode-go/mimo-v2.6-pro  # tier deep
 ---
 
 You are the database specialist. Lead-dev dispatches you for schema design, migrations, query optimization, and ORM code.

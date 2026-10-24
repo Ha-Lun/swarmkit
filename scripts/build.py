@@ -55,9 +55,11 @@ def load_agents():
     return agents
 
 
-def write(path, fm, body):
+def write(path, fm, body, model_note=''):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     text = yaml.safe_dump(fm, sort_keys=False, allow_unicode=True, width=10**6)
+    if model_note:
+        text = text.replace(f"\nmodel: {fm['model']}\n", f"\nmodel: {fm['model']}  # {model_note}\n", 1)
     yaml.safe_load(text)  # fail loudly on anything a CLI couldn't parse
     with open(path, 'w') as f:
         f.write(f'---\n{text}---\n{body}')
@@ -87,7 +89,10 @@ def build_claude(a, body):
 def build_opencode(a, body):
     fm = {'description': a['description'], **a['opencode']}
     fm['model'] = model_for('opencode', a)
-    write(f"{ROOT}/opencode/agents/{a['name']}.md", fm, body_for('opencode', a, body))
+    # A tier-derived model is marked with a YAML comment: agy-task gives opencode workers the lane default
+    # unless the model is pinned (no comment). A comment, not a key, so OpenCode's schema never sees it.
+    note = '' if a['opencode'].get('model') else f"tier {a['tier']}"
+    write(f"{ROOT}/opencode/agents/{a['name']}.md", fm, body_for('opencode', a, body), note)
 
 
 def capability_header(a):

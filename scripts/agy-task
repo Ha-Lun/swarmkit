@@ -62,8 +62,9 @@ from a small table (currently empty); a model not in the table gets no effort su
 a model lacks fails the whole run (muse rejects `max`). --effort "" forces none. Resume reuses the model and effort of start.
 
 A worker can run as a named specialist with --agent NAME (start only, rejected on resume, which reuses it). On opencode
-without --model the worker uses the agent's own `model:` when it is on the worker allowlist, else the lane default
-(with a stderr notice); --model always wins and must be on the allowlist. A headless note (no browser or MCP here) is prepended to the prompt.
+without --model the worker uses the lane default, unless the agent pins its own `opencode.model` (a generated
+`model:` without the `# tier ...` comment) on the worker allowlist; a pin off the allowlist falls back to the lane
+default with a stderr notice. --model always wins and must be on the allowlist. A headless note (no browser or MCP here) is prepended to the prompt.
 --agent is rejected for the lead-dev-hybrid orchestrator and for unknown agents.
 opencode: `--agent NAME` instead of `--agent build`; the sandbox overlay is also applied under
 `agent.NAME.permission`, so the agent's own permission block (e.g. bash '*': allow) cannot widen it.
@@ -180,11 +181,12 @@ def agents_dir():
 
 
 def agent_model(agent):
-    """The `model:` value of the agent's frontmatter, quotes stripped; "" if it has none."""
+    """The agent's pinned `model:` (frontmatter, quotes stripped); "" if it has none. build.py marks a
+    tier-derived model with a `# tier ...` comment: that one is for interactive use, so it counts as no pin."""
     for line in (agents_dir() / f"{agent}.md").read_text().split("\n---", 1)[0].splitlines():
-        m = re.match(r"model:\s*(.*?)\s*$", line)
+        m = re.match(r"model:\s*(.*?)\s*(#.*)?$", line)
         if m:
-            return m.group(1).strip("'\"")
+            return "" if re.match(r"#\s*tier\b", m.group(2) or "") else m.group(1).strip("'\"")
     return ""
 
 
