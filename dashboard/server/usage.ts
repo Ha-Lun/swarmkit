@@ -27,7 +27,7 @@ export type UsageQueryFactory = (params: {
   options: Options;
 }) => Query;
 /** Injectable clock so tests can drive cache TTLs without waiting. */
-export type UsageClock = () => number;
+type UsageClock = () => number;
 
 export interface UsageOptions {
   execFile?: UsageExec;
@@ -424,7 +424,7 @@ async function collectOpencode(o: UsageOptions): Promise<OpencodeUsage> {
 
 class AgyScanTimeoutError extends Error {}
 
-export type AgyRunsFn = (dir: string) => Promise<AgyRun[]>;
+type AgyRunsFn = (dir: string) => Promise<AgyRun[]>;
 
 export interface AgyRun {
   mtimeMs: number;
@@ -543,7 +543,7 @@ export async function getUsage(opts: UsageOptions = {}): Promise<UsageReport> {
     ...opts,
     execFile,
     // Production default: the SDK's own query factory (tests inject a fake).
-    queryFactory: opts.queryFactory ?? ((args) => query(args)),
+    queryFactory: opts.queryFactory ?? query,
   };
   // Each collector catches everything itself (its try/catch returns a fallback), so none rejects.
   const [claude, opencode, agy] = await Promise.all([collectClaude(o), collectOpencode(o), collectAgy(o)]);

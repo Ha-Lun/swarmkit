@@ -5,7 +5,7 @@
 # Install: ln -sf /home/ha-lun/apps/claude-fleet/dashboard/deploy/claude-fleet.service ~/.config/systemd/user/
 #          systemctl --user daemon-reload && systemctl --user enable --now claude-fleet.service
 [Unit]
-Description=Claude Fleet — Claude Code control dashboard (127.0.0.1:4317, served on the tailnet)
+Description=SwarmKit dashboard — Claude Code control dashboard (127.0.0.1:4317, served on the tailnet)
 After=network-online.target
 Wants=network-online.target
 

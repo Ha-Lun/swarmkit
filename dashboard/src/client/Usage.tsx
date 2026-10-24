@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import type { FleetBackend, Guard } from './api';
 import type { UsageLimit, UsageReport } from '../shared/types';
 import { fmtClockShort, fmtCost, fmtResetIn, fmtTokens, usageTone } from './format';
+import { RefreshIcon } from './icons';
 
 /** Fetch on mount, then every 60s while `active` and visible; refetch when the tab becomes visible. */
 export function useUsage(
@@ -57,26 +58,6 @@ export function useUsage(
 
   // `loading` is derived: the very first report hasn't landed yet while we poll.
   return { report, loading: report === null && active, refresh };
-}
-
-function RefreshIcon({ size = 13 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M21 12a9 9 0 1 1-9-9c2.5 0 4.93 1 6.74 2.74L21 8" />
-      <path d="M21 3v5h-5" />
-    </svg>
-  );
 }
 
 function UsageCard({ source, title, children }: { source: string; title: string; children: ReactNode }) {

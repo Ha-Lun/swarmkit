@@ -17,6 +17,8 @@ npm start         # serves the UI + API, prints the URL(s)
 
 For development with hot reload: `npm run dev` (Vite middleware mode, no build needed).
 
+Static demo (scripted mock backend, no server, relative paths): `npm run build:demo` → `dist-demo/`. The showcase site embeds it via `site/scripts/sync-dashboard-demo.sh` on the `showcase` branch.
+
 Open the URL the server prints on startup, e.g.
 
 ```

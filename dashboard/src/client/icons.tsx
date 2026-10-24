@@ -234,3 +234,10 @@ export function toolIcon(key: ToolKey, size = 12) {
       return <OtherGlyph size={size} />;
   }
 }
+
+export const RefreshIcon = ({ size = 13, ...p }: IconProps) => (
+  <Svg size={size} {...p}>
+    <path d="M21 12a9 9 0 1 1-9-9c2.5 0 4.93 1 6.74 2.74L21 8" />
+    <path d="M21 3v5h-5" />
+  </Svg>
+);

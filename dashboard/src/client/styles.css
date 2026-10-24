@@ -24,6 +24,7 @@
 }
 
 :root {
+  color-scheme: dark; /* dark native scrollbars and form controls */
   /* surfaces (bg -> raised panels) */
   --bg: #05060a;
   --surface: #0c0d16;

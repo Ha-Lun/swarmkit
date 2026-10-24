@@ -500,7 +500,7 @@ export function createMockBackend(): FleetBackend {
     explore = spawn(root, 'task-explore', 'subagent', 'explore', 'claude-haiku-4-5-20251001', 'Map the dashboard data flow', 'Trace how ServerEvent reaches the client reducer. List the files involved and the merge rules.');
   });
   at(3000, () => {
-    fs = spawn(root, 'task-fs', 'subagent', 'frontend-specialist', 'claude-sonnet-5-5', 'Build the agent tree UI', 'Implement the tree canvas, cards, drawer, composer and new-session dialog. Light theme, Inter, 1px borders, 12px radius.');
+    fs = spawn(root, 'task-fs', 'subagent', 'frontend-specialist', 'claude-sonnet-5-5', 'Build the agent tree UI', 'Implement the tree canvas, cards, drawer, composer and new-session dialog. Dark SwarmKit theme, Space Grotesk, hairline borders.');
   });
   at(3400, () => {
     worker = spawn(root, 'task-worker', 'worker', 'agy-task', 'opencode-go/glm-5.3-flash', 'Rename session summary fields', 'Mechanical rename across the server model files; keep the build green.', {
