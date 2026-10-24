@@ -2226,9 +2226,11 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
     -webkit-mask-image: linear-gradient(to right, black calc(100% - 24px), transparent);
   }
   .top-chips::-webkit-scrollbar { display: none; }
-  .top-actions { margin-left: auto; gap: var(--space-1); }
-  /* icon-only 44×44 action buttons with small count badges */
+  .top-actions { flex: 0 1 auto; min-width: 0; margin-left: auto; gap: var(--space-1); }
+  /* icon-only 44×44 action buttons with small count badges.
+     Locked at 44px (flex: none) so they never squash below the 40px tap floor. */
   .top-link {
+    flex: none;
     position: relative;
     width: 44px;
     height: 44px;
@@ -2252,6 +2254,7 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
   .topstrip .top-conn { display: none; }
   .top-new { display: none; }
   .top-new-icon {
+    flex: none;
     display: inline-flex;
     background: var(--ink);
     color: var(--bg);
@@ -2293,8 +2296,8 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
   .land-repos::-webkit-scrollbar { display: none; }
 }
 
-/* Very narrow phones: mark-only logo leaves room for the three 44px actions. */
-@media (max-width: 360px) {
+/* Narrow phones (360–390px): mark-only logo leaves room for the three 44px actions. */
+@media (max-width: 400px) {
   .top-brand .logo-word { display: none; }
 }
 
