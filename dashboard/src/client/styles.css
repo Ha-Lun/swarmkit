@@ -592,6 +592,10 @@ button {
   box-shadow: var(--shadow-card);
 }
 
+@media (max-width: 700px) {
+  .canvas-tools { top: auto; bottom: 12px; }
+}
+
 /* ---------- node cards ---------- */
 
 .node {

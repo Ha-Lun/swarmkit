@@ -42,6 +42,8 @@ interface Layout {
 /** Header strip above a wrapped leaf grid + padding around its cards. */
 const GROUP_PAD = 10;
 const GROUP_HEAD = 20;
+/** Gutter (in slots) kept on each side of a wrapped leaf group so it never touches neighbours. */
+const GROUP_GUTTER = 0.2;
 
 /** Leaves take consecutive x slots; parents centre over their children; depth maps to y.
  * A parent with many leaf children wraps them into a grid so the tree stays readable. */
@@ -90,12 +92,14 @@ function computeLayout(nodes: AgentNode[], heights: Record<string, number>): Lay
           max = Math.max(max, kx);
         }
         const cols = WRAP_COLS;
+        cursor += GROUP_GUTTER;
         const base = cursor;
         leaves.forEach((k, i) => {
           depth.set(k, d + 1 + Math.floor(i / cols));
           x.set(k, (base + (i % cols)) * slot + CARD_W / 2);
         });
         cursor += cols;
+        cursor += GROUP_GUTTER;
         const gcx = base * slot + (cols * slot - H_GAP) / 2;
         min = Math.min(min, gcx);
         max = Math.max(max, gcx);
