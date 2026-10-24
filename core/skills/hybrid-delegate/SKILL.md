@@ -33,7 +33,7 @@ Everything else in the approved plan goes to a worker.
    | Second opinion on your own diff | `agy-task --review --model gemini-3.8-flash-high` |
    | Context-dependent work that cannot be handed off cold | Your own `Agent` subagents (Claude lane) |
 
-   Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'); use the lane default unless the owner names a model (also with `--agent` on the opencode lane unless the agent pins an allowlisted `opencode.model`), and never add a model without the owner's OK. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`). Give it a verify command from that list, or run the verify yourself after it lands. A worker can't `cd`, so for a project in a subdirectory (e.g. `site/`) run the verify yourself.
+   Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'); use the lane default unless the owner names a model (also with `--agent` on the opencode lane unless the agent pins an allowlisted `opencode.model`), and never add a model without the owner's OK. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`). Give it a verify command from that list, or run the verify yourself after it lands. For a project in a subdirectory, give the worker `npm --prefix <dir> test` or `npm --prefix <dir> run typecheck` as verify, and pass `--setup 'ln -s <main checkout>/<dir>/node_modules <dir>/node_modules'` so its dependencies exist (setup artifacts are not committed).
 
    Cross-review runs on the other lane's default model (agy reviews opencode-written branches, opencode-task reviews agy-written ones). No --model flag.
 

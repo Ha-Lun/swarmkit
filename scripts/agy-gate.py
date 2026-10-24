@@ -4,11 +4,12 @@
 agy-task writes CONFIG (task dir, outside the worktree) and points the worktree's .agents/hooks.json (a per-run
 file, never committed) at this script. CONFIG: {"root": worktree, "log": file, "edit": bool, "shell": [globs]}.
 Allowed: the file tools below on paths inside root, the edit tools only if "edit", and run_command only if its
-command matches a "shell" glob (plain runs: the read-only part of the runner allowlist). Everything else is denied:
+command matches a "shell" glob (plain runs: the read-only part of the runner allowlist); a run_command without
+Cwd (agy 1.4.7 has none) runs in agy's workspace, which agy-task launches in root. Everything else is denied:
 other tools (MCP, browser, web), paths outside root, any path component named .git or one of agy's
 customization roots (.agents, .gemini etc.: a written hooks.json would run commands), edits of the root
 AGENTS.md or GEMINI.md (agy loads them as rules), relative paths, backslashes,
-any URL scheme (file: too: agy 1.4.2 never sends one, and a URL parser can read ?, # or % differently) and any
+any URL scheme (file: too: agy never sends one, and a URL parser can read ?, # or % differently) and any
 argument key outside the tool's schema below. Every decision is appended to the log ("allow|deny|deny-quiet TOOL TARGET"): agy leaves
 hook denials out of its denied_actions, and an empty log after tool calls means the hook was not active.
 deny-quiet is a read-only tool on .git or .agents (agy's list_dir shows the overlay dir, models look once):
@@ -16,18 +17,21 @@ denied, but agy-task does not count it as a denied action.
 """
 import fnmatch, json, os, re, stat, sys
 
-# tool -> (its path keys, all required; every other key it may have), from live probes of agy 1.4.2 (hook input
-# and transcripts). A key outside both is denied: an unknown one could name a path (run_command's BypassSandbox).
+# tool -> (its path keys, all required; every other key it may have), from live probes of agy 1.4.2 and 1.4.7 (hook
+# input and transcripts; 1.4.7 offers read_file/write_file and a Cwd-less run_command by default, the old names under
+# --agent). A key outside both is denied: an unknown one could name a path (run_command's BypassSandbox).
 COMMON = ("toolAction", "toolSummary")
 READ = {"view_file": (("AbsolutePath",), ("StartLine", "EndLine")),
         "list_dir": (("DirectoryPath",), ()),
         "grep_search": (("SearchPath",), ("Query", "IsRegex", "MatchPerLine")),
-        "find_by_name": (("SearchDirectory",), ("Pattern",))}
+        "find_by_name": (("SearchDirectory",), ("Pattern",)),
+        "read_file": (("Path",), ())}
 EDIT = {"write_to_file": (("TargetFile",), ("CodeContent", "Description", "Overwrite")),
         "edit_file": (("Path",), ("Target", "Replacement")),
+        "write_file": (("Path",), ("Content", "Overwrite", "Append")),
         "replace_file_content": (("TargetFile",), ("TargetContent", "ReplacementContent", "StartLine", "EndLine",
                                                    "AllowMultiple", "Instruction", "Description"))}
-SHELL = {"run_command": (("Cwd",), ("CommandLine", "WaitMsBeforeAsync"))}
+SHELL = {"run_command": (("Cwd",), ("CommandLine", "WaitMsBeforeAsync"))}  # Cwd may be absent: then root
 GUARDED = {".git", ".agents", ".agent", "_agents", "_agent", ".gemini"}
 RULES = {"agents.md", "gemini.md"}  # agy loads these from the worktree root as rules: read-only for the worker
 PATHY_KEY = re.compile(r"path|file|dir", re.I)
@@ -110,6 +114,8 @@ def decide(call, cfg):
         raise ValueError("only file tools inside the worktree; no MCP, browser or web" +
                          ("" if cfg.get("shell") else ", no shell"))
     keys, other = tools[name]
+    if name in SHELL and "Cwd" not in args:  # absent, not empty or null: agy runs it in its workspace, root
+        keys = ()
     paths = [resolve(args.get(k), root) for k in keys]
     for k, v in args.items():
         if k in keys:
@@ -121,7 +127,7 @@ def decide(call, cfg):
     if name in EDIT and any(os.path.relpath(p, root).lower() in RULES for p in paths):
         raise ValueError("the worktree's AGENTS.md and GEMINI.md are agy's rules: read-only for workers")
     if name in SHELL:
-        check_command(args.get("CommandLine"), paths[0], root, cfg["shell"])
+        check_command(args.get("CommandLine"), paths[0] if paths else root, root, cfg["shell"])
 
 
 def target(call):

@@ -30,19 +30,19 @@ through file edits. It is not a sandbox: the runner allowlist (npm test etc.) ru
 the host. An OS-level sandbox (bubblewrap/landlock) is the real long-term control.
 agy gate: agy itself lets a plain accept-edits run write anywhere by absolute path, so every agy run
 (plain and --agent; not --yolo) gets a PreToolUse hook in <wt>/.agents/hooks.json (never committed):
-scripts/agy-gate.py allows view_file, list_dir, grep_search, find_by_name and (not under --review)
-write_to_file, edit_file, replace_file_content on absolute or file:/// paths that resolve inside the
+scripts/agy-gate.py allows view_file, read_file, list_dir, grep_search, find_by_name and (not under --review)
+write_to_file, write_file, edit_file, replace_file_content on absolute or file:/// paths that resolve inside the
 worktree, outside any .git or .agents-style component (.gemini too), never the root AGENTS.md or GEMINI.md; plain runs also get run_command for read-only
 commands from the runner allowlist (git status/diff/log/show, ls, pwd, echo, wc, cat of source paths; no
 shell syntax, paths inside the worktree). No test runner: it would run worker-written code past the gate. Everything else is denied (MCP, browser, web),
 and every decision is logged into task/gate.log; denials land in denied_actions (reads of .git or .agents are
 denied quietly: counted in quiet_denials, a warning above 3). agy runs a hook that crashes or prints nothing as
 an allow, so before the commit the tool names in agy's transcript of this run are matched one by one against
-the gate log: a mismatch ("gate hook inactive"), an unreadable transcript ("gate check unavailable") or a
+the gate log (a call agy rejected as INVALID before the hook, the next step's status, is skipped): a mismatch ("gate hook inactive"), an unreadable transcript ("gate check unavailable") or a
 resume that answered for another conversation is NOT ok and not committed. A base that tracks anything under
 .agents/.agent/_agents/_agent/.gemini is refused, and so is a launch (start after --setup, resume) while the worktree
 has any such entry besides the wrapper's own overlay, or a symlink among them.
-The gate's schema (tool names, argument keys, transcript format) was probed on agy 1.4.2 (AGY_PROBED): another
+The gate's schema (tool names, argument keys, transcript format) was probed on agy 1.4.2 and 1.4.7 (AGY_PROBED): another
 agy version is refused unless AGY_TASK_ALLOW_UNPROBED=1. Re-probe before bumping it: in a scratch repo, run one
 plain and one --agent task that reads, edits and searches; compare the tool names and argument keys in
 ~/.gemini/antigravity-cli/brain/<conversation>/.system_generated/logs/transcript_full.jsonl and the gate log
@@ -51,7 +51,9 @@ with agy-gate.py's schema, and add only file tools whose path keys are known.
 Invoked as opencode-task (a symlink) it drives `opencode run`: branches opencode/<slug>, tasks under
 $OPENCODE_TASK_DIR (default ~/.opencode-tasks). A per-run config overlay (OPENCODE_CONFIG_CONTENT, this
 process only) allows edits (file tools denied outside the worktree), limits the shell to test/build runners and read-only git, and turns off
-subagents; the user's own OpenCode config is untouched. --yolo lifts the shell limit (not sandboxed).
+subagents; the user's own OpenCode config is untouched. --yolo lifts the shell limit (not sandboxed). Each directory (depth 1-2)
+with a tracked package.json also gets `npm --prefix DIR test` and `npm --prefix DIR run test|lint|build|typecheck`; a prompt
+note tells the worker these commands and that the shell takes no cd, pipes or redirects.
 Circuit breaker (opencode): the JSON stream is watched while the worker runs. At --max-denied denied
 commands (a worker that keeps trying shell workarounds) or --max-tool-errors failed tool calls its process
 group is killed, its edits are kept and committed, and result.json gets ok false, a "stopped: ..." warning
@@ -96,7 +98,7 @@ def seconds(s):
     return int(s[:-1]) * {"s": 1, "m": 60, "h": 3600}[s[-1]] if s[-1] in "smh" else int(s)
 
 
-def agy_cmd(task, prompt, a, resume_id):
+def agy_cmd(task, prompt, a, resume_id, _p=None):
     agent = getattr(a, "agent", None)
     agy_overlay(task, a, agent)
     if agent:
@@ -264,7 +266,7 @@ def agy_agent_problem(agent):
     return None
 
 
-AGY_PROBED = "1.4.2"  # the agy version the gate schema and transcript check were probed on
+AGY_PROBED = "1.4.7"  # the agy version the gate schema and transcript check were probed on
 
 
 def refuse(task, msg):
@@ -340,15 +342,24 @@ def agy_tool_calls(conv):
     if not conv or not re.fullmatch(r"[0-9a-f-]{8,64}", str(conv)):
         return None
     brain = Path(os.environ.get("SWARMKIT_AGY_BRAIN_DIR", Path.home() / ".gemini" / "antigravity-cli" / "brain"))
-    names = []
+    steps, names = [], []
     try:
         for line in read_nofollow(brain / conv / ".system_generated" / "logs" / "transcript_full.jsonl").splitlines():
-            try:  # an unreadable line drops its calls: a shorter list never matches the gate log
-                names += [gate_name(c.get("name")) for c in json.loads(line).get("tool_calls") or []]
-            except (ValueError, AttributeError, TypeError):
-                pass
+            try:
+                steps.append(json.loads(line))
+            except ValueError:
+                steps.append(None)
     except OSError:
         return None
+    for step, nxt in zip(steps, steps[1:] + [None]):
+        try:  # an unreadable step drops its calls: a shorter list never matches the gate log
+            calls = step.get("tool_calls") or []
+            # one call whose arguments agy rejected (next step INVALID): it never reached the hook or ran
+            if len(calls) == 1 and isinstance(nxt, dict) and nxt.get("status") == "INVALID":
+                continue
+            names += [gate_name(c.get("name")) for c in calls]
+        except (AttributeError, TypeError):
+            pass
     return names
 
 
@@ -360,9 +371,31 @@ def read_nofollow(path):
         return f.read()
 
 
-def opencode_cmd(task, prompt, a, resume_id):
+def subprojects(p):
+    """Directories (depth 1-2) of the worktree's tracked package.json files, names safe in a bash rule only."""
+    out = wt_git(p, "ls-files", "-z", "--", ":(glob)*/package.json", ":(glob)*/*/package.json", check=False)
+    dirs = (f.rsplit("/", 1)[0] for f in out.split("\0") if f)
+    return sorted({d for d in dirs if re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9._/-]*", d)
+                   and not {"..", "node_modules"} & set(d.split("/"))})
+
+
+SUB_RUNNERS = ("test", "run test", "run lint", "run build", "run typecheck")  # as `npm --prefix DIR <cmd>`
+
+
+def shell_note(p):
+    """What the opencode worker's shell allows, so it stops trying cd and pipes."""
+    root = ["npm test, npm run lint/build/typecheck"] if wt_git(p, "ls-files", "--", "package.json", check=False) \
+        else ["pytest, go test, cargo test, make test (whichever the repo uses)"]
+    cmds = root + [f"npm --prefix {d} test, npm --prefix {d} run lint/build/typecheck" for d in subprojects(p)]
+    return ("The shell runs one command at a time: no cd, pipes, redirects, && or 2>&1. Test/build commands allowed"
+            f" here: {'; '.join(cmds)}.")
+
+
+def opencode_cmd(task, prompt, a, resume_id, p):
     o = remembered_opts(task, a, resume_id)
     agent = o.get("agent")
+    if not a.yolo:
+        prompt = shell_note(p) + "\n\n" + prompt
     if agent:
         prompt = HEADLESS_NOTE + "\n\n" + prompt
     if a.yolo:
@@ -376,10 +409,15 @@ def opencode_cmd(task, prompt, a, resume_id):
     return cmd + ["--", prompt]
 
 
-def opencode_env(a, wt):
-    perm = dict(OPENCODE_OVERLAY["permission"])
+def opencode_env(a, p):
+    wt, perm = p["wt"], dict(OPENCODE_OVERLAY["permission"])
     if a.yolo:
         perm["bash"] = "allow"
+    else:  # npm --prefix DIR for each subproject, fixed prefixes only, before the git denies (last match wins)
+        sub = {c: "allow" for d in subprojects(p) for r in SUB_RUNNERS
+               for c in (f"npm --prefix {d} {r}", f"npm --prefix {d} {r} *")}
+        deny = {k: v for k, v in perm["bash"].items() if k.startswith("git * ")}
+        perm["bash"] = {**{k: v for k, v in perm["bash"].items() if k not in deny}, **sub, **deny}
     if a.review:  # a review answers in text and must not edit
         perm["edit"] = "deny"
     cfg = {"permission": perm}
@@ -682,13 +720,13 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     nested_before = json.loads(nf.read_text()) if nf.exists() else {}
     gated = CLI == "agy" and not a.yolo
     calls_before = (agy_tool_calls(resume_id) if resume_id else []) if gated else None
-    cmd = BACKEND["cmd"](task, prompt, a, resume_id)
+    cmd = BACKEND["cmd"](task, prompt, a, resume_id, pinned)
     banner(task, o, resume_id)
     dispatch_log("start", task.name, o.get("model"), effort=o.get("effort") or None, agent=o.get("agent"))
     logf = open(task / f"{CLI}.log", "w")  # live, so `tail -f` and `list` work; rewritten in order at the end
     main_before = main_state(repo)
     # Own process group so a SIGTERM/SIGINT to us (or a timeout) takes the agent and its tools down too.
-    env = BACKEND["proc_env"](a, wt) if "proc_env" in BACKEND else None
+    env = BACKEND["proc_env"](a, pinned) if "proc_env" in BACKEND else None
     p = subprocess.Popen(cmd, cwd=wt, env=env, text=True, stdin=subprocess.DEVNULL, start_new_session=True,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     interrupted, stopped, killer, counts, bufs = [], [], [], {"failed": 0, "denied": 0}, {"out": [], "err": []}

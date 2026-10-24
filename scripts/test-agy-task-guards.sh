@@ -39,7 +39,7 @@ esac
 S
 cat > "$T/bin/opencode" <<'S'
 #!/bin/sh
-printf '%s\n' "$*" >> "$STUB_ARGS"
+{ printf '%s' "$*" | tr '\n' ' '; echo; } >> "$STUB_ARGS"   # one line per run: the prompt has newlines
 printf '%s' "$OPENCODE_CONFIG_CONTENT" > "$STUB_ARGS.cfg"
 echo stub > stub.txt
 . "$(dirname "$0")/modes"
@@ -59,10 +59,12 @@ chmod +x "$T/bin/opencode"
 # The agy stub records its args and, as agy does, asks the gate hook in .agents/hooks.json about one tool call
 # ($STUB_CALL, @WT@ = the worktree; default: write stub.txt), then writes stub.txt only if allowed. STUB_NOHOOK skips the hook (a hook
 # agy did not run). Its transcript (in the --conversation, else a new one; STUB_CONV overrides) records that call
-# (named STUB_TNAME if set, plus a STUB_EXTRA call); STUB_NOTRANSCRIPT writes none. --version prints $STUB_VERSION (1.4.2).
+# (named STUB_TNAME if set, plus a STUB_EXTRA call), then a STUB_INVALID call whose next step has status
+# $STUB_INVALID_STATUS (INVALID: agy rejected its arguments before the hook); STUB_NOTRANSCRIPT writes none.
+# --version prints $STUB_VERSION (1.4.7).
 cat > "$T/bin/agy" <<'S'
 #!/bin/sh
-[ "$1" = --version ] && { echo "agy ${STUB_VERSION:-1.4.2}"; exit 0; }
+[ "$1" = --version ] && { echo "agy ${STUB_VERSION:-1.4.7}"; exit 0; }
 printf '%s\n' "$*" >> "$STUB_ARGS.agy"
 hook=$(jq -r '.[].PreToolUse[0].hooks[0].command' .agents/hooks.json 2>/dev/null)
 call=${STUB_CALL:-"{\"toolCall\":{\"name\":\"write_to_file\",\"args\":{\"TargetFile\":\"$PWD/stub.txt\",\"CodeContent\":\"x\"}}}"}
@@ -78,6 +80,8 @@ if [ -z "$STUB_NOTRANSCRIPT" ]; then
   extra=""; [ -n "$STUB_EXTRA" ] && extra=",{\"name\":\"$STUB_EXTRA\"}"
   printf '{"type":"PLANNER_RESPONSE","tool_calls":[{"name":"%s"}%s]}\n' \
     "${STUB_TNAME:-$(printf '%s' "$call" | jq -r .toolCall.name)}" "$extra" >> "$l/transcript_full.jsonl"
+  [ -n "$STUB_INVALID" ] && printf '{"type":"PLANNER_RESPONSE","tool_calls":[{"name":"%s"}]}\n{"type":"GENERIC","status":"%s"}\n' \
+    "$STUB_INVALID" "${STUB_INVALID_STATUS:-INVALID}" >> "$l/transcript_full.jsonl"
 fi
 printf '{"status":"SUCCESS","conversation_id":"%s","response":"done"}\n' "$conv"
 S
@@ -114,6 +118,27 @@ for s in e1 e2 e3 e4; do "$TASK" clean $s --force; done
 [ "$(jq -r '.permission.bash["node *"] // "none"' "$STUB_ARGS.cfg")" = none ] || fail "node * must not be allowed"
 [ "$(jq -r '.permission.bash["node -e *"] // "none"' "$STUB_ARGS.cfg")" = none ] || fail "node -e * must not be allowed"
 "$TASK" clean rg1 --force
+
+# --- subprojects: tracked package.json dirs (depth 1-2, safe names, not node_modules) get npm --prefix DIR, fixed
+# prefixes only and before the git denies; the prompt note lists them and says the shell takes no cd or pipes
+for d in . sub site/app -x "a b" node_modules/x deep/a/b; do mkdir -p -- "$d" && echo '{}' > "$d/package.json"; done
+git add -A && git commit -qm subprojects
+"$TASK" start sp1 "p" >/dev/null 2>&1 || true
+C="$STUB_ARGS.cfg"
+for k in "npm --prefix sub test" "npm --prefix sub run typecheck *" "npm --prefix site/app run build" "npm --prefix site/app test *"; do
+  [ "$(jq -r --arg k "$k" '.permission.bash[$k]' "$C")" = allow ] || fail "subproject rule missing: $k"
+done
+[ "$(jq -r '[.permission.bash | to_entries[] | select(.value == "allow") | .key
+            | select(startswith("npm --prefix *") or contains(" exec") or test("-x|a b|node_modules|deep"))] | length' "$C")" = 0 ] \
+  || fail "unsafe subproject rule: $(jq -c '.permission.bash | keys' "$C")"
+jq -e '.permission.bash | keys_unsorted | .[-3:] | all(startswith("git * "))' "$C" >/dev/null || fail "git denies not last"
+tail -1 "$STUB_ARGS" | grep -q "no cd, pipes, redirects, && or 2>&1.* npm test, .*npm --prefix site/app test, .*npm --prefix sub run lint/build/typecheck" \
+  || fail "prompt note: $(tail -1 "$STUB_ARGS")"
+tail -1 "$STUB_ARGS" | grep -q -- "-x\|a b\|node_modules" && fail "prompt note lists an unsafe dir"
+"$TASK" start sp2 --yolo "p" >/dev/null 2>&1 || true
+tail -1 "$STUB_ARGS" | grep -q "no cd" && fail "--yolo got the shell note"
+for s in sp1 sp2; do "$TASK" clean $s --force; done
+git reset -q --hard HEAD~1
 
 # --- edit scope: no file tool outside the worktree, also with --yolo
 "$TASK" start sc1 "p" >/dev/null 2>&1 || true
@@ -491,6 +516,11 @@ uncommitted gp4
 STUB_TNAME=run_command "$AGY_TASK" start gp8 "p" >/dev/null 2>&1 && fail "run with another tool in the transcript reported ok"
 ares gp8 '.warnings[]' | grep -q "^gate hook inactive: 1 gate decisions for 1 tool calls" || fail "name match: $(ares gp8 .warnings)"
 uncommitted gp8
+# a call agy rejected as INVALID (next step) never reached the hook: not counted; any other status is
+STUB_INVALID=run_command "$AGY_TASK" start gp10 "p" >/dev/null 2>&1 || fail "INVALID call counted: $(ares gp10 .warnings)"
+STUB_INVALID=run_command STUB_INVALID_STATUS=ERROR "$AGY_TASK" start gp11 "p" >/dev/null 2>&1 && fail "ERROR call not counted"
+ares gp11 '.warnings[]' | grep -q "^gate hook inactive: 1 gate decisions for 2 tool calls" || fail "ERROR step: $(ares gp11 .warnings)"
+uncommitted gp11
 # a missing transcript is not ok either, and neither is a resume that answered for another conversation
 STUB_NOTRANSCRIPT=1 "$AGY_TASK" start gp9 "p" >/dev/null 2>&1 && fail "run without a transcript reported ok"
 ares gp9 '.warnings[]' | grep -q "^gate check unavailable" || fail "no unavailable warning: $(ares gp9 .warnings)"
@@ -503,7 +533,7 @@ ares gp1 '.warnings[]' | grep -q "^gate check failed: agy answered for conversat
 [ "$(git -C "$(adir gp1)/worktree" rev-parse HEAD)" = "$h" ] || fail "resume in another conversation was committed"
 # an agy version other than the probed one is refused unless overridden
 rc=0; out=$(STUB_VERSION=1.5.0 "$AGY_TASK" start gv1 "p" 2>&1) || rc=$?
-[ "$rc" = 2 ] && echo "$out" | grep -q "agy 1.5.0 is not the version the gate was probed on (1.4.2)" || fail "unprobed agy ($rc): $out"
+[ "$rc" = 2 ] && echo "$out" | grep -q "agy 1.5.0 is not the version the gate was probed on (1.4.7)" || fail "unprobed agy ($rc): $out"
 [ ! -e "$AGY_TASK_DIR"/*/gv1 ] || fail "unprobed agy left a task dir"
 STUB_VERSION=1.5.0 AGY_TASK_ALLOW_UNPROBED=1 "$AGY_TASK" start gv1 "p" >/dev/null 2>&1 || fail "override not honoured: $(ares gv1 .warnings)"
 # a launch is refused while the worktree has agy customization entries besides the overlay, or symlinks among them
@@ -580,7 +610,20 @@ gate deny "$(call view_file "{\"AbsolutePath\":\"$W/stub.txt\",\"Foo\":\"x\"}")"
 gate deny "$(call find_by_name "{\"SearchDirectory\":\"$W\",\"Pattern\":\"*\",\"Root\":true}")"
 gate deny "$(call edit_file "{\"Path\":\"$W/stub.txt\",\"Target\":\"a\",\"Replacement\":\"b\",\"CodeContent\":\"c\"}")"
 gate deny "$(call run_command "{\"CommandLine\":\"ls\",\"Cwd\":\"$W\",\"BypassSandbox\":true}")"
-gate deny "$(call run_command '{"CommandLine":"ls"}')"                                        # no Cwd
+gate allow "$(call run_command '{"CommandLine":"ls","WaitMsBeforeAsync":"5000","toolSummary":"s"}')"  # no Cwd (1.4.7): the worktree
+gate allow "$(call run_command '{"CommandLine":"git log --oneline -5"}')"
+gate deny "$(call run_command '{"CommandLine":"find . -name x"}')"                           # not allowlisted
+gate deny "$(call run_command '{"CommandLine":"ls /etc"}')"                                  # outside, relative to the worktree
+gate deny "$(call run_command '{"CommandLine":"ls","Cwd":null}')"                            # a Cwd must be a path
+gate deny "$(call run_command "{\"CommandLine\":\"git status\",\"path\":\"$W\"}")"            # unknown key
+# agy 1.4.7's default file tools
+gate allow "$(call read_file "{\"Path\":\"$W/stub.txt\"}")"
+gate deny "$(call read_file '{"Path":"/etc/hostname"}')"
+gate deny "$(call read_file '{"Path":"stub.txt"}')"                                          # relative
+gate allow "$(call write_file "{\"Path\":\"$W/notes.txt\",\"Content\":\"x\",\"Overwrite\":\"true\",\"Append\":\"false\"}")"
+gate deny "$(call write_file "{\"Path\":\"$W/notes.txt\",\"Content\":\"x\",\"TargetFile\":\"/etc/x\"}")"  # unknown key
+gate deny "$(call write_file "{\"Path\":\"$T/sib/x.txt\",\"Content\":\"x\"}")"
+gate deny "$(call write_file "{\"Path\":\"$W/AGENTS.md\",\"Content\":\"x\"}")"
 gate deny "$(call write_to_file "{\"TargetFile\":\"$W/.agents/hooks.json\",\"CodeContent\":\"{}\"}")"
 gate deny "$(call view_file "{\"AbsolutePath\":\"$W/out/hostname\"}")"                      # symlink out of the worktree
 for p in sub/x/.git/config sub/.GIT sub/x/.Agents/hooks.json _agent/a _AGENTS .agent .gemini/config.json AGENTS.md Gemini.md; do      # .git and agy roots at any depth
@@ -620,6 +663,8 @@ gate deny "$(rc 'npm test' /tmp)"
 cfg false '[]'
 gate deny "$(rc 'npm test')"                                                                   # --agent: no shell
 gate deny "$(call edit_file "{\"Path\":\"$W/stub.txt\",\"Target\":\"a\",\"Replacement\":\"b\"}")"   # --review: no edits
+gate deny "$(call write_file "{\"Path\":\"$W/stub.txt\",\"Content\":\"b\"}")"
+gate deny "$(call run_command '{"CommandLine":"ls"}')"
 gate allow "$(call list_dir "{\"DirectoryPath\":\"$W\"}")"
 # every decision is logged, one line each, without control characters; a log it cannot write still gets a decision
 : > "$T/g.log"
@@ -643,7 +688,7 @@ ln -s /etc etc-link && git add etc-link && git commit -qm link
 "$AGY_TASK" start ga5 --setup 'ln -s /tmp setup-link' "p" >/dev/null 2>&1 || true
 ares ga5 '.warnings[]' | grep -q "^symlinks point outside the worktree (etc-link, setup-link)" || fail "no symlink warning: $(ares ga5 .warnings)"
 git reset -q --hard HEAD~1
-for s in gp1 gp2 gp3 gp4 gp5 gp6 gp7 gp8 gp9 gv1 ga1 ga2 ga3 ga5; do "$AGY_TASK" clean $s --force; done
+for s in gp1 gp2 gp3 gp4 gp5 gp6 gp7 gp8 gp9 gp10 gp11 gv1 ga1 ga2 ga3 ga5; do "$AGY_TASK" clean $s --force; done
 unset SWARMKIT_AGY_AGENTS_DIR
 
 # --- dispatch log: allowlisted fields only
