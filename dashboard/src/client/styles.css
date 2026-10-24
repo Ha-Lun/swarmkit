@@ -1831,7 +1831,21 @@ details.collapsible > summary:hover { color: var(--ink); }
 .usage-card.is-opencode { border-left-color: var(--teal); }
 .usage-card.is-agy { border-left-color: var(--amber); }
 
-.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); }
+h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin: 0; }
+
+/* Visually hidden but announced by screen readers. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
 .usage-none { font-size: 12.5px; overflow-wrap: anywhere; }
 .usage-note { font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
 

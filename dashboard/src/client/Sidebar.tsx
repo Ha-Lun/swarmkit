@@ -41,6 +41,13 @@ export function Sidebar({
 }: Props) {
   const fiveHour = usage?.claude.available === true ? usage.claude.fiveHour : undefined;
   const utilization = fiveHour?.utilization ?? null;
+  const resetLabel = fiveHour?.resetsAt ? fmtResetIn(fiveHour.resetsAt) : '';
+  const pill =
+    fiveHour != null && utilization != null
+      ? `Claude 5-hour window ${Math.min(100, Math.max(0, Math.round(utilization)))}%${
+          resetLabel ? `, resets ${resetLabel}` : ''
+        }`
+      : undefined;
   return (
     <nav className={`sidebar${open ? ' is-open' : ''}`} aria-label="Sessions">
       <div className="side-head">
@@ -94,13 +101,14 @@ export function Sidebar({
         onOpenAll={onOpenWorkers}
       />
 
-      {utilization != null && (
+      {pill && utilization != null && (
         <div className="side-usage">
           <span
             className={`usage-pill tone-${usageTone(utilization)}`}
-            title={fiveHour?.resetsAt ? `resets ${fmtResetIn(fiveHour.resetsAt)}` : undefined}
+            aria-label={pill}
+            title={resetLabel ? `resets ${resetLabel}` : undefined}
           >
-            Claude 5h <b>{Math.round(Math.min(100, Math.max(0, utilization)))}%</b>
+            Claude 5h <b>{Math.min(100, Math.max(0, Math.round(utilization)))}%</b>
           </span>
         </div>
       )}

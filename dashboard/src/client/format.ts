@@ -44,12 +44,13 @@ export function fmtClock(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour12: false });
 }
 
-/** 980 / 12k / 3.4M */
+/** 0 / 999 / 1k / 1.0M / 1.2M / 10.0M — round to k first so a rounded-up value picks the right unit. */
 export function fmtTokens(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return '0';
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1000) return `${Math.round(n / 1000)}k`;
-  return String(n);
+  if (Math.round(n) < 1000) return String(Math.round(n));
+  const r = Math.round(n / 1000) * 1000;
+  if (r >= 1_000_000) return `${(r / 1_000_000).toFixed(1)}M`;
+  return `${r / 1000}k`;
 }
 
 export type ToolKey = 'read' | 'edit' | 'bash' | 'search' | 'web' | 'agent' | 'other';
@@ -131,19 +132,25 @@ export function workerElapsedS(task: WorkerTask, now: number, at: number): numbe
   return task.elapsedS + Math.max(0, Math.floor((now - at) / 1000));
 }
 
+/** ISO or ms timestamp -> epoch ms, tolerating sub-millisecond precision (>3 fraction digits breaks Date.parse). */
+export function parseIso(s: string | number): number {
+  const t = typeof s === 'string' ? Date.parse(s.replace(/(\.\d{3})\d+/, '$1')) : s;
+  return Number.isFinite(t) ? t : NaN;
+}
+
 /** HH:MM in the viewer's local clock, e.g. '10:55' — 'as of' footers. */
 export function fmtClockShort(iso: string | number): string {
-  const t = typeof iso === 'string' ? Date.parse(iso) : iso;
-  if (!Number.isFinite(t)) return '';
-  return new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+  const t = parseIso(iso);
+  if (Number.isNaN(t)) return '';
+  return new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 }
 
 /** 'in 4h 24m' when under a day out, 'Mon 19:59' (local) when longer, 'now' when due. */
 export function fmtResetIn(resetsAt: string, now = Date.now()): string {
-  const t = Date.parse(resetsAt);
-  if (!Number.isFinite(t)) return '';
+  const t = parseIso(resetsAt);
+  if (Number.isNaN(t)) return '';
   const ms = t - now;
-  if (ms <= 0) return 'now';
+  if (ms < 60_000) return 'now';
   if (ms >= 86_400_000)
     return `${new Date(t).toLocaleDateString([], { weekday: 'short' })} ${fmtClockShort(t)}`;
   const m = Math.round(ms / 60_000);
