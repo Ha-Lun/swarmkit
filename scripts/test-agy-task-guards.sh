@@ -624,6 +624,8 @@ gate deny "$(call run_command "{\"CommandLine\":\"git status\",\"path\":\"$W\"}"
 gate allow "$(call read_file "{\"Path\":\"$W/stub.txt\"}")"
 gate deny "$(call read_file '{"Path":"/etc/hostname"}')"
 gate deny "$(call read_file '{"Path":"stub.txt"}')"                                          # relative
+gate allow "$(call read_file "{\"Path\":\"$W/stub.txt\",\"StartLine\":1,\"EndLine\":800}")"
+gate deny "$(call read_file "{\"Path\":\"$W/stub.txt\",\"StartLine\":1,\"Foo\":2}")"
 gate allow "$(call write_file "{\"Path\":\"$W/notes.txt\",\"Content\":\"x\",\"Overwrite\":\"true\",\"Append\":\"false\"}")"
 gate deny "$(call write_file "{\"Path\":\"$W/notes.txt\",\"Content\":\"x\",\"TargetFile\":\"/etc/x\"}")"  # unknown key
 gate deny "$(call write_file "{\"Path\":\"$T/sib/x.txt\",\"Content\":\"x\"}")"

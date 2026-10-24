@@ -25,7 +25,7 @@ READ = {"view_file": (("AbsolutePath",), ("StartLine", "EndLine")),
         "list_dir": (("DirectoryPath",), ()),
         "grep_search": (("SearchPath",), ("Query", "IsRegex", "MatchPerLine")),
         "find_by_name": (("SearchDirectory",), ("Pattern",)),
-        "read_file": (("Path",), ())}
+        "read_file": (("Path",), ("StartLine", "EndLine"))}
 EDIT = {"write_to_file": (("TargetFile",), ("CodeContent", "Description", "Overwrite")),
         "edit_file": (("Path",), ("Target", "Replacement")),
         "write_file": (("Path",), ("Content", "Overwrite", "Append")),
