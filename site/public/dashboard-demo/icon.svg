@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="SwarmKit">
+  <!-- dark rounded-square background so the mark works as a PWA icon -->
+  <rect width="512" height="512" rx="112" fill="#05060a"/>
+  <!-- SwarmKit hexagon mark, violet -> teal -->
+  <defs>
+    <linearGradient id="swk-icon-grad" x1="130" y1="90" x2="382" y2="422" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d9ccff"/>
+      <stop offset="1" stop-color="#2ee6c8"/>
+    </linearGradient>
+  </defs>
+  <path d="M256 64l144 84v216l-144 84-144-84V148z" fill="url(#swk-icon-grad)"/>
+  <path d="M256 144l72 42v120l-72 42-72-42V186z" fill="#05060a"/>
+</svg>

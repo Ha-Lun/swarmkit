@@ -1,0 +1,37 @@
+---
+// Dashboard demo: a prebuilt, scripted build of the SwarmKit dashboard shown in an iframe. Regenerate with scripts/sync-dashboard-demo.sh.
+import Base from '../layouts/Base.astro';
+import GalaxyBar from '../components/galaxy/GalaxyBar.astro';
+import '../styles/galaxy.css';
+const demo = '/dashboard-demo/index.html';
+---
+<Base
+  title="SwarmKit dashboard: watch the swarm work"
+  description="A local dashboard for SwarmKit: start Claude Code sessions in a repo, watch the live tree of subagents and workers, approve tool permissions and see plan usage. Try a scripted demo."
+>
+  <GalaxyBar slot="top" />
+  <div class="gx-page" data-gx-page>
+    <header class="gx-page-head">
+      <p class="gx-kicker">SwarmKit dashboard</p>
+      <h1 class="gx-page-title">Watch the swarm work.</h1>
+      <p class="gx-page-lede">The dashboard starts Claude Code sessions in a repo and shows the live tree of agents behind each one: the subagents and the agy and opencode workers. You approve tool permissions from the page and see your plan usage limits beside the work.</p>
+      <p class="gx-page-lede">It runs locally on your machine behind a token. The demo below is scripted: nothing runs, and no data leaves this page.</p>
+    </header>
+    <section class="gx-demo" aria-label="Dashboard demo">
+      <div class="gx-demo-frame">
+        <iframe src={demo} title="SwarmKit dashboard demo (scripted)" loading="lazy"></iframe>
+      </div>
+      <p class="gx-demo-cap">
+        <span>Scripted demo. Try Start session.</span>
+        <a href={demo} target="_blank" rel="noopener">Open full screen</a>
+      </p>
+    </section>
+    <section class="gx-run" aria-labelledby="run-it">
+      <h2 class="gx-h2" id="run-it">Run it yourself</h2>
+      <pre><code>cd dashboard
+npm install
+npm run build
+npm start</code></pre>
+    </section>
+  </div>
+</Base>

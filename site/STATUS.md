@@ -2,6 +2,13 @@
 
 The showcase site is being rebuilt as "SwarmKit City": a scroll-scrubbed miniature-city 3D scene that replays one real `lead-dev-hybrid` run (the city is the codebase). The old honeycomb-globe site is archived in `docs/archive/`. The site was removed from `main` on 2026-10-18 (commit 206bf6f) and lives on branch `showcase`, where Vercel deploys production (https://swarmkit-site.vercel.app). The City was released on 2026-10-17 (main bc0170f); the Galaxy replaced it on 2026-10-20.
 
+## 2026-10-24 (dashboard demo page, branch site/dashboard-demo)
+- Added `/dashboard`: copy about the SwarmKit dashboard (sessions in a repo, live agent tree, permission approvals, plan usage; runs locally behind a token) and the dashboard's scripted mock build in an iframe, plus an "Open full screen" link and a run-it block. "Dashboard" is first in the GalaxyBar nav; `/dashboard` is in `public/sitemap.xml` (hand-maintained).
+- Exception to "no React": the demo is the dashboard's own prebuilt static React app (`npm run build:demo`), served from `public/dashboard-demo/` and shown in an iframe. Owner approved it; the homepage and every other page ship no React, and the page itself has no JS. The demo shows its own "scripted data, nothing runs" strip and makes no /api or /events requests.
+- Re-sync after dashboard changes (from `site/`): `scripts/sync-dashboard-demo.sh /home/ha-lun/opencode-config/dashboard`. It builds the demo, replaces the copy, writes `SOURCE.txt` (dashboard commit + date) and fails if the copy contains `ha-lun`, `lundstrom` or `tail3e28e1`.
+- No vercel.json, headers or CSP exist, so same-origin framing works as is.
+- Checks: tests pass, astro check 0 errors, build OK, homepage JS 278,987 B gz (unchanged, ~279 KB). Browser-checked at 390 and 1440: no console errors, no horizontal overflow, nav at 390 fits with 44 px targets, demo starts a session.
+
 ## 2026-10-21 (galaxy rounds J-K released)
 - Shipped (owner said "release"): the orbits are replaced by a star nursery (knots, threads, ignition, cocoons, test pulses, cron sputter fed by the fixer, cluster infall); labels say what each worker built and which helper ran it, with an honest no-subagents line and a legend; grain-free dive; dramatic supernova; bigger final galaxy.
 - The nebula is pre-rendered offline on the GPU as parallax layers plus a quiet bubble remnant (`scripts/render-nebula.mjs`, output in `public/nebula`). Re-run from `site/`: `PLAYWRIGHT_CORE=/home/ha-lun/projects/clavis node scripts/render-nebula.mjs all`. It needs a GPU Chromium; on this machine that means the NVIDIA PRIME env vars (`__NV_PRIME_RENDER_OFFLOAD=1`, `__GLX_VENDOR_LIBRARY_NAME=nvidia`, `__EGL_VENDOR_LIBRARY_FILENAMES`) and `--use-gl=angle --use-angle=gl-egl`.
