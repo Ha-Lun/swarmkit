@@ -250,7 +250,8 @@ echo "$out" | grep -q "^opencode-task: agent broad has an edit rule for .git" ||
 "$TASK" start ag2 "p" >/dev/null 2>&1 || true
 [ "$(last_agent)" = "build" ] || fail "default agent should be build, got $(last_agent)"
 for s in ag1 ag2; do "$TASK" clean $s --force; done
-# --agent model: the agent's own model when allowlisted, else the lane default with a notice
+# --agent model: the agent's pinned model when allowlisted, else the lane default (with a notice for a pin off the
+# allowlist); a tier-derived model (build.py's `# tier ...` comment) is no pin
 mkagent() { printf -- "---\n%s---\n" "$2" > "$SWARMKIT_OPENCODE_AGENTS_DIR/$1.md"; }
 mkagent m-glm "model: opencode-go/glm-5.3-flash
 "
@@ -271,7 +272,16 @@ echo "$err" | grep -q "allowlist" && fail "agent without model must not print a 
 [ "$(task_model am4)" = "opencode-go/deepseek-v4.1-flash" ] || fail "--model must win over the agent: $(task_model am4)"
 "$TASK" start am5 "p" >/dev/null 2>&1 || true
 [ "$(task_model am5)" = "opencode-go/muse-spark-1.3-contributor" ] || fail "no --agent must use muse: $(task_model am5)"
-for s in am1 am2 am3 am4 am5; do "$TASK" clean $s --force; done
+mkagent m-tier "model: opencode-go/glm-5.3-flash  # tier standard
+"
+err=$("$TASK" start am6 --agent m-tier "p" 2>&1 >/dev/null) || true
+[ "$(task_model am6)" = "opencode-go/muse-spark-1.3-contributor" ] || fail "tier-derived agent model must give muse: $(task_model am6)"
+echo "$err" | grep -q "allowlist" && fail "tier-derived agent model must not print a notice: $err"
+mkagent m-pinq "model: 'opencode-go/deepseek-v4.1-flash' # pinned for reasons
+"
+"$TASK" start am7 --agent m-pinq "p" >/dev/null 2>&1 || true
+[ "$(task_model am7)" = "opencode-go/deepseek-v4.1-flash" ] || fail "quoted pin with a comment not used: $(task_model am7)"
+for s in am1 am2 am3 am4 am5 am6 am7; do "$TASK" clean $s --force; done
 unset SWARMKIT_OPENCODE_AGENTS_DIR
 
 # --- git isolation: a worker that points .git at a gitdir it planted gets nothing run or committed there
@@ -697,6 +707,9 @@ mkagent mres-other "model: opencode-go/mimo-v2.6-flash
 mkagent mres-bad "model: anthropic/claude-x
 "
 [ "$("$TASK" model --agent mres-other)" = "opencode-go/mimo-v2.6-flash none" ] || fail "model --agent: agent model not used"
+mkagent mres-tier "model: opencode-go/glm-5.3-flash  # tier standard
+"
+[ "$("$TASK" model --agent mres-tier)" = "$oc_def none" ] || fail "model --agent: tier-derived model not replaced by lane default"
 [ "$("$TASK" model --agent mres-bad 2>/dev/null)" = "$oc_def none" ] || fail "model --agent: non-allowlisted agent model not replaced by lane default"
 "$TASK" model --agent mres-bad 2>&1 >/dev/null | grep -q "not on the worker allowlist" || fail "model: no notice for non-allowlisted agent model"
 [ "$("$TASK" model --model opencode-go/glm-5.3-flash)" = "opencode-go/glm-5.3-flash none" ] || fail "model --model"

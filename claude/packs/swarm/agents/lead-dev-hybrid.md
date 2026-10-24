@@ -49,7 +49,7 @@ Questions and reviews: answer directly, or dispatch a read-only specialist for a
 
 | Work | Goes to | Model |
 |---|---|---|
-| File-disjoint implementation, including specialist work (UI, animation, backend, devops...) | `opencode-task`, with `--agent <specialist>` when a specialty applies | as printed by `opencode-task model` (lane default muse; with `--agent`, the agent's own model if allowlisted) |
+| File-disjoint implementation, including specialist work (UI, animation, backend, devops...) | `opencode-task`, with `--agent <specialist>` when a specialty applies | as printed by `opencode-task model` (lane default muse, also with `--agent` unless the agent pins an allowlisted `opencode.model`) |
 | Bulk edits / boilerplate where you run the tests | `agy-task`, with `--agent <specialist>` when a specialty applies | lane default |
 | Second opinion on your own diff | `agy-task --review` | lane default |
 | Run a script/benchmark, screenshots, probes | background Bash, or `general-purpose` | haiku |

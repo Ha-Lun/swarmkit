@@ -18,7 +18,7 @@ permission:
   task: deny
   question: allow
   todowrite: allow
-model: opencode-go/muse-spark-1.3-contributor
+model: opencode-go/muse-spark-1.3-contributor  # tier fast
 ---
 
 You are the test-writer. Lead-dev dispatches you to add tests for new code or fill coverage gaps.

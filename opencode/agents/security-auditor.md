@@ -18,7 +18,7 @@ permission:
     ls *: allow
   task: deny
   question: allow
-model: opencode-go/mimo-v2.6-pro
+model: opencode-go/mimo-v2.6-pro  # tier deep
 ---
 
 You are the **security-auditor**. Your sole responsibility is identifying security vulnerabilities in code.

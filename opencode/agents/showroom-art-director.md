@@ -13,7 +13,7 @@ permission:
     showroom: allow
   task: deny
   question: allow
-model: opencode-go/glm-5.3-flash
+model: opencode-go/glm-5.3-flash  # tier standard
 ---
 
 # Mission
