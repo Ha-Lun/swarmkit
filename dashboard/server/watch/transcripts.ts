@@ -675,6 +675,61 @@ export class TranscriptWatcher {
 // summaries
 // ---------------------------------------------------------------------------
 
+/** Completed-turn probe shared by both summary paths (cached per head key). */
+const turnCache = new Map<string, boolean>();
+
+function cwdIsDir(cwd: string): boolean {
+  try {
+    return statSync(cwd).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** Tail of a transcript names an assistant or result message (a session that died
+ *  before the first response has only user lines). Cached per head cache key. */
+function fileHasTurn(key: string, file: string): boolean {
+  const hit = turnCache.get(key);
+  if (hit !== undefined) return hit;
+  let value = false;
+  try {
+    const st = statSync(file);
+    const fd = openSync(file, 'r');
+    try {
+      const len = Math.min(32 * 1024, st.size);
+      if (len > 0) {
+        const buf = Buffer.alloc(len);
+        readSync(fd, buf, 0, len, Math.max(0, st.size - len));
+        const tail = buf.toString('utf8');
+        value = tail.includes('"type":"assistant"') || tail.includes('"type":"result"');
+      }
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    value = false;
+  }
+  if (turnCache.size > 500) turnCache.clear();
+  turnCache.set(key, value);
+  return value;
+}
+
+/** In-memory equivalent for already-parsed trees: an assistant text/result landed. */
+function treeHasTurn(tree: SessionTree): boolean {
+  for (const node of tree.nodes.values()) {
+    if (node.result) return true;
+    for (const event of node.events) {
+      if (event.kind === 'result' || event.kind === 'text') return true;
+    }
+  }
+  return false;
+}
+
+/** Ended terminal states only; live (running/waiting/idle) sessions are never resumable. */
+function endedStatus(status: SessionSummary['status']): boolean {
+  return status === 'done' || status === 'error' || status === 'stopped';
+}
+
 function liveSummary(live: LiveSession, holders: Map<string, LiveHolder>): SessionSummary {
   const nodes = [...live.tree.nodes.values()];
   const root = nodes.find((n) => n.id === 'root');
@@ -686,6 +741,15 @@ function liveSummary(live: LiveSession, holders: Map<string, LiveHolder>): Sessi
     nodes.some((n) => n.status === 'waiting'),
     holders,
   );
+  let resumable = false;
+  if (endedStatus(status)) {
+    try {
+      resumable =
+        statSync(live.path).isFile() && cwdIsDir(live.cwd) && treeHasTurn(live.tree);
+    } catch {
+      resumable = false;
+    }
+  }
   return {
     id: live.id,
     source: 'terminal',
@@ -700,6 +764,7 @@ function liveSummary(live: LiveSession, holders: Map<string, LiveHolder>): Sessi
     model: root?.model,
     nodeCount: nodes.length,
     pendingPermissions: 0,
+    resumable,
   };
 }
 
@@ -723,19 +788,30 @@ function terminalStatus(
 
 function headSummary(head: HeadEntry, holders: Map<string, LiveHolder>): SessionSummary {
   const now = Date.now();
+  const status = terminalStatus(now, head.mtimeMs, basename(head.path, '.jsonl'), false, holders);
+  let resumable = false;
+  if (endedStatus(status)) {
+    try {
+      resumable =
+        statSync(head.path).isFile() && cwdIsDir(head.cwd) && fileHasTurn(head.key, head.path);
+    } catch {
+      resumable = false;
+    }
+  }
   return {
     id: basename(head.path, '.jsonl'),
     source: 'terminal',
     project: basename(head.cwd),
     cwd: head.cwd,
     title: head.title,
-    status: terminalStatus(now, head.mtimeMs, basename(head.path, '.jsonl'), false, holders),
+    status,
     startedAt: head.startedAt,
     updatedAt: head.mtimeMs,
     costUsd: 0,
     agent: head.agent,
     nodeCount: 1,
     pendingPermissions: 0,
+    resumable,
   };
 }
 

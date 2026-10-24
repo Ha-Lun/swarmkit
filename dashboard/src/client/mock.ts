@@ -122,6 +122,7 @@ export function createMockBackend(): FleetBackend {
     model: 'claude-opus-5-5',
     nodeCount: 1,
     pendingPermissions: 0,
+    resumable: false,
   };
   const t1: SessionSummary = {
     id: 'mock-term-1',
@@ -135,6 +136,7 @@ export function createMockBackend(): FleetBackend {
     costUsd: 0.05,
     nodeCount: 1,
     pendingPermissions: 0,
+    resumable: true,
   };
   const t2: SessionSummary = {
     id: 'mock-term-2',
@@ -148,8 +150,37 @@ export function createMockBackend(): FleetBackend {
     costUsd: 0.31,
     nodeCount: 2,
     pendingPermissions: 0,
+    resumable: true,
   };
-  for (const s of [s1, t1, t2]) {
+  const t3: SessionSummary = {
+    id: 'mock-term-3',
+    source: 'terminal',
+    project: 'acme-web',
+    cwd: '/home/demo/work/acme-web',
+    title: 'claude "draft the migration notes"',
+    status: 'done',
+    startedAt: base - 50_000_000,
+    updatedAt: base - 49_000_000,
+    costUsd: 0.12,
+    nodeCount: 1,
+    pendingPermissions: 0,
+    resumable: true,
+  };
+  const t4: SessionSummary = {
+    id: 'mock-term-4',
+    source: 'terminal',
+    project: 'scratch',
+    cwd: '/home/demo/work/scratch',
+    title: 'claude "aborted before the first reply"',
+    status: 'error',
+    startedAt: base - 20_000_000,
+    updatedAt: base - 19_900_000,
+    costUsd: 0.0,
+    nodeCount: 1,
+    pendingPermissions: 0,
+    resumable: false,
+  };
+  for (const s of [s1, t1, t2, t3, t4]) {
     sessions.set(s.id, s);
     nodeMaps.set(s.id, new Map());
     permLists.set(s.id, []);
@@ -301,6 +332,49 @@ export function createMockBackend(): FleetBackend {
   };
   nodeMaps.get(t1.id)!.set('root', t1root);
   nodeMaps.get(t2.id)!.set('root', t2root);
+  nodeMaps.get(t3.id)!.set('root', {
+    id: 'root',
+    sessionId: t3.id,
+    parentId: null,
+    kind: 'main',
+    agentType: 'main',
+    model: 'claude-sonnet-5-5',
+    description: 'Draft the migration notes',
+    prompt: 'Draft the migration notes for the pricing tables.',
+    status: 'done',
+    startedAt: t3.startedAt,
+    endedAt: t3.updatedAt,
+    costUsd: 0.12,
+    tokens: tu(6400, 2100),
+    toolCounts: { Read: 3 },
+    lastActivity: 'Drafted the migration notes.',
+    result: 'Migration notes drafted: three tables, two backfills, one flag flip.',
+    events: [
+      { id: 't3-e1', ts: t3.startedAt, kind: 'user', summary: 'Draft the migration notes for the pricing tables.' },
+      { id: 't3-e2', ts: t3.startedAt + 900, kind: 'text', summary: 'Here are the migration notes.' },
+      { id: 't3-e3', ts: t3.updatedAt, kind: 'result', summary: 'Drafted in 3m.' },
+    ],
+  });
+  // t4 died before the first assistant response: no result, not resumable, hidden everywhere.
+  nodeMaps.get(t4.id)!.set('root', {
+    id: 'root',
+    sessionId: t4.id,
+    parentId: null,
+    kind: 'main',
+    agentType: 'main',
+    description: 'Aborted before the first reply',
+    prompt: 'Aborted before the first reply.',
+    status: 'error',
+    startedAt: t4.startedAt,
+    endedAt: t4.updatedAt,
+    costUsd: 0,
+    tokens: tu(0, 0, 0, 0),
+    toolCounts: {},
+    lastActivity: 'Exited before responding.',
+    events: [
+      { id: 't4-e1', ts: t4.startedAt, kind: 'user', summary: 'Aborted before the first reply.' },
+    ],
+  });
 
   // --- the scripted page session ---
   const root: AgentNode = {
@@ -409,7 +483,10 @@ export function createMockBackend(): FleetBackend {
     upsertHead(n);
     const s = sessions.get(n.sessionId);
     if (s) {
-      if (n.kind === 'main') s.status = 'done';
+      if (n.kind === 'main') {
+        s.status = 'done';
+        s.resumable = true;
+      }
       s.costUsd = Math.max(s.costUsd, cost);
       bumpSession(n.sessionId);
     }
@@ -584,6 +661,7 @@ export function createMockBackend(): FleetBackend {
       if (s1.status === 'done' || s1.status === 'stopped' || (r && (r.status === 'done' || r.status === 'stopped'))) {
         s1.status = 'running';
         s1.pendingPermissions = 0;
+        s1.resumable = false;
         if (r) {
           r.status = 'running';
           r.endedAt = undefined;
@@ -685,6 +763,7 @@ export function createMockBackend(): FleetBackend {
         model: body.model,
         nodeCount: 1,
         pendingPermissions: 0,
+        resumable: false,
       };
       sessions.set(id, s);
       nodeMaps.set(id, new Map());
@@ -730,6 +809,7 @@ export function createMockBackend(): FleetBackend {
       n.result = undefined;
       upsertHead(n);
       s.status = 'running';
+      s.resumable = false;
       bumpSession(sessionId);
       at(1400, () => {
         if (n.status === 'running') pushEvent(n, 'text', 'On it — scripted reply from the mock fleet.');
@@ -742,6 +822,7 @@ export function createMockBackend(): FleetBackend {
           pushEvent(n, 'result', 'Scripted reply recorded.');
           upsertHead(n);
           s.status = 'done';
+          s.resumable = true;
           bumpSession(sessionId);
         }
       });
@@ -776,6 +857,7 @@ export function createMockBackend(): FleetBackend {
       }
       s.status = 'stopped';
       s.pendingPermissions = 0;
+      s.resumable = true;
       pendingPerm = null;
       bumpSession(sessionId);
       return Promise.resolve({ ok: true });
@@ -830,6 +912,7 @@ export function createMockBackend(): FleetBackend {
       // Terminal resume becomes page-owned; the same session id keeps its transcript.
       s.source = 'page';
       s.status = 'running';
+      s.resumable = false;
       if (root) {
         root.status = 'running';
         root.endedAt = undefined;

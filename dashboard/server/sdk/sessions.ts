@@ -1,7 +1,7 @@
 // Page sessions driven by the Claude Agent SDK: one query per browser-started session,
 // permission prompts resolved from the dashboard, a live agent tree per session.
 import { randomUUID } from 'node:crypto';
-import { readFileSync, realpathSync } from 'node:fs';
+import { closeSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
@@ -14,7 +14,7 @@ import { DASHBOARD_ENTRYPOINTS, holderMessage, liveHolder } from '../livesession
 import { MAX_EVENTS } from '../../src/shared/types.ts';
 import type { AgentNode, PermissionDecisionBody, PermissionRequest, ResumeSessionBody, ServerEvent, SessionDetail, SessionSummary, StartSessionBody } from '../../src/shared/types.ts';
 import { AGENT_RE, validEffort, validModel, validText } from '../validate.ts';
-import { resolveDirInHome } from '../paths.ts';
+import { claudeConfigDir, resolveDirInHome } from '../paths.ts';
 
 /** Main-thread agent names must start alphanumerically and stay short (no '../', no path tricks). */
 export { AGENT_RE };
@@ -147,6 +147,71 @@ async function resolveResumeCwd(raw: string | undefined): Promise<string> {
   const resolved = await resolveDirInHome(raw);
   if ('error' in resolved) throw new SessionError(400, resolved.error);
   return resolved.dir;
+}
+
+/** Transcript path for an SDK session id, using the watcher's project-dir encoding. */
+export function transcriptPathFor(cwd: string, sessionId: string): string {
+  return path.join(claudeConfigDir(), 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'), `${sessionId}.jsonl`);
+}
+
+/**
+ * Completed-turn probe: the tail of the transcript names an assistant or result message.
+ * Cached per (mtime, size) so repeated summaries cost at most two stats; a session that
+ * died before the first response has only user lines and reads as not resumable.
+ */
+const turnCache = new Map<string, { key: string; value: boolean }>();
+
+export function transcriptHasTurn(file: string, mtimeMs: number, size: number): boolean {
+  const key = `${file}:${mtimeMs}:${size}`;
+  const hit = turnCache.get(file);
+  if (hit && hit.key === key) return hit.value;
+  let value = false;
+  try {
+    const fd = openSync(file, 'r');
+    try {
+      const len = Math.min(32 * 1024, size);
+      if (len > 0) {
+        const buf = Buffer.alloc(len);
+        readSync(fd, buf, 0, len, Math.max(0, size - len));
+        const tail = buf.toString('utf8');
+        value = tail.includes('"type":"assistant"') || tail.includes('"type":"result"');
+      }
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    value = false;
+  }
+  if (turnCache.size > 500) turnCache.clear();
+  turnCache.set(file, { key, value });
+  return value;
+}
+
+/**
+ * Could POST /api/sessions/:id/resume succeed for this page session? Ended terminal
+ * states only (running/waiting/idle stay live), plus the transcript file, the cwd
+ * directory and one completed turn. Cheap synchronous fs checks only.
+ */
+export function pageResumable(
+  sessionId: string,
+  cwd: string,
+  status: SessionSummary['status'],
+): boolean {
+  if (status !== 'done' && status !== 'error' && status !== 'stopped') return false;
+  try {
+    if (!statSync(cwd).isDirectory()) return false;
+  } catch {
+    return false;
+  }
+  const file = transcriptPathFor(cwd, sessionId);
+  let st;
+  try {
+    st = statSync(file);
+  } catch {
+    return false;
+  }
+  if (!st.isFile()) return false;
+  return transcriptHasTurn(file, st.mtimeMs, st.size);
 }
 
 export class SdkSessions {
@@ -573,13 +638,14 @@ export class SdkSessions {
 
   private summarize(session: PageSession): SessionSummary {
     const root = session.tree.nodes.get('root');
+    const status = root?.status ?? 'idle';
     return {
       id: session.id,
       source: 'page',
       project: path.basename(session.cwd),
       cwd: session.cwd,
       title: session.title,
-      status: root?.status ?? 'idle',
+      status,
       startedAt: session.startedAt,
       updatedAt: session.updatedAt,
       costUsd: root?.costUsd ?? 0,
@@ -587,6 +653,7 @@ export class SdkSessions {
       ...(root?.model ? { model: root.model } : {}),
       nodeCount: session.tree.nodes.size,
       pendingPermissions: session.pending.size,
+      resumable: pageResumable(session.id, session.cwd, status),
       ...(session.untrustedProject ? { untrustedProject: true } : {}),
     };
   }

@@ -1,5 +1,5 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -645,6 +645,116 @@ describe('SdkSessions', () => {
       await expect(
         sdk.resume('term-1', { text: 'ok', effort: 'ultra' as never }, { cwd: homeDir }),
       ).rejects.toMatchObject({ status: 400 });
+    });
+  });
+
+  describe('resumable', () => {
+    const base = mkdtempSync(path.join(tmpdir(), 'fleet-resumable-test-'));
+    const configDir = path.join(base, 'config');
+    const projectsDir = path.join(configDir, 'projects');
+    mkdirSync(projectsDir, { recursive: true });
+    const cwdDir = path.join(base, 'work');
+    mkdirSync(cwdDir);
+    afterAll(() => rmSync(base, { recursive: true, force: true }));
+
+    const encoded = (cwd: string): string => cwd.replace(/[^a-zA-Z0-9]/g, '-');
+    const transcript = (cwd: string, id: string): string =>
+      path.join(projectsDir, encoded(cwd), `${id}.jsonl`);
+
+    const withConfigDir = async (fn: () => Promise<void>): Promise<void> => {
+      const prev = process.env.CLAUDE_CONFIG_DIR;
+      process.env.CLAUDE_CONFIG_DIR = configDir;
+      try {
+        await fn();
+      } finally {
+        if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+        else process.env.CLAUDE_CONFIG_DIR = prev;
+      }
+    };
+
+    const userLine = JSON.stringify({ type: 'user', uuid: 'u1', message: { role: 'user', content: 'hello' } });
+    const assistantLine = JSON.stringify({ type: 'assistant', uuid: 'a1', message: { content: [{ type: 'text', text: 'hi' }] } });
+
+    const writeTranscript = (cwd: string, id: string, withTurn: boolean): void => {
+      mkdirSync(path.join(projectsDir, encoded(cwd)), { recursive: true });
+      writeFileSync(transcript(cwd, id), withTurn ? `${userLine}\n${assistantLine}\n` : `${userLine}\n`);
+    };
+
+    it('transcript missing → false', async () => {
+      await withConfigDir(async () => {
+        const sdk = new SdkSessions(() => {}, makeRecordingQuery([]));
+        const id = sdk.start({ prompt: 'no transcript yet', cwd: cwdDir });
+        await vi.waitFor(() => {
+          expect(sdk.get(id)?.status).toBe('done');
+        });
+        expect(sdk.list().find(s => s.id === id)?.resumable).toBe(false);
+      });
+    });
+
+    it('ended with transcript, cwd and a completed turn → true', async () => {
+      await withConfigDir(async () => {
+        const sdk = new SdkSessions(() => {}, makeRecordingQuery([]));
+        const id = sdk.start({ prompt: 'resumable one', cwd: cwdDir });
+        await vi.waitFor(() => {
+          expect(sdk.get(id)?.status).toBe('done');
+        });
+        writeTranscript(cwdDir, id, true);
+        expect(sdk.list().find(s => s.id === id)?.resumable).toBe(true);
+      });
+    });
+
+    it('stopped with transcript, cwd and a completed turn → true', async () => {
+      await withConfigDir(async () => {
+        const sdk = new SdkSessions(() => {}, makeRecordingQuery([]));
+        const id = sdk.start({ prompt: 'stopped one', cwd: cwdDir });
+        await vi.waitFor(() => {
+          expect(sdk.get(id)?.status).toBe('done');
+        });
+        sdk.stop(id);
+        expect(sdk.get(id)?.status).toBe('stopped');
+        writeTranscript(cwdDir, id, true);
+        expect(sdk.list().find(s => s.id === id)?.resumable).toBe(true);
+      });
+    });
+
+    it('cwd missing → false', async () => {
+      await withConfigDir(async () => {
+        const gone = path.join(base, 'gone');
+        const sdk = new SdkSessions(() => {}, makeRecordingQuery([]));
+        const id = sdk.start({ prompt: 'cwd vanished', cwd: gone });
+        await vi.waitFor(() => {
+          expect(sdk.get(id)?.status).toBe('done');
+        });
+        writeTranscript(gone, id, true);
+        expect(sdk.list().find(s => s.id === id)?.resumable).toBe(false);
+      });
+    });
+
+    it('no completed turn → false', async () => {
+      await withConfigDir(async () => {
+        const sdk = new SdkSessions(() => {}, makeRecordingQuery([]));
+        const id = sdk.start({ prompt: 'died early', cwd: cwdDir });
+        await vi.waitFor(() => {
+          expect(sdk.get(id)?.status).toBe('done');
+        });
+        writeTranscript(cwdDir, id, false);
+        expect(sdk.list().find(s => s.id === id)?.resumable).toBe(false);
+      });
+    });
+
+    it('live sessions are never resumable', async () => {
+      await withConfigDir(async () => {
+        const events: ServerEvent[] = [];
+        const sdk = new SdkSessions(e => events.push(e), makeFakeQuery({}));
+        const id = sdk.start({ prompt: 'still live', cwd: cwdDir });
+        await vi.waitFor(() => {
+          expect(events.some(e => e.type === 'permission.request')).toBe(true);
+        });
+        const summary = sdk.list().find(s => s.id === id)!;
+        expect(summary.status === 'running' || summary.status === 'waiting').toBe(true);
+        expect(summary.resumable).toBe(false);
+        expect(sdk.stop(id)).toBe(true);
+      });
     });
   });
 });
