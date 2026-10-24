@@ -1,4 +1,5 @@
 User-agent: *
 Allow: /
+Disallow: /dashboard-demo/
 
 Sitemap: https://swarmkit-site.vercel.app/sitemap.xml
