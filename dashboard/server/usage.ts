@@ -42,9 +42,12 @@ export interface UsageOptions {
 
 export interface UsageState {
   caches: Map<string, { atMs: number; value: unknown }>;
+  /** Latest-known per-window limits from rate_limit_event messages. */
+  limits: Map<RateLimitType, UsageLimit>;
+  limitsAtMs: number;
 }
 export function createUsageState(): UsageState {
-  return { caches: new Map() };
+  return { caches: new Map(), limits: new Map(), limitsAtMs: 0 };
 }
 const defaultState = createUsageState();
 
@@ -76,7 +79,7 @@ async function withCache<T extends UsageSource>(
   const now = nowMs(o);
   if (!o.refresh) {
     const entry = state.caches.get(key);
-    if (entry && entry.value.available !== false && now - entry.atMs < ttlMs) return entry.value as T;
+    if (entry && (entry.value as UsageSource).available !== false && now - entry.atMs < ttlMs) return entry.value as T;
   }
   const value = await compute();
   if (value.available !== false) state.caches.set(key, { atMs: now, value });
@@ -92,17 +95,16 @@ const RATE_LIMIT_TYPES: RateLimitType[] = ['five_hour', 'seven_day', 'seven_day_
 function utilisationOf(raw: unknown): number | null {
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return null;
   const value = raw >= 0 && raw <= 1 ? raw * 100 : raw;
-  return Math.round(value);
+  return Math.min(100, Math.max(0, Math.round(value)));
 }
 
 /** Latest-known per-window limits from the SDK's rate_limit_event messages. */
-const latestLimits = new Map<RateLimitType, UsageLimit>();
-let latestAtMs = 0;
 
 /** Session fallback: built from the newest rate_limit_event of each window type. */
-function claudeFromSession(): ClaudeUsage {
+function claudeFromSession(state: UsageState): ClaudeUsage {
+  const latestLimits = state.limits;
   if (latestLimits.size === 0) return { available: false, asOf: null };
-  const out: ClaudeUsage = { available: true, asOf: new Date(latestAtMs).toISOString(), source: 'session' };
+  const out: ClaudeUsage = { available: true, asOf: new Date(state.limitsAtMs).toISOString(), source: 'session' };
   for (const type of RATE_LIMIT_TYPES) {
     const limit = latestLimits.get(type);
     if (!limit) continue;
@@ -119,15 +121,15 @@ function claudeFromSession(): ClaudeUsage {
  * /api/usage still answers between probes (and when the experimental usage call
  * is unavailable). Broader rateLimitType variants ('overage', ...) are ignored.
  */
-export function noteRateLimit(info: SDKRateLimitInfo): void {
+export function noteRateLimit(info: SDKRateLimitInfo, state: UsageState = defaultState): void {
   const type = info?.rateLimitType;
   if (!type || !(RATE_LIMIT_TYPES as string[]).includes(type)) return;
   const utilization = utilisationOf(info.utilization);
   if (utilization === null) return;
   const resetsAt =
     typeof info.resetsAt === 'number' && info.resetsAt > 0 ? new Date(info.resetsAt * 1000).toISOString() : null;
-  latestLimits.set(type as RateLimitType, { utilization, resetsAt });
-  latestAtMs = nowMs({});
+  state.limits.set(type as RateLimitType, { utilization, resetsAt });
+  state.limitsAtMs = Date.now();
 }
 
 /** Maps the probe response to the claude block; not-available falls back to the session record. */
@@ -140,8 +142,8 @@ function claudeFromProbe(res: {
     seven_day_opus?: { utilization: number | null; resets_at: string | null } | null;
     seven_day_sonnet?: { utilization: number | null; resets_at: string | null } | null;
   } | null;
-}): ClaudeUsage {
-  if (!res.rate_limits_available || !res.rate_limits) return claudeFromSession();
+}, state: UsageState): ClaudeUsage {
+  if (!res.rate_limits_available || !res.rate_limits) return claudeFromSession(state);
   const as = (w: { utilization: number | null; resets_at: string | null } | null | undefined): UsageLimit | undefined =>
     w ? { utilization: utilisationOf(w.utilization), resetsAt: w.resets_at ?? null } : undefined;
   const out: ClaudeUsage = {
@@ -199,10 +201,10 @@ async function runProbe(o: UsageOptions): Promise<ClaudeUsage> {
           }, PROBE_TIMEOUT_MS).unref(),
         ),
       ]);
-      return claudeFromProbe(res);
+      return claudeFromProbe(res, o.state ?? defaultState);
     } catch {
       // Unavailable or failed: the session record (or nothing) is the best answer.
-      return claudeFromSession();
+      return claudeFromSession(o.state ?? defaultState);
     } finally {
       // ALWAYS close: interrupt the query (bounded: a hanging interrupt must not stall
       // the report), end the never-yielding iterable, abort the CLI.
@@ -223,11 +225,11 @@ async function runProbe(o: UsageOptions): Promise<ClaudeUsage> {
 }
 
 async function collectClaude(o: UsageOptions): Promise<ClaudeUsage> {
-  if (o.queryFactory === undefined) return claudeFromSession(); // no SDK usable here
+  if (o.queryFactory === undefined) return claudeFromSession(o.state ?? defaultState); // no SDK usable here
   try {
     return await withCache('claude', CLAUDE_TTL_MS, o, () => runProbe(o));
   } catch {
-    return claudeFromSession();
+    return claudeFromSession(o.state ?? defaultState);
   }
 }
 
@@ -276,14 +278,15 @@ function opencodeCost(data: Record<string, unknown>): number | undefined {
 }
 
 async function collectOpencode(o: UsageOptions): Promise<OpencodeUsage> {
-  if (o.execFile === undefined) return { available: false, asOf: null, error: 'opencode not installed' };
+  const execFile = o.execFile;
+  if (execFile === undefined) return { available: false, asOf: null, error: 'opencode not installed', windows: [] };
   try {
     return await withCache('opencode', OPENCODE_TTL_MS, o, async () => {
       const windows: UsageWindow[] = [];
       for (const days of OPENCODE_DAYS) {
         let stdout: string;
         try {
-          stdout = await o.execFile('opencode', ['stats', '--days', String(days), '--json'], {
+          stdout = await execFile('opencode', ['stats', '--days', String(days), '--json'], {
             timeout: EXEC_TIMEOUT_MS,
           });
         } catch (err) {
@@ -299,8 +302,8 @@ async function collectOpencode(o: UsageOptions): Promise<OpencodeUsage> {
       return { available: true, asOf: new Date(nowMs(o)).toISOString(), windows };
     });
   } catch (err) {
-    if (err instanceof MissingBinaryError) return { available: false, asOf: null, error: 'opencode not installed' };
-    return { available: false, asOf: null, error: 'opencode stats failed' };
+    if (err instanceof MissingBinaryError) return { available: false, asOf: null, error: 'opencode not installed', windows: [] };
+    return { available: false, asOf: null, error: 'opencode stats failed', windows: [] };
   }
 }
 
@@ -377,7 +380,7 @@ async function collectAgy(o: UsageOptions): Promise<AgyUsage> {
       return { available: true, asOf: new Date(nowMs(o)).toISOString(), windows: agyWindows(runs, nowMs(o)) };
     });
   } catch {
-    return { available: false, asOf: null, error: 'agy task dir unreadable' };
+    return { available: false, asOf: null, error: 'agy task dir unreadable', windows: [] };
   }
 }
 
@@ -394,10 +397,11 @@ export async function getUsage(opts: UsageOptions = {}): Promise<UsageReport> {
     queryFactory: opts.queryFactory ?? ((args) => query(args)),
   };
   const unavailable = (error: string) => ({ available: false, asOf: null, error });
+  const noWindows = (error: string) => ({ ...unavailable(error), windows: [] });
   const [claude, opencode, agy] = await Promise.all([
     collectClaude(o).catch(() => unavailable('usage probe failed') as ClaudeUsage),
-    collectOpencode(o).catch(() => unavailable('opencode stats failed') as OpencodeUsage),
-    collectAgy(o).catch(() => unavailable('agy task dir unreadable') as AgyUsage),
+    collectOpencode(o).catch(() => noWindows('opencode stats failed') as OpencodeUsage),
+    collectAgy(o).catch(() => noWindows('agy task dir unreadable') as AgyUsage),
   ]);
   return { claude, opencode, agy };
 }

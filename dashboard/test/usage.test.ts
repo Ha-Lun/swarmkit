@@ -177,7 +177,7 @@ describe('cache TTL', () => {
     const clock = clockOf({});
     const state = createUsageState();
     const agyDir = await mkdtemp(join(tmpdir(), 'usage-empty-'));
-    const base = (): UsageOptions => ({ execFile: () => stats.exec, queryFactory: noProbeFactory, now: clock.now, taskDir: agyDir, state });
+    const base = (): UsageOptions => ({ execFile: stats.exec, queryFactory: noProbeFactory, now: clock.now, taskDir: agyDir, state });
     try {
       await getUsage(base()); // prime: opencode + agy computed, claude from session (no factory)
       expect(stats.calls.length).toBe(3);
@@ -256,15 +256,16 @@ describe('claude probe', () => {
   });
 
   it('rate_limits_available:false falls back to the latest rate_limit_event record', async () => {
+    const state = createUsageState();
     noteRateLimit({
       rateLimitType: 'five_hour',
       utilization: 0.43, // 0-1 fraction: normalised to 43
       resetsAt: 1_767_225_600,
-    } as SDKRateLimitInfo);
+    } as SDKRateLimitInfo, state);
     const { factory, queries } = fakeQuery(() =>
       Promise.resolve({ subscription_type: null, rate_limits_available: false, rate_limits: null }),
     );
-    const report = await getUsage({ queryFactory: factory, state: createUsageState() });
+    const report = await getUsage({ queryFactory: factory, state });
     expect(report.claude).toMatchObject({
       available: true,
       source: 'session',
@@ -274,46 +275,44 @@ describe('claude probe', () => {
   });
 
   it('a throwing probe never fails the report and still closes the query', async () => {
+    const state = createUsageState();
     noteRateLimit({
       rateLimitType: 'seven_day',
-      utilization: 180, // already 0-100: kept as-is (clamped usage windows stay within 0-100 in practice)
+      utilization: 180, // out of range: clamped to 100
       resetsAt: undefined,
-    } as SDKRateLimitInfo);
+    } as SDKRateLimitInfo, state);
     const { factory, queries } = fakeQuery(() => Promise.reject(new Error('usage endpoint down')));
-    const report = await getUsage({ queryFactory: factory, state: createUsageState() });
+    const report = await getUsage({ queryFactory: factory, state });
     expect(report.claude).toMatchObject({ available: true, source: 'session' });
     expect(report.claude.fiveHour).toBeUndefined();
-    expect(report.claude.sevenDay).toMatchObject({ utilization: 180, resetsAt: null });
+    expect(report.claude.sevenDay).toMatchObject({ utilization: 100, resetsAt: null });
     expect(queries[0]!.interrupts).toBe(1);
     expect(report.opencode).toBeDefined();
     expect(report.agy).toBeDefined();
   });
 
-  it('no rate_limit_event record at all: a failed probe answers available:false', async () => {
-    // Rebuild claude state fresh is impossible (module memory), but opencode/agy stay per-test;
-    // instead verify via the shared record never being written for an unknown type.
-    const before = await getUsage({ queryFactory: noProbeFactory, state: createUsageState() });
-    expect(before.claude.available).toBe(true); // seeded by the earlier noteRateLimit calls in this file
-    noteRateLimit({ rateLimitType: 'overage', utilization: 99 } as SDKRateLimitInfo); // must be ignored
+  it('no rate_limit_event record at all: a failed probe answers available:false, unknown types are ignored', async () => {
+    const state = createUsageState();
+    noteRateLimit({ rateLimitType: 'overage', utilization: 99 } as SDKRateLimitInfo, state); // must be ignored
     const { factory } = fakeQuery(() => Promise.reject(new Error('down')));
-    const report = await getUsage({ queryFactory: factory, state: createUsageState() });
-    expect(report.claude.source).toBe('session');
-    expect(Object.keys(report.claude)).not.toContain('sevenDaySonnet'); // no synthetic windows
+    const report = await getUsage({ queryFactory: factory, state });
+    expect(report.claude.available).toBe(false);
   });
 });
 
 describe('noteRateLimit', () => {
   it('overwrites the per-window record and ignores unknown types and non-numeric utilisation', async () => {
-    noteRateLimit({ rateLimitType: 'seven_day_sonnet', utilization: 200, resetsAt: 0 } as SDKRateLimitInfo);
-    noteRateLimit({ rateLimitType: 'overage', utilization: 99 } as SDKRateLimitInfo); // unknown window: ignored
-    noteRateLimit({ rateLimitType: 'five_hour', utilization: undefined, resetsAt: 100 } as SDKRateLimitInfo); // ignored
-    noteRateLimit({ rateLimitType: 'five_hour', utilization: 64, resetsAt: 1_900_000_000 } as SDKRateLimitInfo);
+    const state = createUsageState();
+    noteRateLimit({ rateLimitType: 'seven_day_sonnet', utilization: 200, resetsAt: 0 } as SDKRateLimitInfo, state);
+    noteRateLimit({ rateLimitType: 'overage', utilization: 99 } as SDKRateLimitInfo, state); // unknown window: ignored
+    noteRateLimit({ rateLimitType: 'five_hour', utilization: undefined, resetsAt: 100 } as SDKRateLimitInfo, state); // ignored
+    noteRateLimit({ rateLimitType: 'five_hour', utilization: 64, resetsAt: 1_900_000_000 } as SDKRateLimitInfo, state);
     const { factory } = fakeQuery(() =>
       Promise.resolve({ subscription_type: null, rate_limits_available: false, rate_limits: null }),
     );
-    const report = await getUsage({ queryFactory: factory, state: createUsageState() });
+    const report = await getUsage({ queryFactory: factory, state });
     expect(report.claude.source).toBe('session');
-    expect(report.claude.sevenDaySonnet).toEqual({ utilization: 200, resetsAt: null });
+    expect(report.claude.sevenDaySonnet).toEqual({ utilization: 100, resetsAt: null });
     expect(report.claude.fiveHour).toEqual({ utilization: 64, resetsAt: new Date(1_900_000_000 * 1000).toISOString() });
   });
 });
