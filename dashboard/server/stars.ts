@@ -1,6 +1,7 @@
 // Starred folders: user-pinned quick-access dirs under $HOME, stored as a JSON
 // array of absolute paths in $XDG_CONFIG_HOME/claude-fleet/starred.json.
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { DirError } from './dirs.ts';
@@ -35,36 +36,61 @@ async function readStored(): Promise<string[]> {
   }
 }
 
-/** Stored stars that still exist as directories (missing ones are dropped from the response only). */
+/** True when a stored entry still resolves to itself inside $HOME. */
+async function isValidStored(p: string): Promise<boolean> {
+  try {
+    const resolved = await resolveDirInHome(p);
+    return 'dir' in resolved && resolved.dir === p;
+  } catch {
+    return false;
+  }
+}
+
+/** Stored stars that still validate (stale, out-of-home, or symlink-swapped ones are hidden). */
 export async function listStars(): Promise<string[]> {
   const out: string[] = [];
-  for (const p of await readStored()) {
-    try {
-      if ((await stat(p)).isDirectory()) out.push(p);
-    } catch {
-      // no longer on disk — dropped from the response, the file is left alone
-    }
+  for (const p of (await readStored()).slice(0, MAX_STARS)) {
+    if (await isValidStored(p)) out.push(p);
   }
   return out;
 }
 
+async function writeStored(next: string[]): Promise<void> {
+  const file = starsFilePath();
+  await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+  const tmp = `${file}.${randomBytes(6).toString('hex')}.tmp`;
+  try {
+    await writeFile(tmp, JSON.stringify(next), { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+  } catch (e) {
+    await unlink(tmp).catch(() => undefined);
+    throw e;
+  }
+  await rename(tmp, file);
+}
+
 async function applySetStar(rawPath: unknown, starred: boolean): Promise<string[]> {
+  if (!starred) {
+    const resolved = await resolveDirInHome(rawPath);
+    const dir = 'dir' in resolved ? resolved.dir : undefined;
+    const stored = await readStored();
+    const next = stored.filter(p => p !== rawPath && p !== dir);
+    await writeStored(next);
+    return listStars();
+  }
   const resolved = await resolveDirInHome(rawPath);
   if ('error' in resolved) throw new DirError(400, resolved.error);
   const dir = resolved.dir;
   const stored = await readStored();
-  const next = stored.filter(p => p !== dir);
-  if (starred) {
-    if (!stored.includes(dir) && next.length >= MAX_STARS) {
-      throw new DirError(400, 'too many starred folders');
-    }
-    next.push(dir);
+  const valid: string[] = [];
+  for (const p of stored) {
+    if (await isValidStored(p)) valid.push(p);
   }
-  const file = starsFilePath();
-  await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-  const tmp = `${file}.${process.pid}.tmp`;
-  await writeFile(tmp, JSON.stringify(next), { encoding: 'utf8', mode: 0o600 });
-  await rename(tmp, file);
+  const next = valid.filter(p => p !== dir);
+  if (!valid.includes(dir) && next.length >= MAX_STARS) {
+    throw new DirError(400, 'too many starred folders');
+  }
+  next.push(dir);
+  await writeStored(next);
   return listStars();
 }
 
