@@ -1,4 +1,4 @@
-# Claude Fleet
+# SwarmKit dashboard
 
 A local web dashboard that starts, drives and watches **Claude Code** sessions through the
 [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-typescript), showing a live tree
@@ -20,8 +20,8 @@ For development with hot reload: `npm run dev` (Vite middleware mode, no build n
 Open the URL the server prints on startup, e.g.
 
 ```
-Claude Fleet: http://127.0.0.1:4317
-Claude Fleet: token: /home/you/.config/claude-fleet/token
+SwarmKit: http://127.0.0.1:4317
+SwarmKit: token: /home/you/.config/claude-fleet/token
 ```
 
 The first visit with `?token=…` (printed on an interactive terminal — on a TTY only)
@@ -55,9 +55,28 @@ not the cookie.
 `GET /api/sessions`, `GET /api/sessions/:id`, `POST /api/sessions`,
 `POST /api/sessions/:id/message`, `POST /api/sessions/:id/interrupt`,
 `DELETE /api/sessions/:id`, `POST /api/permissions/:id`, `GET /api/agents?cwd=…`,
-`GET /api/cwds`, `POST /api/auth`, and `GET /events` (server-sent events). Every
+`GET /api/cwds`, `POST /api/auth`, `GET /api/usage`, and `GET /events`
+(server-sent events). Every
 endpoint needs the token (cookie `fleet_token` or header `x-fleet-token`) except
 `POST /api/auth`. See `src/shared/types.ts` for the shapes.
+
+## Usage limits
+
+`GET /api/usage` answers a `UsageReport` with one block per collector
+(`claude`, `opencode`, `agy`); `?refresh=1` bypasses the collector caches
+(honoured at most once per 30 s). Each collector runs on its own cache and
+timeout and never fails the others — a failing one answers
+`available: false` with a short `error` string.
+
+- **Claude**: true plan limits (5-hour, 7-day, per-model weekly utilisation
+  0-100 with ISO reset times) from the SDK's experimental usage call, used
+  sparingly as a probe with a 5-minute cache. Between probes the report falls
+  back to the latest `rate_limit_event` of any live session (`source: 'session'`).
+  This relies on an unstable SDK API (`usage_EXPERIMENTAL_…`) that may change
+  or disappear in any release.
+- **OpenCode** and **agy**: consumption only (tokens spent, and opencode's
+  estimated USD cost), derived from `opencode stats` and the worker task
+  directories. No plan limit is exposed for them.
 
 ## Security headers
 

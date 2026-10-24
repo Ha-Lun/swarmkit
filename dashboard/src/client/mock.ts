@@ -14,6 +14,7 @@ import type {
   StartSessionResponse,
   ResumeSessionBody,
   TokenUsage,
+  UsageReport,
   WorkerTask,
 } from '../shared/types';
 import { ApiError } from './api';
@@ -573,6 +574,35 @@ export function createMockBackend(): FleetBackend {
 
   // ---- backend surface ----
 
+  const mockUsage: UsageReport = {
+    claude: {
+      available: true,
+      asOf: new Date(base).toISOString(),
+      subscription: 'max',
+      source: 'probe',
+      fiveHour: { utilization: 42, resetsAt: new Date(base + 1_800_000).toISOString() },
+      sevenDay: { utilization: 18, resetsAt: new Date(base + 40_000_000).toISOString() },
+      sevenDayOpus: { utilization: 11, resetsAt: new Date(base + 40_000_000).toISOString() },
+    },
+    opencode: {
+      available: true,
+      asOf: new Date(base).toISOString(),
+      windows: [
+        { days: 1, tokens: 184_000, costUsd: 0.34 },
+        { days: 7, tokens: 1_120_000, costUsd: 2.11 },
+        { days: 30, tokens: 3_450_000, costUsd: 6.4 },
+      ],
+    },
+    agy: {
+      available: true,
+      asOf: new Date(base).toISOString(),
+      windows: [
+        { days: 1, tokens: 96_000, runs: 5, stopped: 1 },
+        { days: 7, tokens: 640_000, runs: 23, stopped: 4 },
+      ],
+    },
+  };
+
   const detail = (id: string): SessionDetail => {
     const s = sessions.get(id);
     const map = nodeMaps.get(id);
@@ -743,6 +773,7 @@ export function createMockBackend(): FleetBackend {
       if (!t) return Promise.reject(new ApiError(404, 'worker log not found'));
       return Promise.resolve({ lines: workerLogLines(t) });
     },
+    usage: () => Promise.resolve<UsageReport>(mockUsage),
     resume: (sessionId, body: ResumeSessionBody) => {
       const s = sessions.get(sessionId);
       const map = nodeMaps.get(sessionId);

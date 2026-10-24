@@ -5,10 +5,11 @@ import { readFileSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { Options, PermissionResult, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { Options, PermissionResult, SDKMessage, SDKRateLimitEvent, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { applyMessage, createTree, ownerOf, setStatus } from '../model/reducer.ts';
 import type { SessionTree } from '../model/reducer.ts';
 import { pollWorkers } from '../model/workers.ts';
+import { noteRateLimit } from '../usage.ts';
 import { DASHBOARD_ENTRYPOINTS, holderMessage, liveHolder } from '../livesessions.ts';
 import { MAX_EVENTS } from '../../src/shared/types.ts';
 import type { AgentNode, PermissionDecisionBody, PermissionRequest, ResumeSessionBody, ServerEvent, SessionDetail, SessionSummary, StartSessionBody } from '../../src/shared/types.ts';
@@ -232,6 +233,10 @@ export class SdkSessions {
     try {
       for await (const message of session.query as AsyncIterable<SDKMessage>) {
         if (generation !== session.generation) break; // Session restarted: this stream is obsolete.
+        if ((message as { type?: string }).type === 'rate_limit_event') {
+          // Feed the latest-known plan limits to /api/usage.
+          noteRateLimit((message as SDKRateLimitEvent).rate_limit_info);
+        }
         for (const event of applyMessage(session.tree, message)) this.emit(event);
         this.scheduleUpsert(session);
       }
@@ -294,7 +299,7 @@ export class SdkSessions {
     if (!entry) return;
     session.pending.delete(permissionId);
     this.emit({ type: 'permission.resolved', sessionId: session.id, id: permissionId, allow: false });
-    entry.resolve({ behavior: 'deny', message: 'Denied in Claude Fleet' });
+    entry.resolve({ behavior: 'deny', message: 'Denied in SwarmKit' });
   }
 
   /** Resolves one pending permission; false when the id is unknown (route answers 404). */
@@ -308,7 +313,7 @@ export class SdkSessions {
 
     const result: PermissionResult = body.allow
       ? { behavior: 'allow', updatedInput: entry.request.input }
-      : { behavior: 'deny', message: body.message || 'Denied in Claude Fleet' };
+      : { behavior: 'deny', message: body.message || 'Denied in SwarmKit' };
     this.emit({ type: 'permission.resolved', sessionId: target.id, id: permissionId, allow: body.allow });
     for (const event of setStatus(target.tree, entry.request.nodeId, 'running')) this.emit(event);
     this.scheduleUpsert(target);

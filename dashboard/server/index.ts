@@ -1,4 +1,4 @@
-// Claude Fleet dashboard server: plain node:http, serves the built UI and the JSON API.
+// SwarmKit dashboard server: plain node:http, serves the built UI and the JSON API.
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -27,6 +27,7 @@ import { WorkerRegistry } from './registry.ts';
 import { SdkSessions, SessionError } from './sdk/sessions.ts';
 import { AGENT_RE, validModel, validText, ValidationError } from './validate.ts';
 import { resolveDirInHome } from './paths.ts';
+import { getUsage } from './usage.ts';
 import { freshTranscriptMtimeMs, holderMessage, liveHolder } from './livesessions.ts';
 import { TranscriptWatcher } from './watch/transcripts.ts';
 import type { AgentNode, ResumeSessionBody, ServerEvent, SessionSummary, StartSessionBody } from '../src/shared/types.ts';
@@ -37,6 +38,8 @@ const PORT = Number(process.env.PORT) || 4317;
 const MAX_BODY = 1024 * 1024;
 /** SSE clients buffered more than this are dropped instead of written to. */
 const MAX_STREAM_QUEUE = 4 * 1024 * 1024;
+/** GET /api/usage?refresh=1 is honoured at most once per this window. */
+const USAGE_REFRESH_GUARD_MS = 30_000;
 /** Max concurrent SSE clients (the oldest is dropped beyond this). */
 const MAX_SSE_CLIENTS = 50;
 /** POST /api/auth attempts per remote address per minute. */
@@ -142,7 +145,7 @@ async function main(): Promise<void> {
   if (development && !DEV_HOSTS.includes(HOST)) {
     // Development serves source files; never bind it to an exposed interface.
     console.error(
-      `Claude Fleet refuses NODE_ENV=development on HOST=${HOST}. ` +
+      `SwarmKit refuses NODE_ENV=development on HOST=${HOST}. ` +
       `Use 127.0.0.1, localhost or ::1, or run without NODE_ENV=development.`,
     );
     process.exit(1);
@@ -193,6 +196,9 @@ async function main(): Promise<void> {
     link: (lane, slug) => sdk.findWorkerNode(lane, slug) ?? watcher.findWorkerNode(lane, slug),
   });
   registry.start();
+
+  /** Last time ?refresh=1 actually bypassed the usage caches (the 30 s guard). */
+  let lastUsageBypassMs = 0;
 
   /** POST /api/sessions/:id/resume: continue a page-owned or terminal session with a new message. */
   async function resumeSession(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
@@ -465,6 +471,16 @@ async function main(): Promise<void> {
       return sendJson(res, 200, registry.list());
     }
 
+    if (url.pathname === '/api/usage') {
+      if (method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+      const now = Date.now();
+      // Refresh bypasses the collector caches, but at most once per the guard window.
+      let refresh = url.searchParams.get('refresh') === '1';
+      if (refresh && now - lastUsageBypassMs < USAGE_REFRESH_GUARD_MS) refresh = false;
+      if (refresh) lastUsageBypassMs = now;
+      return sendJson(res, 200, await getUsage({ refresh }));
+    }
+
     if (parts[1] === 'workers' && parts.length === 6 && parts[5] === 'log') {
       if (method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
       const seg = (i: number): string => {
@@ -520,7 +536,7 @@ async function main(): Promise<void> {
   const shutdown = (): void => {
     if (shuttingDown) return;
     shuttingDown = true;
-    console.log('Shutting down Claude Fleet…');
+    console.log('Shutting down SwarmKit…');
     for (const s of sdk.list()) sdk.stop(s.id);
     watcher.stop();
     registry.stop();
@@ -546,11 +562,11 @@ async function main(): Promise<void> {
 
   server.listen(PORT, HOST, () => {
     const shown = HOST === '0.0.0.0' ? 'localhost' : HOST;
-    console.log(`Claude Fleet: http://${shown}:${PORT}`);
-    console.log(`Claude Fleet: token: ${tokenFile}`);
+    console.log(`SwarmKit: http://${shown}:${PORT}`);
+    console.log(`SwarmKit: token: ${tokenFile}`);
     // The token-in-URL link leaks through logs; print it only on an interactive terminal.
     if (process.stdout.isTTY) {
-      console.log(`Claude Fleet: http://${shown}:${PORT}/?token=${token}`);
+      console.log(`SwarmKit: http://${shown}:${PORT}/?token=${token}`);
     }
     // Behind 0.0.0.0 (the LAN case), also print the LAN addresses worth reaching.
     if (HOST === '0.0.0.0') {
@@ -558,7 +574,7 @@ async function main(): Promise<void> {
         if (/^(br-|docker|veth|lo)/.test(name)) continue; // bridges, containers, loopback noise
         for (const address of addresses ?? []) {
           if (address.family === 'IPv4' && !address.internal) {
-            console.log(`Claude Fleet: http://${address.address}:${PORT}`);
+            console.log(`SwarmKit: http://${address.address}:${PORT}`);
           }
         }
       }
@@ -567,6 +583,6 @@ async function main(): Promise<void> {
 }
 
 main().catch(err => {
-  console.error('Claude Fleet failed to start:', err);
+  console.error('SwarmKit failed to start:', err);
   process.exit(1);
 });
