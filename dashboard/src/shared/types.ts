@@ -198,3 +198,24 @@ export interface AgentsResponse {
 export interface DirEntry { name: string; path: string; isGitRepo: boolean }
 export interface DirListing { path: string; parent?: string; entries: DirEntry[] }
 export interface ResumeSessionBody { text: string; model?: string }
+
+// GET  /api/usage                     -> UsageReport   (?refresh=1 bypasses the caches, at most once per 30 s)
+
+/** One plan rate-limit window: utilization 0-100, resetsAt ISO 8601. */
+export interface UsageLimit { utilization: number | null; resetsAt: string | null }
+/** A consumption window over the last `days` days. */
+export interface UsageWindow { days: number; tokens: number; costUsd?: number; runs?: number; stopped?: number }
+/** Whether a collector answered at all. */
+export interface UsageSource { available: boolean; asOf: string | null; error?: string }
+export interface UsageReport {
+  claude: UsageSource & {
+    subscription?: string;
+    fiveHour?: UsageLimit;
+    sevenDay?: UsageLimit;
+    sevenDayOpus?: UsageLimit;
+    sevenDaySonnet?: UsageLimit;
+    source?: 'probe' | 'session';
+  };
+  opencode: UsageSource & { windows: UsageWindow[] };   // days 1, 7, 30: tokens + costUsd (estimated)
+  agy: UsageSource & { windows: UsageWindow[] };        // days 1, 7: tokens, runs, stopped
+}

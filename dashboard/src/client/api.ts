@@ -8,6 +8,7 @@ import type {
   StartSessionBody,
   StartSessionResponse,
   ResumeSessionBody,
+  UsageReport,
   WorkerTask,
 } from '../shared/types';
 
@@ -68,6 +69,7 @@ export interface FleetBackend {
   dirs(path?: string, hidden?: boolean): Promise<DirListing>;
   workers(): Promise<WorkerTask[]>;
   workerLog(lane: string, repo: string, slug: string): Promise<{ lines: string[] }>;
+  usage(refresh?: boolean): Promise<UsageReport>;
   connect(
     onEvent: (ev: ServerEvent) => void,
     onStatus: (connected: boolean) => void,
@@ -111,6 +113,7 @@ export const apiBackend: FleetBackend = {
     request(
       `/api/workers/${encodeURIComponent(lane)}/${encodeURIComponent(repo)}/${encodeURIComponent(slug)}/log`,
     ),
+  usage: (refresh) => request(refresh ? '/api/usage?refresh=1' : '/api/usage'),
   connect(onEvent, onStatus) {
     // EventSource reconnects on its own with backoff; we surface the state and
     // let App refetch the selected detail when the stream reopens.

@@ -1,5 +1,5 @@
 {
-  "name": "claude-fleet",
+  "name": "swarmkit-dashboard",
   "private": true,
   "version": "0.1.0",
   "type": "module",
