@@ -649,6 +649,88 @@ export function createMockBackend(): FleetBackend {
     pendingPerm = { id: req.id, auto };
   });
 
+  // ---- crowded demo tree: leaf pills, one wrapped audit group, one nested backend ----
+  // The lead's direct leaves exercise the compact pill; the audit node (7 leaf-only
+  // children) exercises the wrapped grid + group box; backend-specialist under the
+  // frontend-specialist keeps a nested (non-leaf) branch in the demo.
+  const leafSpecs: Array<[string, string, string, string, string]> = [
+    ['task-sc-routes', 'explore', 'claude-haiku-4-5-20251001', 'Survey pricing page routes', 'List the routes and loaders behind /pricing.'],
+    ['task-sc-copy', 'explore', 'claude-haiku-4-5-20251001', 'Audit checkout copy', 'Collect every checkout string that mentions price or trial.'],
+    ['task-sc-analytics', 'explore', 'claude-haiku-4-5-20251001', 'Map analytics events', 'Find where pricing events are tracked and their payloads.'],
+    ['task-sc-tests', 'test-writer', 'claude-sonnet-5-5', 'Cover the new price tiers', 'Add tests for monthly/annual tier switching.'],
+    ['task-sc-proof', 'code-proofreader', 'claude-sonnet-5-5', 'Proofread the plan disclosures', 'Review the fine print under each plan card.'],
+    ['task-sc-seo', 'seo-worker', 'claude-haiku-4-5-20251001', 'Draft pricing page metadata', 'Write title, description and OG tags for /pricing.'],
+    ['task-sc-faq', 'junior-dev', 'claude-haiku-4-5-20251001', 'Scaffold the FAQ section', 'Stub the FAQ accordion with placeholder copy.'],
+  ];
+  leafSpecs.forEach(([id, agentType, model, desc, prompt], i) => {
+    const t0 = 3600 + i * 1400;
+    at(t0, () => {
+      const n = spawn(root, id, 'subagent', agentType, model, desc, prompt);
+      if (agentType === 'test-writer') {
+        // One leaf with a denied tool result exercises the amber "N" badge.
+        at(500, () => toolCall(n, 'Bash', 'npm run coverage -- --tier'));
+        at(900, () => toolBack(n, 'Bash', 'Bash denied by the user', undefined, true));
+        at(1600, () => {
+          pushEvent(n, 'text', 'Coverage run was denied — asserting from existing fixtures instead.');
+        });
+        at(2600, () => finishNode(n, 'Tier tests added against fixtures; coverage run denied.', 0.006, tu(4200, 1100)));
+      } else if (i >= leafSpecs.length - 2) {
+        // Keep the last two leaves running so live pills stay visible.
+        at(600, () => toolCall(n, 'Read', `pricing/${agentType === 'seo-worker' ? 'meta.ts' : 'faq.tsx'}`));
+        at(1200, () => toolBack(n, 'Read', 'Read 48 lines'));
+        at(2000, () => pushEvent(n, 'text', 'Working through the draft.'));
+      } else {
+        at(500, () => toolCall(n, 'Grep', `${desc} in dashboard/src`));
+        at(1000, () => toolBack(n, 'Grep', '4 matches in 2 files'));
+        at(2200, () => finishNode(n, `${desc} — done.`, 0.003, tu(3100, 700)));
+      }
+    });
+  });
+
+  // Nested specialist under the frontend-specialist, with two children of its own.
+  at(5200, () => {
+    if (!fs) return;
+    const be = spawn(fs, 'task-backend', 'subagent', 'backend-specialist', 'claude-sonnet-5-5', 'Shape the pricing API', 'Define the plan/tier endpoints the pricing page reads.');
+    at(800, () => {
+      const m = spawn(be, 'task-be-migrate', 'subagent', 'explore', 'claude-haiku-4-5-20251001', 'Check the plans table', 'Confirm the plans table has the new tier columns.');
+      at(800, () => toolCall(m, 'Read', 'server/model/plans.ts'));
+      at(1400, () => toolBack(m, 'Read', 'Read 88 lines'));
+      at(2600, () => finishNode(m, 'Plans table already carries the tier columns.', 0.002, tu(2400, 500)));
+    });
+    at(1700, () => {
+      const e = spawn(be, 'task-be-endpoint', 'subagent', 'junior-dev', 'claude-haiku-4-5-20251001', 'Stub the tiers endpoint', 'Add GET /api/plans/tiers returning the static tier list.');
+      at(800, () => toolCall(e, 'Write', 'server/routes/tiers.ts'));
+      at(1400, () => toolBack(e, 'Write', 'Wrote 64 lines'));
+    });
+  });
+
+  // Audit branch: 7 leaf-only children so the wrapped grid + group box renders.
+  at(4200, () => {
+    const audit = spawn(root, 'task-audit', 'subagent', 'release-tester', 'claude-sonnet-5-5', 'Audit the release checklist', 'Verify the pricing release against the launch checklist; fan out one checker per item.');
+    const checks: Array<[string, string, string]> = [
+      ['task-au-links', 'Check every pricing link', 'Click through each plan CTA and confirm the target.'],
+      ['task-au-a11y', 'Axe the pricing cards', 'Run axe on the plan cards and record violations.'],
+      ['task-au-perf', 'Weigh the pricing bundle', 'Measure the JS added by the pricing route.'],
+      ['task-au-copy', 'Spellcheck the plan copy', 'Proof every headline, price and footnote.'],
+      ['task-au-i18n', 'Check locale formatting', 'Verify currency formatting in three locales.'],
+      ['task-au-dark', 'Screenshot dark mode', 'Capture the pricing page in dark mode.'],
+      ['task-au-flags', 'Verify the launch flag', 'Confirm the flag defaults and kill-switch.'],
+    ];
+    checks.forEach(([id, desc, prompt], i) => {
+      const t0 = 4800 + i * 900;
+      at(t0, () => {
+        const n = spawn(audit, id, 'subagent', 'explore', 'claude-haiku-4-5-20251001', desc, prompt);
+        at(500, () => toolCall(n, 'Read', `pricing/checks/${i + 1}.md`));
+        at(1000, () => toolBack(n, 'Read', 'Read 32 lines'));
+        if (i < checks.length - 1) {
+          at(2100, () => finishNode(n, `${desc} — pass.`, 0.002, tu(2200, 400)));
+        } else {
+          at(1800, () => pushEvent(n, 'text', 'Flag defaults look right; confirming the kill-switch.'));
+        }
+      });
+    });
+  });
+
   // ---- demo keep-alive: the landing page's "Running now" must never go empty ----
   // The script above finishes s1 (~7s) and the worker node (~12.5s). This chained
   // heartbeat restores s1/root to running when the script ends and keeps the first
