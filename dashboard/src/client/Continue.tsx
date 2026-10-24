@@ -47,7 +47,8 @@ export function Continue({ backend, guard, sessionId, source, onResumed, initial
       <textarea
         rows={1}
         aria-label="Continue this session"
-        placeholder="Continue this session… (Enter to send, Shift+Enter for a new line)"
+        placeholder="Continue this session…"
+        title="Enter to send, Shift+Enter for a new line"
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {

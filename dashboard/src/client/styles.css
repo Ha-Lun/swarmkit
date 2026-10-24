@@ -104,6 +104,20 @@ body {
 
 #root { height: 100dvh; }
 
+/* static demo build: an in-flow strip above the app, never over its buttons */
+body.has-demo { display: flex; flex-direction: column; height: 100dvh; }
+body.has-demo #root { flex: 1; min-height: 0; height: auto; }
+.demo-strip {
+  flex: none;
+  padding: 4px 16px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: center;
+}
+
 h1, h2, h3, p { margin: 0; }
 
 button {
@@ -228,6 +242,9 @@ button {
 .node-status.st-waiting { color: var(--amber); }
 .node-status.st-done { color: var(--teal); }
 .node-status.st-error { color: var(--fail); }
+/* the dot follows the status colour wherever it has no st-* class of its own */
+.node-status .dot { background: currentColor; }
+.node-status.st-running .dot { animation: dot-pulse 1.8s ease-in-out infinite; }
 
 .muted { color: var(--text-3); }
 
@@ -386,7 +403,7 @@ button {
 .menu-btn { display: none; }
 .home-btn { display: none; }
 
-.topbar-title { min-width: 0; flex: 1; }
+.topbar-title { min-width: 0; flex: 1 1 150px; }
 .topbar-title h1 {
   font-size: 14px;
   font-weight: 700;
@@ -1230,7 +1247,8 @@ details.collapsible > summary:hover { color: var(--ink); }
 .land-start { justify-content: center; margin-top: 12px; width: 100%; }
 
 /* running now */
-.land-running { min-width: 0; }
+.land-running { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.land-running .land-heading { margin-bottom: var(--space-1); }
 .land-run {
   width: 100%;
   display: flex;
@@ -1382,6 +1400,17 @@ details.collapsible > summary:hover { color: var(--ink); }
   color: var(--violet);
 }
 .land-other > summary::-webkit-details-marker { display: none; }
+.land-other > summary::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+.land-other[open] > summary::before { transform: rotate(45deg); }
+.land-other > summary:focus-visible { outline: 2px solid var(--violet-ring); outline-offset: 2px; border-radius: var(--radius-sm); }
 .land-other > summary:hover { color: var(--ink); }
 .land-other[open] > summary { margin-bottom: 6px; }
 
@@ -1849,7 +1878,7 @@ details.collapsible > summary:hover { color: var(--ink); }
   background: var(--bg);
 }
 .usage-seg button {
-  min-height: 44px;
+  min-height: 32px;
   padding: 4px 14px;
   border: 0;
   border-radius: 999px;
@@ -1868,7 +1897,7 @@ details.collapsible > summary:hover { color: var(--ink); }
 .usage-foot .icon-btn { width: 32px; height: 32px; }
 
 /* sidebar Claude pill */
-.side-usage { padding: var(--space-2) var(--space-4) 0; }
+.side-usage { padding: var(--space-2) var(--space-4) var(--space-3); }
 .side-head { display: flex; align-items: center; gap: 2px; padding-right: 10px; }
 .side-head .side-brand { margin-right: auto; }
 .side-close { display: none; width: 44px; height: 44px; flex: none; }
@@ -1961,6 +1990,7 @@ details.collapsible > summary:hover { color: var(--ink); }
 /* Bigger tap targets on touch devices. */
 @media (pointer: coarse), (max-width: 768px) {
   .sess { padding: 13px 10px; }
+  .usage-seg button { min-height: 44px; }
   .crumb { min-width: 44px; }
   .fp-hidden input { width: 18px; height: 18px; }
   details.collapsible > summary { min-height: 44px; }

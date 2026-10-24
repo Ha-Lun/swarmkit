@@ -15,22 +15,11 @@ async function resolveBackend(): Promise<{ backend: FleetBackend; mock: boolean;
 
 function showDemoBanner() {
   const el = document.createElement('div');
+  el.className = 'demo-strip';
   el.textContent = 'Demo · scripted data, nothing runs';
   el.setAttribute('role', 'status');
-  el.style.position = 'fixed';
-  el.style.left = '50%';
-  el.style.bottom = 'calc(env(safe-area-inset-bottom, 0px) + 12px)';
-  el.style.transform = 'translateX(-50%)';
-  el.style.zIndex = '9999';
-  el.style.pointerEvents = 'none';
-  el.style.background = '#05060acc';
-  el.style.color = '#f3f1ff';
-  el.style.border = '1px solid rgba(243,241,255,0.25)';
-  el.style.borderRadius = '999px';
-  el.style.padding = '6px 12px';
-  el.style.font = '12px "JetBrains Mono", monospace';
-  el.style.whiteSpace = 'nowrap';
-  document.body.appendChild(el);
+  document.body.classList.add('has-demo');
+  document.body.insertBefore(el, document.getElementById('root'));
 }
 
 resolveBackend().then(({ backend, mock, demo }) => {

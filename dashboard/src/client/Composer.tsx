@@ -42,7 +42,8 @@ export function Composer({ onSend, onInterrupt, onStop }: Props) {
         ref={ref}
         rows={1}
         aria-label="Message the session"
-        placeholder="Message the session… (Enter to send, Shift+Enter for a new line)"
+        placeholder="Message the session…"
+        title="Enter to send, Shift+Enter for a new line"
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
