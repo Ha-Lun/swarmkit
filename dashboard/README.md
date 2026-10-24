@@ -182,8 +182,8 @@ Undo with `tailscale serve --https=4317 off` and
   your account, at real cost.
 - Tool permissions normally asked by Claude Code in the terminal are **approved in the dashboard
   page** instead. Read the tool input before clicking Allow; denying replies through the SDK.
-  Sessions start in the same permission mode as `claude` in the terminal (your
-  `permissions.defaultMode`, else auto mode), so only calls the terminal would also ask about
-  reach the page; untrusted projects always ask.
+  Sessions in trusted projects start in your `permissions.defaultMode`, else auto mode (set
+  explicitly, since the SDK defaults to `default`), never `bypassPermissions`, so only calls the
+  terminal would also ask about reach the page; untrusted projects always ask.
 - Pages are plain `node:http` (no express), and the server never writes outside its `.data`
   directory.

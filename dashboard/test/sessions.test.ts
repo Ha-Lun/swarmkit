@@ -609,29 +609,41 @@ describe('SdkSessions', () => {
       expect(optionsSeen2.at(0)).not.toHaveProperty('effort');
     });
 
-    it('trusted projects omit permissionMode (SDK picks the CLI mode); untrusted ones force default', async () => {
+    it('trusted projects start in the terminal mode (defaultMode, else auto, never bypass); untrusted ones force default', async () => {
       const fakeHome = mkdtempSync(path.join(tmpdir(), 'fleet-perm-home-'));
       const trusted = path.join(fakeHome, 'trusted');
       const untrusted = path.join(fakeHome, 'untrusted');
       mkdirSync(trusted);
       mkdirSync(untrusted);
+      mkdirSync(path.join(fakeHome, '.claude'));
       writeFileSync(path.join(fakeHome, '.claude.json'), JSON.stringify({ projects: { [trusted]: { hasTrustDialogAccepted: true } } }));
       const oldHome = process.env.HOME;
+      const oldConfigDir = process.env.CLAUDE_CONFIG_DIR;
       process.env.HOME = fakeHome;
-      try {
+      delete process.env.CLAUDE_CONFIG_DIR;
+      const modeFor = async (cwd: string): Promise<unknown> => {
         const optionsSeen: (Record<string, unknown> | undefined)[] = [];
         const sdk = new SdkSessions(() => {}, makeRecordingQuery(optionsSeen));
-        const a = sdk.start({ prompt: 'trusted', cwd: trusted });
-        const b = sdk.start({ prompt: 'untrusted', cwd: untrusted });
+        const id = sdk.start({ prompt: 'mode', cwd });
         await vi.waitFor(() => {
-          expect(sdk.get(a)?.status).toBe('done');
-          expect(sdk.get(b)?.status).toBe('done');
+          expect(sdk.get(id)?.status).toBe('done');
         });
-        expect(optionsSeen.at(0)).not.toHaveProperty('permissionMode');
-        expect(optionsSeen.at(0)?.settingSources).toContain('project');
-        expect(optionsSeen.at(1)?.permissionMode).toBe('default');
+        return optionsSeen.at(0)?.permissionMode;
+      };
+      const settings = path.join(fakeHome, '.claude', 'settings.json');
+      try {
+        expect(await modeFor(trusted)).toBe('auto');
+        writeFileSync(settings, JSON.stringify({ permissions: { defaultMode: 'acceptEdits' } }));
+        expect(await modeFor(trusted)).toBe('acceptEdits');
+        writeFileSync(settings, JSON.stringify({ permissions: { defaultMode: 'bypassPermissions' } }));
+        expect(await modeFor(trusted)).toBe('auto');
+        writeFileSync(settings, '{not json');
+        expect(await modeFor(trusted)).toBe('auto');
+        expect(await modeFor(untrusted)).toBe('default');
       } finally {
         process.env.HOME = oldHome;
+        if (oldConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+        else process.env.CLAUDE_CONFIG_DIR = oldConfigDir;
         rmSync(fakeHome, { recursive: true, force: true });
       }
     });

@@ -142,6 +142,21 @@ function isProjectTrusted(cwd: string): boolean {
   }
 }
 
+const TERMINAL_MODES = ['default', 'acceptEdits', 'plan', 'dontAsk', 'auto'] as const;
+
+/** The mode `claude` starts in: user settings permissions.defaultMode, else auto. Never bypassPermissions. */
+function terminalPermissionMode(): NonNullable<Options['permissionMode']> {
+  try {
+    const raw = readFileSync(path.join(claudeConfigDir(), 'settings.json'), 'utf8');
+    const mode = (JSON.parse(raw) as { permissions?: { defaultMode?: unknown } } | null)?.permissions?.defaultMode;
+    const match = TERMINAL_MODES.find(m => m === mode);
+    if (match) return match;
+  } catch {
+    // Missing or corrupt settings.json: fall back to auto.
+  }
+  return 'auto';
+}
+
 /** Same cwd contract as the start path (index.ts resolveCwd): must exist, be a directory, inside $HOME. */
 async function resolveResumeCwd(raw: string | undefined): Promise<string> {
   const resolved = await resolveDirInHome(raw);
@@ -271,8 +286,9 @@ export class SdkSessions {
       abortController: session.abort,
       settingSources: session.untrustedProject ? ['user'] : ['user', 'project', 'local'],
       forwardSubagentText: true,
-      // Trusted: omit permissionMode so the SDK resolves it like the CLI (permissions.defaultMode, else auto); untrusted: always ask.
-      ...(session.untrustedProject ? { permissionMode: 'default' as const } : {}),
+      // The SDK defaults to 'default' when permissionMode is omitted (unlike the interactive CLI), so pass it explicitly.
+      // Trusted: the terminal's mode (permissions.defaultMode, else auto); untrusted: always ask.
+      permissionMode: session.untrustedProject ? 'default' : terminalPermissionMode(),
       canUseTool: this.makeCanUseTool(session, generation),
       // A resumed session keeps its id and drops the fixed sessionId (the SDK continues the old one).
       ...(resume ? { resume: session.id } : { sessionId: session.id }),
