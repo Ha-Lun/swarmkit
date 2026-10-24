@@ -57,7 +57,7 @@ not the cookie.
 `GET /api/sessions`, `GET /api/sessions/:id`, `POST /api/sessions`,
 `POST /api/sessions/:id/message`, `POST /api/sessions/:id/interrupt`,
 `DELETE /api/sessions/:id`, `POST /api/permissions/:id`, `GET /api/agents?cwd=…`,
-`GET /api/cwds`, `POST /api/auth`, `GET /api/usage`, and `GET /events`
+`GET /api/cwds`, `GET /api/stars`, `POST /api/stars`, `POST /api/auth`, `GET /api/usage`, and `GET /events`
 (server-sent events). Every
 endpoint needs the token (cookie `fleet_token` or header `x-fleet-token`) except
 `POST /api/auth`. See `src/shared/types.ts` for the shapes.
@@ -110,6 +110,8 @@ slug matches a worker node in any known session tree is linked to that node
 every path outside `$HOME` (including symlinks that would escape it), hides
 dotfiles unless `hidden=1`, and never lists `node_modules`; git repositories
 are flagged with `isGitRepo`.
+
+Folders can be starred from the picker, and starred repos are listed first on the landing page. `GET /api/stars` returns the starred paths that still exist inside `$HOME`; `POST /api/stars` with `{"path": "<abs dir>", "starred": true|false}` sets one and returns the new list (`400` for a path outside `$HOME` or a missing boolean). Stars are stored in `$XDG_CONFIG_HOME/claude-fleet/starred.json` (default `~/.config/claude-fleet/starred.json`, mode `0600`, next to the token file), capped at 50 folders.
 
 ## Continue (resume)
 
