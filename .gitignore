@@ -95,4 +95,5 @@ public/frames/*.mp4
 !scripts/bench/tasks/
 # Claude Fleet dashboard
 dashboard/dist/
+dashboard/dist-demo/
 dashboard/.data/

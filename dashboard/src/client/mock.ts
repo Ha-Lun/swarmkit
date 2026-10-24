@@ -20,7 +20,7 @@ import type {
 import { ApiError } from './api';
 import type { FleetBackend } from './api';
 
-const MOCK_HOME = '/home/ha-lun';
+const MOCK_HOME = '/home/demo';
 
 /** Tiny fake filesystem for the folder picker: home → a few well-known folders. */
 const dirTree = new Map<string, DirEntry[]>([
@@ -29,7 +29,7 @@ const dirTree = new Map<string, DirEntry[]>([
     [
       { name: 'work', path: `${MOCK_HOME}/work`, isGitRepo: false },
       { name: 'projects', path: `${MOCK_HOME}/projects`, isGitRepo: false },
-      { name: 'opencode-config', path: `${MOCK_HOME}/opencode-config`, isGitRepo: true },
+      { name: 'swarmkit', path: `${MOCK_HOME}/swarmkit`, isGitRepo: true },
       { name: '.config', path: `${MOCK_HOME}/.config`, isGitRepo: false },
       { name: '.agy-tasks', path: `${MOCK_HOME}/.agy-tasks`, isGitRepo: false },
       { name: '.opencode-tasks', path: `${MOCK_HOME}/.opencode-tasks`, isGitRepo: false },
@@ -38,36 +38,36 @@ const dirTree = new Map<string, DirEntry[]>([
   [
     `${MOCK_HOME}/work`,
     [
-      { name: 'fleet-ui', path: `${MOCK_HOME}/work/fleet-ui`, isGitRepo: true },
-      { name: 'website', path: `${MOCK_HOME}/work/website`, isGitRepo: true },
+      { name: 'acme-web', path: `${MOCK_HOME}/work/acme-web`, isGitRepo: true },
+      { name: 'docs-site', path: `${MOCK_HOME}/work/docs-site`, isGitRepo: true },
       { name: 'scratch', path: `${MOCK_HOME}/work/scratch`, isGitRepo: false },
     ],
   ],
   [
-    `${MOCK_HOME}/work/fleet-ui`,
+    `${MOCK_HOME}/work/acme-web`,
     [
-      { name: 'dashboard', path: `${MOCK_HOME}/work/fleet-ui/dashboard`, isGitRepo: false },
-      { name: 'docs', path: `${MOCK_HOME}/work/fleet-ui/docs`, isGitRepo: false },
+      { name: 'dashboard', path: `${MOCK_HOME}/work/acme-web/dashboard`, isGitRepo: false },
+      { name: 'docs', path: `${MOCK_HOME}/work/acme-web/docs`, isGitRepo: false },
     ],
   ],
   [
-    `${MOCK_HOME}/work/fleet-ui/dashboard`,
+    `${MOCK_HOME}/work/acme-web/dashboard`,
     [
-      { name: 'server', path: `${MOCK_HOME}/work/fleet-ui/dashboard/server`, isGitRepo: false },
-      { name: 'src', path: `${MOCK_HOME}/work/fleet-ui/dashboard/src`, isGitRepo: false },
-      { name: 'test', path: `${MOCK_HOME}/work/fleet-ui/dashboard/test`, isGitRepo: false },
+      { name: 'server', path: `${MOCK_HOME}/work/acme-web/dashboard/server`, isGitRepo: false },
+      { name: 'src', path: `${MOCK_HOME}/work/acme-web/dashboard/src`, isGitRepo: false },
+      { name: 'test', path: `${MOCK_HOME}/work/acme-web/dashboard/test`, isGitRepo: false },
     ],
   ],
   [
     `${MOCK_HOME}/projects`,
     [
-      { name: 'app', path: `${MOCK_HOME}/projects/app`, isGitRepo: true },
-      { name: 'blog', path: `${MOCK_HOME}/projects/blog`, isGitRepo: true },
+      { name: 'api-gateway', path: `${MOCK_HOME}/projects/api-gateway`, isGitRepo: true },
+      { name: 'docs-site', path: `${MOCK_HOME}/projects/docs-site`, isGitRepo: true },
     ],
   ],
   [
-    `${MOCK_HOME}/opencode-config`,
-    [{ name: 'opencode', path: `${MOCK_HOME}/opencode-config/opencode`, isGitRepo: true }],
+    `${MOCK_HOME}/swarmkit`,
+    [{ name: 'cli', path: `${MOCK_HOME}/swarmkit/cli`, isGitRepo: true }],
   ],
 ]);
 
@@ -111,8 +111,8 @@ export function createMockBackend(): FleetBackend {
   const s1: SessionSummary = {
     id: 'mock-page-1',
     source: 'page',
-    project: 'fleet-ui',
-    cwd: '/home/ha-lun/work/fleet-ui',
+    project: 'acme-web',
+    cwd: '/home/demo/work/acme-web',
     title: 'Launch the new pricing page by Friday',
     status: 'running',
     startedAt: base - 1000,
@@ -126,8 +126,8 @@ export function createMockBackend(): FleetBackend {
   const t1: SessionSummary = {
     id: 'mock-term-1',
     source: 'terminal',
-    project: 'fleet-ui',
-    cwd: '/home/ha-lun/work/fleet-ui',
+    project: 'acme-web',
+    cwd: '/home/demo/work/acme-web',
     title: 'claude "explain the SSE reducer"',
     status: 'done',
     startedAt: base - 3_600_000,
@@ -139,8 +139,8 @@ export function createMockBackend(): FleetBackend {
   const t2: SessionSummary = {
     id: 'mock-term-2',
     source: 'terminal',
-    project: 'website',
-    cwd: '/home/ha-lun/work/website',
+    project: 'docs-site',
+    cwd: '/home/demo/work/docs-site',
     title: 'claude --resume "refactor the blog index"',
     status: 'stopped',
     startedAt: base - 86_400_000,
@@ -159,8 +159,8 @@ export function createMockBackend(): FleetBackend {
   const workerTasks: WorkerTask[] = [
     {
       lane: 'opencode',
-      repo: 'opencode-config-5dbfaa',
-      slug: 'fleet-ui',
+      repo: 'swarmkit',
+      slug: 'acme-web',
       state: 'running',
       model: 'opencode-go/glm-5.3-flash',
       agent: 'frontend-specialist',
@@ -175,7 +175,7 @@ export function createMockBackend(): FleetBackend {
     },
     {
       lane: 'agy',
-      repo: 'opencode-config-5dbfaa',
+      repo: 'swarmkit',
       slug: 'docs-refresh',
       state: 'ok',
       model: 'claude-sonnet-5-5',
@@ -190,7 +190,7 @@ export function createMockBackend(): FleetBackend {
     },
     {
       lane: 'agy',
-      repo: 'fleet-ui2',
+      repo: 'api-gateway',
       slug: 'flaky-migrate',
       state: 'not-ok',
       model: 'claude-opus-5-5',
@@ -205,7 +205,7 @@ export function createMockBackend(): FleetBackend {
     },
     {
       lane: 'opencode',
-      repo: 'opencode-config-5dbfaa',
+      repo: 'swarmkit',
       slug: 'lint-sweep',
       state: 'unfinished',
       model: 'opencode-go/glm-4.5-air',
@@ -264,7 +264,7 @@ export function createMockBackend(): FleetBackend {
         kind: 'tool_use',
         tool: 'Read',
         summary: 'dashboard/src/client/state.ts',
-        detail: '{\n  "file_path": "/home/ha-lun/work/fleet-ui/dashboard/src/client/state.ts"\n}',
+        detail: '{\n  "file_path": "/home/demo/work/acme-web/dashboard/src/client/state.ts"\n}',
       },
       { id: 't1-e3', ts: t1.startedAt + 1300, kind: 'tool_result', tool: 'Read', summary: 'Read 96 lines' },
       {
@@ -475,7 +475,7 @@ export function createMockBackend(): FleetBackend {
       detail: 'Plan: 1) explore maps the data flow, 2) frontend-specialist builds the tree UI, 3) an opencode worker does the mechanical renames. Gate everything on npm run build.',
     }),
   );
-  at(900, () => toolCall(root, 'Read', 'dashboard/src/shared/types.ts', '{\n  "file_path": "/home/ha-lun/work/fleet-ui/dashboard/src/shared/types.ts"\n}'));
+  at(900, () => toolCall(root, 'Read', 'dashboard/src/shared/types.ts', '{\n  "file_path": "/home/demo/work/acme-web/dashboard/src/shared/types.ts"\n}'));
   at(1300, () => toolBack(root, 'Read', 'Read 163 lines', 'export type SessionSource = "page" | "terminal";\n… (truncated)'));
   at(1700, () => toolCall(root, 'Read', 'dashboard/package.json'));
   at(2100, () => toolBack(root, 'Read', 'Read 30 lines'));
@@ -504,7 +504,7 @@ export function createMockBackend(): FleetBackend {
   });
   at(3400, () => {
     worker = spawn(root, 'task-worker', 'worker', 'agy-task', 'opencode-go/glm-5.3-flash', 'Rename session summary fields', 'Mechanical rename across the server model files; keep the build green.', {
-      worker: { lane: 'opencode', slug: 'fleet-ui' },
+      worker: { lane: 'opencode', slug: 'acme-web' },
     });
   });
 
@@ -539,13 +539,13 @@ export function createMockBackend(): FleetBackend {
   });
 
   // worker ticks
-  at(5200, () => { if (worker) pushEvent(worker, 'system', 'Worktree ready at ../fleet-ui-worker'); });
+  at(5200, () => { if (worker) pushEvent(worker, 'system', 'Worktree ready at ../acme-web-worker'); });
   at(6800, () => { if (worker) toolCall(worker, 'Bash', 'git status --short'); });
   at(7200, () => { if (worker) toolBack(worker, 'Bash', 'M 3 files'); });
   at(10_500, () => { if (worker) pushEvent(worker, 'system', 'Applied renames in server/model/*.ts'); });
   at(12_500, () => {
     if (worker) {
-      worker.worker = { lane: 'opencode', slug: 'fleet-ui', ok: true };
+      worker.worker = { lane: 'opencode', slug: 'acme-web', ok: true };
       finishNode(worker, 'Renamed 3 files across server/model; build passes.', 0.009, tu(3100, 640));
     }
   });
@@ -571,6 +571,44 @@ export function createMockBackend(): FleetBackend {
     timers.add(auto);
     pendingPerm = { id: req.id, auto };
   });
+
+  // ---- demo keep-alive: the landing page's "Running now" must never go empty ----
+  // The script above finishes s1 (~7s) and the worker node (~12.5s). This chained
+  // heartbeat restores s1/root to running when the script ends and keeps the first
+  // opencode worker running with a ticking elapsedS, so the static demo always feels
+  // alive. Everything goes through at()/clearAll(), so a user stop() still halts it,
+  // and nothing here touches the network.
+  const keepAlive = () => {
+    at(9000, () => {
+      const r = nodeMaps.get(s1.id)?.get('root');
+      if (s1.status === 'done' || s1.status === 'stopped' || (r && (r.status === 'done' || r.status === 'stopped'))) {
+        s1.status = 'running';
+        s1.pendingPermissions = 0;
+        if (r) {
+          r.status = 'running';
+          r.endedAt = undefined;
+          r.result = undefined;
+          pushEvent(r, 'text', 'Demo loop: replaying the scripted run — nothing actually executes.');
+          upsertHead(r);
+        }
+        bumpSession(s1.id);
+      } else if (r && (r.status === 'running' || r.status === 'waiting')) {
+        pushEvent(r, 'text', 'Demo heartbeat: scripted activity continues.');
+        bumpSession(s1.id);
+      }
+      const w = workerTasks[0];
+      if (w.lane === 'opencode') {
+        if (w.state !== 'running') {
+          w.state = 'running';
+          delete w.endedAt;
+        }
+        w.elapsedS += 9;
+        emit?.({ type: 'workers.update', workers: workerTasks.map((t) => ({ ...t, toolCounts: { ...t.toolCounts } })) });
+      }
+      keepAlive();
+    });
+  };
+  keepAlive();
 
   // ---- backend surface ----
 
@@ -749,9 +787,9 @@ export function createMockBackend(): FleetBackend {
       } satisfies AgentsResponse),
     cwds: () =>
       Promise.resolve([
-        '/home/ha-lun/work/fleet-ui',
-        '/home/ha-lun/work/website',
-        '/home/ha-lun/opencode-config/opencode',
+        '/home/demo/work/acme-web',
+        '/home/demo/work/docs-site',
+        '/home/demo/swarmkit/cli',
       ]),
     dirs: (rawPath, hidden) => {
       const path = rawPath && rawPath.trim() ? rawPath.trim() : MOCK_HOME;
