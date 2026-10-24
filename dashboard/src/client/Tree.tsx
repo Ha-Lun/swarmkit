@@ -65,7 +65,7 @@ interface Layout {
 
 /** Leaves take consecutive x slots; parents centre over their children; depth maps to y.
  * A parent with many leaf children wraps them into a grid so the tree stays readable. */
-function computeLayout(nodes: AgentNode[], heights: Record<string, number>): Layout {
+export function computeLayout(nodes: AgentNode[], heights: Record<string, number>): Layout {
   const byId = new Map(nodes.map((n) => [n.id, n] as const));
   const kids = new Map<string, string[]>();
   const roots: string[] = [];
@@ -90,12 +90,18 @@ function computeLayout(nodes: AgentNode[], heights: Record<string, number>): Lay
   const x = new Map<string, number>();
   const depth = new Map<string, number>();
   const wrapGroups: Array<{ parentId: string; kids: string[] }> = [];
+  const visiting = new Set<string>();
 
   const place = (id: string, d: number): number => {
+    if (x.has(id)) return x.get(id)!;
+    if (visiting.has(id)) return x.get(id) ?? 0;
+    visiting.add(id);
     depth.set(id, d);
-    const list = kids.get(id);
+    // Cycle guard: a child already being visited (or placed) is skipped,
+    // so a parent loop can never recurse forever.
+    const list = (kids.get(id) ?? []).filter((k) => !visiting.has(k) && !x.has(k));
     let cx: number;
-    if (!list || list.length === 0) {
+    if (list.length === 0) {
       cx = cursor * slot + CARD_W / 2;
       cursor += 1;
     } else {
@@ -134,9 +140,14 @@ function computeLayout(nodes: AgentNode[], heights: Record<string, number>): Lay
       }
     }
     x.set(id, cx);
+    visiting.delete(id);
     return cx;
   };
   for (const r of roots) place(r, 0);
+  // Cycle members (a->b->a, or a node that is its own parent) are never
+  // reached from a root: place them as extra roots in start order.
+  const rest = nodes.map((n) => n.id).filter((id) => !x.has(id)).sort(byStart);
+  for (const id of rest) place(id, 0);
 
   const maxH: number[] = [];
   for (const n of nodes) {
@@ -374,7 +385,7 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
 
   // Measure card heights so connectors meet card edges and rows don't overlap.
   const roRef = useRef<ResizeObserver | null>(null);
-  const observed = useRef(new Set<string>());
+  const observed = useRef(new Map<string, HTMLElement>());
   useLayoutEffect(() => {
     const layer = layerRef.current;
     if (!layer) return;
@@ -396,13 +407,46 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
         });
       });
     }
-    for (const el of Array.from(layer.querySelectorAll<HTMLElement>('.node'))) {
+    const els = Array.from(layer.querySelectorAll<HTMLElement>('.node'));
+    const live = new Set<string>();
+    for (const el of els) {
       const id = el.dataset.nodeId;
-      if (id && !observed.current.has(id)) {
-        observed.current.add(id);
+      if (id) live.add(id);
+    }
+    // Nodes that are gone (e.g. after switching sessions) leave a stale
+    // element behind: stop observing it and forget the id.
+    for (const [id, el] of observed.current) {
+      if (!live.has(id)) {
+        roRef.current.unobserve(el);
+        observed.current.delete(id);
+      }
+    }
+    for (const el of els) {
+      const id = el.dataset.nodeId;
+      if (!id) continue;
+      if (observed.current.get(id) !== el) {
+        const prev = observed.current.get(id);
+        if (prev) roRef.current.unobserve(prev);
+        observed.current.set(id, el);
         roRef.current.observe(el);
       }
     }
+    // Drop heights of gone nodes, but only when any are stale.
+    setHeights((prev) => {
+      let stale = false;
+      for (const key of Object.keys(prev)) {
+        if (!live.has(key)) {
+          stale = true;
+          break;
+        }
+      }
+      if (!stale) return prev;
+      const next = { ...prev };
+      for (const key of Object.keys(next)) {
+        if (!live.has(key)) delete next[key];
+      }
+      return next;
+    });
   });
   useEffect(() => () => roRef.current?.disconnect(), []);
 
@@ -425,6 +469,8 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
       if (memberOf.has(p.node.id)) continue;
       const parent = p.node.parentId ? byId.get(p.node.parentId) : undefined;
       if (!parent) continue;
+      // A cycle back-reference (parent at the same depth or deeper) gets no edge.
+      if (parent.y >= p.y) continue;
       const px = parent.x + CARD_W / 2;
       const py = parent.y + (heights[parent.node.id] ?? NOMINAL_H);
       const cx = p.x + CARD_W / 2;
