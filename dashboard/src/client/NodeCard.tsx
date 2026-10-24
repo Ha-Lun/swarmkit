@@ -69,6 +69,7 @@ export function NodeCard({ node, now, permission, open, task, workersAt, onOpen,
       role="button"
       tabIndex={0}
       aria-haspopup="dialog"
+      aria-expanded={open}
       aria-label={ariaLabel}
       onClick={() => {
         if (clickGuard()) return;

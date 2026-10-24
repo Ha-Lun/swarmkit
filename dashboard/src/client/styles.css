@@ -731,6 +731,7 @@ button {
 }
 .node-meta {
   flex: none;
+  margin-left: auto;
   display: inline-flex;
   align-items: baseline;
   gap: 6px;

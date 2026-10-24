@@ -276,6 +276,7 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
   }, [fit]);
 
   const zoomBy = useCallback((factor: number) => {
+    userMoved.current = true;
     setView((v) => {
       const z = Math.min(MAX_Z, Math.max(MIN_Z, v.z * factor));
       const el = wrapRef.current;
@@ -292,6 +293,8 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
     const el = wrapRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
+      const target = e.target as Element | null;
+      if (target && typeof target.closest === 'function' && target.closest('.perm, textarea, pre')) return;
       e.preventDefault();
       userMoved.current = true;
       if (e.ctrlKey || e.metaKey) {
@@ -319,6 +322,8 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const target = e.target as Element;
+    if (typeof target.closest === 'function' && target.closest('.perm, input, textarea, select, button, pre')) return;
     dragMoved.current = false;
     ptsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY });
     pinchRef.current = null;
@@ -491,7 +496,7 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
   }, [permissions]);
 
   return (
-    <div className="canvas" ref={wrapRef} onPointerDown={onPointerDown} aria-label="Agent tree canvas">
+    <div className="canvas" ref={wrapRef} onPointerDown={onPointerDown} role="region" aria-label="Agent tree canvas">
       <div
         className="canvas-layer"
         ref={layerRef}
