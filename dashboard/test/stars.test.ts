@@ -1,5 +1,5 @@
 // Starred folders: add, list, remove, validation, persistence and the 50-entry cap.
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -91,5 +91,53 @@ describe('stars', () => {
     await setStar(dirs[0]!, false);
     expect(await setStar(extra, true)).toContain(await realpath(extra));
     for (const d of dirs) await rm(d, { recursive: true, force: true });
+    await rm(starsFilePath(), { force: true });
+  });
+
+  it('hides a stored dir outside $HOME', async () => {
+    const outside = await mkdtemp(path.join(tmpdir(), 'fleet-stars-outside-'));
+    try {
+      const outsideReal = await realpath(outside);
+      await mkdir(path.dirname(starsFilePath()), { recursive: true });
+      await writeFile(starsFilePath(), JSON.stringify([outsideReal]));
+      expect(await listStars()).toEqual([]);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+      await rm(starsFilePath(), { force: true });
+    }
+  });
+
+  it('unstarring a deleted folder removes it from the file', async () => {
+    const gone = await mkdtemp(path.join(home, 'fleet-star-unstar-gone-'));
+    const goneReal = await realpath(gone);
+    await setStar(goneReal, true);
+    await rm(gone, { recursive: true, force: true });
+    expect(await listStars()).toEqual([]);
+    expect(await setStar(goneReal, false)).toEqual([]);
+    const raw = await readFile(starsFilePath(), 'utf8');
+    expect(JSON.parse(raw)).not.toContain(goneReal);
+    await rm(starsFilePath(), { force: true });
+  });
+
+  it('stale entries do not count toward the 50-folder cap', async () => {
+    const stale = Array.from({ length: 50 }, (_, i) => path.join(home, `fleet-star-stale-missing-${i}-xyz`));
+    await mkdir(path.dirname(starsFilePath()), { recursive: true });
+    await writeFile(starsFilePath(), JSON.stringify(stale));
+    const fresh = await mkdtemp(path.join(home, 'fleet-star-fresh-'));
+    try {
+      expect(await setStar(fresh, true)).toEqual([await realpath(fresh)]);
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
+      await rm(starsFilePath(), { force: true });
+    }
+  });
+
+  it('leaves no temp files behind after setStar', async () => {
+    await rm(starsFilePath(), { force: true });
+    await setStar(dirA, true);
+    await setStar(dirA, false);
+    const entries = await readdir(path.dirname(starsFilePath()));
+    expect(entries.filter(f => f.endsWith('.tmp'))).toEqual([]);
+    await rm(starsFilePath(), { force: true });
   });
 });
