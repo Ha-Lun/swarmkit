@@ -451,6 +451,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
         now={now}
         workersAt={workersAtRef.current}
         onSelect={selectSession}
+        onHome={goHome}
         onOpenWorker={openWorker}
         onOpenWorkers={() => {
           setSheetOpen(false);
