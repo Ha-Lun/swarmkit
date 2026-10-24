@@ -30,3 +30,12 @@ export function validModel(raw: unknown): string | undefined {
   }
   return raw;
 }
+
+/** Optional effort level; undefined/null stays undefined, otherwise must be one of the five levels. */
+export function validEffort(raw: unknown): 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw === 'string' && (raw === 'low' || raw === 'medium' || raw === 'high' || raw === 'xhigh' || raw === 'max')) {
+    return raw;
+  }
+  throw new ValidationError('effort must be one of low, medium, high, xhigh, max');
+}

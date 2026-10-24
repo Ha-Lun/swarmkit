@@ -13,7 +13,7 @@ import { noteRateLimit } from '../usage.ts';
 import { DASHBOARD_ENTRYPOINTS, holderMessage, liveHolder } from '../livesessions.ts';
 import { MAX_EVENTS } from '../../src/shared/types.ts';
 import type { AgentNode, PermissionDecisionBody, PermissionRequest, ResumeSessionBody, ServerEvent, SessionDetail, SessionSummary, StartSessionBody } from '../../src/shared/types.ts';
-import { AGENT_RE, validModel, validText } from '../validate.ts';
+import { AGENT_RE, validEffort, validModel, validText } from '../validate.ts';
 import { resolveDirInHome } from '../paths.ts';
 
 /** Main-thread agent names must start alphanumerically and stay short (no '../', no path tricks). */
@@ -96,6 +96,7 @@ interface PageSession {
   id: string;
   cwd: string;
   agent?: string;
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   /** First line of the first prompt, clamped to 120 chars for the title. */
   title: string;
   startedAt: number;
@@ -171,6 +172,7 @@ export class SdkSessions {
       id,
       cwd: body.cwd,
       ...(body.agent ? { agent: body.agent } : {}),
+      ...(body.effort ? { effort: body.effort } : {}),
       title: firstPromptLine(body.prompt),
       startedAt,
       updatedAt: startedAt,
@@ -188,12 +190,12 @@ export class SdkSessions {
     };
     this.sessions.set(id, session);
 
-    this.startQuery(session, body.prompt, body.model, false);
+    this.startQuery(session, body.prompt, body.model, body.effort, false);
     return id;
   }
 
   /** Runs the SDK query for a session (fresh start or resumed continuation) and consumes it in the background. */
-  private startQuery(session: PageSession, prompt: string, model: string | undefined, resume: boolean): void {
+  private startQuery(session: PageSession, prompt: string, model: string | undefined, effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined, resume: boolean): void {
     session.generation += 1;
     const generation = session.generation;
     session.abort = new AbortController();
@@ -210,6 +212,7 @@ export class SdkSessions {
       ...(resume ? { resume: session.id } : { sessionId: session.id }),
       ...(session.agent ? { agent: session.agent } : {}),
       ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
     };
     session.query = this.queryFn({ prompt: session.queue, options });
     session.queue.push({
@@ -395,9 +398,11 @@ export class SdkSessions {
     // The HTTP layer already validated the body; keep one guard so direct callers still get a 400.
     let text: string;
     let model: string | undefined;
+    let effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined;
     try {
       text = validText(body?.text);
       model = validModel(body.model);
+      effort = validEffort(body.effort);
     } catch (err) {
       throw new SessionError(400, (err as Error).message);
     }
@@ -418,6 +423,7 @@ export class SdkSessions {
           throw new SessionError(409, 'Session is still running');
         }
         // Idle (turn ended, input queue open): the live process just takes the message.
+        if (effort !== undefined) existing.effort = effort;
         existing.updatedAt = Date.now();
         existing.queue.push({
           type: 'user',
@@ -447,7 +453,8 @@ export class SdkSessions {
       existing.queue = new InputQueue();
       existing.upsertThrottle = { lastSent: 0, timer: null };
       existing.updatedAt = Date.now();
-      this.startQuery(existing, text, model, true);
+      if (effort !== undefined) existing.effort = effort;
+      this.startQuery(existing, text, model, effort ?? existing.effort, true);
       return id;
     }
     // A live heartbeat file from any process (terminal or SDK run) forked by adoption
@@ -464,6 +471,7 @@ export class SdkSessions {
       id,
       cwd,
       ...(storedAgent ? { agent: storedAgent } : {}),
+      ...(effort ? { effort } : {}),
       title: firstPromptLine(title),
       startedAt: priorRoot?.startedAt ?? Date.now(),
       updatedAt: Date.now(),
@@ -480,7 +488,7 @@ export class SdkSessions {
       upsertThrottle: { lastSent: 0, timer: null },
     };
     this.sessions.set(id, session);
-    this.startQuery(session, text, model, true);
+    this.startQuery(session, text, model, effort, true);
     return id;
   }
 

@@ -25,7 +25,7 @@ import { listAgents } from './agents.ts';
 import { DirError, listDirs } from './dirs.ts';
 import { WorkerRegistry } from './registry.ts';
 import { SdkSessions, SessionError } from './sdk/sessions.ts';
-import { AGENT_RE, validModel, validText, ValidationError } from './validate.ts';
+import { AGENT_RE, validEffort, validModel, validText, ValidationError } from './validate.ts';
 import { resolveDirInHome } from './paths.ts';
 import { abortUsageProbe, getUsage } from './usage.ts';
 import { freshTranscriptMtimeMs, holderMessage, liveHolder } from './livesessions.ts';
@@ -121,6 +121,8 @@ async function validateSessionBody(body: unknown): Promise<StartSessionBody> {
   }
   const model = validModel(raw.model);
   if (model !== undefined) start.model = model;
+  const effort = validEffort(raw.effort);
+  if (effort !== undefined) start.effort = effort;
   return start;
 }
 
@@ -207,7 +209,10 @@ async function main(): Promise<void> {
     try {
       const text = validText(raw.text);
       const model = validModel(raw.model);
-      body = model === undefined ? { text } : { text, model };
+      const effort = validEffort(raw.effort);
+      body = { text };
+      if (model !== undefined) body.model = model;
+      if (effort !== undefined) body.effort = effort;
     } catch (err) {
       if (err instanceof ValidationError) return sendJson(res, 400, { error: err.message });
       throw err;

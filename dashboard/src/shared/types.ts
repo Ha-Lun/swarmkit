@@ -178,6 +178,7 @@ export interface StartSessionBody {
   agent?: string;
   /** 'opus' | 'sonnet' | 'haiku' or a full model id; omitted = default. */
   model?: string;
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 }
 export interface StartSessionResponse {
   sessionId: string;
@@ -197,7 +198,7 @@ export interface AgentsResponse {
 }
 export interface DirEntry { name: string; path: string; isGitRepo: boolean }
 export interface DirListing { path: string; parent?: string; entries: DirEntry[] }
-export interface ResumeSessionBody { text: string; model?: string }
+export interface ResumeSessionBody { text: string; model?: string; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' }
 
 // GET  /api/usage                     -> UsageReport   (?refresh=1 bypasses the caches, at most once per 30 s)
 

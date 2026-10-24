@@ -20,6 +20,8 @@ export function NewSession({ backend, guard, onClose, onStarted }: Props) {
     setAgent,
     model,
     setModel,
+    effort,
+    setEffort,
     agents,
     starting,
     error,
@@ -56,10 +58,13 @@ export function NewSession({ backend, guard, onClose, onStarted }: Props) {
           agents={agents}
           agent={agent}
           model={model}
+          effort={effort}
           onAgent={setAgent}
           onModel={setModel}
+          onEffort={setEffort}
           agentId="ns-agent"
           modelId="ns-model"
+          effortId="ns-effort"
           layout="stack"
         />
 

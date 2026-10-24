@@ -7,6 +7,7 @@ import type { AgentNode, AgentNodeHead, ServerEvent } from '../src/shared/types'
 import type { SessionTree, TreeInit } from '../server/model/reducer';
 import { AGENT_RE, EVICT_AFTER_MS, SdkSessions, SessionError } from '../server/sdk/sessions';
 import type { QueryFn, ResumeInfo } from '../server/sdk/sessions';
+import { validEffort, ValidationError } from '../server/validate.ts';
 
 // The data-model team builds the real reducer in parallel this checkout only
 // has the throwing stub, so stand in a minimal tree fake with the final signatures.
@@ -566,6 +567,84 @@ describe('SdkSessions', () => {
       const id = sdk.start({ prompt: 'cwd source', cwd: homeDir });
       expect(sdk.fileInfo(id)).toEqual({ cwd: homeDir });
       expect(sdk.fileInfo('nope')).toBeUndefined();
+    });
+  });
+
+  describe('effort', () => {
+    it('validEffort accepts the five levels and passes undefined/null through', () => {
+      for (const level of ['low', 'medium', 'high', 'xhigh', 'max'] as const) {
+        expect(validEffort(level)).toBe(level);
+      }
+      expect(validEffort(undefined)).toBeUndefined();
+      expect(validEffort(null)).toBeUndefined();
+    });
+
+    it('validEffort rejects anything else with the documented message', () => {
+      for (const bad of ['', 'HIGH', 'ultra', 42, {}, []]) {
+        try {
+          validEffort(bad);
+          expect.unreachable(`validEffort should have thrown for ${JSON.stringify(bad)}`);
+        } catch (err) {
+          expect(err).toBeInstanceOf(ValidationError);
+          expect((err as Error).message).toBe('effort must be one of low, medium, high, xhigh, max');
+        }
+      }
+    });
+
+    it('start passes effort into the SDK options when given, omits it otherwise', async () => {
+      const optionsSeen: (Record<string, unknown> | undefined)[] = [];
+      const sdk = new SdkSessions(() => {}, makeRecordingQuery(optionsSeen));
+      const id = sdk.start({ prompt: 'effortful', cwd: homeDir, effort: 'high' });
+      await vi.waitFor(() => {
+        expect(sdk.get(id)?.status).toBe('done');
+      });
+      expect(optionsSeen.at(0)?.effort).toBe('high');
+
+      const optionsSeen2: (Record<string, unknown> | undefined)[] = [];
+      const sdk2 = new SdkSessions(() => {}, makeRecordingQuery(optionsSeen2));
+      const id2 = sdk2.start({ prompt: 'default effort', cwd: homeDir });
+      await vi.waitFor(() => {
+        expect(sdk2.get(id2)?.status).toBe('done');
+      });
+      expect(optionsSeen2.at(0)).not.toHaveProperty('effort');
+    });
+
+    it('resume uses the new effort if given, else the stored one', async () => {
+      const optionsSeen: (Record<string, unknown> | undefined)[] = [];
+      const sdk = new SdkSessions(() => {}, makeRecordingQuery(optionsSeen));
+      const id = sdk.start({ prompt: 'first', cwd: homeDir, effort: 'high' });
+      await vi.waitFor(() => {
+        expect(sdk.get(id)?.status).toBe('done');
+      });
+      sdk.stop(id);
+
+      await sdk.resume(id, { text: 'again' }, { cwd: homeDir });
+      await vi.waitFor(() => {
+        expect(sdk.get(id)?.status).toBe('done');
+      });
+      expect(optionsSeen.at(-1)?.effort).toBe('high');
+      sdk.stop(id);
+
+      await sdk.resume(id, { text: 'harder', effort: 'max' }, { cwd: homeDir });
+      await vi.waitFor(() => {
+        expect(sdk.get(id)?.status).toBe('done');
+      });
+      expect(optionsSeen.at(-1)?.effort).toBe('max');
+      sdk.stop(id);
+
+      // The new effort stuck: a later resume without one reuses 'max'.
+      await sdk.resume(id, { text: 'still hard' }, { cwd: homeDir });
+      await vi.waitFor(() => {
+        expect(sdk.get(id)?.status).toBe('done');
+      });
+      expect(optionsSeen.at(-1)?.effort).toBe('max');
+    });
+
+    it('validates resume effort: bad levels are 400', async () => {
+      const sdk = new SdkSessions(() => {}, makeRecordingQuery([]));
+      await expect(
+        sdk.resume('term-1', { text: 'ok', effort: 'ultra' as never }, { cwd: homeDir }),
+      ).rejects.toMatchObject({ status: 400 });
     });
   });
 });

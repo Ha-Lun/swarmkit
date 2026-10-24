@@ -781,6 +781,7 @@ export function createMockBackend(): FleetBackend {
     agents: (_cwd) =>
       Promise.resolve({
         agents: [
+          { name: 'lead-dev-hybrid', description: 'Plans and fans work out to a swarm', scope: 'user' },
           { name: 'explore', description: 'Fast read-only codebase scout', scope: 'user' },
           { name: 'frontend-specialist', description: 'UI implementation specialist', scope: 'project' },
         ],

@@ -54,6 +54,8 @@ export function Landing({
     setAgent,
     model,
     setModel,
+    effort,
+    setEffort,
     agents,
     starting,
     error,
@@ -201,10 +203,13 @@ export function Landing({
                 agents={agents}
                 agent={agent}
                 model={model}
+                effort={effort}
                 onAgent={setAgent}
                 onModel={setModel}
+                onEffort={setEffort}
                 agentId="land-agent"
                 modelId="land-model"
+                effortId="land-effort"
                 layout="row"
               />
 
