@@ -460,3 +460,85 @@ describe('TranscriptWatcher: terminal status from the live-session registry', ()
     }
   });
 });
+
+describe('TranscriptWatcher resumable', () => {
+  it('ended + transcript + cwd + turn → true; no turn or missing cwd → false', async () => {
+    const temp = await mkdtemp(join(tmpdir(), 'fleet-resumable-watch-'));
+    const projects = join(temp, 'projects');
+    const sessionsDir = join(temp, 'sessions');
+    await mkdir(join(projects, 'p'), { recursive: true });
+    await mkdir(sessionsDir, { recursive: true });
+    const cwdDir = await mkdtemp(join(tmpdir(), 'fleet-resumable-cwd-'));
+    const seen: ServerEvent[] = [];
+    const watcher = new TranscriptWatcher({ root: projects, emit: (e) => seen.push(e), skip: () => false });
+    try {
+      const userFor = (cwd: string): string =>
+        JSON.stringify({
+          type: 'user',
+          uuid: 'u1',
+          timestamp: T1,
+          cwd,
+          message: { role: 'user', content: 'Do the thing' },
+        });
+      // Aged 2 min so the mtime cap reads them as done without a holder.
+      const old = Date.now() - 120_000;
+      await writeFile(join(projects, 'p', 'good.jsonl'), `${userFor(cwdDir)}\n${baseAssistant}\n`);
+      await writeFile(join(projects, 'p', 'noturn.jsonl'), `${userFor(cwdDir)}\n`);
+      await writeFile(
+        join(projects, 'p', 'nocwd.jsonl'),
+        `${userFor('/nonexistent-fleet-xyz')}\n${baseAssistant}\n`,
+      );
+      for (const f of ['good.jsonl', 'noturn.jsonl', 'nocwd.jsonl']) {
+        const p = join(projects, 'p', f);
+        await utimes(p, old / 1000, old / 1000);
+      }
+      const prev = process.env.CLAUDE_CONFIG_DIR;
+      process.env.CLAUDE_CONFIG_DIR = temp;
+      try {
+        await watcher.scanNow();
+        const list = watcher.list();
+        expect(list.find((s) => s.id === 'good')!.status).toBe('done');
+        expect(list.find((s) => s.id === 'good')!.resumable).toBe(true);
+        expect(list.find((s) => s.id === 'noturn')!.status).toBe('done');
+        expect(list.find((s) => s.id === 'noturn')!.resumable).toBe(false);
+        expect(list.find((s) => s.id === 'nocwd')!.status).toBe('done');
+        expect(list.find((s) => s.id === 'nocwd')!.resumable).toBe(false);
+      } finally {
+        if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+        else process.env.CLAUDE_CONFIG_DIR = prev;
+      }
+    } finally {
+      watcher.stop();
+      await rm(temp, { recursive: true, force: true });
+      await rm(cwdDir, { recursive: true, force: true });
+    }
+  });
+
+  it('running sessions are never resumable', async () => {
+    const temp = await mkdtemp(join(tmpdir(), 'fleet-resumable-live-'));
+    const projects = join(temp, 'projects');
+    const sessionsDir = join(temp, 'sessions');
+    await mkdir(join(projects, 'p'), { recursive: true });
+    await mkdir(sessionsDir, { recursive: true });
+    const seen: ServerEvent[] = [];
+    const watcher = new TranscriptWatcher({ root: projects, emit: (e) => seen.push(e), skip: () => false });
+    try {
+      // Written just now: the mtime cap reads it as running.
+      await writeFile(join(projects, 'p', 'fresh.jsonl'), `${userLine}\n${baseAssistant}\n`);
+      const prev = process.env.CLAUDE_CONFIG_DIR;
+      process.env.CLAUDE_CONFIG_DIR = temp;
+      try {
+        await watcher.scanNow();
+        const found = watcher.list().find((s) => s.id === 'fresh')!;
+        expect(found.status).toBe('running');
+        expect(found.resumable).toBe(false);
+      } finally {
+        if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+        else process.env.CLAUDE_CONFIG_DIR = prev;
+      }
+    } finally {
+      watcher.stop();
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+});

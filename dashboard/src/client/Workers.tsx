@@ -1,59 +1,11 @@
-// Workers: sidebar section ("N/3 running" + compact rows) and the full main-area view.
+// Workers: the full main-area view.
 // Live data comes from the workers.update SSE event and GET /api/workers.
 import type { WorkerTask } from '../shared/types';
 import { fmtDuration, shortModel, workerElapsedS, workerStateClass } from './format';
-import { ChevronIcon, WorkerIcon } from './icons';
-
-/** Default worker cap advertised by the server; just used for the "N/3 running" readout. */
-const CAP = 3;
+import { WorkerIcon } from './icons';
 
 export function workerKey(t: WorkerTask): string {
   return `${t.lane}/${t.repo}/${t.slug}`;
-}
-
-interface SectionProps {
-  workers: WorkerTask[];
-  now: number;
-  at: number;
-  onOpen: (task: WorkerTask) => void;
-  onOpenAll: () => void;
-}
-
-export function WorkersSection({ workers, now, at, onOpen, onOpenAll }: SectionProps) {
-  const running = workers.filter((w) => w.state === 'running').length;
-  const top = workers.slice(0, 5);
-  return (
-    <section className="wk-section" aria-label="Worker tasks">
-      <header className="wk-head">
-        <h2>Workers</h2>
-        <span className="wk-count" title={`${running} running, cap ${CAP}`}>
-          {running}/{CAP} running
-        </span>
-      </header>
-      {top.length === 0 ? (
-        <p className="wk-none muted">No worker tasks.</p>
-      ) : (
-        top.map((w) => (
-          <button
-            key={workerKey(w)}
-            type="button"
-            className="wk-row"
-            onClick={() => onOpen(w)}
-            aria-haspopup="dialog"
-          >
-            <span className={`badge lane-${w.lane}`}>{w.lane}</span>
-            <span className="wk-slug">{w.slug}</span>
-            <span className="wk-elapsed">{fmtDuration(workerElapsedS(w, now, at) * 1000)}</span>
-            <i className={`dot ${workerStateClass(w.state)}`} aria-hidden="true" />
-          </button>
-        ))
-      )}
-      <button type="button" className="wk-all" onClick={onOpenAll}>
-        All workers
-        <ChevronIcon size={12} />
-      </button>
-    </section>
-  );
 }
 
 function WorkerCard({

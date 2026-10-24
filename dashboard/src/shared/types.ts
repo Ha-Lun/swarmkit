@@ -109,6 +109,13 @@ export interface SessionSummary {
   model?: string;
   nodeCount: number;
   pendingPermissions: number;
+  /**
+   * True when this ended session could be continued via POST /api/sessions/:id/resume:
+   * not running/waiting/idle, its transcript .jsonl exists on disk, its cwd still exists
+   * as a directory, and it completed at least one turn. Running/waiting sessions are
+   * never resumable (the flag is not relevant while live).
+   */
+  resumable: boolean;
   /** True when the project settings for cwd are not trusted (no hasTrustDialogAccepted); only user settings are read. */
   untrustedProject?: boolean;
 }

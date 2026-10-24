@@ -1,18 +1,19 @@
 // Top-level app: routing state and chrome (the backend is resolved in main.tsx).
 import { Component, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import type { ErrorInfo, ReactNode, Ref } from 'react';
+import type { ErrorInfo, ReactNode } from 'react';
 import type { PermissionRequest, SessionSummary, WorkerTask } from '../shared/types';
 import { ApiError, authenticate } from './api';
 import type { FleetBackend, Guard } from './api';
+import { Archive } from './Archive';
 import { Composer } from './Composer';
 import { Continue } from './Continue';
 import { Drawer } from './Drawer';
 import { fmtCost, UNTRUSTED_NOTICE } from './format';
-import { HomeIcon, Logo, MenuIcon } from './icons';
+import { Logo } from './icons';
 import { Landing } from './Landing';
 import { NewSession } from './NewSession';
 import { packInstallDone, RestartBanner } from './RestartBanner';
-import { Sidebar } from './Sidebar';
+import { TopBar } from './TopBar';
 import { initialState, nodeById, reducer } from './state';
 import { Tree } from './Tree';
 import { useUsage } from './Usage';
@@ -159,35 +160,9 @@ function TokenScreen() {
   );
 }
 
-function Topbar({
-  session,
-  onMenu,
-  onHome,
-  title,
-  menuRef,
-}: {
-  session?: SessionSummary;
-  onMenu: () => void;
-  onHome: () => void;
-  title?: string;
-  menuRef?: Ref<HTMLButtonElement>;
-}) {
+function Topbar({ session, title }: { session?: SessionSummary; title?: string }) {
   return (
     <header className="topbar">
-      <button
-        type="button"
-        ref={menuRef}
-        className="icon-btn menu-btn"
-        aria-label="Open session list"
-        onClick={onMenu}
-      >
-        <MenuIcon />
-      </button>
-      {(session || title) && (
-        <button type="button" className="icon-btn home-btn" aria-label="Go home" onClick={onHome}>
-          <HomeIcon size={16} />
-        </button>
-      )}
       <div className="topbar-title">
         <h1>{title ?? (session ? session.title || session.project : 'SwarmKit')}</h1>
         {session && (
@@ -219,18 +194,16 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   const stateRef = useRef(state);
   stateRef.current = state;
   const [authNeeded, setAuthNeeded] = useState(false);
-  const [sheetOpen, setSheetOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [drawerNodeId, setDrawerNodeId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
-  const [view, setView] = useState<'session' | 'workers'>('session');
+  const [view, setView] = useState<'session' | 'workers' | 'archive'>('session');
   const [workerDrawerKey, setWorkerDrawerKey] = useState<string | null>(null);
   const [endedDraft, setEndedDraft] = useState<{ id: string; text: string } | null>(null);
   const [restartBusy, setRestartBusy] = useState(false);
   const [dismissedRestart, setDismissedRestart] = useState<string[]>(readDismissed);
   const workersAtRef = useRef(Date.now());
-  const menuBtnRef = useRef<HTMLButtonElement | null>(null);
 
   /** Wrap every call: a 401 surfaces the token screen instead of crashing. */
   const guard = useCallback<Guard>(async (p) => {
@@ -334,12 +307,10 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   const openNode = useCallback((nodeId: string) => setDrawerNodeId(nodeId), []);
   const selectSession = useCallback((id: string) => {
     dispatch({ type: 'select', sessionId: id });
-    setSheetOpen(false);
     setView('session');
   }, []);
   const onStarted = useCallback((id: string) => {
     setNewOpen(false);
-    setSheetOpen(false);
     setDrawerNodeId(null);
     dispatch({ type: 'select', sessionId: id });
     setView('session');
@@ -352,24 +323,8 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   // back into a session.
   const goHome = useCallback(() => {
     dispatch({ type: 'select', sessionId: null });
-    setSheetOpen(false);
     setView('session');
   }, []);
-
-  // Sheet close (X button, backdrop, Escape): hand focus back to the opener
-  // so mobile users' keyboard focus stays on the menu button.
-  const closeSheet = useCallback(() => {
-    setSheetOpen(false);
-    menuBtnRef.current?.focus();
-  }, []);
-  useEffect(() => {
-    if (!sheetOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeSheet();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [sheetOpen, closeSheet]);
 
   const viewWorkerInTree = useCallback(
     (sessionId: string, nodeId: string) => {
@@ -464,36 +419,22 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
 
   return (
     <div className="app">
-      <Sidebar
-        sessions={state.sessions}
-        workers={state.workers}
-        selectedId={state.selectedId}
-        open={sheetOpen}
-        connected={state.connected || mock}
-        now={now}
-        workersAt={workersAtRef.current}
-        usage={usage.report ?? undefined}
-        onSelect={selectSession}
-        onHome={goHome}
-        onOpenWorker={openWorker}
-        onOpenWorkers={() => {
-          setSheetOpen(false);
-          setView('workers');
-        }}
-        onNew={() => setNewOpen(true)}
-        onClose={closeSheet}
-      />
-      {sheetOpen && (
-        <button type="button" className="sheet-backdrop" aria-label="Close session list" onClick={closeSheet} />
-      )}
-
       <div className="main">
-        <Topbar
-          session={view === 'workers' ? undefined : selected ?? undefined}
-          title={view === 'workers' ? 'Workers' : undefined}
-          menuRef={menuBtnRef}
-          onMenu={() => setSheetOpen(true)}
+        <TopBar
+          sessions={state.sessions}
+          workers={state.workers}
+          selectedId={state.selectedId}
+          connected={state.connected || mock}
+          usage={usage.report ?? undefined}
           onHome={goHome}
+          onSelect={selectSession}
+          onOpenWorkers={() => setView('workers')}
+          onOpenArchive={() => setView('archive')}
+          onNew={() => setNewOpen(true)}
+        />
+        <Topbar
+          session={view === 'session' ? selected ?? undefined : undefined}
+          title={view === 'workers' ? 'Workers' : view === 'archive' ? 'Archive' : undefined}
         />
         {view === 'session' && selected?.untrustedProject && (
           <p className="notice" role="note">
@@ -508,6 +449,8 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
 
         {view === 'workers' ? (
           <WorkersView workers={state.workers} now={now} at={workersAtRef.current} onOpen={openWorker} />
+        ) : view === 'archive' ? (
+          <Archive sessions={state.sessions} now={now} onSelect={selectSession} />
         ) : !selected ? (
           <Landing
             backend={backend}
@@ -521,6 +464,8 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
             onRefreshUsage={usage.refresh}
             onSelect={selectSession}
             onOpenWorker={openWorker}
+            onOpenWorkers={() => setView('workers')}
+            onOpenArchive={() => setView('archive')}
             onStarted={onStarted}
           />
         ) : !detail ? (

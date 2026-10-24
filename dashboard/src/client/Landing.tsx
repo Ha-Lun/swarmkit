@@ -23,6 +23,8 @@ interface Props {
   onRefreshUsage: () => void;
   onSelect: (id: string) => void;
   onOpenWorker: (task: WorkerTask) => void;
+  onOpenWorkers: () => void;
+  onOpenArchive: () => void;
   onStarted: (id: string) => void;
 }
 
@@ -43,6 +45,8 @@ export function Landing({
   onRefreshUsage,
   onSelect,
   onOpenWorker,
+  onOpenWorkers,
+  onOpenArchive,
   onStarted,
 }: Props) {
   const {
@@ -78,9 +82,11 @@ export function Landing({
 
   const running = sessions.filter((s) => s.status === 'running' || s.status === 'waiting');
   const runningWorkers = workers.filter((w) => w.state === 'running');
-  const ended = sessions.filter((s) => s.status !== 'running' && s.status !== 'waiting');
-  const [showAll, setShowAll] = useState(false);
-  const recent = showAll ? ended : ended.slice(0, 8);
+  // Ended sessions that can actually be continued; the rest stay hidden everywhere.
+  const ended = sessions
+    .filter((s) => s.resumable === true)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+  const recent = ended.slice(0, 5);
 
   return (
     <div className="landing">
@@ -148,6 +154,11 @@ export function Landing({
                       {w.model && <span className="land-wk-model">{shortModel(w.model)}</span>}
                     </button>
                   ))}
+                  {workers.length > 0 && (
+                    <button type="button" className="land-all-link" onClick={onOpenWorkers}>
+                      All workers
+                    </button>
+                  )}
                 </>
               )}
             </section>
@@ -235,24 +246,18 @@ export function Landing({
               <UsagePanel report={usage} loading={usageLoading} onRefresh={onRefreshUsage} />
             </section>
 
-            <section className="land-recent" aria-label="Recent sessions">
-              <h3>Recent sessions</h3>
+            <section className="land-recent" aria-label="Recently ended">
+              <h3>Recently ended</h3>
               {ended.length === 0 ? (
-                <p className="muted land-none">Nothing yet — start your first session above.</p>
+                <p className="muted land-none">No ended sessions yet — sessions you can continue will appear here.</p>
               ) : (
                 <>
                   {recent.map((s) => (
                     <SessionRow key={s.id} session={s} now={now} onSelect={onSelect} />
                   ))}
-                  {ended.length > 8 && (
-                    <button
-                      type="button"
-                      className="land-show-more"
-                      onClick={() => setShowAll((v) => !v)}
-                    >
-                      {showAll ? 'Show fewer' : `Show all (${ended.length})`}
-                    </button>
-                  )}
+                  <button type="button" className="land-show-more" onClick={onOpenArchive}>
+                    Open archive ({ended.length})
+                  </button>
                 </>
               )}
             </section>
