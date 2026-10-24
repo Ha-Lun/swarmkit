@@ -742,6 +742,8 @@ export function createMockBackend(): FleetBackend {
     };
   };
 
+  let mockStars = ['/home/demo/work/acme-web'];
+
   return {
     sessions: () => Promise.resolve(Array.from(sessions.values()).map((s) => ({ ...s })).sort((a, b) => b.updatedAt - a.updatedAt)),
     detail: (id) => Promise.resolve(detail(id)),
@@ -892,6 +894,14 @@ export function createMockBackend(): FleetBackend {
           .map((e) => ({ ...e })),
       };
       return Promise.resolve(listing);
+    },
+    stars: () => Promise.resolve([...mockStars]),
+    setStar: (path, starred) => {
+      const clean = path.trim();
+      mockStars = starred
+        ? (mockStars.includes(clean) ? mockStars : [...mockStars, clean])
+        : mockStars.filter((s) => s !== clean);
+      return Promise.resolve([...mockStars]);
     },
     workers: () =>
       Promise.resolve(workerTasks.map((t) => ({ ...t, toolCounts: { ...t.toolCounts } }))),

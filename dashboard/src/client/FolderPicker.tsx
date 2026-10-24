@@ -3,7 +3,8 @@
 import { Fragment, useEffect, useState } from 'react';
 import type { DirListing } from '../shared/types';
 import type { FleetBackend, Guard } from './api';
-import { FolderIcon, UpIcon } from './icons';
+import { FolderIcon, StarIcon, UpIcon } from './icons';
+import { useStars } from './stars';
 
 const CWD_KEY = 'fleet.cwd';
 
@@ -50,6 +51,7 @@ export function FolderPicker({ backend, guard, cwd, onCwd, labelledby }: Props) 
   const [failed, setFailed] = useState(false);
   const [reload, setReload] = useState(0);
   const [home, setHome] = useState('');
+  const { stars, isStarred, toggle } = useStars(backend);
 
   useEffect(() => {
     let alive = true;
@@ -117,6 +119,7 @@ export function FolderPicker({ backend, guard, cwd, onCwd, labelledby }: Props) 
   };
 
   const path = listing?.path ?? cwd;
+  const visibleRecents = recents.filter((r) => !stars.includes(r));
   const underHome = home !== '' && (path === home || path.startsWith(`${home}/`));
   const rest = (underHome ? path.slice(home.length) : path).split('/').filter(Boolean);
   const crumbs = [
@@ -132,6 +135,17 @@ export function FolderPicker({ backend, guard, cwd, onCwd, labelledby }: Props) 
       <div className="fp-current" aria-live="polite">
         <FolderIcon size={15} />
         <code title={path}>{path || 'Loading folders…'}</code>
+        {path !== '' && (
+          <button
+            type="button"
+            className="star-btn"
+            aria-pressed={isStarred(path)}
+            aria-label={isStarred(path) ? 'Unstar this folder' : 'Star this folder'}
+            onClick={() => toggle(path)}
+          >
+            <StarIcon size={15} filled={isStarred(path)} />
+          </button>
+        )}
         {path && <span className="fp-current-tag">Selected folder</span>}
       </div>
 
@@ -172,10 +186,21 @@ export function FolderPicker({ backend, guard, cwd, onCwd, labelledby }: Props) 
         </label>
       </div>
 
-      {recents.length > 0 && (
+      {stars.length > 0 && (
+        <div className="fp-recents">
+          <span className="fp-recents-label">Starred</span>
+          {stars.map((s) => (
+            <button key={s} type="button" className="fp-recent fp-starred" title={s} onClick={() => choose(s)}>
+              {s.split('/').filter(Boolean).pop() ?? s}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {visibleRecents.length > 0 && (
         <div className="fp-recents">
           <span className="fp-recents-label">Recent</span>
-          {recents.map((r) => (
+          {visibleRecents.map((r) => (
             <button key={r} type="button" className="fp-recent" title={r} onClick={() => choose(r)}>
               {r.split('/').filter(Boolean).pop() ?? r}
             </button>
@@ -193,7 +218,7 @@ export function FolderPicker({ backend, guard, cwd, onCwd, labelledby }: Props) 
       ) : (
         <ul className="fp-list" aria-label="Subfolders">
           {(listing?.entries ?? []).map((e) => (
-            <li key={e.path}>
+            <li key={e.path} className={isStarred(e.path) ? 'fp-item is-starred' : 'fp-item'}>
               <button
                 type="button"
                 className="fp-row"
@@ -203,6 +228,15 @@ export function FolderPicker({ backend, guard, cwd, onCwd, labelledby }: Props) 
                 <FolderIcon size={14} />
                 <span className="fp-name">{e.name}</span>
                 {e.isGitRepo && <span className="badge">git</span>}
+              </button>
+              <button
+                type="button"
+                className="star-btn fp-row-star"
+                aria-pressed={isStarred(e.path)}
+                aria-label={isStarred(e.path) ? 'Unstar this folder' : 'Star this folder'}
+                onClick={() => toggle(e.path)}
+              >
+                <StarIcon size={14} filled={isStarred(e.path)} />
               </button>
             </li>
           ))}

@@ -23,6 +23,7 @@ import {
 } from './auth.ts';
 import { listAgents } from './agents.ts';
 import { DirError, listDirs } from './dirs.ts';
+import { listStars, setStar } from './stars.ts';
 import { WorkerRegistry } from './registry.ts';
 import { SdkSessions, SessionError } from './sdk/sessions.ts';
 import { AGENT_RE, validEffort, validModel, validText, ValidationError } from './validate.ts';
@@ -508,6 +509,16 @@ async function main(): Promise<void> {
       const target = url.searchParams.get('path') ?? undefined;
       const hidden = url.searchParams.get('hidden') === '1';
       return sendJson(res, 200, await listDirs(target, hidden));
+    }
+
+    if (url.pathname === '/api/stars') {
+      if (method === 'GET') return sendJson(res, 200, await listStars());
+      if (method === 'POST') {
+        const body = requireObject(await readJson(req));
+        if (typeof body.starred !== 'boolean') throw new HttpError(400, 'starred must be a boolean');
+        return sendJson(res, 200, await setStar(body.path, body.starred));
+      }
+      return sendJson(res, 405, { error: 'method not allowed' });
     }
 
     return sendJson(res, 404, { error: 'not found' });

@@ -176,6 +176,8 @@ export interface WorkerTask {
 // GET  /api/workers                     -> WorkerTask[]
 // GET  /api/workers/:lane/:repo/:slug/log -> { lines: string[] }
 // GET  /api/dirs?path=<abs>&hidden=1    -> DirListing     (path defaults to $HOME)
+// GET  /api/stars                       -> string[]       (starred folders, existing dirs only)
+// POST /api/stars                       SetStarBody -> string[]
 // GET  /events                          -> text/event-stream of ServerEvent
 
 export interface StartSessionBody {
@@ -205,6 +207,7 @@ export interface AgentsResponse {
 }
 export interface DirEntry { name: string; path: string; isGitRepo: boolean }
 export interface DirListing { path: string; parent?: string; entries: DirEntry[] }
+export interface SetStarBody { path: string; starred: boolean }
 export interface ResumeSessionBody { text: string; model?: string; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' }
 
 // GET  /api/usage                     -> UsageReport   (?refresh=1 bypasses the caches, at most once per 30 s)

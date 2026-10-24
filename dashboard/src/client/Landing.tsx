@@ -5,9 +5,10 @@ import type { SessionSummary, UsageReport, WorkerTask } from '../shared/types';
 import type { FleetBackend, Guard } from './api';
 import { fmtCost, fmtDuration, shortModel, UNTRUSTED_NOTICE } from './format';
 import { FolderPicker } from './FolderPicker';
-import { Logo } from './icons';
+import { Logo, StarIcon } from './icons';
 import { AgentModelFields, useStartForm } from './StartForm';
 import { SessionRow } from './SessionRow';
+import { useStars } from './stars';
 import { UsagePanel } from './Usage';
 
 interface Props {
@@ -68,6 +69,9 @@ export function Landing({
 
   // Recent working dirs for one-tap repo chips (most recent first).
   const [cwds, setCwds] = useState<string[]>([]);
+  const { stars } = useStars(backend);
+  // Starred folders first, then recent cwds not already starred.
+  const repos = [...stars, ...cwds.filter((c) => !stars.includes(c))];
   useEffect(() => {
     let alive = true;
     guard(backend.cwds())
@@ -167,21 +171,22 @@ export function Landing({
               <h2>Start a session</h2>
               <p className="muted land-sub">Pick a repo, describe the task, and the swarm fans out.</p>
 
-              {cwds.length > 0 && (
+              {repos.length > 0 && (
                 <div className="land-repos-wrap" aria-label="Recent repos">
                   <div className="land-repos">
-                    {cwds.map((path) => {
+                    {repos.map((path) => {
                     const { name, parent } = splitPath(path);
+                    const starred = stars.includes(path);
                     return (
                       <button
                         key={path}
                         type="button"
-                        className="repo-chip"
+                        className={starred ? 'repo-chip is-starred' : 'repo-chip'}
                         title={path}
                         aria-pressed={cwd.trim() === path || undefined}
                         onClick={() => setCwd(path)}
                       >
-                        <b>{name}</b>
+                        <b>{starred && <StarIcon size={11} filled />}{name}</b>
                         <span className="repo-chip-path">{parent}</span>
                       </button>
                     );

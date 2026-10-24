@@ -138,6 +138,26 @@ export const FolderIcon = (p: IconProps) => (
   </Svg>
 );
 
+export function StarIcon({ size = 14, filled = false, className }: IconProps & { filled?: boolean }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill={filled ? 'currentColor' : 'none'}
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.3L12 17.1l-5.7 3.1 1.2-6.3L2.8 9.5l6.4-.8L12 2.8Z" />
+    </svg>
+  );
+}
+
 // --- node kinds ---
 
 export const MainIcon = (p: IconProps) => (

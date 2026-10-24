@@ -67,6 +67,8 @@ export interface FleetBackend {
   agents(cwd: string): Promise<AgentsResponse>;
   cwds(): Promise<string[]>;
   dirs(path?: string, hidden?: boolean): Promise<DirListing>;
+  stars(): Promise<string[]>;
+  setStar(path: string, starred: boolean): Promise<string[]>;
   workers(): Promise<WorkerTask[]>;
   workerLog(lane: string, repo: string, slug: string): Promise<{ lines: string[] }>;
   usage(refresh?: boolean): Promise<UsageReport>;
@@ -108,6 +110,9 @@ export const apiBackend: FleetBackend = {
     const s = q.toString();
     return request(s ? `/api/dirs?${s}` : '/api/dirs');
   },
+  stars: () => request('/api/stars'),
+  setStar: (path, starred) =>
+    request('/api/stars', { method: 'POST', body: JSON.stringify({ path, starred }) }),
   workers: () => request('/api/workers'),
   workerLog: (lane, repo, slug) =>
     request(

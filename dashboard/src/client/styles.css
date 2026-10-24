@@ -2196,3 +2196,39 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---------- starred folders ---------- */
+
+.star-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  width: 32px;
+  min-height: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.star-btn:hover { color: var(--text); }
+.star-btn[aria-pressed='true'] { color: var(--amber); }
+.star-btn:focus-visible { outline: 2px solid var(--violet-ring); outline-offset: 1px; }
+.fp-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.fp-item .fp-row { flex: 1; min-width: 0; }
+.fp-row-star { opacity: 0; }
+.fp-item:hover .fp-row-star,
+.fp-item:focus-within .fp-row-star,
+.fp-item.is-starred .fp-row-star { opacity: 1; }
+.is-starred .fp-row-star { color: var(--amber); }
+@media (hover: none) {
+  .fp-row-star { opacity: 1; }
+}
+.repo-chip.is-starred svg { color: var(--amber); }
