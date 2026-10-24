@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Options, Query, SDKRateLimitInfo, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type {
+  AgyRun,
   UsageExec,
   UsageQueryFactory,
   UsageOptions,
@@ -13,6 +14,8 @@ import type {
 import { createUsageState, getUsage, noteRateLimit } from '../server/usage.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** Epoch seconds a day ahead of the real clock: session records with it are never stale. */
+const FUTURE_RESET = Math.floor(Date.now() / 1000) + 86_400;
 
 /**
  * Collectors that don't care about claude inject this instead of the SDK default,
@@ -52,7 +55,7 @@ function fakeQuery(
   return { factory, queries };
 }
 
-function clockOf(o: UsageOptions): { now: () => number; advance: (ms: number) => void } {
+function clockOf(): { now: () => number; advance: (ms: number) => void } {
   let t = 1_000_000_000_000;
   return { now: () => t, advance: (ms: number) => { t += ms; } };
 }
@@ -174,7 +177,7 @@ describe('cache TTL', () => {
       '30': JSON.stringify({ tokens: { input: 3 } }),
     };
     let stats = fakeStats(responses);
-    const clock = clockOf({});
+    const clock = clockOf();
     const state = createUsageState();
     const agyDir = await mkdtemp(join(tmpdir(), 'usage-empty-'));
     const base = (): UsageOptions => ({ execFile: stats.exec, queryFactory: noProbeFactory, now: clock.now, taskDir: agyDir, state });
@@ -265,7 +268,7 @@ describe('claude probe', () => {
     noteRateLimit({
       rateLimitType: 'five_hour',
       utilization: 0.43, // 0-1 fraction: normalised to 43
-      resetsAt: 1_767_225_600,
+      resetsAt: FUTURE_RESET,
     } as SDKRateLimitInfo, state);
     const { factory, queries } = fakeQuery(() =>
       Promise.resolve({ subscription_type: null, rate_limits_available: false, rate_limits: null }),
@@ -274,7 +277,7 @@ describe('claude probe', () => {
     expect(report.claude).toMatchObject({
       available: true,
       source: 'session',
-      fiveHour: { utilization: 43, resetsAt: new Date(1_767_225_600 * 1000).toISOString() },
+      fiveHour: { utilization: 43, resetsAt: new Date(FUTURE_RESET * 1000).toISOString() },
     });
     expect(queries[0]!.interrupts).toBe(1);
   });
@@ -301,15 +304,15 @@ describe('claude probe', () => {
     noteRateLimit({ rateLimitType: 'overage', utilization: 99 } as SDKRateLimitInfo, state); // must be ignored
     const { factory } = fakeQuery(() => Promise.reject(new Error('down')));
     const report = await getUsage({ queryFactory: factory, state });
-    expect(report.claude.available).toBe(false);
+    expect(report.claude).toMatchObject({ available: false, error: 'no limits recorded yet' });
   });
 });
 
 describe('claude probe backoff', () => {
   const unavailable = { subscription_type: null, rate_limits_available: false, rate_limits: null };
 
-  it('rate_limits_available:false: no second probe within 5 min, one after; refresh skips it', async () => {
-    const clock = clockOf({});
+  it('rate_limits_available:false: no second probe within 5 min, one after; refresh does not skip it', async () => {
+    const clock = clockOf();
     const state = createUsageState();
     const { factory, queries } = fakeQuery(() => Promise.resolve(unavailable));
     const run = (refresh = false) => getUsage({ queryFactory: factory, state, now: clock.now, refresh, execFile: async () => '{}', taskDir: join(tmpdir(), 'no-such-usage-dir') });
@@ -322,11 +325,11 @@ describe('claude probe backoff', () => {
     await run();
     expect(queries).toHaveLength(2);
     await run(true);
-    expect(queries).toHaveLength(3);
+    expect(queries).toHaveLength(2); // refresh bypasses the cache TTL, never the backoff
   });
 
   it('an error backs off 60 s', async () => {
-    const clock = clockOf({});
+    const clock = clockOf();
     const state = createUsageState();
     const { factory, queries } = fakeQuery(() => Promise.reject(new Error('down')));
     const run = () => getUsage({ queryFactory: factory, state, now: clock.now, execFile: async () => '{}', taskDir: join(tmpdir(), 'no-such-usage-dir') });
@@ -385,15 +388,15 @@ describe('single-flight', () => {
       calls += 1;
       throw new Error('boom');
     };
-    const clock = clockOf({});
+    const clock = clockOf();
     const state = createUsageState();
     const o = { execFile: exec, queryFactory: noProbeFactory, state, now: clock.now, taskDir: join(tmpdir(), 'no-such-usage-dir') };
     await getUsage(o);
     await getUsage(o);
-    expect(calls).toBe(1);
+    expect(calls).toBe(3); // one parallel round (three windows), the second poll is negative-cached
     clock.advance(61_000);
     await getUsage(o);
-    expect(calls).toBe(2);
+    expect(calls).toBe(6);
   });
 });
 
@@ -423,13 +426,110 @@ describe('noteRateLimit', () => {
     noteRateLimit({ rateLimitType: 'seven_day_sonnet', utilization: 200, resetsAt: 0 } as SDKRateLimitInfo, state);
     noteRateLimit({ rateLimitType: 'overage', utilization: 99 } as SDKRateLimitInfo, state); // unknown window: ignored
     noteRateLimit({ rateLimitType: 'five_hour', utilization: undefined, resetsAt: 100 } as SDKRateLimitInfo, state); // ignored
-    noteRateLimit({ rateLimitType: 'five_hour', utilization: 64, resetsAt: 1_900_000_000 } as SDKRateLimitInfo, state);
+    noteRateLimit({ rateLimitType: 'five_hour', utilization: 64, resetsAt: FUTURE_RESET } as SDKRateLimitInfo, state);
     const { factory } = fakeQuery(() =>
       Promise.resolve({ subscription_type: null, rate_limits_available: false, rate_limits: null }),
     );
     const report = await getUsage({ queryFactory: factory, state });
     expect(report.claude.source).toBe('session');
     expect(report.claude.sevenDaySonnet).toEqual({ utilization: 100, resetsAt: null });
-    expect(report.claude.fiveHour).toEqual({ utilization: 64, resetsAt: new Date(1_900_000_000 * 1000).toISOString() });
+    expect(report.claude.fiveHour).toEqual({ utilization: 64, resetsAt: new Date(FUTURE_RESET * 1000).toISOString() });
+  });
+});
+
+describe('review fixes', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const unavailable = { subscription_type: null, rate_limits_available: false, rate_limits: null };
+
+  it('drops stale session limits (reset in the past, older than the window); nothing left is unavailable', async () => {
+    const state = createUsageState();
+    noteRateLimit({ rateLimitType: 'five_hour', utilization: 50, resetsAt: FUTURE_RESET } as SDKRateLimitInfo, state);
+    noteRateLimit({ rateLimitType: 'seven_day', utilization: 30, resetsAt: FUTURE_RESET } as SDKRateLimitInfo, state);
+    const { factory } = fakeQuery(() => Promise.resolve(unavailable));
+    const at = (offsetMs: number) => getUsage({ queryFactory: factory, state, now: () => Date.now() + offsetMs, execFile: async () => '{}', taskDir: join(tmpdir(), 'no-such-usage-dir'), refresh: true });
+    // 6 h on: five_hour record is older than 5 h, seven_day still fresh
+    const r1 = await at(6 * 3_600_000);
+    expect(r1.claude.fiveHour).toBeUndefined();
+    expect(r1.claude.sevenDay).toMatchObject({ utilization: 30 });
+    // past both resets: nothing left
+    const r2 = await at(2 * DAY_MS);
+    expect(r2.claude).toMatchObject({ available: false, error: 'no limits recorded yet' });
+    // empty session answer carries the same error
+    const empty = await getUsage({ queryFactory: fakeQuery(() => Promise.resolve(unavailable)).factory, state: createUsageState() });
+    expect(empty.claude).toMatchObject({ available: false, error: 'no limits recorded yet' });
+  });
+
+  it('event utilization of exactly 1 is 1 %, a fraction below 1 is scaled', async () => {
+    const state = createUsageState();
+    noteRateLimit({ rateLimitType: 'five_hour', utilization: 1, resetsAt: FUTURE_RESET } as SDKRateLimitInfo, state);
+    noteRateLimit({ rateLimitType: 'seven_day', utilization: 0.5, resetsAt: FUTURE_RESET } as SDKRateLimitInfo, state);
+    const { factory } = fakeQuery(() => Promise.resolve(unavailable));
+    const report = await getUsage({ queryFactory: factory, state });
+    expect(report.claude.fiveHour!.utilization).toBe(1);
+    expect(report.claude.sevenDay!.utilization).toBe(50);
+  });
+
+  it('two states do not share a probe', async () => {
+    const release: Array<() => void> = [];
+    const { factory, queries } = fakeQuery(() => new Promise((resolve) => { release.push(() => resolve(unavailable)); }));
+    const opts = { queryFactory: factory, execFile: async () => '{}', taskDir: join(tmpdir(), 'no-such-usage-dir') };
+    const a = getUsage({ ...opts, state: createUsageState() });
+    const b = getUsage({ ...opts, state: createUsageState() });
+    await vi.waitFor(() => expect(queries).toHaveLength(2));
+    release.forEach((r) => r());
+    await Promise.all([a, b]);
+  });
+
+  it('refresh during a probe backoff does not probe', async () => {
+    const clock = clockOf();
+    const state = createUsageState();
+    const { factory, queries } = fakeQuery(() => Promise.reject(new Error('down')));
+    const run = (refresh: boolean) => getUsage({ queryFactory: factory, state, now: clock.now, refresh, execFile: async () => '{}', taskDir: join(tmpdir(), 'no-such-usage-dir') });
+    await run(false);
+    await run(true);
+    expect(queries).toHaveLength(1);
+  });
+
+  it('starts the three opencode stats calls in parallel', async () => {
+    const started: string[] = [];
+    const release: Array<() => void> = [];
+    const exec: UsageExec = (file, args) => {
+      started.push(`${file} ${args.join(' ')}`);
+      return new Promise<string>((resolve) => { release.push(() => resolve('{}')); });
+    };
+    const p = getUsage({ execFile: exec, queryFactory: noProbeFactory, taskDir: join(tmpdir(), 'no-such-usage-dir'), state: createUsageState() });
+    await vi.waitFor(() => expect(started).toHaveLength(3));
+    expect(started.every((c) => c.startsWith('opencode stats --days '))).toBe(true);
+    expect(started.some((c) => c.startsWith('opencode stats --days 1 '))).toBe(true);
+    release.forEach((r) => r());
+    const report = await p;
+    expect(report.opencode.available).toBe(true);
+  });
+
+  it('a maxBuffer overflow answers "opencode stats output too large"', async () => {
+    const exec: UsageExec = async () => {
+      throw Object.assign(new Error('stdout maxBuffer length exceeded'), { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' });
+    };
+    const report = await getUsage({ execFile: exec, queryFactory: noProbeFactory, taskDir: join(tmpdir(), 'no-such-usage-dir'), state: createUsageState() });
+    expect(report.opencode).toMatchObject({ available: false, error: 'opencode stats output too large' });
+  });
+
+  it('a hung agy scan times out after 5 s and the next call retries', async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const agyRuns = (): Promise<AgyRun[]> => {
+      calls += 1;
+      return calls === 1 ? new Promise<AgyRun[]>(() => {}) : Promise.resolve([]);
+    };
+    const o = { queryFactory: noProbeFactory, execFile: async () => '{}', agyRuns, taskDir: '/x', state: createUsageState() };
+    const first = getUsage(o);
+    await vi.advanceTimersByTimeAsync(5_001);
+    expect((await first).agy).toMatchObject({ available: false, error: 'agy task scan timed out' });
+    const second = await getUsage(o);
+    expect(calls).toBe(2);
+    expect(second.agy.available).toBe(true);
   });
 });
