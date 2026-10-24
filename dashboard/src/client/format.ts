@@ -131,5 +131,34 @@ export function workerElapsedS(task: WorkerTask, now: number, at: number): numbe
   return task.elapsedS + Math.max(0, Math.floor((now - at) / 1000));
 }
 
+/** HH:MM in the viewer's local clock, e.g. '10:55' — 'as of' footers. */
+export function fmtClockShort(iso: string | number): string {
+  const t = typeof iso === 'string' ? Date.parse(iso) : iso;
+  if (!Number.isFinite(t)) return '';
+  return new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+/** 'in 4h 24m' when under a day out, 'Mon 19:59' (local) when longer, 'now' when due. */
+export function fmtResetIn(resetsAt: string, now = Date.now()): string {
+  const t = Date.parse(resetsAt);
+  if (!Number.isFinite(t)) return '';
+  const ms = t - now;
+  if (ms <= 0) return 'now';
+  if (ms >= 86_400_000)
+    return `${new Date(t).toLocaleDateString([], { weekday: 'short' })} ${fmtClockShort(t)}`;
+  const m = Math.round(ms / 60_000);
+  const h = Math.floor(m / 60);
+  if (h <= 0) return `in ${m}m`;
+  return `in ${h}h ${m % 60}m`;
+}
+
+/** Usage colour ramp: <75 teal, 75-89 amber, >=90 fail. 'idle' for unusable values. */
+export function usageTone(u: number | null): 'teal' | 'amber' | 'fail' | 'idle' {
+  if (u == null || !Number.isFinite(u)) return 'idle';
+  if (u >= 90) return 'fail';
+  if (u >= 75) return 'amber';
+  return 'teal';
+}
+
 export const UNTRUSTED_NOTICE =
   'Untrusted folder: project settings and hooks are ignored. Open it once in Claude Code in a terminal to trust it.';
