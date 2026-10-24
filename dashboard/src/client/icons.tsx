@@ -164,6 +164,14 @@ export const WorkerIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const ArchiveIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="3.5" y="4" width="17" height="4.5" rx="1" />
+    <path d="M5 8.5V19A1.5 1.5 0 0 0 6.5 20.5h11A1.5 1.5 0 0 0 19 19V8.5" />
+    <path d="M10 12h4" />
+  </Svg>
+);
+
 export function kindIcon(kind: NodeKind, size = 14) {
   if (kind === 'subagent') return <SubagentIcon size={size} />;
   if (kind === 'worker') return <WorkerIcon size={size} />;

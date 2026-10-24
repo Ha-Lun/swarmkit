@@ -160,31 +160,27 @@ function TokenScreen() {
   );
 }
 
-function Topbar({ session, title }: { session?: SessionSummary; title?: string }) {
+function Topbar({ session }: { session: SessionSummary }) {
   return (
     <header className="topbar">
       <div className="topbar-title">
-        <h1>{title ?? (session ? session.title || session.project : 'SwarmKit')}</h1>
-        {session && (
-          <p className="topbar-cwd" title={session.cwd}>
-            {session.cwd}
-          </p>
-        )}
+        <h1>{session.title || session.project}</h1>
+        <p className="topbar-cwd" title={session.cwd}>
+          {session.cwd}
+        </p>
       </div>
-      {session && (
-        <div className="topbar-meta">
-          {session.pendingPermissions > 0 && (
-            <span className="pending-chip" title="Waiting on your decision">
-              {session.pendingPermissions} pending
-            </span>
-          )}
-          <span className={`node-status st-${session.status}`}>
-            <i className="dot" aria-hidden="true" />
-            {session.status}
+      <div className="topbar-meta">
+        {session.pendingPermissions > 0 && (
+          <span className="pending-chip" title="Waiting on your decision">
+            {session.pendingPermissions} pending
           </span>
-          <span className="topbar-cost">{fmtCost(session.costUsd)}</span>
-        </div>
-      )}
+        )}
+        <span className={`node-status st-${session.status}`}>
+          <i className="dot" aria-hidden="true" />
+          {session.status}
+        </span>
+        <span className="topbar-cost">{fmtCost(session.costUsd)}</span>
+      </div>
     </header>
   );
 }
@@ -432,10 +428,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
           onOpenArchive={() => setView('archive')}
           onNew={() => setNewOpen(true)}
         />
-        <Topbar
-          session={view === 'session' ? selected ?? undefined : undefined}
-          title={view === 'workers' ? 'Workers' : view === 'archive' ? 'Archive' : undefined}
-        />
+        {view === 'session' && selected && <Topbar session={selected} />}
         {view === 'session' && selected?.untrustedProject && (
           <p className="notice" role="note">
             {UNTRUSTED_NOTICE}

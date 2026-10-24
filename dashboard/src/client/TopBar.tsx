@@ -1,10 +1,13 @@
 // TopBar: the single slim sticky strip that replaces the sidebar. Left: the Logo
 // with wordmark as the Home button. Center: a horizontally scrollable row of ACTIVE
-// (running/waiting) session chips. Right: Workers link, Archive link, the Claude 5h
-// usage pill, a connection dot and the New session button. No hamburger/sheet.
+// (running/waiting) session chips (omitted entirely when there are none). Right:
+// Workers link, Archive link, the Claude 5h usage pill, a connection dot and the
+// New session button — pinned to the right edge via margin-left: auto. No hamburger/sheet.
+// On ≤768px the links collapse to 44×44 icon buttons with count badges, the usage
+// pill and connection dot hide, and New session becomes a "+" icon button.
 import type { SessionSummary, UsageReport, WorkerTask } from '../shared/types';
 import { fmtResetIn, usageTone } from './format';
-import { Logo, PlusIcon } from './icons';
+import { ArchiveIcon, Logo, PlusIcon, WorkerIcon } from './icons';
 
 interface Props {
   sessions: SessionSummary[];
@@ -87,15 +90,21 @@ export function TopBar({
       )}
 
       <nav className="top-actions" aria-label="Dashboard">
-        <button type="button" className="top-link" onClick={onOpenWorkers}>
-          Workers
-          <span className="top-count" title={`${runningWorkers} running`}>
+        <button type="button" className="top-link" onClick={onOpenWorkers} aria-label={`Workers, ${runningWorkers} running`}>
+          <span className="top-link-icon" aria-hidden="true">
+            <WorkerIcon size={18} />
+          </span>
+          <span className="top-link-label">Workers</span>
+          <span className="top-count" title={`${runningWorkers} running`} aria-hidden="true">
             {runningWorkers}
           </span>
         </button>
-        <button type="button" className="top-link" onClick={onOpenArchive}>
-          Archive
-          <span className="top-count" title={`${archived} resumable ended sessions`}>
+        <button type="button" className="top-link" onClick={onOpenArchive} aria-label={`Archive, ${archived} resumable`}>
+          <span className="top-link-icon" aria-hidden="true">
+            <ArchiveIcon size={18} />
+          </span>
+          <span className="top-link-label">Archive</span>
+          <span className="top-count" title={`${archived} resumable ended sessions`} aria-hidden="true">
             {archived}
           </span>
         </button>
@@ -109,7 +118,7 @@ export function TopBar({
           </span>
         )}
         <span
-          className={`dot ${connected ? 'st-running' : 'st-error'}`}
+          className={`dot top-conn ${connected ? 'st-running' : 'st-error'}`}
           role="img"
           aria-label={connected ? 'Live' : 'Reconnecting'}
           title={connected ? 'Live' : 'Reconnecting…'}
@@ -117,6 +126,9 @@ export function TopBar({
         <button type="button" className="btn btn-primary btn-sm top-new" onClick={onNew}>
           <PlusIcon size={13} />
           New session
+        </button>
+        <button type="button" className="icon-btn top-new-icon" onClick={onNew} aria-label="New session">
+          <PlusIcon size={18} />
         </button>
       </nav>
     </header>

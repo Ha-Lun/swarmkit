@@ -291,6 +291,8 @@ button {
   align-items: center;
   gap: var(--space-3);
   min-height: 56px;
+  max-width: 100%;
+  overflow-x: clip;
   padding: calc(6px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) 6px calc(12px + env(safe-area-inset-left));
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -368,6 +370,7 @@ button {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  margin-left: auto;
 }
 .top-link {
   display: inline-flex;
@@ -399,6 +402,9 @@ button {
   font-variant-numeric: tabular-nums;
 }
 .top-new { flex: none; }
+/* Mobile-only icon variants: hidden on desktop, revealed ≤768px. */
+.top-link-icon { display: none; }
+.top-new-icon { display: none; }
 
 .sess {
   display: flex;
@@ -2087,19 +2093,51 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
 /* ---------- responsive ---------- */
 
 @media (max-width: 768px) {
-  /* top strip wraps into two rows: brand + actions, then the chips row below */
-  .topstrip { flex-wrap: wrap; row-gap: 0; }
+  /* top strip wraps into two rows: brand + icon actions, then the chips row below.
+     Row 1 caps at 56px; with chips the strip caps at ~108px. */
+  .topstrip { flex-wrap: wrap; row-gap: 0; column-gap: var(--space-2); }
   .top-chips {
     order: 3;
     flex: 1 1 100%;
     min-width: 0;
+    padding-bottom: 6px;
     scrollbar-width: none;
     mask-image: linear-gradient(to right, black calc(100% - 24px), transparent);
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 24px), transparent);
   }
   .top-chips::-webkit-scrollbar { display: none; }
-  /* the mask already fades the trailing edge; keep it subtle on phones */
-  .top-actions { margin-left: auto; }
-  .top-new .btn-sm, .top-new { font-size: 12px; }
+  .top-actions { margin-left: auto; gap: var(--space-1); }
+  /* icon-only 44×44 action buttons with small count badges */
+  .top-link {
+    position: relative;
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    padding: 0;
+    justify-content: center;
+  }
+  .top-link-label { display: none; }
+  .top-link-icon { display: inline-flex; align-items: center; justify-content: center; }
+  .top-count {
+    position: absolute;
+    top: 2px;
+    right: -2px;
+    min-width: 18px;
+    padding: 0 5px;
+    font-size: 10px;
+    line-height: 1.6;
+  }
+  /* usage lives on the landing page; the landing hero already shows Live/Offline */
+  .topstrip .usage-pill,
+  .topstrip .top-conn { display: none; }
+  .top-new { display: none; }
+  .top-new-icon {
+    display: inline-flex;
+    background: var(--ink);
+    color: var(--bg);
+    border-color: transparent;
+  }
+  .top-new-icon:hover { background: var(--ink-hover); color: var(--bg); }
 
   .drawer { width: 100vw; border-left: 0; padding-right: 0; }
 
@@ -2133,6 +2171,11 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
   }
   .land-repos { scrollbar-width: none; }
   .land-repos::-webkit-scrollbar { display: none; }
+}
+
+/* Very narrow phones: mark-only logo leaves room for the three 44px actions. */
+@media (max-width: 360px) {
+  .top-brand .logo-word { display: none; }
 }
 
 /* Bigger tap targets on touch devices. */
