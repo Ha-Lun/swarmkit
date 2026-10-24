@@ -1,6 +1,6 @@
 // Usage collectors: opencode stats parsing, fallback paths, agy result.json windows,
 // cache TTLs with a fake clock and the claude probe mapping (including its finally).
-import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -246,6 +246,11 @@ describe('claude probe', () => {
     const [q] = queries;
     expect(q.options.settingSources).toEqual([]);
     expect(q.options.mcpServers).toEqual({});
+    expect(q.options.strictMcpConfig).toBe(true);
+    expect(q.options.tools).toEqual([]);
+    await expect(
+      q.options.canUseTool!('Bash', {}, { signal: new AbortController().signal, toolUseID: 't' } as never),
+    ).resolves.toMatchObject({ behavior: 'deny' });
     expect(q.options.cwd).toBe(os.homedir());
     // The probe leaves no trace: no transcript under ~/.claude/projects.
     expect(q.options.persistSession).toBe(false);
@@ -297,6 +302,118 @@ describe('claude probe', () => {
     const { factory } = fakeQuery(() => Promise.reject(new Error('down')));
     const report = await getUsage({ queryFactory: factory, state });
     expect(report.claude.available).toBe(false);
+  });
+});
+
+describe('claude probe backoff', () => {
+  const unavailable = { subscription_type: null, rate_limits_available: false, rate_limits: null };
+
+  it('rate_limits_available:false: no second probe within 5 min, one after; refresh skips it', async () => {
+    const clock = clockOf({});
+    const state = createUsageState();
+    const { factory, queries } = fakeQuery(() => Promise.resolve(unavailable));
+    const run = (refresh = false) => getUsage({ queryFactory: factory, state, now: clock.now, refresh, execFile: async () => '{}', taskDir: join(tmpdir(), 'no-such-usage-dir') });
+    await run();
+    expect(queries).toHaveLength(1);
+    clock.advance(4 * 60_000);
+    await run();
+    expect(queries).toHaveLength(1);
+    clock.advance(61_000);
+    await run();
+    expect(queries).toHaveLength(2);
+    await run(true);
+    expect(queries).toHaveLength(3);
+  });
+
+  it('an error backs off 60 s', async () => {
+    const clock = clockOf({});
+    const state = createUsageState();
+    const { factory, queries } = fakeQuery(() => Promise.reject(new Error('down')));
+    const run = () => getUsage({ queryFactory: factory, state, now: clock.now, execFile: async () => '{}', taskDir: join(tmpdir(), 'no-such-usage-dir') });
+    await run();
+    clock.advance(30_000);
+    await run();
+    expect(queries).toHaveLength(1);
+    clock.advance(31_000);
+    await run();
+    expect(queries).toHaveLength(2);
+  });
+});
+
+describe('utilisation scaling', () => {
+  it('probe utilization is 0-100 and never rescaled (1 stays 1); clamped both ways', async () => {
+    const { factory } = fakeQuery(() =>
+      Promise.resolve({
+        subscription_type: 'pro',
+        rate_limits_available: true,
+        rate_limits: {
+          five_hour: { utilization: 1, resets_at: null },
+          seven_day: { utilization: 0.5, resets_at: null },
+          seven_day_opus: { utilization: 250, resets_at: null },
+          seven_day_sonnet: { utilization: -5, resets_at: null },
+        },
+      }),
+    );
+    const report = await getUsage({ queryFactory: factory, state: createUsageState() });
+    expect(report.claude.fiveHour!.utilization).toBe(1);
+    expect(report.claude.sevenDay!.utilization).toBe(1); // 0.5 rounds, not x100
+    expect(report.claude.sevenDayOpus!.utilization).toBe(100);
+    expect(report.claude.sevenDaySonnet!.utilization).toBe(0);
+  });
+});
+
+describe('single-flight', () => {
+  it('concurrent calls share one opencode exec per window', async () => {
+    const stats = fakeStats({ '1': '{}', '7': '{}', '30': '{}' });
+    const slow: UsageExec = async (...a) => {
+      await new Promise((r) => setTimeout(r, 20));
+      return stats.exec(...a);
+    };
+    const state = createUsageState();
+    const agyDir = await mkdtemp(join(tmpdir(), 'usage-empty-'));
+    try {
+      await Promise.all([1, 2, 3].map(() => getUsage({ execFile: slow, queryFactory: noProbeFactory, taskDir: agyDir, state })));
+      expect(stats.calls).toHaveLength(3);
+    } finally {
+      await rm(agyDir, { recursive: true, force: true });
+    }
+  });
+
+  it('negative-caches a non-ENOENT opencode failure for 60 s', async () => {
+    let calls = 0;
+    const exec: UsageExec = async () => {
+      calls += 1;
+      throw new Error('boom');
+    };
+    const clock = clockOf({});
+    const state = createUsageState();
+    const o = { execFile: exec, queryFactory: noProbeFactory, state, now: clock.now, taskDir: join(tmpdir(), 'no-such-usage-dir') };
+    await getUsage(o);
+    await getUsage(o);
+    expect(calls).toBe(1);
+    clock.advance(61_000);
+    await getUsage(o);
+    expect(calls).toBe(2);
+  });
+});
+
+describe('agy scan hardening', () => {
+  it('skips symlinked and oversized result.json', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'usage-agy-h-'));
+    try {
+      const ok = JSON.stringify({ ok: true, usage: { input: 5 } });
+      await mkdir(join(dir, 'r', 'good'), { recursive: true });
+      await mkdir(join(dir, 'r', 'link'), { recursive: true });
+      await mkdir(join(dir, 'r', 'big'), { recursive: true });
+      await writeFile(join(dir, 'r', 'good', 'result.json'), ok);
+      await writeFile(join(dir, 'target.json'), ok);
+      await symlink(join(dir, 'target.json'), join(dir, 'r', 'link', 'result.json'));
+      await writeFile(join(dir, 'r', 'big', 'result.json'), JSON.stringify({ ok: true, usage: { input: 5 }, pad: 'x'.repeat(1024 * 1024 + 1) }));
+      const report = await getUsage({ queryFactory: noProbeFactory, taskDir: dir, state: createUsageState() });
+      expect(report.agy.windows[0]).toEqual({ days: 1, tokens: 5, runs: 1, stopped: 0 });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

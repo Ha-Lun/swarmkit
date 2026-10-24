@@ -27,7 +27,7 @@ import { WorkerRegistry } from './registry.ts';
 import { SdkSessions, SessionError } from './sdk/sessions.ts';
 import { AGENT_RE, validModel, validText, ValidationError } from './validate.ts';
 import { resolveDirInHome } from './paths.ts';
-import { getUsage } from './usage.ts';
+import { abortUsageProbe, getUsage } from './usage.ts';
 import { freshTranscriptMtimeMs, holderMessage, liveHolder } from './livesessions.ts';
 import { TranscriptWatcher } from './watch/transcripts.ts';
 import type { AgentNode, ResumeSessionBody, ServerEvent, SessionSummary, StartSessionBody } from '../src/shared/types.ts';
@@ -540,6 +540,7 @@ async function main(): Promise<void> {
     for (const s of sdk.list()) sdk.stop(s.id);
     watcher.stop();
     registry.stop();
+    abortUsageProbe();
     clearInterval(pingTimer);
     const exit = (): void => {
       server.close(() => process.exit(0));
