@@ -8,6 +8,7 @@ import os from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { Options, Query, SDKRateLimitInfo, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import { parseObject } from './fsutil.ts';
 import type { UsageLimit, UsageReport, UsageSource, UsageWindow } from '../src/shared/types.ts';
 
@@ -167,7 +168,7 @@ function claudeFromProbe(res: {
 function neverYieldingPrompt(): AsyncIterable<SDKUserMessage> {
   return (async function* () {
     await new Promise<never>(() => {});
-  }) as AsyncIterable<SDKUserMessage>;
+  })();
 }
 
 /** At most one probe in flight (shared promise). */
@@ -178,7 +179,14 @@ async function runProbe(o: UsageOptions): Promise<ClaudeUsage> {
   const run = (async () => {
     const aborted = new AbortController();
     const prompt = neverYieldingPrompt();
-    const options: Options = { cwd: os.homedir(), settingSources: [], mcpServers: {}, abortController: aborted };
+    const options: Options = {
+      cwd: os.homedir(),
+      settingSources: [],
+      mcpServers: {},
+      // The probe must leave no trace: no transcript under ~/.claude/projects.
+      persistSession: false,
+      abortController: aborted,
+    };
     let q: Query | undefined;
     try {
       q = o.queryFactory!({ prompt, options });
@@ -312,7 +320,7 @@ function agyTokens(data: Record<string, unknown>): number {
   return num(src.input) + num(src.output) + num(src.reasoning) + num(src.cache_read);
 }
 
-/** Scans <dir>/*/*/result.json (the same layout as the workers panel). Unreadable files/dirs are skipped. */
+/** Scans the result.json of every finished task: the same three-level layout as the workers panel. */
 async function agyRuns(dir: string): Promise<AgyRun[]> {
   const repos = (await readdir(dir, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name);
   const runs: AgyRun[] = [];
@@ -379,7 +387,12 @@ export async function getUsage(opts: UsageOptions = {}): Promise<UsageReport> {
   const execFile: UsageExec =
     opts.execFile ??
     ((file, args, execOpts) => execFileP(file, args, { ...execOpts, encoding: 'utf8' }).then((r) => String(r.stdout)));
-  const o: UsageOptions = { ...opts, execFile };
+  const o: UsageOptions = {
+    ...opts,
+    execFile,
+    // Production default: the SDK's own query factory (tests inject a fake).
+    queryFactory: opts.queryFactory ?? ((args) => query(args)),
+  };
   const unavailable = (error: string) => ({ available: false, asOf: null, error });
   const [claude, opencode, agy] = await Promise.all([
     collectClaude(o).catch(() => unavailable('usage probe failed') as ClaudeUsage),

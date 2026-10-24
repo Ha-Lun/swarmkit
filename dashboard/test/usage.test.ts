@@ -14,6 +14,14 @@ import { createUsageState, getUsage, noteRateLimit } from '../server/usage.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Collectors that don't care about claude inject this instead of the SDK default,
+ * so no real probe process is ever spawned in tests.
+ */
+const noProbeFactory: UsageQueryFactory = () => {
+  throw new Error('no probe in this test');
+};
+
 interface QueryRecord {
   prompt: AsyncIterable<SDKUserMessage>;
   options: Options;
@@ -73,7 +81,7 @@ describe('opencode collector', () => {
       '30': JSON.stringify({ tokens: { input: 1, output: 2 }, cost: 0.01 }),
     };
     const { exec, calls } = fakeStats(responses);
-    const report = await getUsage({ execFile: exec, state: createUsageState() });
+    const report = await getUsage({ execFile: exec, queryFactory: noProbeFactory, state: createUsageState() });
     expect(report.opencode.available).toBe(true);
     expect(report.opencode.windows).toHaveLength(3);
     expect(report.opencode.windows.map((w) => w.days)).toEqual([1, 7, 30]);
@@ -88,7 +96,7 @@ describe('opencode collector', () => {
     const exec: UsageExec = async () => {
       throw Object.assign(new Error('spawn opencode ENOENT'), { code: 'ENOENT' });
     };
-    const report = await getUsage({ execFile: exec, state: createUsageState() });
+    const report = await getUsage({ execFile: exec, queryFactory: noProbeFactory, state: createUsageState() });
     expect(report.opencode).toMatchObject({ available: false, asOf: null, error: 'opencode not installed' });
   });
 
@@ -98,7 +106,7 @@ describe('opencode collector', () => {
     };
     const agyDir = await mkdtemp(join(tmpdir(), 'usage-empty-'));
     try {
-      const report = await getUsage({ execFile: exec, taskDir: agyDir, state: createUsageState() });
+      const report = await getUsage({ execFile: exec, queryFactory: noProbeFactory, taskDir: agyDir, state: createUsageState() });
       expect(report.opencode.available).toBe(false);
       expect(report.opencode.error).toBe('opencode stats failed');
       expect(report.agy).toBeDefined();
@@ -143,7 +151,7 @@ describe('agy collector', () => {
   });
 
   it('aggregates tokens/runs/stopped per window by result.json mtime', async () => {
-    const report = await getUsage({ taskDir: dir, state: createUsageState() });
+    const report = await getUsage({ queryFactory: noProbeFactory, taskDir: dir, state: createUsageState() });
     expect(report.agy.available).toBe(true);
     expect(report.agy.windows).toHaveLength(2);
     const [day1, day7] = report.agy.windows;
@@ -153,7 +161,7 @@ describe('agy collector', () => {
   });
 
   it('answers available:false when the task dir is missing', async () => {
-    const report = await getUsage({ taskDir: join(dir, 'no-such-dir'), state: createUsageState() });
+    const report = await getUsage({ queryFactory: noProbeFactory, taskDir: join(dir, 'no-such-dir'), state: createUsageState() });
     expect(report.agy).toMatchObject({ available: false, asOf: null, error: 'agy task dir unreadable' });
   });
 });
@@ -169,7 +177,7 @@ describe('cache TTL', () => {
     const clock = clockOf({});
     const state = createUsageState();
     const agyDir = await mkdtemp(join(tmpdir(), 'usage-empty-'));
-    const base = (): UsageOptions => ({ execFile: () => stats.exec, now: clock.now, taskDir: agyDir, state });
+    const base = (): UsageOptions => ({ execFile: () => stats.exec, queryFactory: noProbeFactory, now: clock.now, taskDir: agyDir, state });
     try {
       await getUsage(base()); // prime: opencode + agy computed, claude from session (no factory)
       expect(stats.calls.length).toBe(3);
@@ -200,9 +208,9 @@ describe('cache TTL', () => {
     const state = createUsageState();
     const agyDir = await mkdtemp(join(tmpdir(), 'usage-empty-'));
     try {
-      await getUsage({ execFile: exec, taskDir: agyDir, state });
+      await getUsage({ execFile: exec, queryFactory: noProbeFactory, taskDir: agyDir, state });
       expect(calls.length).toBe(3);
-      await getUsage({ execFile: exec, taskDir: agyDir, state, refresh: true });
+      await getUsage({ execFile: exec, queryFactory: noProbeFactory, taskDir: agyDir, state, refresh: true });
       expect(calls.length).toBe(6); // all windows recomputed despite the fresh TTL
     } finally {
       await rm(agyDir, { recursive: true, force: true });
@@ -239,8 +247,11 @@ describe('claude probe', () => {
     expect(q.options.settingSources).toEqual([]);
     expect(q.options.mcpServers).toEqual({});
     expect(q.options.cwd).toBe(os.homedir());
-    // Streaming-input mode: the prompt iterable must never yield a message.
+    // The probe leaves no trace: no transcript under ~/.claude/projects.
+    expect(q.options.persistSession).toBe(false);
+    // Streaming-input mode: a real async-iterable prompt (generator instance, not a function).
     expect(q.prompt[Symbol.asyncIterator]).toBeTypeOf('function');
+    expect((q.prompt as AsyncIterable<SDKUserMessage>)[Symbol.asyncIterator]().next).toBeTypeOf('function');
     expect(q.interrupts).toBe(1); // closed in finally
   });
 
@@ -281,7 +292,7 @@ describe('claude probe', () => {
   it('no rate_limit_event record at all: a failed probe answers available:false', async () => {
     // Rebuild claude state fresh is impossible (module memory), but opencode/agy stay per-test;
     // instead verify via the shared record never being written for an unknown type.
-    const before = await getUsage({ state: createUsageState() });
+    const before = await getUsage({ queryFactory: noProbeFactory, state: createUsageState() });
     expect(before.claude.available).toBe(true); // seeded by the earlier noteRateLimit calls in this file
     noteRateLimit({ rateLimitType: 'overage', utilization: 99 } as SDKRateLimitInfo); // must be ignored
     const { factory } = fakeQuery(() => Promise.reject(new Error('down')));
