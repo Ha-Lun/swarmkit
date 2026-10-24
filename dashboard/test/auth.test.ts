@@ -32,14 +32,24 @@ function withXdg(dir: string): void {
 
 /** A temp dashboard dir whose .data we may seed for migration tests. */
 function tempHome(): string {
-  return mkdtempSync(path.join(homedir(), 'fleet-auth-test-'));
+  return mkdtempSync(path.join(tmpdir(), 'fleet-auth-test-'));
 }
 
+/** A throwaway $HOME (os.homedir() honours $HOME on Linux) so nothing touches the real ~/.config. */
+function fakeHome(): string {
+  const dir = mkdtempSync(path.join(tmpdir(), 'fleet-auth-home-'));
+  process.env.HOME = dir;
+  return dir;
+}
+
+const savedHome = process.env.HOME;
 const savedXdg = process.env.XDG_CONFIG_HOME;
 const savedTokenEnv = process.env.FLEET_TOKEN;
 const savedFleetHosts = process.env.FLEET_HOSTS;
 
 const restoreEnv = (): void => {
+  if (savedHome === undefined) delete process.env.HOME;
+  else process.env.HOME = savedHome;
   if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME;
   else process.env.XDG_CONFIG_HOME = savedXdg;
   if (savedTokenEnv === undefined) delete process.env.FLEET_TOKEN;
@@ -71,15 +81,17 @@ describe('loadToken', () => {
 
   it('defaults to ~/.config/claude-fleet/token without XDG_CONFIG_HOME', () => {
     const home = tempHome();
+    const fakeHomeDir = fakeHome();
     delete process.env.XDG_CONFIG_HOME;
     delete process.env.FLEET_TOKEN;
     try {
       const { file, token } = loadToken(home);
-      expect(file).toBe(path.join(homedir(), '.config', 'claude-fleet', 'token'));
+      expect(file).toBe(path.join(fakeHomeDir, '.config', 'claude-fleet', 'token'));
       expect(existsSync(file)).toBe(true);
       expect(token.length).toBeGreaterThanOrEqual(32);
     } finally {
-      rmSync(path.join(homedir(), '.config', 'claude-fleet'), { recursive: true, force: true });
+      restoreEnv();
+      rmSync(fakeHomeDir, { recursive: true, force: true });
       rmSync(home, { recursive: true, force: true });
     }
   });
@@ -122,8 +134,10 @@ describe('loadToken', () => {
 
   it('accepts FLEET_TOKEN of >= 32 chars, deletes it from the env and writes no file', () => {
     const home = tempHome();
+    const fakeHomeDir = fakeHome();
     const envToken = 'x'.repeat(32);
     process.env.FLEET_TOKEN = envToken;
+    delete process.env.XDG_CONFIG_HOME;
     try {
       const { token, file } = loadToken(home);
       expect(token).toBe(envToken);
@@ -133,6 +147,7 @@ describe('loadToken', () => {
       expect(existsSync(tokenFileOf())).toBe(false);
     } finally {
       restoreEnv();
+      rmSync(fakeHomeDir, { recursive: true, force: true });
       rmSync(home, { recursive: true, force: true });
     }
   });
