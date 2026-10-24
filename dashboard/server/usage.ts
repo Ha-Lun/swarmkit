@@ -1,7 +1,8 @@
 // Usage limits: Claude plan-window utilisation (SDK usage probe / rate_limit_event
-// messages) plus opencode and agy consumption windows. Collectors run in parallel,
+// messages) plus opencode consumption windows, agy consumption windows and agy plan
+// limits (`agy -p /usage --output-format json`). Collectors run in parallel,
 // each with its own cache and timeout; one failing never fails the others, it only
-// answers available:false with a short error (no paths, no secrets).
+// answers available:false (or omits limits) with a short error (no paths, no secrets).
 import { execFile as execFileCb } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, open, readdir } from 'node:fs/promises';
@@ -67,6 +68,15 @@ const defaultState = createUsageState();
 const CLAUDE_TTL_MS = 5 * 60_000;
 const OPENCODE_TTL_MS = 60_000;
 const AGY_TTL_MS = 60_000;
+const AGY_LIMITS_TTL_MS = 120_000;
+const AGY_LIMITS_FAILURE_TTL_MS = 60_000;
+const AGY_LIMITS_TIMEOUT_MS = 15_000;
+/** agy -p /usage answers are small; more is a malfunction. */
+const AGY_LIMITS_MAX_BUFFER = 1 * 1024 * 1024;
+/** Fixed short errors for the agy limits probe (never stdout/paths). */
+const AGY_LIMITS_UNAVAILABLE_MSG = 'agy limits unavailable';
+const AGY_NOT_LOGGED_IN_MSG = 'agy not logged in';
+const AGY_NOT_INSTALLED_MSG = 'agy not installed';
 const PROBE_TIMEOUT_MS = 15_000;
 /** Probe backoff: after rate_limits_available:false / after an error or timeout. */
 const PROBE_UNAVAILABLE_BACKOFF_MS = 5 * 60_000;
@@ -509,8 +519,116 @@ function agyWindows(runs: AgyRun[], now: number): UsageWindow[] {
   return windows;
 }
 
-async function collectAgy(o: UsageOptions): Promise<AgyUsage> {
-  const dir = o.taskDir ?? process.env.AGY_TASK_DIR ?? join(os.homedir(), '.agy-tasks');
+class AgyLimitsUnavailableError extends Error {}
+
+/** Shim so the not-logged-in signal survives without exporting a new error class. */
+class AgyNotLoggedInErrorShim extends Error {}
+
+export interface AgyLimit { group: string; window: '5h' | 'weekly'; utilization: number | null; resetsAt: string | null }
+
+function containsNotLoggedIn(s: string): boolean {
+  return s.toLowerCase().includes('not logged in');
+}
+
+/** "Gemini Models" -> "Gemini", "Claude and GPT models" -> "Claude/GPT"; unknown names pass through. */
+function shortAgyGroup(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower.includes('gemini')) return 'Gemini';
+  if (lower.includes('claude') || lower.includes('gpt') || lower.includes('3p')) return 'Claude/GPT';
+  return name;
+}
+
+/** Parses `agy -p /usage --output-format json`; throws unavailable / not-logged-in. Empty limits also throw. */
+function parseAgyLimits(stdout: string): AgyLimit[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    throw new AgyLimitsUnavailableError();
+  }
+  if (!parsed || typeof parsed !== 'object' || (parsed as { status?: unknown }).status !== 'SUCCESS') {
+    throw new AgyLimitsUnavailableError();
+  }
+  const groups = (parsed as { command?: { data?: { groups?: unknown } } }).command?.data?.groups;
+  if (!Array.isArray(groups) || groups.length === 0) throw new AgyLimitsUnavailableError();
+  const out: AgyLimit[] = [];
+  for (const g of groups) {
+    if (!g || typeof g !== 'object') continue;
+    const name = typeof (g as { name?: unknown }).name === 'string' ? (g as { name: string }).name : '';
+    const group = shortAgyGroup(name);
+    const buckets = (g as { buckets?: unknown }).buckets;
+    if (!Array.isArray(buckets)) continue;
+    for (const b of buckets) {
+      if (!b || typeof b !== 'object') continue;
+      const w = (b as { window?: unknown }).window;
+      if (w !== '5h' && w !== 'weekly') continue;
+      const rf = (b as { remaining_fraction?: unknown }).remaining_fraction;
+      let utilization: number | null = null;
+      if (typeof rf === 'number' && Number.isFinite(rf)) {
+        utilization = Math.min(100, Math.max(0, Math.round((1 - rf) * 100)));
+      }
+      const rt = (b as { reset_time?: unknown }).reset_time;
+      out.push({ group, window: w, utilization, resetsAt: typeof rt === 'string' && rt ? rt : null });
+    }
+  }
+  if (out.length === 0) throw new AgyLimitsUnavailableError();
+  return out;
+}
+
+type AgyLimitsCacheValue = UsageSource & { limits?: AgyLimit[] };
+
+async function collectAgyLimits(o: UsageOptions): Promise<{ limits?: AgyLimit[]; error?: string }> {
+  const execFile = o.execFile;
+  if (execFile === undefined) return { error: AGY_NOT_INSTALLED_MSG };
+  const state = o.state ?? defaultState;
+  const failed = state.caches.get('agy-limits:failed');
+  if (!o.refresh && failed && nowMs(o) - failed.atMs < AGY_LIMITS_FAILURE_TTL_MS) return failed.value as { error: string };
+  try {
+    const cached = await withCache<AgyLimitsCacheValue>('agy-limits', AGY_LIMITS_TTL_MS, o, async () => {
+      let stdout: string;
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        stdout = await Promise.race([
+          execFile('agy', ['-p', '/usage', '--output-format', 'json'], {
+            timeout: AGY_LIMITS_TIMEOUT_MS,
+            killSignal: 'SIGKILL',
+            maxBuffer: AGY_LIMITS_MAX_BUFFER,
+            cwd: os.homedir(),
+          }),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error('agy limits timed out')), AGY_LIMITS_TIMEOUT_MS + 1_000);
+            timer.unref();
+          }),
+        ]);
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        if (code === 'ENOENT') throw new MissingBinaryError();
+        const hay = [(err as { stdout?: unknown }).stdout, (err as { stderr?: unknown }).stderr, (err as Error).message]
+          .filter((v): v is string => typeof v === 'string')
+          .join('\n');
+        if (containsNotLoggedIn(hay)) throw new AgyNotLoggedInErrorShim();
+        if (code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') throw new AgyLimitsUnavailableError();
+        throw new AgyLimitsUnavailableError();
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+      if (containsNotLoggedIn(stdout)) throw new AgyNotLoggedInErrorShim();
+      const limits = parseAgyLimits(stdout);
+      state.caches.delete('agy-limits:failed');
+      return { available: true, asOf: new Date(nowMs(o)).toISOString(), limits };
+    });
+    return { limits: cached.limits };
+  } catch (err) {
+    let error = AGY_LIMITS_UNAVAILABLE_MSG;
+    if (err instanceof MissingBinaryError) error = AGY_NOT_INSTALLED_MSG;
+    else if (err instanceof AgyNotLoggedInErrorShim) error = AGY_NOT_LOGGED_IN_MSG;
+    const value = { error };
+    state.caches.set('agy-limits:failed', { atMs: nowMs(o), value });
+    return value;
+  }
+}
+
+async function collectAgyScan(o: UsageOptions, dir: string): Promise<AgyUsage> {
   try {
     return await withCache(`agy:${dir}`, AGY_TTL_MS, o, async () => {
       let timer: NodeJS.Timeout | undefined;
@@ -531,6 +649,23 @@ async function collectAgy(o: UsageOptions): Promise<AgyUsage> {
     const error = err instanceof AgyScanTimeoutError ? AGY_SCAN_TIMEOUT_MSG : 'agy task dir unreadable';
     return { available: false, asOf: null, error, windows: [] };
   }
+}
+
+async function collectAgy(o: UsageOptions): Promise<AgyUsage> {
+  const dir = o.taskDir ?? process.env.AGY_TASK_DIR ?? join(os.homedir(), '.agy-tasks');
+  // Scan and limits run in parallel so a cold `agy` spawn never stacks behind the dir scan.
+  const [scan, limitsRes] = await Promise.all([collectAgyScan(o, dir), collectAgyLimits(o)]);
+  if (scan.available) {
+    return {
+      ...scan,
+      ...(limitsRes.limits ? { limits: limitsRes.limits } : {}),
+      ...(limitsRes.error ? { error: limitsRes.error } : {}),
+    };
+  }
+  return {
+    ...scan,
+    ...(limitsRes.limits ? { limits: limitsRes.limits } : {}),
+  };
 }
 
 // --- assembly -----------------------------------------------------------

@@ -533,3 +533,201 @@ describe('review fixes', () => {
     expect(second.agy.available).toBe(true);
   });
 });
+
+describe('agy limits', () => {
+  const RESET_5H = '2026-10-25T01:00:00.000Z';
+  const RESET_WEEKLY = '2026-11-01T00:00:00.000Z';
+  const goodLimits = JSON.stringify({
+    status: 'SUCCESS',
+    response: 'Gemini Models\tweekly\t100%\n',
+    usage: { input: 0, output: 0 },
+    command: {
+      data: {
+        description: 'usage',
+        groups: [
+          {
+            name: 'Gemini Models',
+            description: 'g',
+            buckets: [
+              { id: 'gemini-weekly', name: 'weekly', window: 'weekly', remaining_fraction: 1, reset_time: RESET_WEEKLY },
+              { id: 'gemini-5h', name: '5h', window: '5h', remaining_fraction: 0.75, reset_time: RESET_5H },
+            ],
+          },
+          {
+            name: 'Claude and GPT models',
+            description: 'c',
+            buckets: [
+              { id: '3p-weekly', name: 'weekly', window: 'weekly', remaining_fraction: 1, reset_time: RESET_WEEKLY },
+              { id: '3p-5h', name: '5h', window: '5h', remaining_fraction: 0.75, reset_time: RESET_5H },
+            ],
+          },
+        ],
+      },
+    },
+  });
+
+  function fakeBoth(agy: { stdout?: string; error?: unknown }, opencodeBody = '{}'): {
+    exec: UsageExec;
+    agyCalls: string[];
+    agyOpts: Array<{ timeout?: number; killSignal?: unknown; maxBuffer?: number; cwd?: string }>;
+  } {
+    const agyCalls: string[] = [];
+    const agyOpts: Array<{ timeout?: number; killSignal?: unknown; maxBuffer?: number; cwd?: string }> = [];
+    const exec: UsageExec = async (file, args, execOpts) => {
+      if (file === 'agy') {
+        agyCalls.push(`${file} ${args.join(' ')}`);
+        agyOpts.push(execOpts);
+        if (agy.error) throw agy.error;
+        return agy.stdout ?? '';
+      }
+      if (file === 'opencode') return opencodeBody;
+      throw Object.assign(new Error(`spawn ${file} ENOENT`), { code: 'ENOENT' });
+    };
+    return { exec, agyCalls, agyOpts };
+  }
+
+  it('parses both groups and windows with used % (1 -> 0, 0.75 -> 25)', async () => {
+    const { exec, agyCalls, agyOpts } = fakeBoth({ stdout: goodLimits });
+    const dir = await mkdtemp(join(tmpdir(), 'usage-agy-lim-'));
+    try {
+      const report = await getUsage({ execFile: exec, queryFactory: noProbeFactory, taskDir: dir, state: createUsageState() });
+      expect(agyCalls).toEqual(['agy -p /usage --output-format json']);
+      expect(agyOpts[0]).toMatchObject({
+        timeout: 15_000,
+        killSignal: 'SIGKILL',
+        maxBuffer: 1 * 1024 * 1024,
+        cwd: os.homedir(),
+      });
+      expect(report.agy.available).toBe(true);
+      expect(report.agy.limits).toHaveLength(4);
+      expect(report.agy.limits).toEqual(
+        expect.arrayContaining([
+          { group: 'Gemini', window: 'weekly', utilization: 0, resetsAt: RESET_WEEKLY },
+          { group: 'Gemini', window: '5h', utilization: 25, resetsAt: RESET_5H },
+          { group: 'Claude/GPT', window: 'weekly', utilization: 0, resetsAt: RESET_WEEKLY },
+          { group: 'Claude/GPT', window: '5h', utilization: 25, resetsAt: RESET_5H },
+        ]),
+      );
+      expect(report.agy.error).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('status != SUCCESS omits limits with a short error', async () => {
+    const { exec } = fakeBoth({ stdout: JSON.stringify({ status: 'ERROR', response: 'nope', command: { data: { groups: [] } } }) });
+    const dir = await mkdtemp(join(tmpdir(), 'usage-agy-lim-'));
+    try {
+      const report = await getUsage({ execFile: exec, queryFactory: noProbeFactory, taskDir: dir, state: createUsageState() });
+      expect(report.agy.available).toBe(true);
+      expect(report.agy.limits).toBeUndefined();
+      expect(report.agy.error).toBe('agy limits unavailable');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('unparseable JSON omits limits with a short error', async () => {
+    const { exec } = fakeBoth({ stdout: 'not json' });
+    const dir = await mkdtemp(join(tmpdir(), 'usage-agy-lim-'));
+    try {
+      const report = await getUsage({ execFile: exec, queryFactory: noProbeFactory, taskDir: dir, state: createUsageState() });
+      expect(report.agy.limits).toBeUndefined();
+      expect(report.agy.error).toBe('agy limits unavailable');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('"not logged in" output maps to the logged-out error', async () => {
+    const err = Object.assign(new Error('You are not logged into Antigravity'), {
+      stdout: 'You are not logged into Antigravity',
+      stderr: '',
+    });
+    const { exec } = fakeBoth({ error: err });
+    const dir = await mkdtemp(join(tmpdir(), 'usage-agy-lim-'));
+    try {
+      const report = await getUsage({ execFile: exec, queryFactory: noProbeFactory, taskDir: dir, state: createUsageState() });
+      expect(report.agy.limits).toBeUndefined();
+      expect(report.agy.error).toBe('agy not logged in');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('missing binary maps to not installed', async () => {
+    const { exec } = fakeBoth({ error: Object.assign(new Error('spawn agy ENOENT'), { code: 'ENOENT' }) });
+    const dir = await mkdtemp(join(tmpdir(), 'usage-agy-lim-'));
+    try {
+      const report = await getUsage({ execFile: exec, queryFactory: noProbeFactory, taskDir: dir, state: createUsageState() });
+      expect(report.agy.limits).toBeUndefined();
+      expect(report.agy.error).toBe('agy not installed');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('caches successful limits 120 s', async () => {
+    const fake = fakeBoth({ stdout: goodLimits });
+    const clock = clockOf();
+    const state = createUsageState();
+    const dir = await mkdtemp(join(tmpdir(), 'usage-agy-lim-'));
+    try {
+      const base = (): UsageOptions => ({ execFile: fake.exec, queryFactory: noProbeFactory, now: clock.now, taskDir: dir, state });
+      await getUsage(base());
+      expect(fake.agyCalls.length).toBe(1);
+      clock.advance(119_000);
+      await getUsage(base());
+      expect(fake.agyCalls.length).toBe(1);
+      clock.advance(2_000);
+      await getUsage(base());
+      expect(fake.agyCalls.length).toBe(2);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('negative-caches limits failures 60 s', async () => {
+    let calls = 0;
+    const exec: UsageExec = async (file) => {
+      if (file === 'agy') {
+        calls += 1;
+        throw new Error('boom');
+      }
+      return '{}';
+    };
+    const clock = clockOf();
+    const state = createUsageState();
+    const dir = await mkdtemp(join(tmpdir(), 'usage-agy-lim-'));
+    try {
+      const o = { execFile: exec, queryFactory: noProbeFactory, now: clock.now, taskDir: dir, state };
+      await getUsage(o);
+      await getUsage(o);
+      expect(calls).toBe(1);
+      clock.advance(61_000);
+      await getUsage(o);
+      expect(calls).toBe(2);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('consumption windows stay when limits fail', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'usage-agy-lim-'));
+    try {
+      await mkdir(join(dir, 'repo-a', 'done'), { recursive: true });
+      await writeFile(
+        join(dir, 'repo-a', 'done', 'result.json'),
+        JSON.stringify({ ok: true, usage: { input: 10, output: 5, reasoning: 2, cache_read: 8 } }),
+      );
+      const { exec } = fakeBoth({ error: new Error('limits down') });
+      const report = await getUsage({ execFile: exec, queryFactory: noProbeFactory, taskDir: dir, state: createUsageState() });
+      expect(report.agy.available).toBe(true);
+      expect(report.agy.windows[0]).toEqual({ days: 1, tokens: 25, runs: 1, stopped: 0 });
+      expect(report.agy.limits).toBeUndefined();
+      expect(report.agy.error).toBe('agy limits unavailable');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

@@ -218,5 +218,5 @@ export interface UsageReport {
     source?: 'probe' | 'session';
   };
   opencode: UsageSource & { windows: UsageWindow[] };   // days 1, 7, 30: tokens + costUsd (estimated)
-  agy: UsageSource & { windows: UsageWindow[] };        // days 1, 7: tokens, runs, stopped
+  agy: UsageSource & { windows: UsageWindow[]; limits?: { group: string; window: '5h' | 'weekly'; utilization: number | null; resetsAt: string | null }[] };        // days 1, 7: tokens, runs, stopped + plan limits from `agy -p /usage`
 }

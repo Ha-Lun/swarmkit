@@ -76,9 +76,12 @@ timeout and never fails the others — a failing one answers
   back to the latest `rate_limit_event` of any live session (`source: 'session'`).
   This relies on an unstable SDK API (`usage_EXPERIMENTAL_…`) that may change
   or disappear in any release.
-- **OpenCode** and **agy**: consumption only (tokens spent, and opencode's
-  estimated USD cost), derived from `opencode stats` and the worker task
-  directories. No plan limit is exposed for them.
+- **OpenCode**: consumption only (tokens spent and estimated USD cost),
+  derived from `opencode stats`. No plan limit is exposed for it.
+- **agy**: consumption (tokens, runs, stopped from the worker task
+  directories) plus real plan limits via `agy -p /usage --output-format json`
+  (no agent turn, no quota spent): per-group `5h`/`weekly` utilisation 0-100
+  with ISO reset times.
 
 ## Security headers
 
