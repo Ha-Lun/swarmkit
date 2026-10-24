@@ -2,8 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { ActivityEvent, AgentNode } from '../shared/types';
-import { fmtClock, fmtCost, fmtTokens, modelLabel } from './format';
-import { ChevronIcon, CloseIcon } from './icons';
+import { fmtClock, fmtCost, fmtTokens, modelLabel, toolGroups } from './format';
+import { ChevronIcon, CloseIcon, toolIcon } from './icons';
 
 interface Props {
   node: AgentNode;
@@ -112,6 +112,7 @@ export function Drawer({ node, onClose }: Props) {
   }, [onClose]);
 
   const worker = node.kind === 'worker' ? node.worker : undefined;
+  const groups = toolGroups(node.toolCounts);
 
   return (
     <aside className="drawer" role="dialog" aria-label={`${node.agentType} details`}>
@@ -154,6 +155,19 @@ export function Drawer({ node, onClose }: Props) {
             <b>{fmtTokens(node.tokens.cacheRead + node.tokens.cacheWrite)}</b>
           </div>
         </div>
+
+        {node.description && <p className="drawer-desc">{node.description}</p>}
+
+        {groups.length > 0 && (
+          <div className="drawer-tools" aria-label="Tool calls">
+            {groups.map((g) => (
+              <span key={g.key} className="tool" title={`${g.count} call${g.count === 1 ? '' : 's'}`}>
+                {toolIcon(g.key)}
+                <b>{g.count}</b>
+              </span>
+            ))}
+          </div>
+        )}
 
         {node.prompt && (
           <section aria-label="Prompt">

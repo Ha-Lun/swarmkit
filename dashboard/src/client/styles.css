@@ -571,8 +571,12 @@ button {
 }
 .edges path {
   fill: none;
-  stroke: rgba(243, 241, 255, 0.18);
-  stroke-width: 1.5;
+  stroke: var(--border-2);
+  stroke-width: 1;
+}
+.edges path.is-live {
+  stroke: var(--teal);
+  opacity: 0.55;
 }
 
 .canvas-tools {
@@ -592,7 +596,7 @@ button {
 
 .node {
   position: absolute;
-  width: 260px;
+  width: 232px;
   animation: node-in 0.2s ease both;
 }
 @keyframes node-in {
@@ -603,92 +607,151 @@ button {
 .node-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 14px;
   box-shadow: var(--shadow-card);
-  padding: 11px 12px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 6px;
   cursor: pointer;
   text-align: left;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .node-card:hover { border-color: var(--border-3); }
 .node-card.is-open {
-  border-color: var(--violet-ring);
-  box-shadow: 0 0 0 2px var(--violet-soft), var(--shadow-card);
+  border-color: transparent;
+  box-shadow: 0 0 0 1px var(--violet), var(--shadow-card);
 }
-.node-card.is-waiting {
-  border-color: var(--amber);
-  box-shadow: 0 0 0 3px var(--amber-soft), var(--shadow-card);
-}
+.node-card.is-waiting { border-color: var(--amber); }
+.node-card:focus-visible { outline: 2px solid var(--violet-ring); outline-offset: 2px; }
 
-.node-head {
+.node-line1 {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   min-width: 0;
 }
-.node-kind {
+
+/* status-ring avatar: 26px circle, kind icon centred inside */
+.node-ring {
+  position: relative;
   flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
-  background: var(--surface-2);
+  border: 2px solid var(--border-3);
   color: var(--text-2);
 }
-.node-kind.k-main { color: var(--violet); }
-.node-kind.k-worker { color: var(--text-2); }
+.node-ring-core {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.node-ring.is-running { border-color: transparent; }
+.node-ring.is-running::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: conic-gradient(from 0deg, var(--teal), transparent 65%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  animation: node-ring-spin 1.4s linear infinite;
+}
+@keyframes node-ring-spin {
+  to { transform: rotate(360deg); }
+}
+.node-ring.is-waiting {
+  border-color: var(--amber);
+  animation: node-ring-pulse 2s ease-in-out infinite;
+}
+@keyframes node-ring-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.node-ring.is-done { border-color: var(--teal); }
+.node-ring.is-error { border-color: var(--fail); color: var(--fail); }
+.node-ring.is-idle { border-color: var(--border-3); }
 
 .node-name {
   flex: 1;
   min-width: 0;
-  font-size: 12.5px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.node-tools {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-}
-.node-tools .tool {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--text-3);
+.node-model {
+  flex: none;
+  font-family: var(--mono);
   font-size: 11px;
-}
-.node-tools .tool b {
-  font-weight: 500;
-  color: var(--text-2);
-  font-variant-numeric: tabular-nums;
-}
-
-.node-desc {
-  font-size: 12.5px;
-  line-height: 1.35;
-  color: var(--text);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  color: var(--text-3);
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
 }
 
+.node-line2 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
 .node-activity {
+  flex: 1;
+  min-width: 0;
   font-size: 11.5px;
   color: var(--text-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* live activity shimmer: gradient sweep via background-position */
+.node-activity.is-live {
+  background: linear-gradient(90deg, var(--text-3) 20%, var(--ink) 50%, var(--text-3) 80%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: node-shimmer 2.6s linear infinite;
+}
+@keyframes node-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+.node-meta {
+  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.node-denied {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--amber);
+  white-space: nowrap;
+}
+.node-time {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 
+/* shared with the workers view (Workers.tsx): card rows outside the tree pills */
+.node-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
 .node-foot {
   display: flex;
   align-items: center;
@@ -706,6 +769,59 @@ button {
   white-space: nowrap;
 }
 .node-cost .sep { margin: 0 4px; font-style: normal; color: var(--idle); }
+
+/* wrapped leaf grids: faint container behind the pills */
+.node-group {
+  position: absolute;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  pointer-events: none;
+}
+.node-group-label {
+  position: absolute;
+  top: 2px;
+  left: 12px;
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+/* drawer: description + tool counts moved out of the card */
+.drawer-desc {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.drawer-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.drawer-tools .tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-3);
+  font-size: 11px;
+}
+.drawer-tools .tool b {
+  font-weight: 500;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .node-ring.is-running::before,
+  .node-ring.is-waiting,
+  .node-activity.is-live {
+    animation: none;
+  }
+  .node-activity.is-live {
+    background: none;
+    color: var(--text-2);
+  }
+}
 
 /* ---------- permission panel ---------- */
 

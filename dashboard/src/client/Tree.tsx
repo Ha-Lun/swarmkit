@@ -5,10 +5,10 @@ import type { AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
 import { NodeCard } from './NodeCard';
 import { FitIcon, ZoomInIcon, ZoomOutIcon } from './icons';
 
-const CARD_W = 260;
-const H_GAP = 36;
-const Y_GAP = 48;
-const NOMINAL_H = 156;
+const CARD_W = 232;
+const H_GAP = 20;
+const Y_GAP = 40;
+const NOMINAL_H = 60;
 const MIN_Z = 0.25;
 const MAX_Z = 2.5;
 const FIT_PAD = 24;
@@ -21,11 +21,27 @@ interface Placed {
   y: number; // top edge
 }
 
+interface GroupBox {
+  parentId: string;
+  members: string[];
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  count: number;
+  live: boolean;
+}
+
 interface Layout {
   placed: Placed[];
+  groups: GroupBox[];
   w: number;
   h: number;
 }
+
+/** Header strip above a wrapped leaf grid + padding around its cards. */
+const GROUP_PAD = 10;
+const GROUP_HEAD = 20;
 
 /** Leaves take consecutive x slots; parents centre over their children; depth maps to y.
  * A parent with many leaf children wraps them into a grid so the tree stays readable. */
@@ -53,6 +69,7 @@ function computeLayout(nodes: AgentNode[], heights: Record<string, number>): Lay
   let cursor = 0;
   const x = new Map<string, number>();
   const depth = new Map<string, number>();
+  const wrapGroups: Array<{ parentId: string; kids: string[] }> = [];
 
   const place = (id: string, d: number): number => {
     depth.set(id, d);
@@ -70,6 +87,7 @@ function computeLayout(nodes: AgentNode[], heights: Record<string, number>): Lay
       });
       cursor += cols;
       cx = base * slot + (cols * slot - H_GAP) / 2;
+      wrapGroups.push({ parentId: id, kids: [...list] });
     } else {
       let min = Infinity;
       let max = -Infinity;
@@ -101,9 +119,38 @@ function computeLayout(nodes: AgentNode[], heights: Record<string, number>): Lay
     .filter((n) => x.has(n.id))
     .map((n) => ({ node: n, x: x.get(n.id)! - CARD_W / 2, y: yAt[depth.get(n.id) ?? 0] ?? 0 }));
 
-  const w = Math.max(1, cursor > 0 ? cursor * slot - H_GAP : 1);
-  const h = Math.max(1, maxH.length > 0 ? acc - Y_GAP : 1);
-  return { placed, w, h };
+  // Wrapped leaf grids: shift children down for the header strip, then box them.
+  const groupedIds = new Set<string>();
+  for (const g of wrapGroups) for (const k of g.kids) groupedIds.add(k);
+  for (const p of placed) {
+    if (groupedIds.has(p.node.id)) p.y += GROUP_HEAD;
+  }
+
+  const groups: GroupBox[] = wrapGroups.map((g) => {
+    const members = placed.filter((p) => g.kids.includes(p.node.id));
+    const left = Math.min(...members.map((p) => p.x));
+    const right = Math.max(...members.map((p) => p.x + CARD_W));
+    const top = Math.min(...members.map((p) => p.y));
+    const bottom = Math.max(...members.map((p) => p.y + (heights[p.node.id] ?? NOMINAL_H)));
+    return {
+      parentId: g.parentId,
+      members: g.kids,
+      x: left - GROUP_PAD,
+      y: top - GROUP_HEAD - GROUP_PAD,
+      w: right - left + GROUP_PAD * 2,
+      h: bottom - top + GROUP_HEAD + GROUP_PAD * 2,
+      count: g.kids.length,
+      live: members.some((p) => p.node.status === 'running'),
+    };
+  });
+
+  let w = Math.max(1, cursor > 0 ? cursor * slot - H_GAP : 1);
+  let h = Math.max(1, maxH.length > 0 ? acc - Y_GAP : 1);
+  for (const g of groups) {
+    w = Math.max(w, g.x + g.w);
+    h = Math.max(h, g.y + g.h);
+  }
+  return { placed, groups, w, h };
 }
 
 interface Props {
@@ -311,21 +358,52 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
   });
   useEffect(() => () => roRef.current?.disconnect(), []);
 
-  // Connectors: cubic bezier from parent bottom-centre to child top-centre.
+  // Connectors: rounded orthogonal elbows from parent bottom-centre to child
+  // top-centre (or to a wrapped group's top-centre). 8px corner radius.
+  const ELBOW_R = 8;
+
+  function elbow(px: number, py: number, cx: number, cy: number): string {
+    if (px === cx) return `M ${px} ${py} L ${cx} ${cy}`;
+    const midY = (py + cy) / 2;
+    const r = Math.max(0, Math.min(ELBOW_R, Math.abs(cx - px) / 2, Math.abs(cy - py) / 2));
+    if (r <= 0.5) return `M ${px} ${py} L ${px} ${midY} L ${cx} ${midY} L ${cx} ${cy}`;
+    const dx = cx > px ? 1 : -1;
+    return (
+      `M ${px} ${py} L ${px} ${midY - r} ` +
+      `Q ${px} ${midY} ${px + dx * r} ${midY} ` +
+      `L ${cx - dx * r} ${midY} ` +
+      `Q ${cx} ${midY} ${cx} ${midY + r} ` +
+      `L ${cx} ${cy}`
+    );
+  }
+
   const edges = useMemo(() => {
     const byId = new Map(layout.placed.map((p) => [p.node.id, p] as const));
-    const out: Array<{ key: string; d: string }> = [];
+    // Children inside a wrapped grid get no individual edges.
+    const memberOf = new Set<string>();
+    for (const g of layout.groups) for (const id of g.members) memberOf.add(id);
+    const out: Array<{ key: string; d: string; live: boolean }> = [];
+    for (const g of layout.groups) {
+      const parent = byId.get(g.parentId);
+      if (!parent) continue;
+      const px = parent.x + CARD_W / 2;
+      const py = parent.y + (heights[parent.node.id] ?? NOMINAL_H);
+      const cx = g.x + g.w / 2;
+      const cy = g.y;
+      out.push({ key: `${g.parentId}=>group`, d: elbow(px, py, cx, cy), live: g.live });
+    }
     for (const p of layout.placed) {
+      if (memberOf.has(p.node.id)) continue;
       const parent = p.node.parentId ? byId.get(p.node.parentId) : undefined;
       if (!parent) continue;
       const px = parent.x + CARD_W / 2;
       const py = parent.y + (heights[parent.node.id] ?? NOMINAL_H);
       const cx = p.x + CARD_W / 2;
       const cy = p.y;
-      const sag = Math.min(Y_GAP, Math.max(12, (cy - py) / 2));
       out.push({
         key: `${parent.node.id}->${p.node.id}`,
-        d: `M ${px} ${py} C ${px} ${py + sag}, ${cx} ${Math.max(py + 4, cy - sag)}, ${cx} ${cy}`,
+        d: elbow(px, py, cx, cy),
+        live: p.node.status === 'running',
       });
     }
     return out;
@@ -350,9 +428,19 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
       >
         <svg className="edges" width={layout.w} height={layout.h} aria-hidden="true">
           {edges.map((e) => (
-            <path key={e.key} d={e.d} />
+            <path key={e.key} d={e.d} className={e.live ? 'is-live' : undefined} />
           ))}
         </svg>
+        {layout.groups.map((g) => (
+          <div
+            key={`group-${g.parentId}`}
+            className="node-group"
+            aria-hidden="true"
+            style={{ left: g.x, top: g.y, width: g.w, height: g.h }}
+          >
+            <span className="node-group-label">{g.count} agents</span>
+          </div>
+        ))}
         {layout.placed.map(({ node, x, y }) => (
           <div key={node.id} className="node" data-node-id={node.id} style={{ left: x, top: y }}>
             <NodeCard

@@ -1,9 +1,9 @@
-// One agent card. Pure display + permission panel slot; positioning handled by Tree.
+// One agent pill. Pure display + permission panel slot; positioning handled by Tree.
 // A matching WorkerTask (tree-linked worker) overlays its live data.
 import type { KeyboardEvent } from 'react';
 import type { AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
-import { elapsedMs, fmtCost, fmtDuration, modelLabel, toolGroups, workerElapsedS, workerStateClass } from './format';
-import { kindIcon, toolIcon } from './icons';
+import { elapsedMs, fmtDuration, modelLabel, workerElapsedS, workerStateClass } from './format';
+import { kindIcon } from './icons';
 import { PermissionPanel } from './Permission';
 
 interface Props {
@@ -27,7 +27,6 @@ function isFormTarget(target: EventTarget | null): boolean {
 export function NodeCard({ node, now, permission, open, task, workersAt, onOpen, onDecide, clickGuard }: Props) {
   const isWorker = node.kind === 'worker' && node.worker;
   const name = isWorker ? `${node.worker!.lane} · ${node.worker!.slug}` : node.agentType;
-  const groups = toolGroups(node.toolCounts);
   // Tool calls the user refused in the dashboard (workers report their own count via the task).
   const deniedCalls = task
     ? task.denied
@@ -39,6 +38,23 @@ export function NodeCard({ node, now, permission, open, task, workersAt, onOpen,
   const elapsed = task ? workerElapsedS(task, now, workersAt) * 1000 : elapsedMs(node, now);
   const statusClass = task ? workerStateClass(task.state) : `st-${node.status}`;
   const statusLabel = task ? task.state : node.status;
+  const isRunning = statusClass === 'st-running';
+  const isWaiting = permission != null || statusClass === 'st-waiting';
+
+  const ringClass = isRunning && !permission
+    ? 'is-running'
+    : isWaiting
+      ? 'is-waiting'
+      : statusClass === 'st-done'
+        ? 'is-done'
+        : statusClass === 'st-error'
+          ? 'is-error'
+          : 'is-idle';
+
+  // Running shows the live activity with shimmer; otherwise the description (fall back to activity).
+  const line2 = isRunning ? (activity ?? '') : (node.description ?? activity ?? '');
+  const label = modelLabel(model);
+  const ariaLabel = `${name}, ${label || 'no model'}, ${statusLabel}, ${fmtDuration(elapsed)}${deniedCalls > 0 ? `, ${deniedCalls} denied` : ''}`;
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     if ((e.key === 'Enter' || e.key === ' ') && !isFormTarget(e.target)) {
@@ -53,49 +69,36 @@ export function NodeCard({ node, now, permission, open, task, workersAt, onOpen,
       role="button"
       tabIndex={0}
       aria-haspopup="dialog"
+      aria-label={ariaLabel}
       onClick={() => {
         if (clickGuard()) return;
         onOpen();
       }}
       onKeyDown={onKeyDown}
     >
-      <div className="node-head">
-        <span className={`node-kind k-${node.kind}`}>{kindIcon(node.kind)}</span>
-        <span className="node-name" title={isWorker ? node.agentType : name}>
+      <div className="node-line1">
+        <span className={`node-ring ${ringClass}`} aria-hidden="true">
+          <span className="node-ring-core">{kindIcon(node.kind, 13)}</span>
+        </span>
+        <span className="node-name" title={name}>
           {name}
         </span>
-        {model && <span className="chip">{modelLabel(model)}</span>}
+        {label && <span className="node-model">{label}</span>}
       </div>
 
-      {groups.length > 0 && (
-        <div className="node-tools" aria-label="Tool calls">
-          {groups.map((g) => (
-            <span key={g.key} className="tool" title={`${g.count} call${g.count === 1 ? '' : 's'}`}>
-              {toolIcon(g.key)}
-              <b>{g.count}</b>
+      <div className="node-line2">
+        {line2 && (
+          <span className={`node-activity${isRunning ? ' is-live' : ''}`} title={line2}>
+            {line2}
+          </span>
+        )}
+        <span className="node-meta">
+          {deniedCalls > 0 && (
+            <span className="node-denied" title={`${deniedCalls} tool calls denied`}>
+              ⚠ {deniedCalls}
             </span>
-          ))}
-        </div>
-      )}
-
-      {deniedCalls > 0 && <span className="chip wk-denied">{deniedCalls} denied</span>}
-
-      {node.description && <p className="node-desc">{node.description}</p>}
-      {activity && (
-        <p className="node-activity" title={activity}>
-          {activity}
-        </p>
-      )}
-
-      <div className="node-foot">
-        <span className="node-cost">
-          {fmtCost(node.costUsd)}
-          <i className="sep">·</i>
-          {fmtDuration(elapsed)}
-        </span>
-        <span className={`node-status ${statusClass}`}>
-          <i className="dot" aria-hidden="true" />
-          {statusLabel}
+          )}
+          <span className="node-time">{fmtDuration(elapsed)}</span>
         </span>
       </div>
 
