@@ -6,6 +6,7 @@ import type { FleetBackend } from './api';
 let current: string[] = [];
 let loading = false;
 let loaded = false;
+let version = 0;
 const listeners = new Set<() => void>();
 
 function set(list: string[]): void {
@@ -22,7 +23,6 @@ function subscribe(notify: () => void): () => void {
 
 export function useStars(backend: FleetBackend): {
   stars: string[];
-  isStarred: (path: string) => boolean;
   toggle: (path: string) => void;
 } {
   const stars = useSyncExternalStore(subscribe, () => current);
@@ -30,11 +30,12 @@ export function useStars(backend: FleetBackend): {
   useEffect(() => {
     if (loaded || loading) return;
     loading = true;
+    const seen = version;
     backend.stars().then(
       list => {
         loaded = true;
         loading = false;
-        set(list);
+        if (version === seen) set(list);
       },
       () => {
         loading = false;
@@ -43,14 +44,24 @@ export function useStars(backend: FleetBackend): {
   }, [backend]);
 
   const toggle = (path: string): void => {
+    version += 1;
+    const mine = version;
     const was = current.includes(path);
-    const prev = current;
     set(was ? current.filter(s => s !== path) : [...current, path]);
     backend.setStar(path, !was).then(
-      list => set(list),
-      () => set(prev),
+      list => {
+        if (mine === version) set(list);
+      },
+      () => {
+        if (mine !== version) return;
+        if (was) {
+          if (!current.includes(path)) set([...current, path]);
+        } else {
+          if (current.includes(path)) set(current.filter(s => s !== path));
+        }
+      },
     );
   };
 
-  return { stars, isStarred: path => stars.includes(path), toggle };
+  return { stars, toggle };
 }
