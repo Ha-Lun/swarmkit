@@ -1,0 +1,16 @@
+{
+ "swarmkit-dashboard": {
+  "PreToolUse": [
+   {
+    "matcher": "*",
+    "hooks": [
+     {
+      "type": "command",
+      "command": "python3 -I ${PLUGIN_ROOT}/hooks/swarmkit-dash-hook.py",
+      "timeout": 900
+     }
+    ]
+   }
+  ]
+ }
+}

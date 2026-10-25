@@ -7,6 +7,9 @@
   opencode/agents/<name>.md                        OpenCode agents
   antigravity/plugins/swarmkit/agents/<name>.md    Antigravity plugin agents
                                                    (invoke_subagent types)
+  antigravity/plugins/swarmkit/hooks.json          Antigravity plugin hook registration
+  antigravity/plugins/swarmkit/hooks/swarmkit-dash-hook.py
+                                                   copy of dashboard/server/runtimes/agy-hook.py
 
 Outputs are committed. Run after editing anything in core/agents.
 
@@ -18,6 +21,7 @@ Every agent sets `pack:` (one of PACKS). It only decides where the Claude build
 goes; it is not emitted. OpenCode and Antigravity get every agent.
 """
 import glob
+import json
 import os
 import shutil
 import sys
@@ -154,6 +158,20 @@ def build_rules():
                     f'{shared.rstrip()}\n\n{addendum}')
 
 
+def build_agy_hook():
+    # Dashboard permission hook; inert unless the dashboard sets its SWARMKIT_DASH_* env vars.
+    plugin = f'{ROOT}/antigravity/plugins/swarmkit'
+    os.makedirs(f'{plugin}/hooks', exist_ok=True)
+    dest = f'{plugin}/hooks/swarmkit-dash-hook.py'
+    shutil.copyfile(f'{ROOT}/dashboard/server/runtimes/agy-hook.py', dest)
+    os.chmod(dest, 0o755)
+    hooks = {'swarmkit-dashboard': {'PreToolUse': [{'matcher': '*', 'hooks': [{
+        'type': 'command', 'command': 'python3 -I ${PLUGIN_ROOT}/hooks/swarmkit-dash-hook.py', 'timeout': 900}]}]}}
+    with open(f'{plugin}/hooks.json', 'w') as f:
+        json.dump(hooks, f, indent=1)
+        f.write('\n')
+
+
 def main():
     agents = load_agents()
     for a, _ in agents:  # check before anything is deleted
@@ -161,6 +179,7 @@ def main():
             raise SystemExit(f"{a['name']}: unknown or missing pack {a.get('pack')!r} (expected one of {PACKS})")
     # The swarmkit skills dir is from the old layout (specialists as skills); kept so it gets removed.
     for d in ('claude/agents', 'claude/packs', 'opencode/agents', 'antigravity/plugins/swarmkit/agents',
+              'antigravity/plugins/swarmkit/hooks',
               'antigravity/plugins/swarmkit/skills'):
         shutil.rmtree(os.path.join(ROOT, d), ignore_errors=True)
     for a, body in agents:
@@ -169,6 +188,7 @@ def main():
         build_antigravity(a, body)
     with open(f'{ROOT}/antigravity/plugins/swarmkit/plugin.json', 'w') as f:
         f.write('{\n  "name": "swarmkit"\n}\n')
+    build_agy_hook()
     build_rules()
     print(f'Built {len(agents)} agents for claude, opencode, antigravity.')
 
