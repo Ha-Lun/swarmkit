@@ -4,6 +4,7 @@ import type {
   AgentNode,
   AgentNodeHead,
   AgentsResponse,
+  CommandsResponse,
   DirEntry,
   DirListing,
   ImageAttachment,
@@ -1073,6 +1074,15 @@ A claim with a footnote.[^1]
     },
     usage: () => Promise.resolve<UsageReport>(mockUsage),
     runtimes: () => Promise.resolve({ claude: true, opencode: true, agy: true }),
+    commands: () =>
+      Promise.resolve<CommandsResponse>({
+        commands: [
+          { name: 'compact', description: 'Compact the conversation history to free context.' },
+          { name: 'review', argumentHint: '<path>', description: 'Review the given file or directory.' },
+          { name: 'delegate-implementation', description: 'Hand a plan to a worker for implementation.' },
+          { name: 'frontend-quality', description: 'Check frontend code against quality guidelines.' },
+        ],
+      }),
     resume: (sessionId, body: ResumeSessionBody) => {
       const s = sessions.get(sessionId);
       const map = nodeMaps.get(sessionId);

@@ -654,6 +654,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
               onStop={() => {
                 if (state.selectedId) void guardSilent(backend.stop(state.selectedId));
               }}
+              loadCommands={() => backend.commands(selected.id).then((r) => r.commands)}
             />
           ) : running ? (
             <div className="readonly-bar">

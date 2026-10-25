@@ -1,6 +1,7 @@
 // HTTP + SSE wrappers around the server contract in ../shared/types.
 import type {
   AgentsResponse,
+  CommandsResponse,
   DirListing,
   ImageAttachment,
   RuntimesResponse,
@@ -76,6 +77,7 @@ export interface FleetBackend {
   workerLog(lane: string, repo: string, slug: string): Promise<{ lines: string[] }>;
   usage(refresh?: boolean): Promise<UsageReport>;
   runtimes(): Promise<RuntimesResponse>;
+  commands(sessionId: string): Promise<CommandsResponse>;
   connect(
     onEvent: (ev: ServerEvent) => void,
     onStatus: (connected: boolean) => void,
@@ -126,6 +128,7 @@ export const apiBackend: FleetBackend = {
     ),
   usage: (refresh) => request(refresh ? '/api/usage?refresh=1' : '/api/usage'),
   runtimes: () => request('/api/runtimes'),
+  commands: (sessionId) => request(`/api/sessions/${encodeURIComponent(sessionId)}/commands`),
   connect(onEvent, onStatus) {
     // EventSource reconnects on its own with backoff; we surface the state and
     // let App refetch the selected detail when the stream reopens.
