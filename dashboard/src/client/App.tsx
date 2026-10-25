@@ -190,7 +190,7 @@ function Topbar({
         </p>
       </div>
       {session.runtime === 'opencode' && <span className="badge rt-opencode">OpenCode</span>}
-      {session.runtime === 'agy' && <span className="badge rt-agy">agy</span>}
+      {session.runtime === 'agy' && <span className="badge rt-agy">Antigravity</span>}
       <div className="view-toggle" role="group" aria-label="Session view">
         <button
           type="button"

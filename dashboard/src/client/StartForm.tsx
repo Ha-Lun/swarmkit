@@ -14,13 +14,13 @@ export type EffortValue = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export const SETUP_ORDER: Runtime[] = ['claude', 'opencode', 'agy'];
 const SETUP_LABEL: Record<Runtime, string> = {
   claude: 'Claude + workers',
-  opencode: 'OpenCode + agy',
-  agy: 'agy only',
+  opencode: 'OpenCode + Antigravity',
+  agy: 'Antigravity only',
 };
-const SETUP_SHORT: Record<Runtime, string> = { claude: 'Claude', opencode: 'OpenCode', agy: 'agy' };
+const SETUP_SHORT: Record<Runtime, string> = { claude: 'Claude', opencode: 'OpenCode', agy: 'Antigravity' };
 const SETUP_DESC: Record<Runtime, string> = {
-  claude: 'Claude lead · opencode + agy workers',
-  opencode: 'OpenCode lead · agy worker',
+  claude: 'Claude lead · OpenCode + Antigravity workers',
+  opencode: 'OpenCode lead · Antigravity worker',
   agy: 'Antigravity lead, no workers',
 };
 const SETUP_MODEL: Record<Runtime, string> = {

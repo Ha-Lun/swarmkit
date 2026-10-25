@@ -223,7 +223,7 @@ function AgyCard({
 }) {
   if (!a.available) {
     return (
-      <UsageCard source="agy" title="agy">
+      <UsageCard source="agy" title="Antigravity">
         <p className="usage-none muted">Unavailable{a.error ? ` — ${a.error}` : ''}</p>
       </UsageCard>
     );
@@ -238,7 +238,7 @@ function AgyCard({
     return gi(gx) - gi(gy) || wi(x.window) - wi(y.window) || gx.localeCompare(gy);
   });
   return (
-    <UsageCard source="agy" title="agy">
+    <UsageCard source="agy" title="Antigravity">
       {limits.length > 0 ? (
         <div className="usage-limits">
           {limits.map((l, i) => (
@@ -253,7 +253,7 @@ function AgyCard({
         a.error ? <p className="usage-note muted">{a.error}</p> : null
       )}
       <div className="usage-agy-consumption">
-        <Segmented options={AGY_OPTIONS} value={days} onChange={onDays} label="agy window" />
+        <Segmented options={AGY_OPTIONS} value={days} onChange={onDays} label="Antigravity window" />
         {noRuns ? (
           <p className="usage-big usage-big-empty">
             {days === 1 ? 'No agy runs in the last day' : 'No agy runs this week'}

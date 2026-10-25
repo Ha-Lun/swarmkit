@@ -169,6 +169,7 @@ export interface WorkerTask {
 // HTTP API bodies. All endpoints need the token (cookie `fleet_token` or header `x-fleet-token`).
 // GET  /api/sessions                    -> SessionSummary[]
 // GET  /api/sessions/:id                -> SessionDetail
+// GET  /api/sessions/:id/commands       -> CommandsResponse (slash commands of a live page session)
 // POST /api/sessions                    StartSessionBody -> StartSessionResponse
 // POST /api/sessions/:id/message        SendMessageBody -> { ok: true }
 // POST /api/sessions/:id/interrupt      -> { ok: true }
@@ -253,6 +254,9 @@ export interface DirListing { path: string; parent?: string; entries: DirEntry[]
 export interface SetStarBody { path: string; starred: boolean }
 export interface ResumeSessionBody { text: string; model?: string; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; images?: ImageAttachment[] }
 export interface SendMessageBody { text: string; images?: ImageAttachment[] }
+/** One `/` command the session's runtime accepts as message text (name without the slash). */
+export interface SlashCommandInfo { name: string; description?: string; argumentHint?: string }
+export interface CommandsResponse { commands: SlashCommandInfo[] }
 
 // GET  /api/usage                     -> UsageReport   (?refresh=1 bypasses the caches, at most once per 30 s)
 
