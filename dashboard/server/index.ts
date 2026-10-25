@@ -3,7 +3,8 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { readFile, stat } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { accessSync, constants as fsConstants, statSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ViteDevServer } from 'vite';
 import {
@@ -26,12 +27,12 @@ import { DirError, listDirs } from './dirs.ts';
 import { listStars, setStar } from './stars.ts';
 import { WorkerRegistry } from './registry.ts';
 import { SdkSessions, SessionError } from './sdk/sessions.ts';
-import { AGENT_RE, validEffort, validModel, validText, ValidationError } from './validate.ts';
+import { validRuntime, validRuntimeAgent, validRuntimeEffort, validRuntimeModel, validText, ValidationError } from './validate.ts';
 import { resolveDirInHome } from './paths.ts';
 import { abortUsageProbe, getUsage } from './usage.ts';
 import { freshTranscriptMtimeMs, holderMessage, liveHolder } from './livesessions.ts';
 import { TranscriptWatcher } from './watch/transcripts.ts';
-import type { AgentNode, ResumeSessionBody, ServerEvent, SessionSummary, StartSessionBody } from '../src/shared/types.ts';
+import type { AgentNode, ResumeSessionBody, RuntimesResponse, ServerEvent, SessionSummary, StartSessionBody } from '../src/shared/types.ts';
 
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4317;
@@ -52,6 +53,14 @@ class HttpError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
   }
+}
+
+/** Loopback check for the agy hook route: local IPv4/IPv6 forms, or the bound HOST itself. */
+export function isLoopback(addr: string | undefined, host: string): boolean {
+  if (!addr) return false;
+  const norm = addr.toLowerCase();
+  if (norm === '127.0.0.1' || norm === '::1' || norm === '::ffff:127.0.0.1') return true;
+  return norm === host.toLowerCase();
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -113,16 +122,13 @@ async function resolveCwd(raw: unknown): Promise<string> {
 async function validateSessionBody(body: unknown): Promise<StartSessionBody> {
   const raw = requireObject(body);
   const prompt = validText(raw.prompt, 'prompt');
-  const start: StartSessionBody = { prompt, cwd: await resolveCwd(raw.cwd) };
-  if (raw.agent !== undefined && raw.agent !== null) {
-    if (typeof raw.agent !== 'string' || !AGENT_RE.test(raw.agent)) {
-      throw new ValidationError('agent must match /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/');
-    }
-    start.agent = raw.agent;
-  }
-  const model = validModel(raw.model);
+  const runtime = validRuntime(raw.runtime);
+  const start: StartSessionBody = { prompt, cwd: await resolveCwd(raw.cwd), runtime };
+  const agent = validRuntimeAgent(runtime, raw.agent);
+  if (agent !== undefined) start.agent = agent;
+  const model = validRuntimeModel(runtime, raw.model);
   if (model !== undefined) start.model = model;
-  const effort = validEffort(raw.effort);
+  const effort = validRuntimeEffort(runtime, raw.effort);
   if (effort !== undefined) start.effort = effort;
   return start;
 }
@@ -190,7 +196,10 @@ async function main(): Promise<void> {
     }
   }
 
-  const sdk = new SdkSessions(broadcast);
+  // The agy plugin calls back per tool use: the hook URL must stay reachable from
+  // loopback even when HOST binds all interfaces (bracket bare IPv6 hosts).
+  const hookHost = HOST === '0.0.0.0' || HOST === '::' || HOST === '' ? '127.0.0.1' : HOST.includes(':') ? `[${HOST}]` : HOST;
+  const sdk = new SdkSessions(broadcast, undefined, { hookBase: () => `http://${hookHost}:${PORT}` });
   const watcher = new TranscriptWatcher({ emit: broadcast, skip: id => sdk.owns(id) });
   watcher.start();
 
@@ -208,9 +217,10 @@ async function main(): Promise<void> {
     const raw = requireObject(await readJson(req));
     let body: ResumeSessionBody;
     try {
+      const runtime = sdk.runtimeOf(id) ?? 'claude';
       const text = validText(raw.text);
-      const model = validModel(raw.model);
-      const effort = validEffort(raw.effort);
+      const model = validRuntimeModel(runtime, raw.model);
+      const effort = validRuntimeEffort(runtime, raw.effort);
       body = { text };
       if (model !== undefined) body.model = model;
       if (effort !== undefined) body.effort = effort;
@@ -257,6 +267,64 @@ async function main(): Promise<void> {
 
   const mergedSessions = (): SessionSummary[] =>
     [...sdk.list(), ...watcher.list()].sort((a, b) => b.updatedAt - a.updatedAt);
+
+  /** GET /api/runtimes answer, cached for a minute (PATH rarely changes under us). */
+  let runtimesCache: { at: number; value: RuntimesResponse } | null = null;
+  function runtimesStatus(): RuntimesResponse {
+    const now = Date.now();
+    if (runtimesCache && now - runtimesCache.at < 60_000) return runtimesCache.value;
+    const onPath = (cmd: string): boolean => {
+      for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
+        if (!dir) continue;
+        const full = path.join(dir, cmd);
+        try {
+          accessSync(full, fsConstants.X_OK);
+          if (statSync(full).isFile()) return true;
+        } catch {
+          // Not here; keep looking.
+        }
+      }
+      return false;
+    };
+    const value: RuntimesResponse = { claude: true, opencode: onPath('opencode'), agy: onPath('agy') };
+    runtimesCache = { at: now, value };
+    return value;
+  }
+
+  /** Max agy hook body: the plugin posts one tool call, never a transcript. */
+  const HOOK_BODY_MAX = 64 * 1024;
+
+  /** POST /api/agy-hook/:sessionId: no fleet token; loopback + shared secret instead. */
+  async function handleAgyHookRoute(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
+    const secret = req.headers['x-swarmkit-hook'];
+    if (typeof secret !== 'string' || secret.length === 0) {
+      return sendJson(res, 403, { error: 'missing hook secret' });
+    }
+    if (!isLoopback(req.socket.remoteAddress, HOST)) {
+      return sendJson(res, 403, { error: 'forbidden' });
+    }
+    const contentType = req.headers['content-type'];
+    if (typeof contentType !== 'string' || !contentType.includes('application/json')) {
+      return sendJson(res, 400, { error: 'expected a JSON body' });
+    }
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of req) {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
+      size += buf.length;
+      if (size > HOOK_BODY_MAX) throw new HttpError(413, 'hook body too large (max 64 KB)');
+      chunks.push(buf);
+    }
+    if (size === 0) throw new HttpError(400, 'expected a JSON body');
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    } catch {
+      throw new HttpError(400, 'invalid JSON body');
+    }
+    const out = await sdk.handleAgyHook(decodeURIComponent(id), secret, parsed);
+    return sendJson(res, out.status, out.json);
+  }
 
   const pingTimer = setInterval(() => {
     for (const client of [...clients]) {
@@ -364,6 +432,13 @@ async function main(): Promise<void> {
       return handleAuthPost(req, res);
     }
 
+    // The agy plugin hook authenticates by loopback + shared secret, never the fleet token.
+    const agyHook = /^\/api\/agy-hook\/([^/]+)$/.exec(url.pathname);
+    if (agyHook) {
+      if ((req.method ?? 'GET') !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+      return handleAgyHookRoute(req, res, agyHook[1] ?? '');
+    }
+
     const isApi = url.pathname === '/api' || url.pathname.startsWith('/api/') || url.pathname === '/events';
     if (isApi) {
       const via = checkAuth(req, token);
@@ -411,6 +486,11 @@ async function main(): Promise<void> {
   async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
     const parts = url.pathname.split('/').filter(Boolean); // ['api', resource, ...]
     const method = req.method ?? 'GET';
+
+    if (url.pathname === '/api/runtimes') {
+      if (method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+      return sendJson(res, 200, runtimesStatus());
+    }
 
     if (url.pathname === '/api/sessions') {
       if (method === 'GET') return sendJson(res, 200, mergedSessions());
@@ -602,7 +682,10 @@ async function main(): Promise<void> {
   });
 }
 
-main().catch(err => {
-  console.error('SwarmKit failed to start:', err);
-  process.exit(1);
-});
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  // Started directly (`tsx server/index.ts`); importing this module (e.g. isLoopback in tests) stays side-effect free.
+  main().catch(err => {
+    console.error('SwarmKit failed to start:', err);
+    process.exit(1);
+  });
+}

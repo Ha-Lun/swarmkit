@@ -225,6 +225,15 @@ describe('orbColor', () => {
     expect(orbColor(node({ kind: 'subagent', model: 'other-model' }))).toBe('#b4b1d0');
     expect(orbColor(node({ kind: 'subagent' }))).toBe('#b4b1d0');
   });
+  it('main runtime models before the generic rules', () => {
+    expect(orbColor(mainNode({ model: 'opencode-go/mimo-v2.6-pro' }))).toBe('#2ee6c8');
+    expect(orbColor(mainNode({ model: 'opencode-go/glm-5.3-flash' }))).toBe('#2ee6c8');
+    expect(orbColor(mainNode({ model: 'gemini-3.8-flash-high' }))).toBe('#ffb547');
+    // gemini wins over a generic opus/sonnet match on main nodes.
+    expect(orbColor(mainNode({ model: 'gemini-opus-bridge' }))).toBe('#ffb547');
+    // Non-main nodes keep the generic rules for the same models.
+    expect(orbColor(node({ kind: 'subagent', model: 'opencode-go/mimo-v2.6-pro' }))).toBe('#b4b1d0');
+  });
 });
 
 describe('agentTabs', () => {

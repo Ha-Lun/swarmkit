@@ -1,6 +1,6 @@
 // Page sessions driven by the Claude Agent SDK: one query per browser-started session,
 // permission prompts resolved from the dashboard, a live agent tree per session.
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { closeSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,9 +11,13 @@ import type { SessionTree } from '../model/reducer.ts';
 import { pollWorkers } from '../model/workers.ts';
 import { noteRateLimit } from '../usage.ts';
 import { DASHBOARD_ENTRYPOINTS, holderMessage, liveHolder } from '../livesessions.ts';
-import { MAX_EVENTS } from '../../src/shared/types.ts';
-import type { AgentNode, PermissionDecisionBody, PermissionRequest, ResumeSessionBody, ServerEvent, SessionDetail, SessionSummary, StartSessionBody } from '../../src/shared/types.ts';
-import { AGENT_RE, validEffort, validModel, validText } from '../validate.ts';
+import { MAX_EVENTS, RUNTIME_MODELS } from '../../src/shared/types.ts';
+import type { AgentNode, PermissionDecisionBody, PermissionRequest, ResumeSessionBody, Runtime, ServerEvent, SessionDetail, SessionSummary, StartSessionBody } from '../../src/shared/types.ts';
+import { AGENT_RE, validEffort, validResumeModel, validText } from '../validate.ts';
+import { createAcpQuery } from '../runtimes/acp.ts';
+import type { AcpOptions } from '../runtimes/acp.ts';
+import { AgyHookBridge, createAgyQuery } from '../runtimes/agy.ts';
+import type { AgyHookResponse, AgyOptions } from '../runtimes/agy.ts';
 import { claudeConfigDir, resolveDirInHome } from '../paths.ts';
 
 /** Main-thread agent names must start alphanumerically and stay short (no '../', no path tricks). */
@@ -97,6 +101,14 @@ interface PageSession {
   cwd: string;
   agent?: string;
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  /** Which lead runtime drives this session ('claude' = the Claude Agent SDK query). */
+  runtime: Runtime;
+  /** Latest lead conversation id reported by the acp/agy adapter (for resume). */
+  runtimeSessionId?: string;
+  /** agy hook secret for POST /api/agy-hook/:id (agy runtime only). */
+  hookSecret?: string;
+  /** Lead model for non-Claude runtimes (default for the next resume). */
+  model?: string;
   /** First line of the first prompt, clamped to 120 chars for the title. */
   title: string;
   startedAt: number;
@@ -234,11 +246,20 @@ export class SdkSessions {
   private pollTimer: NodeJS.Timeout;
   /** Session ids with a pollWorkers call in flight (one poll at a time per session). */
   private polling = new Set<string>();
+  /** Permission-hook bridge for agy runtime sessions (one handler per hook secret). */
+  private readonly bridge = new AgyHookBridge();
+  private readonly acpFactory: (o: AcpOptions) => QueryFn;
+  private readonly agyFactory: (o: AgyOptions) => QueryFn;
+  private readonly hookBase: () => string;
 
   constructor(
     private emit: (e: ServerEvent) => void,
     private queryFn: QueryFn = query,
+    runtimes?: { acp?: (o: AcpOptions) => QueryFn; agy?: (o: AgyOptions) => QueryFn; hookBase?: () => string },
   ) {
+    this.acpFactory = runtimes?.acp ?? createAcpQuery;
+    this.agyFactory = runtimes?.agy ?? createAgyQuery;
+    this.hookBase = runtimes?.hookBase ?? (() => 'http://127.0.0.1:4317');
     this.pollTimer = setInterval(() => this.poll(), POLL_MS);
     this.pollTimer.unref();
   }
@@ -247,12 +268,15 @@ export class SdkSessions {
   start(body: StartSessionBody): string {
     const id = randomUUID();
     const startedAt = Date.now();
-    const tree = createTree(id, { startedAt, agentType: body.agent || 'main', prompt: body.prompt });
+    const runtime = body.runtime ?? 'claude';
+    const tree = createTree(id, { startedAt, agentType: runtime === 'claude' ? body.agent || 'main' : 'lead-dev-hybrid', prompt: body.prompt });
     const session: PageSession = {
       id,
       cwd: body.cwd,
       ...(body.agent ? { agent: body.agent } : {}),
       ...(body.effort ? { effort: body.effort } : {}),
+      runtime,
+      ...(body.model ? { model: body.model } : {}),
       title: firstPromptLine(body.prompt),
       startedAt,
       updatedAt: startedAt,
@@ -281,22 +305,26 @@ export class SdkSessions {
     session.abort = new AbortController();
     // Untrusted projects only get user settings: project/local settings files would be attacker-controlled.
     session.untrustedProject = !isProjectTrusted(session.cwd);
-    const options: Options = {
-      cwd: session.cwd,
-      abortController: session.abort,
-      settingSources: session.untrustedProject ? ['user'] : ['user', 'project', 'local'],
-      forwardSubagentText: true,
-      // The SDK defaults to 'default' when permissionMode is omitted (unlike the interactive CLI), so pass it explicitly.
-      // Trusted: the terminal's mode (permissions.defaultMode, else auto); untrusted: always ask.
-      permissionMode: session.untrustedProject ? 'default' : terminalPermissionMode(),
-      canUseTool: this.makeCanUseTool(session, generation),
-      // A resumed session keeps its id and drops the fixed sessionId (the SDK continues the old one).
-      ...(resume ? { resume: session.id } : { sessionId: session.id }),
-      ...(session.agent ? { agent: session.agent } : {}),
-      ...(model ? { model } : {}),
-      ...(effort ? { effort } : {}),
-    };
-    session.query = this.queryFn({ prompt: session.queue, options });
+    if (session.runtime === 'claude') {
+      const options: Options = {
+        cwd: session.cwd,
+        abortController: session.abort,
+        settingSources: session.untrustedProject ? ['user'] : ['user', 'project', 'local'],
+        forwardSubagentText: true,
+        // The SDK defaults to 'default' when permissionMode is omitted (unlike the interactive CLI), so pass it explicitly.
+        // Trusted: the terminal's mode (permissions.defaultMode, else auto); untrusted: always ask.
+        permissionMode: session.untrustedProject ? 'default' : terminalPermissionMode(),
+        canUseTool: this.makeCanUseTool(session, generation),
+        // A resumed session keeps its id and drops the fixed sessionId (the SDK continues the old one).
+        ...(resume ? { resume: session.id } : { sessionId: session.id }),
+        ...(session.agent ? { agent: session.agent } : {}),
+        ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
+      };
+      session.query = this.queryFn({ prompt: session.queue, options });
+    } else {
+      session.query = this.startRuntimeQuery(session, generation, model, effort, resume);
+    }
     session.queue.push({
       type: 'user',
       message: { role: 'user', content: prompt },
@@ -310,6 +338,58 @@ export class SdkSessions {
       for (const event of setStatus(session.tree, 'root', 'running')) this.emit(event);
     }
     this.scheduleUpsert(session);
+  }
+
+  /**
+   * Starts an acp/agy lead query for a non-Claude session: the same queue/consume
+   * machinery, but the adapter factory replaces the SDK query. Only cwd,
+   * abortController, canUseTool and the session identity travel in the options;
+   * model/effort/agent go to the factory (no settingSources/permissionMode/agent).
+   */
+  private startRuntimeQuery(session: PageSession, generation: number, model: string | undefined, effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined, resume: boolean): AsyncIterable<SDKMessage> {
+    const canUse = this.makeCanUseTool(session, generation);
+    const options: Options = {
+      cwd: session.cwd,
+      abortController: session.abort,
+      canUseTool: canUse,
+      ...(resume ? { resume: session.id } : { sessionId: session.id }),
+    };
+    const onSessionId = (runtimeSessionId: string): void => {
+      session.runtimeSessionId = runtimeSessionId;
+    };
+    if (session.runtime === 'opencode') {
+      return this.acpFactory({
+        ...(model ? { model } : {}),
+        ...(resume && session.runtimeSessionId ? { resumeId: session.runtimeSessionId } : {}),
+        onSessionId,
+      })({ prompt: session.queue, options });
+    }
+    if (!session.hookSecret) session.hookSecret = randomBytes(32).toString('hex');
+    const secret = session.hookSecret;
+    this.bridge.register(secret, async req => {
+      let decision;
+      try {
+        decision = await canUse(req.tool, req.input, {
+          signal: session.abort.signal,
+          toolUseID: req.toolUseId,
+          requestId: req.toolUseId,
+          ...(req.title ? { title: req.title } : {}),
+        });
+      } catch {
+        return { allow: false, reason: 'permission check failed' };
+      }
+      if (decision && decision.behavior === 'allow') return { allow: true };
+      const message = (decision as { message?: unknown }).message;
+      return typeof message === 'string' && message ? { allow: false, reason: message } : { allow: false };
+    });
+    return this.agyFactory({
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
+      agent: 'lead-dev-hybrid',
+      ...(resume && session.runtimeSessionId ? { resumeId: session.runtimeSessionId } : {}),
+      onSessionId,
+      hook: { url: `${this.hookBase()}/api/agy-hook/${session.id}`, secret },
+    })({ prompt: session.queue, options });
   }
 
   /** Consumes the SDK iterator and broadcasts tree events + throttled summaries. */
@@ -341,7 +421,7 @@ export class SdkSessions {
     }
   }
 
-  private makeCanUseTool(session: PageSession, generation: number): Options['canUseTool'] {
+  private makeCanUseTool(session: PageSession, generation: number): NonNullable<Options['canUseTool']> {
     return async (toolName, input, { signal, toolUseID, title }) => {
       if (generation !== session.generation) {
         // A stale tool request from a replaced query must not surface in the new turn.
@@ -439,6 +519,8 @@ export class SdkSessions {
     if (!session) return false;
     if (session.stopped && !session.consuming) return true;
     session.stopped = true;
+    // The agy permission hook must not outlive the session (restarts re-register).
+    if (session.hookSecret) this.bridge.unregister(session.hookSecret);
     // Best-effort interrupt of the current turn, then close the input queue and abort.
     if (session.query) {
       const interrupt = (session.query as unknown as { interrupt?: () => Promise<unknown> }).interrupt;
@@ -483,7 +565,7 @@ export class SdkSessions {
     let effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined;
     try {
       text = validText(body?.text);
-      model = validModel(body.model);
+      model = validResumeModel(body.model);
       effort = validEffort(body.effort);
     } catch (err) {
       throw new SessionError(400, (err as Error).message);
@@ -499,6 +581,7 @@ export class SdkSessions {
       throw new SessionError(400, `agent must match ${String(AGENT_RE)}`);
     }
     if (existing) {
+      if (existing.runtime !== 'claude') return this.resumeRuntime(existing, text, model, effort);
       const root = existing.tree.nodes.get('root');
       if (!existing.stopped && existing.consuming) {
         if (root && (root.status === 'running' || root.status === 'waiting')) {
@@ -539,6 +622,10 @@ export class SdkSessions {
       this.startQuery(existing, text, model, effort ?? existing.effort, true);
       return id;
     }
+    // Non-Claude runtimes live only in page memory: a terminal transcript cannot be adopted into one.
+    if (model !== undefined && (RUNTIME_MODELS.opencode.includes(model) || RUNTIME_MODELS.agy.includes(model))) {
+      throw new SessionError(409, 'Only page sessions can use this model; start a new session instead');
+    }
     // A live heartbeat file from any process (terminal or SDK run) forked by adoption
     // is the dangerous case this guard exists for: refuse before anything else moves.
     const holder = await liveHolder(id);
@@ -554,6 +641,8 @@ export class SdkSessions {
       cwd,
       ...(storedAgent ? { agent: storedAgent } : {}),
       ...(effort ? { effort } : {}),
+      // Terminal adoptions are always Claude Code sessions (non-Claude models refuse above).
+      runtime: 'claude',
       title: firstPromptLine(title),
       startedAt: priorRoot?.startedAt ?? Date.now(),
       updatedAt: Date.now(),
@@ -572,6 +661,54 @@ export class SdkSessions {
     this.sessions.set(id, session);
     this.startQuery(session, text, model, effort, true);
     return id;
+  }
+
+  /**
+   * Continues a page-owned non-Claude session in memory: the tree stays as-is
+   * (no Claude transcript rebuild), the new query resumes the adapter's own
+   * conversation id. Idle-but-live sessions just take the message; active ones
+   * refuse with 409; ended ones restart the adapter query.
+   */
+  private async resumeRuntime(session: PageSession, text: string, model: string | undefined, effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined): Promise<string> {
+    const root = session.tree.nodes.get('root');
+    if (!session.stopped && session.consuming) {
+      if (root && (root.status === 'running' || root.status === 'waiting')) {
+        throw new SessionError(409, 'Session is still running');
+      }
+      if (effort !== undefined) session.effort = effort;
+      if (model !== undefined) session.model = model;
+      session.updatedAt = Date.now();
+      session.queue.push({
+        type: 'user',
+        message: { role: 'user', content: text },
+        parent_tool_use_id: null,
+        session_id: session.id,
+      });
+      for (const event of setStatus(session.tree, 'root', 'running')) this.emit(event);
+      this.scheduleUpsert(session);
+      return session.id;
+    }
+    // Restarting a query left the session open elsewhere: a live heartbeat file for
+    // this id from a non-dashboard process refuses the restart with the same 409.
+    const leftover = await liveHolder(session.id);
+    if (leftover && !DASHBOARD_ENTRYPOINTS.has(leftover.entrypoint ?? '')) {
+      throw new SessionError(409, holderMessage(leftover.pid));
+    }
+    // The old process is gone (or stopping): unwind it before starting the new query.
+    session.abort.abort();
+    await Promise.race([
+      session.consumePromise ?? Promise.resolve(),
+      new Promise<void>(resolve => setTimeout(resolve, RESUME_UNWIND_MS).unref()),
+    ]);
+    session.stopped = false;
+    session.pending.clear();
+    session.queue = new InputQueue();
+    session.upsertThrottle = { lastSent: 0, timer: null };
+    session.updatedAt = Date.now();
+    if (model !== undefined) session.model = model;
+    if (effort !== undefined) session.effort = effort;
+    this.startQuery(session, text, model ?? session.model, effort, true);
+    return session.id;
   }
 
   /** Rebuilds a SessionTree from transcript nodes: statuses become terminal states, the root restarts. */
@@ -631,6 +768,31 @@ export class SdkSessions {
     return session ? { cwd: session.cwd } : undefined;
   }
 
+  /** Lead runtime of a page session, if we own the id. */
+  runtimeOf(id: string): Runtime | undefined {
+    return this.sessions.get(id)?.runtime;
+  }
+
+  /**
+   * Answers the agy plugin permission hook for a session: deny (403) unless the
+   * id names a page session with the agy runtime whose hook secret matches
+   * (constant-time); otherwise the bridge maps the tool call and runs it through
+   * the session's permission flow.
+   */
+  handleAgyHook(id: string, secret: string | undefined, body: unknown): Promise<AgyHookResponse> {
+    const deny = (reason: string): Promise<AgyHookResponse> => Promise.resolve({ status: 403, json: { decision: 'deny', reason } });
+    const session = this.sessions.get(id);
+    if (!session || session.runtime !== 'agy' || !session.hookSecret) {
+      return deny('unknown session');
+    }
+    const given = typeof secret === 'string' ? Buffer.from(secret, 'utf8') : null;
+    const expected = Buffer.from(session.hookSecret, 'utf8');
+    if (!given || given.length !== expected.length || !timingSafeEqual(given, expected)) {
+      return deny('unknown hook secret');
+    }
+    return this.bridge.handle(secret, body);
+  }
+
   list(): SessionSummary[] {
     return [...this.sessions.values()].map(s => this.summarize(s));
   }
@@ -656,6 +818,7 @@ export class SdkSessions {
   private summarize(session: PageSession): SessionSummary {
     const root = session.tree.nodes.get('root');
     const status = root?.status ?? 'idle';
+    const ended = status === 'done' || status === 'error' || status === 'stopped';
     return {
       id: session.id,
       source: 'page',
@@ -670,7 +833,11 @@ export class SdkSessions {
       ...(root?.model ? { model: root.model } : {}),
       nodeCount: session.tree.nodes.size,
       pendingPermissions: session.pending.size,
-      resumable: pageResumable(session.id, session.cwd, status),
+      runtime: session.runtime,
+      // Non-Claude sessions have no transcript: resumable while ended with a known runtime session id.
+      resumable: session.runtime === 'claude'
+        ? pageResumable(session.id, session.cwd, status)
+        : ended && session.runtimeSessionId !== undefined,
       ...(session.untrustedProject ? { untrustedProject: true } : {}),
     };
   }
@@ -746,6 +913,7 @@ export class SdkSessions {
     };
     for (const [id, session] of this.sessions) {
       if (finished(session) && now - session.updatedAt > olderThanMs) {
+        if (session.hookSecret) this.bridge.unregister(session.hookSecret);
         this.sessions.delete(id);
         this.emit({ type: 'session.removed', sessionId: id });
       }
@@ -753,6 +921,7 @@ export class SdkSessions {
     const oldest = [...this.sessions.values()].filter(finished).sort((a, b) => a.updatedAt - b.updatedAt);
     while (this.sessions.size > maxSessions && oldest.length > 0) {
       const victim = oldest.shift()!;
+      if (victim.hookSecret) this.bridge.unregister(victim.hookSecret);
       if (!this.sessions.delete(victim.id)) continue;
       this.emit({ type: 'session.removed', sessionId: victim.id });
     }

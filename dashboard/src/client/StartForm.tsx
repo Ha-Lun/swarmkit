@@ -1,11 +1,39 @@
 // Shared start-session form state and agent/model selects (used by Landing and NewSession).
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import type { AgentInfo, StartSessionBody } from '../shared/types';
+import { RUNTIME_MODELS } from '../shared/types';
+import type { AgentInfo, Runtime, RuntimesResponse, StartSessionBody } from '../shared/types';
 import type { FleetBackend, Guard } from './api';
 import { resolveDefaultCwd } from './FolderPicker';
 
 export type EffortValue = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+export const SETUP_ORDER: Runtime[] = ['claude', 'opencode', 'agy'];
+const SETUP_LABEL: Record<Runtime, string> = {
+  claude: 'Claude + workers',
+  opencode: 'OpenCode + agy',
+  agy: 'agy only',
+};
+const SETUP_DESC: Record<Runtime, string> = {
+  claude: 'Claude lead · opencode + agy workers',
+  opencode: 'OpenCode lead · agy worker',
+  agy: 'Antigravity lead, no workers',
+};
+const SETUP_MODEL: Record<Runtime, string> = {
+  claude: 'opus',
+  opencode: RUNTIME_MODELS.opencode[0] ?? 'opencode-go/mimo-v2.6-pro',
+  agy: RUNTIME_MODELS.agy[0] ?? 'gemini-3.8-flash-high',
+};
+
+function readSetup(): Runtime {
+  try {
+    const v = localStorage.getItem('fleet.setup');
+    if (v === 'claude' || v === 'opencode' || v === 'agy') return v;
+  } catch {
+    // private mode — default per pageload
+  }
+  return 'claude';
+}
 
 export function useStartForm(
   backend: FleetBackend,
@@ -15,9 +43,11 @@ export function useStartForm(
   const [cwd, setCwd] = useState('');
   const [prompt, setPrompt] = useState('');
   const [agent, setAgentInner] = useState('');
-  const [model, setModel] = useState('opus');
+  const [runtime, setRuntimeInner] = useState<Runtime>(readSetup);
+  const [model, setModel] = useState<string>(() => SETUP_MODEL[readSetup()]);
   const [effort, setEffort] = useState<EffortValue>('high');
   const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [availability, setAvailability] = useState<RuntimesResponse | null>(null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const agentTouched = useRef(false);
@@ -26,6 +56,29 @@ export function useStartForm(
     agentTouched.current = true;
     setAgentInner(v);
   };
+
+  const setRuntime = (r: Runtime) => {
+    setRuntimeInner(r);
+    setModel(SETUP_MODEL[r]);
+    try {
+      localStorage.setItem('fleet.setup', r);
+    } catch {
+      // private mode — remembered per pageload then
+    }
+  };
+
+  // Lead-runtime availability on the server's PATH (all enabled until known).
+  useEffect(() => {
+    let alive = true;
+    guard(backend.runtimes())
+      .then((r) => {
+        if (alive && r) setAvailability(r);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [backend, guard]);
 
   // Default folder: last used (localStorage), else first recent, else home (empty = home).
   useEffect(() => {
@@ -81,9 +134,10 @@ export function useStartForm(
       const body: StartSessionBody = {
         prompt: p,
         cwd: c,
-        agent: agent || undefined,
-        model: model || undefined,
-        effort,
+        ...(runtime === 'claude' && agent ? { agent } : {}),
+        ...(model ? { model } : {}),
+        ...(runtime === 'opencode' ? {} : { effort }),
+        runtime,
       };
       const res = await guard(backend.start(body));
       if (res) onStarted(res.sessionId);
@@ -101,6 +155,9 @@ export function useStartForm(
     setPrompt,
     agent,
     setAgent,
+    runtime,
+    setRuntime,
+    availability,
     model,
     setModel,
     effort,
@@ -115,9 +172,12 @@ export function useStartForm(
 interface FieldsProps {
   agents: AgentInfo[];
   agent: string;
+  runtime: Runtime;
+  availability: RuntimesResponse | null;
   model: string;
   effort: EffortValue;
   onAgent: (v: string) => void;
+  onRuntime: (v: Runtime) => void;
   onModel: (v: string) => void;
   onEffort: (v: EffortValue) => void;
   agentId: string;
@@ -137,9 +197,12 @@ function modelLabel(model: string): string {
 export function AgentModelFields({
   agents,
   agent,
+  runtime,
+  availability,
   model,
   effort,
   onAgent,
+  onRuntime,
   onModel,
   onEffort,
   agentId,
@@ -149,33 +212,79 @@ export function AgentModelFields({
 }: FieldsProps) {
   const [open, setOpen] = useState(false);
   const panelId = `${agentId}-panel`;
-  const agentLabel = agent || 'Default';
-  const summary = `${agentLabel} · ${modelLabel(model)} · ${effort ? `${effort} effort` : 'default effort'}`;
-  const agentField = (
+  const modelShown = model || SETUP_MODEL[runtime];
+  const summary =
+    runtime === 'claude'
+      ? `${agent || 'Default'} · ${modelLabel(modelShown)} · ${effort ? `${effort} effort` : 'default effort'}`
+      : `${SETUP_LABEL[runtime]} · ${modelShown}${runtime === 'agy' && effort ? ` · ${effort} effort` : ''}`;
+  const setupField = (
     <>
-      <label htmlFor={agentId}>Agent</label>
-      <select id={agentId} value={agent} onChange={(e) => onAgent(e.target.value)}>
-        <option value="">Default (no agent)</option>
-        {agents.map((a) => (
-          <option key={a.name} value={a.name}>
-            {a.name}
-            {a.description ? ` — ${a.description}` : ''}
-          </option>
-        ))}
-      </select>
+      <div className="view-toggle setup-seg" role="group" aria-label="Setup">
+        {SETUP_ORDER.map((r) => {
+          const ok = !availability || availability[r] !== false;
+          return (
+            <button
+              key={r}
+              type="button"
+              aria-pressed={runtime === r}
+              className={runtime === r ? 'is-active' : undefined}
+              disabled={!ok}
+              title={ok ? undefined : `${r} not found on PATH`}
+              onClick={() => onRuntime(r)}
+            >
+              {SETUP_LABEL[r]}
+            </button>
+          );
+        })}
+      </div>
+      <p className="muted setup-desc">{SETUP_DESC[runtime]}</p>
     </>
   );
-  const modelField = (
-    <>
-      <label htmlFor={modelId}>Model</label>
-      <select id={modelId} value={model} onChange={(e) => onModel(e.target.value)}>
-        <option value="">Default</option>
-        <option value="opus">Opus</option>
-        <option value="sonnet">Sonnet</option>
-        <option value="haiku">Haiku</option>
-      </select>
-    </>
-  );
+  const agentField =
+    runtime === 'claude' ? (
+      <>
+        <label htmlFor={agentId}>Agent</label>
+        <select id={agentId} value={agent} onChange={(e) => onAgent(e.target.value)}>
+          <option value="">Default (no agent)</option>
+          {agents.map((a) => (
+            <option key={a.name} value={a.name}>
+              {a.name}
+              {a.description ? ` — ${a.description}` : ''}
+            </option>
+          ))}
+        </select>
+      </>
+    ) : (
+      <>
+        <label htmlFor={agentId}>Agent</label>
+        <span className="badge" id={agentId}>
+          lead-dev-hybrid
+        </span>
+      </>
+    );
+  const modelField =
+    runtime === 'claude' ? (
+      <>
+        <label htmlFor={modelId}>Model</label>
+        <select id={modelId} value={model} onChange={(e) => onModel(e.target.value)}>
+          <option value="">Default</option>
+          <option value="opus">Opus</option>
+          <option value="sonnet">Sonnet</option>
+          <option value="haiku">Haiku</option>
+        </select>
+      </>
+    ) : (
+      <>
+        <label htmlFor={modelId}>Model</label>
+        <select id={modelId} value={modelShown} onChange={(e) => onModel(e.target.value)}>
+          {RUNTIME_MODELS[runtime].map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+      </>
+    );
   const effortField = (
     <>
       <label htmlFor={effortId}>Effort</label>
@@ -208,16 +317,20 @@ export function AgentModelFields({
       </div>
       {open &&
         (layout === 'row' ? (
-          <div id={panelId} className="land-row">
-            <div className="land-field">{agentField}</div>
-            <div className="land-field">{modelField}</div>
-            <div className="land-field">{effortField}</div>
+          <div id={panelId}>
+            <div className="land-setup">{setupField}</div>
+            <div className="land-row">
+              <div className="land-field">{agentField}</div>
+              <div className="land-field">{modelField}</div>
+              {runtime !== 'opencode' && <div className="land-field">{effortField}</div>}
+            </div>
           </div>
         ) : (
           <div id={panelId} className="amf-stack">
+            {setupField}
             {agentField}
             {modelField}
-            {effortField}
+            {runtime !== 'opencode' && effortField}
           </div>
         ))}
     </div>

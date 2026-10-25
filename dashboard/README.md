@@ -6,6 +6,31 @@ of the agents involved — the session, any spawned subagents and your agy/openc
 Terminal sessions already on disk (`~/.claude/projects/**/*.jsonl`) are picked up and merged into
 the same view.
 
+## Setups
+
+The start form offers three setups (remembered in `localStorage` as `fleet.setup`):
+
+| Setup | Lead | How it runs |
+|---|---|---|
+| **Claude + workers** — "Claude lead · opencode + agy workers" | Claude Code | The Claude Agent SDK, as before; `opus` / `sonnet` / `haiku` models, any agent, effort levels |
+| **OpenCode + agy** — "OpenCode lead · agy worker" | `opencode acp` | The dashboard drives `opencode acp` over stdio and renders its stream like SDK messages; fixed `lead-dev-hybrid` agent, `opencode-go/*` models, no effort |
+| **agy only** — "Antigravity lead, no workers" | `agy` | One `agy -p --output-format stream-json` process per turn with the `lead-dev-hybrid` agent; `gemini-3.8-flash-*` models, effort levels |
+
+Setups whose binary is missing from `PATH` are disabled in the form with a
+"`<name>` not found on PATH" title; `GET /api/runtimes` reports the same
+availability (`{ claude, opencode, agy }`, cached for a minute).
+
+Permission prompts appear in the dashboard for all three. OpenCode asks about
+bash runs except `agy-task *` (allowed). For agy, the plugin calls back to
+`POST /api/agy-hook/:id` — loopback plus the per-session `x-swarmkit-hook`
+secret only, never the fleet token — and the dashboard answers from your
+Allow/Deny clicks: file reads and edits inside the folder are auto-allowed,
+everything else asks, and a killed hook fails closed.
+
+Non-Claude sessions live in the dashboard server's memory: they resume only
+while the server runs (no transcript file to adopt later), and their tree is
+kept as-is across continues. Stop ends the lead process and unregisters its hook.
+
 ## Run it
 
 ```sh
@@ -57,10 +82,12 @@ not the cookie.
 `GET /api/sessions`, `GET /api/sessions/:id`, `POST /api/sessions`,
 `POST /api/sessions/:id/message`, `POST /api/sessions/:id/interrupt`,
 `DELETE /api/sessions/:id`, `POST /api/permissions/:id`, `GET /api/agents?cwd=…`,
-`GET /api/cwds`, `GET /api/stars`, `POST /api/stars`, `POST /api/auth`, `GET /api/usage`, and `GET /events`
+`GET /api/cwds`, `GET /api/stars`, `POST /api/stars`, `POST /api/auth`, `GET /api/usage`,
+`GET /api/runtimes`, and `GET /events`
 (server-sent events). Every
 endpoint needs the token (cookie `fleet_token` or header `x-fleet-token`) except
-`POST /api/auth`. See `src/shared/types.ts` for the shapes.
+`POST /api/auth` and the agy hook callback `POST /api/agy-hook/:id` (loopback +
+`x-swarmkit-hook` secret instead). See `src/shared/types.ts` for the shapes.
 
 ## Usage limits
 

@@ -2,6 +2,7 @@
 import type {
   AgentsResponse,
   DirListing,
+  RuntimesResponse,
   ServerEvent,
   SessionDetail,
   SessionSummary,
@@ -72,6 +73,7 @@ export interface FleetBackend {
   workers(): Promise<WorkerTask[]>;
   workerLog(lane: string, repo: string, slug: string): Promise<{ lines: string[] }>;
   usage(refresh?: boolean): Promise<UsageReport>;
+  runtimes(): Promise<RuntimesResponse>;
   connect(
     onEvent: (ev: ServerEvent) => void,
     onStatus: (connected: boolean) => void,
@@ -119,6 +121,7 @@ export const apiBackend: FleetBackend = {
       `/api/workers/${encodeURIComponent(lane)}/${encodeURIComponent(repo)}/${encodeURIComponent(slug)}/log`,
     ),
   usage: (refresh) => request(refresh ? '/api/usage?refresh=1' : '/api/usage'),
+  runtimes: () => request('/api/runtimes'),
   connect(onEvent, onStatus) {
     // EventSource reconnects on its own with backoff; we surface the state and
     // let App refetch the selected detail when the stream reopens.
