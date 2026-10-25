@@ -1,10 +1,11 @@
 // Continue (resume): textarea + Continue for ended sessions or terminal transcripts.
 // A 409 shows the server's error message inline.
-import { useState } from 'react';
-import type { SessionSource } from '../shared/types';
+import { useRef, useState } from 'react';
+import type { SessionSource, SlashCommandInfo } from '../shared/types';
 import type { FleetBackend, Guard } from './api';
 import { filesFromPaste, useAttachments } from './attachments';
 import { AttachButton, AttachDropzone, AttachmentTray } from './AttachmentTray';
+import { useSlashMenu } from './SlashMenu';
 
 interface Props {
   backend: FleetBackend;
@@ -16,13 +17,16 @@ interface Props {
   initialText?: string;
   /** The server just refused a message because the session has ended. */
   ended?: boolean;
+  loadCommands: () => Promise<SlashCommandInfo[]>;
 }
 
-export function Continue({ backend, guard, sessionId, source, onResumed, initialText = '', ended = false }: Props) {
+export function Continue({ backend, guard, sessionId, source, onResumed, initialText = '', ended = false, loadCommands }: Props) {
   const [text, setText] = useState(initialText);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const attachments = useAttachments();
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const slash = useSlashMenu(text, setText, loadCommands, ref);
 
   const submit = async () => {
     const t = text.trim();
@@ -55,19 +59,26 @@ export function Continue({ backend, guard, sessionId, source, onResumed, initial
       }}
     >
       <AttachmentTray items={attachments.items} onRemove={attachments.remove} />
+      {slash.menu}
       <AttachDropzone onFiles={attachments.addFiles}>
         <textarea
+          ref={ref}
           rows={1}
           aria-label="Continue this session"
           placeholder="Continue this session…"
           title="Enter to send, Shift+Enter for a new line"
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          {...slash.inputProps}
+          onChange={(e) => {
+            setText(e.target.value);
+            slash.onChange();
+          }}
           onPaste={(e) => {
             const files = filesFromPaste(e);
             if (files.length > 0) attachments.addFiles(files);
           }}
           onKeyDown={(e) => {
+            if (slash.onKeyDown(e)) return;
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
               void submit();

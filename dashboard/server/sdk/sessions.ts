@@ -17,6 +17,7 @@ import { AGENT_RE, validEffort, validImages, validMessageText, validResumeModel,
 import { createAcpQuery } from '../runtimes/acp.ts';
 import type { AcpOptions } from '../runtimes/acp.ts';
 import { AgyHookBridge, createAgyQuery } from '../runtimes/agy.ts';
+import { listAgyCommands } from '../runtimes/agy-commands.ts';
 import type { AgyHookResponse, AgyOptions } from '../runtimes/agy.ts';
 import { claudeConfigDir, resolveDirInHome } from '../paths.ts';
 import { deleteImages, imageDir, pruneOrphanImages, saveImages } from '../images.ts';
@@ -829,11 +830,30 @@ export class SdkSessions {
     return this.sessions.get(id)?.runtime;
   }
 
-  /** Slash commands of a live page session; undefined when the id isn't ours. */
+  /** Last live command list per runtime + cwd, served while no query of that kind is live. */
+  private commandCache = new Map<string, SlashCommandInfo[]>();
+
+  /** The last live command list seen for this runtime and cwd ([] when none yet). */
+  cachedCommands(runtime: Runtime, cwd: string): SlashCommandInfo[] {
+    return this.commandCache.get(`${runtime}\0${cwd}`) ?? [];
+  }
+
+  /**
+   * Slash commands of a page session; undefined when the id isn't ours. A live query is
+   * asked directly; otherwise agy rescans disk and the others get the cached list.
+   */
   async commands(id: string): Promise<SlashCommandInfo[] | undefined> {
     const session = this.sessions.get(id);
     if (!session) return undefined;
-    if (!session.query) return [];
+    if (!session.query) {
+      return session.runtime === 'agy' ? listAgyCommands(session.cwd) : this.cachedCommands(session.runtime, session.cwd);
+    }
+    const live = await this.liveCommands(session);
+    if (live.length > 0) this.commandCache.set(`${session.runtime}\0${session.cwd}`, live);
+    return live.length > 0 ? live : this.cachedCommands(session.runtime, session.cwd);
+  }
+
+  private async liveCommands(session: PageSession): Promise<SlashCommandInfo[]> {
     const fn = (session.query as unknown as { supportedCommands?: () => Promise<unknown> }).supportedCommands;
     if (!fn) return [];
     let timer: NodeJS.Timeout | null = null;
@@ -857,7 +877,8 @@ export class SdkSessions {
       if (typeof r.name !== 'string' || r.name.length === 0) continue;
       let name = r.name;
       if (name.startsWith('/')) name = name.slice(1);
-      if (name.length === 0) continue;
+      // '__'-prefixed names are the CLI's internal commands.
+      if (name.length === 0 || name.startsWith('__')) continue;
       if (session.terminalCommands?.has(name)) continue;
       if (seen.has(name)) continue;
       seen.add(name);

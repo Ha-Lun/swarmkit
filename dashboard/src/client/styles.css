@@ -1182,7 +1182,11 @@ details.collapsible > summary:hover { color: var(--ink); }
   white-space: nowrap;
 }
 .slash-hint {
-  flex: none;
+  flex: 0 1 auto;
+  max-width: 40%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--text-3);

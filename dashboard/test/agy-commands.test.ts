@@ -55,6 +55,15 @@ describe('listAgyCommands', () => {
     ]);
   });
 
+  it('joins a YAML block-scalar description into one line', async () => {
+    const home = mkdtempSync(path.join(base, 'home-block-'));
+    const cwd = mkdtempSync(path.join(base, 'cwd-block-'));
+    const dir = path.join(home, '.gemini', 'config', 'skills', 'folded');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: folded\ndescription: >\n  First line\n  second line.\nlicense: MIT\n---\nBody.\n');
+    expect(await listAgyCommands(cwd, home)).toEqual([{ name: 'folded', description: 'First line second line.' }]);
+  });
+
   it('returns [] when .gemini is missing', async () => {
     const cwd = mkdtempSync(path.join(base, 'cwd-missing-'));
     const home = mkdtempSync(path.join(base, 'home-missing-'));

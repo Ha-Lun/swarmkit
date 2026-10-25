@@ -44,7 +44,16 @@ function frontmatter(content: string): { name?: string; description?: string; di
     }
     const descMatch = /^description:\s*(.+)$/.exec(line);
     if (descMatch && description === undefined) {
-      const v = cleanValue(descMatch[1] ?? '');
+      let v = cleanValue(descMatch[1] ?? '');
+      if (/^[>|][+-]?$/.test(v)) {
+        // YAML block scalar: the indented lines below, joined into one line.
+        const block: string[] = [];
+        while (i + 1 < lines.length && /^(\s|$)/.test(lines[i + 1] ?? '') && (lines[i + 1] ?? '').trim() !== '---') {
+          i += 1;
+          block.push((lines[i] ?? '').trim());
+        }
+        v = block.filter(Boolean).join(' ');
+      }
       if (v) description = v;
       continue;
     }

@@ -889,6 +889,8 @@ describe('SdkSessions', () => {
             { name: '/alpha', description: 'A' },
             { name: 'zeta', description: 'dup' },
             { name: 'beta', argumentHint: '<x>' },
+            { name: '__internal', description: 'hidden' },
+            null,
           ],
         }) as unknown as AsyncIterable<SDKMessage>;
       };
@@ -903,6 +905,12 @@ describe('SdkSessions', () => {
       });
       expect(await sdk.commands('nope')).toBeUndefined();
       sdk.stop(id);
+      // Without a live query the session (and the terminal lookup) get the last list for its cwd.
+      await vi.waitFor(async () => {
+        expect((await sdk.commands(id))?.map(c => c.name)).toEqual(['alpha', 'beta', 'zeta']);
+      });
+      expect(sdk.cachedCommands('claude', homeDir).map(c => c.name)).toEqual(['alpha', 'beta', 'zeta']);
+      expect(sdk.cachedCommands('opencode', homeDir)).toEqual([]);
 
       const ended = new SdkSessions(() => {}, makeRecordingQuery([]));
       const doneId = ended.start({ prompt: 'ended', cwd: homeDir });

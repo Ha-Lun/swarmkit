@@ -670,6 +670,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
               sessionId={selected.id}
               source={selected.source}
               onResumed={handleResumed}
+              loadCommands={() => backend.commands(selected.id).then((r) => r.commands)}
             />
           ) : null
         )}

@@ -573,7 +573,9 @@ async function main(): Promise<void> {
       }
       if (parts.length === 4 && parts[3] === 'commands') {
         if (method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
-        const commands = await sdk.commands(id);
+        // Terminal sessions are Claude: they get the last list seen in their cwd.
+        const terminalCwd = sdk.owns(id) ? undefined : watcher.fileInfo(id)?.cwd;
+        const commands = terminalCwd ? sdk.cachedCommands('claude', terminalCwd) : await sdk.commands(id);
         if (commands === undefined) return sendJson(res, 404, { error: 'session not found' });
         return sendJson(res, 200, { commands });
       }
