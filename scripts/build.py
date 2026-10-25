@@ -165,8 +165,9 @@ def build_agy_hook():
     dest = f'{plugin}/hooks/swarmkit-dash-hook.py'
     shutil.copyfile(f'{ROOT}/dashboard/server/runtimes/agy-hook.py', dest)
     os.chmod(dest, 0o755)
+    # PLUGIN_ROOT is not set for symlinked plugins, so use the install.sh path ($GEMINI_DIR/plugins/swarmkit).
     hooks = {'swarmkit-dashboard': {'PreToolUse': [{'matcher': '*', 'hooks': [{
-        'type': 'command', 'command': 'python3 -I ${PLUGIN_ROOT}/hooks/swarmkit-dash-hook.py', 'timeout': 900}]}]}}
+        'type': 'command', 'command': 'python3 -I ${HOME}/.gemini/config/plugins/swarmkit/hooks/swarmkit-dash-hook.py', 'timeout': 900}]}]}}
     with open(f'{plugin}/hooks.json', 'w') as f:
         json.dump(hooks, f, indent=1)
         f.write('\n')
