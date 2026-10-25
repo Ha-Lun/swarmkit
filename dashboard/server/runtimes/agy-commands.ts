@@ -11,13 +11,11 @@ const HEAD_BYTES = 8192;
 /** Head of a file, or undefined when missing, unreadable or not a file. */
 async function readHead(file: string): Promise<string | undefined> {
   try {
-    const st = await fsp.stat(file);
-    if (!st.isFile()) return undefined;
     const fh = await fsp.open(file, 'r');
     try {
       const buf = Buffer.alloc(HEAD_BYTES);
-      const { bytesRead } = await fh.read(buf, 0, HEAD_BYTES, 0);
-      return buf.slice(0, bytesRead).toString('utf8');
+      const { bytesRead } = await fh.read(buf, 0, HEAD_BYTES, 0); // a directory throws EISDIR here
+      return buf.subarray(0, bytesRead).toString('utf8');
     } finally {
       await fh.close();
     }
@@ -28,7 +26,7 @@ async function readHead(file: string): Promise<string | undefined> {
 
 /** Frontmatter name/description/disabled flag from the head of a markdown file. */
 function frontmatter(content: string): { name?: string; description?: string; disabled?: boolean } {
-  const lines = content.split('\n');
+  const lines = content.split(/\r?\n/);
   if (lines[0]?.trim() !== '---') return {};
   let name: string | undefined;
   let description: string | undefined;
@@ -48,7 +46,7 @@ function frontmatter(content: string): { name?: string; description?: string; di
       if (/^[>|][+-]?$/.test(v)) {
         // YAML block scalar: the indented lines below, joined into one line.
         const block: string[] = [];
-        while (i + 1 < lines.length && /^(\s|$)/.test(lines[i + 1] ?? '') && (lines[i + 1] ?? '').trim() !== '---') {
+        while (i + 1 < lines.length && /^(\s|$)/.test(lines[i + 1] ?? '')) {
           i += 1;
           block.push((lines[i] ?? '').trim());
         }
@@ -103,27 +101,18 @@ async function workflowsIn(dir: string): Promise<string[]> {
     .map(e => path.join(dir, e));
 }
 
-/** Adds one skill SKILL.md (fallback name = skill directory name). */
-async function addSkill(byName: Map<string, SlashCommandInfo>, dir: string, file: string): Promise<void> {
+/** Adds one skill SKILL.md or workflow *.md; `fallback` names it when the frontmatter has no name. */
+async function addEntry(byName: Map<string, SlashCommandInfo>, file: string, fallback: string): Promise<void> {
   const head = await readHead(file);
   if (head === undefined) return;
   const fm = frontmatter(head);
   if (fm.disabled) return;
-  const name = fm.name || dir;
-  if (!name) return;
-  byName.set(name, fm.description ? { name, description: fm.description } : { name });
-}
-
-/** Adds one workflow *.md file (fallback name = file basename without .md). */
-async function addWorkflow(byName: Map<string, SlashCommandInfo>, file: string): Promise<void> {
-  const head = await readHead(file);
-  if (head === undefined) return;
-  const fm = frontmatter(head);
-  const fallback = path.basename(file).replace(/\.md$/i, '');
   const name = fm.name || fallback;
   if (!name) return;
   byName.set(name, fm.description ? { name, description: fm.description } : { name });
 }
+
+const workflowName = (file: string): string => path.basename(file).replace(/\.md$/i, '');
 
 /**
  * Slash commands from skill SKILL.md files and workflow markdown files.
@@ -131,17 +120,13 @@ async function addWorkflow(byName: Map<string, SlashCommandInfo>, file: string):
  */
 export async function listAgyCommands(cwd: string, home: string = os.homedir()): Promise<SlashCommandInfo[]> {
   const byName = new Map<string, SlashCommandInfo>();
-  try {
-    const G = path.join(home, '.gemini', 'config');
-    for (const skill of await skillsIn(path.join(G, 'skills'))) await addSkill(byName, skill.dir, skill.file);
-    for (const skill of await pluginSkillsIn(path.join(G, 'plugins'))) await addSkill(byName, skill.dir, skill.file);
-    for (const file of await workflowsIn(path.join(G, 'global_workflows'))) await addWorkflow(byName, file);
-    for (const file of await workflowsIn(path.join(G, 'workflows'))) await addWorkflow(byName, file);
-    for (const skill of await skillsIn(path.join(cwd, '.agents', 'skills'))) await addSkill(byName, skill.dir, skill.file);
-    for (const file of await workflowsIn(path.join(cwd, '.agents', 'workflows'))) await addWorkflow(byName, file);
-    for (const file of await workflowsIn(path.join(cwd, '.agent', 'workflows'))) await addWorkflow(byName, file);
-  } catch {
-    // Skip unreadable roots; never throw.
-  }
+  const G = path.join(home, '.gemini', 'config');
+  for (const skill of await skillsIn(path.join(G, 'skills'))) await addEntry(byName, skill.file, skill.dir);
+  for (const skill of await pluginSkillsIn(path.join(G, 'plugins'))) await addEntry(byName, skill.file, skill.dir);
+  for (const file of await workflowsIn(path.join(G, 'global_workflows'))) await addEntry(byName, file, workflowName(file));
+  for (const file of await workflowsIn(path.join(G, 'workflows'))) await addEntry(byName, file, workflowName(file));
+  for (const skill of await skillsIn(path.join(cwd, '.agents', 'skills'))) await addEntry(byName, skill.file, skill.dir);
+  for (const file of await workflowsIn(path.join(cwd, '.agents', 'workflows'))) await addEntry(byName, file, workflowName(file));
+  for (const file of await workflowsIn(path.join(cwd, '.agent', 'workflows'))) await addEntry(byName, file, workflowName(file));
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }

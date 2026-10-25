@@ -34,23 +34,13 @@ export function SlashMenu({ id, items, active, loading, onPick, onHover }: Props
     const el = listRef.current?.querySelector(`[data-index="${active}"]`);
     el?.scrollIntoView({ block: 'nearest' });
   }, [active, items]);
-  if (loading) {
-    return (
-      <ul id={id} role="listbox" aria-label="Commands" className="slash-menu" ref={listRef}>
-        <li className="slash-empty">Loading…</li>
-      </ul>
-    );
-  }
-  if (items.length === 0) {
-    return (
-      <ul id={id} role="listbox" aria-label="Commands" className="slash-menu" ref={listRef}>
-        <li className="slash-empty">No matching commands</li>
-      </ul>
-    );
-  }
   return (
     <ul id={id} role="listbox" aria-label="Commands" className="slash-menu" ref={listRef}>
-      {items.map((c, i) => (
+      {loading ? (
+        <li className="slash-empty">Loading…</li>
+      ) : items.length === 0 ? (
+        <li className="slash-empty">No matching commands</li>
+      ) : items.map((c, i) => (
         <li
           key={c.name}
           id={`${id}-${i}`}

@@ -64,6 +64,15 @@ describe('listAgyCommands', () => {
     expect(await listAgyCommands(cwd, home)).toEqual([{ name: 'folded', description: 'First line second line.' }]);
   });
 
+  it('reads CRLF frontmatter', async () => {
+    const home = mkdtempSync(path.join(base, 'home-crlf-'));
+    const cwd = mkdtempSync(path.join(base, 'cwd-crlf-'));
+    const dir = path.join(home, '.gemini', 'config', 'skills', 'dir-name');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, 'SKILL.md'), '---\r\nname: crlf\r\ndescription: Windows file\r\n---\r\nBody.\r\n');
+    expect(await listAgyCommands(cwd, home)).toEqual([{ name: 'crlf', description: 'Windows file' }]);
+  });
+
   it('returns [] when .gemini is missing', async () => {
     const cwd = mkdtempSync(path.join(base, 'cwd-missing-'));
     const home = mkdtempSync(path.join(base, 'home-missing-'));
