@@ -571,6 +571,12 @@ async function main(): Promise<void> {
       if (parts.length === 4 && parts[3] === 'resume' && method === 'POST') {
         return resumeSession(req, res, id);
       }
+      if (parts.length === 4 && parts[3] === 'commands') {
+        if (method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+        const commands = await sdk.commands(id);
+        if (commands === undefined) return sendJson(res, 404, { error: 'session not found' });
+        return sendJson(res, 200, { commands });
+      }
       return sendJson(res, 404, { error: 'not found' });
     }
 

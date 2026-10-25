@@ -154,9 +154,11 @@ function handle(msg) {
       } else if (msg.method === 'session/new') {
         record({ method: 'session/new', params });
         reply(msg.id, { sessionId: 'ses_fake', configOptions: configOptions() });
+        update('ses_fake', { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'compact', description: 'Compact the session' }, { name: 'review', description: 'Review changes', input: { hint: '<path>' } }] });
       } else if (msg.method === 'session/load') {
         record({ method: 'session/load', params });
         reply(msg.id, { sessionId: params?.sessionId ?? 'ses_fake', configOptions: configOptions() });
+        update(params?.sessionId ?? 'ses_fake', { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'compact', description: 'Compact the session' }, { name: 'review', description: 'Review changes', input: { hint: '<path>' } }] });
       } else if (msg.method === 'session/set_config_option') {
         record({ method: 'session/set_config_option', params });
         if (params?.configId === 'model') configuredModel = params.value ?? null;

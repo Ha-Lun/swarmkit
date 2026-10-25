@@ -7,6 +7,7 @@ import path from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { QueryFn } from '../sdk/sessions.ts';
+import type { SlashCommandInfo } from '../../src/shared/types.ts';
 import { num, rec, str, userBlocks } from './util.ts';
 import type { Rec } from './util.ts';
 
@@ -186,6 +187,8 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
     let aborted = false;
     let ready = false;
     let sessionId: string | undefined;
+    // Latest available slash commands from the agent (available_commands_update).
+    let commands: SlashCommandInfo[] = [];
     let modelName = acpOpts.model;
     let turnCount = 0;
     let cost: number | undefined;
@@ -352,6 +355,23 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
     };
 
     const onUpdate = (update: Rec, sid: string | undefined): void => {
+      // Commands arrive right after session/new or load, before ready is set.
+      if (update.sessionUpdate === 'available_commands_update') {
+        if (sid !== undefined && sessionId !== undefined && sid !== sessionId) return;
+        const list = Array.isArray(update.availableCommands) ? update.availableCommands : [];
+        const next: SlashCommandInfo[] = [];
+        for (const entry of list) {
+          const r = rec(entry);
+          if (!r || typeof r.name !== 'string' || r.name.length === 0) continue;
+          const item: SlashCommandInfo = { name: r.name };
+          if (typeof r.description === 'string' && r.description.length > 0) item.description = r.description;
+          const hint = rec(r.input)?.hint;
+          if (typeof hint === 'string' && hint.length > 0) item.argumentHint = hint;
+          next.push(item);
+        }
+        commands = next;
+        return;
+      }
       if (!ready) return;
       if (sid !== undefined && sessionId !== undefined && sid !== sessionId) return;
       const kind = update.sessionUpdate;
@@ -707,7 +727,10 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
       return Promise.resolve();
     };
 
-    return Object.assign(generator, { interrupt });
+    return Object.assign(generator, {
+      interrupt,
+      supportedCommands: async (): Promise<SlashCommandInfo[]> => commands,
+    });
   };
   return fn;
 }
