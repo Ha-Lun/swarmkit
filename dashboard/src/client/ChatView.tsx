@@ -1,5 +1,5 @@
 // Chat transcript for one agent: bubbles, tool rows, handoff cards, thinking indicator.
-import { useLayoutEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useLayoutEffect, useRef, useState } from 'react';
 import type { AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
 import { MAX_EVENTS } from '../shared/types';
 import { agentLabel, buildChat, matchWorkerTask, orbColor, orbLabel, orbState } from './chat';
@@ -7,7 +7,7 @@ import type { ChatItem } from './chat';
 import { elapsedMs, fmtDuration, modelLabel, toolGroups, workerElapsedS } from './format';
 import type { ToolKey } from './format';
 import { toolIcon } from './icons';
-import { Markdown } from './Markdown';
+const Markdown = lazy(() => import('./Markdown').then((m) => ({ default: m.Markdown })));
 import { Orb } from './Orb';
 import { PermissionPanel } from './Permission';
 
@@ -158,7 +158,9 @@ function HandoffCard({
           )}
           {!running && child.result && (
             <div className="handoff-result">
-              <Markdown text={showFull ? child.result : resultPreview} />
+              <Suspense fallback={<p className="chat-assistant md-plain">{showFull ? child.result : resultPreview}</p>}>
+                <Markdown text={showFull ? child.result : resultPreview} />
+              </Suspense>
               {truncated && (
                 <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowFull((v) => !v)}>
                   {showFull ? 'Show less' : 'Show full result'}
@@ -248,7 +250,11 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
               );
             }
             if (item.type === 'assistant') {
-              return <Markdown key={item.id} className="chat-assistant" text={item.text} />;
+              return (
+                <Suspense key={item.id} fallback={<p className="chat-assistant md-plain">{item.text}</p>}>
+                  <Markdown className="chat-assistant" text={item.text} />
+                </Suspense>
+              );
             }
             if (item.type === 'thinking') {
               return (

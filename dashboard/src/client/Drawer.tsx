@@ -1,9 +1,11 @@
 // Right-side detail drawer: agent metadata, prompt, activity timeline, result.
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { ActivityEvent, AgentNode } from '../shared/types';
 import { fmtClock, fmtCost, fmtTokens, modelLabel, toolGroups } from './format';
 import { ChevronIcon, CloseIcon, toolIcon } from './icons';
+
+const Markdown = lazy(() => import('./Markdown').then((m) => ({ default: m.Markdown })));
 
 interface Props {
   node: AgentNode;
@@ -93,7 +95,13 @@ function TimelineItem({ ev }: { ev: ActivityEvent }) {
   return (
     <li className={cls}>
       <Collapse defaultOpen={ev.kind === 'user' || ev.kind === 'text' || ev.kind === 'result'} summary={head}>
-        <pre className="tl-detail-pre">{ev.detail}</pre>
+        {ev.kind === 'text' || ev.kind === 'result' ? (
+          <Suspense fallback={<pre className="tl-detail-pre">{ev.detail}</pre>}>
+            <Markdown text={ev.detail} />
+          </Suspense>
+        ) : (
+          <pre className="tl-detail-pre">{ev.detail}</pre>
+        )}
       </Collapse>
     </li>
   );
@@ -198,7 +206,9 @@ export function Drawer({ node, onClose }: Props) {
         {node.result && (
           <section className="drawer-result" aria-label="Result">
             <h3>Result</h3>
-            <p>{node.result}</p>
+            <Suspense fallback={<p>{node.result}</p>}>
+              <Markdown text={node.result} />
+            </Suspense>
           </section>
         )}
       </div>

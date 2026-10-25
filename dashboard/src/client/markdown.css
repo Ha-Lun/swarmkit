@@ -1,0 +1,205 @@
+/* Markdown typography for agent chat output (dark theme).
+   Reads only the shared tokens from styles.css. */
+
+.md {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text);
+}
+
+.md > *:first-child { margin-top: 0; }
+.md > *:last-child { margin-bottom: 0; }
+
+.md p { margin: 0 0 var(--space-2); }
+.md p:last-child { margin-bottom: 0; }
+
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+  margin: var(--space-3) 0 var(--space-2);
+  font-weight: 700;
+  line-height: 1.3;
+  overflow-wrap: break-word;
+}
+.md h1 { font-size: 17px; }
+.md h2 { font-size: 15.5px; }
+.md h3 { font-size: 14px; }
+.md h4 { font-size: 13.5px; }
+.md h5 { font-size: 13px; }
+.md h6 { font-size: 12.5px; color: var(--text-2); }
+
+.md ul, .md ol { margin: 0 0 var(--space-2); padding-left: var(--space-5); }
+.md li { margin: 2px 0; }
+.md li::marker { color: var(--text-3); }
+
+.md blockquote {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-1) 0 var(--space-1) var(--space-3);
+  border-left: 2px solid var(--border-3);
+  color: var(--text-2);
+}
+.md blockquote > *:last-child { margin-bottom: 0; }
+
+.md hr { border: 0; border-top: 1px solid var(--border); margin: var(--space-3) 0; }
+
+.md a { color: var(--teal); text-decoration: underline; text-underline-offset: 2px; }
+.md a:hover { color: var(--ink-hover, #fff); }
+
+/* Inline code chip (fenced blocks use .md-codeblock below). */
+.md code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--surface-3);
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow-wrap: break-word;
+}
+
+/* Fenced code blocks. */
+.md-codeblock {
+  margin: 0 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  overflow: hidden;
+  max-width: 100%;
+}
+.md-codeblock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+.md-lang {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  text-transform: lowercase;
+}
+.md-copy {
+  flex: none;
+  padding: 4px 10px;
+  min-height: 28px;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.md-copy:hover { background: var(--surface-3); color: var(--text); }
+.md-codeblock pre {
+  margin: 0;
+  padding: var(--space-3);
+  overflow-x: auto;
+  max-width: 100%;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.md-codeblock pre code { padding: 0; background: none; border-radius: 0; }
+.md pre:has(> code) { scrollbar-width: thin; }
+
+/* highlight.js token palette for the dark theme. */
+.md .hljs { color: var(--text); background: transparent; }
+.md .hljs-comment, .md .hljs-quote { color: #636d83; font-style: italic; }
+.md .hljs-keyword, .md .hljs-selector-tag, .md .hljs-doctag, .md .hljs-template-tag { color: #c792ea; }
+.md .hljs-string, .md .hljs-regexp, .md .hljs-meta .hljs-string, .md .hljs-addition { color: #9ece6a; }
+.md .hljs-number, .md .hljs-literal { color: #ff9e64; }
+.md .hljs-title, .md .hljs-title-function_, .md .hljs-section { color: #7aa2f7; }
+.md .hljs-title-class_, .md .hljs-type, .md .hljs-built_in { color: #e0af68; }
+.md .hljs-attr, .md .hljs-attribute, .md .hljs-variable, .md .hljs-template-variable { color: #2ee6c8; }
+.md .hljs-name, .md .hljs-selector-id, .md .hljs-selector-class { color: #7dcfff; }
+.md .hljs-symbol, .md .hljs-bullet, .md .hljs-link { color: #89ddff; }
+.md .hljs-operator, .md .hljs-punctuation { color: #a9b1d6; }
+.md .hljs-meta { color: #9aa5ce; }
+.md .hljs-emphasis { font-style: italic; }
+.md .hljs-strong { font-weight: 700; }
+.md .hljs-deletion { color: #f7768e; }
+.md .hljs-addition { background: rgba(158, 206, 106, 0.12); }
+
+/* Tables. */
+.md-table-wrap { margin: 0 0 var(--space-2); overflow-x: auto; max-width: 100%; scrollbar-width: thin; }
+.md table { border-collapse: collapse; width: max-content; min-width: 100%; font-size: 12.5px; }
+.md th, .md td {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.md thead th, .md th { background: var(--surface-3); font-weight: 700; }
+.md tbody tr:nth-child(even) td { background: var(--surface-2); }
+
+/* Task lists. */
+.md ul.contains-task-list { padding-left: var(--space-4); }
+.md li.task-list-item { list-style: none; margin-left: calc(-1 * var(--space-4)); }
+.md li.task-list-item input[type='checkbox'] {
+  margin: 0 var(--space-2) 0 0;
+  vertical-align: -2px;
+  accent-color: var(--teal);
+  width: 14px;
+  height: 14px;
+}
+
+/* Footnotes. */
+.md .footnotes { font-size: 12px; color: var(--text-3); }
+.md .footnotes hr { margin: var(--space-2) 0; }
+.md .footnotes ol { padding-left: var(--space-4); }
+.md sup a[data-footnote-ref], .md a[data-footnote-backref] { font-size: 11px; }
+
+/* KaTeX math. */
+.md .katex { color: var(--text); font-size: 1.02em; }
+.md .katex-display {
+  margin: var(--space-2) 0;
+  padding: var(--space-1) 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: center;
+  scrollbar-width: thin;
+}
+.md .katex-display > .katex { white-space: nowrap; }
+
+/* Images. */
+.md img { display: block; max-width: 100%; height: auto; border-radius: var(--radius-sm); }
+
+/* Mermaid diagrams. */
+.md .md-mermaid { margin: 0 0 var(--space-2); overflow-x: auto; max-width: 100%; scrollbar-width: thin; }
+.md .md-mermaid pre {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.md .md-mermaid pre code { padding: 0; background: none; }
+.md .md-mermaid-svg { min-width: 0; }
+.md .md-mermaid-svg svg { display: block; max-width: 100%; height: auto; }
+.md .md-mermaid-error { display: inline-block; margin-top: var(--space-1); font-size: 11px; color: var(--fail, #e0655a); }
+
+/* Raw fallback for oversized input + lazy-load plain fallback. */
+.md-raw, .md-plain {
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.md-raw {
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  max-width: 100%;
+  overflow-x: auto;
+}
