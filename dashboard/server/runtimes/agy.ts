@@ -215,15 +215,40 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
       is_error: true,
     });
 
-    const runTurn = (text: string): Promise<SDKMessage[]> => new Promise(resolve => {
-      const out: SDKMessage[] = [];
+    const runTurn = async function* (text: string): AsyncGenerator<SDKMessage> {
       const parts = opts.commandPrefix?.length ? opts.commandPrefix : [opts.command ?? 'agy'];
       const [file, ...pre] = parts as [string, ...string[]];
+      const outbox: SDKMessage[] = [];
+      let closed = false;
+      let wake: (() => void) | null = null;
+      const poke = (): void => {
+        const w = wake;
+        wake = null;
+        w?.();
+      };
+      const push = (m: SDKMessage): void => {
+        outbox.push(m);
+        poke();
+      };
+      const untilEvent = (): Promise<void> => {
+        if (outbox.length > 0 || closed || aborted || signal?.aborted) return Promise.resolve();
+        return new Promise<void>(res => {
+          const onAbort = (): void => {
+            wake = null;
+            res();
+          };
+          wake = () => {
+            if (signal) signal.removeEventListener('abort', onAbort);
+            res();
+          };
+          if (signal) signal.addEventListener('abort', onAbort, { once: true });
+        });
+      };
       let child: ChildProcess;
       try {
         child = spawn(file, [...pre, ...argsFor(text, convId)], { cwd, env: envFor() });
       } catch (err) {
-        resolve([errorResult((err as Error)?.message ?? 'agy failed to start')]);
+        yield errorResult((err as Error)?.message ?? 'agy failed to start');
         return;
       }
       proc = child;
@@ -242,7 +267,7 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
         pending = null;
         const msg: Raw = { id: p.id, role: 'assistant', model, content: [{ type: 'text', text: p.text }] };
         if (p.usage) msg.usage = p.usage;
-        out.push(asMsg({ type: 'assistant', parent_tool_use_id: null, session_id: sessionId, message: msg }));
+        push(asMsg({ type: 'assistant', parent_tool_use_id: null, session_id: sessionId, message: msg }));
       };
 
       const toolId = (cid: string | undefined, idx: number): string => `${cid ?? convId ?? 'agy'}:${idx}`;
@@ -287,7 +312,7 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
               if (!seenTools.has(idx)) {
                 seenTools.add(idx);
                 const mapped = mapTool(rawName, params);
-                out.push(asMsg({
+                push(asMsg({
                   type: 'assistant',
                   parent_tool_use_id: null,
                   session_id: sessionId,
@@ -300,7 +325,7 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
               const isErr = su.state === 'ERROR';
               const em = asObj(info.error);
               const content = isErr ? (str(em.message) ?? 'error') : 'done';
-              out.push(asMsg({
+              push(asMsg({
                 type: 'user',
                 parent_tool_use_id: null,
                 session_id: sessionId,
@@ -321,7 +346,7 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
           const denied = (Array.isArray(r.denied_actions) ? r.denied_actions : []) as Raw[];
           const names = denied.map(d => str(d.display_name) ?? str(d.action)).filter((v): v is string => !!v);
           if (names.length > 0) {
-            out.push(asMsg({
+            push(asMsg({
               type: 'assistant',
               parent_tool_use_id: null,
               session_id: sessionId,
@@ -338,7 +363,7 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
           if (typeof r.num_turns === 'number') msg.num_turns = r.num_turns;
           const u = mapUsage(r.usage);
           if (u) msg.usage = u;
-          out.push(asMsg(msg));
+          push(asMsg(msg));
           sawResult = true;
         }
       };
@@ -348,14 +373,16 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
         finished = true;
         clearKillTimer();
         proc = null;
+        closed = true;
         if (buf.trim()) handleLine(buf);
         if (aborted || signal?.aborted) {
-          resolve([]);
+          outbox.length = 0;
+          poke();
           return;
         }
         if (pending) flushText();
-        if (!sawResult) resolve([...out, errorResult(lastErr || 'agy exited unexpectedly')]);
-        else resolve(out);
+        if (!sawResult) push(errorResult(lastErr || 'agy exited unexpectedly'));
+        else poke();
       };
 
       let buf = '';
@@ -379,7 +406,17 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
         done();
       });
       child.on('close', () => done());
-    });
+
+      for (;;) {
+        while (outbox.length > 0) {
+          if (aborted || signal?.aborted) return;
+          yield outbox.shift()!;
+        }
+        if (closed) return;
+        if (aborted || signal?.aborted) return;
+        await untilEvent();
+      }
+    };
 
     const nextOrAbort = async (it: AsyncIterator<SDKUserMessage>): Promise<IteratorResult<SDKUserMessage> | null> => {
       if (!signal || signal.aborted) {
@@ -405,7 +442,7 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
       yield asMsg({ type: 'system', subtype: 'init', session_id: sessionId, model, cwd });
       if (typeof params.prompt === 'string') {
         if (params.prompt && !aborted && !signal?.aborted) {
-          for (const m of await runTurn(params.prompt)) yield m;
+          for await (const m of runTurn(params.prompt)) yield m;
         }
         return;
       }
@@ -417,9 +454,8 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
         const text = userText(r.value);
         if (!text) continue;
         if (aborted || signal?.aborted) return;
-        const msgs = await runTurn(text);
+        for await (const m of runTurn(text)) yield m;
         if (aborted || signal?.aborted) return;
-        for (const m of msgs) yield m;
       }
     }
 

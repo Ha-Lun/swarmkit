@@ -20,6 +20,7 @@ EDIT_PATHS = {
     "write_file": ("Path",),
 }
 GUARDED = {".git", ".agents", ".agent", ".gemini"}
+RULES = {"agents.md", "gemini.md"}  # agy loads these from the session root as rules: edits ask the dashboard
 
 
 def check_path(value, root):
@@ -35,18 +36,22 @@ def check_path(value, root):
     parts = os.path.relpath(resolved, root).split(os.sep)
     if any(p.lower() in GUARDED for p in parts):
         raise ValueError(".git and agy customization files are off limits")
+    return resolved
 
 
 def auto_allowed(name, args, root):
     paths = READ_PATHS.get(name)
     if paths is None:
-        paths = EDIT_PATHS.get(name)
+        edit, paths = True, EDIT_PATHS.get(name)
+    else:
+        edit = False
     if paths is None or not isinstance(args, dict):
         return False
     try:
-        for key in paths:
-            check_path(args.get(key), root)
+        resolved = [check_path(args.get(key), root) for key in paths]
     except ValueError:
+        return False
+    if edit and any(os.path.relpath(p, root).lower() in RULES for p in resolved):
         return False
     return True
 

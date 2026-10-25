@@ -136,6 +136,27 @@ describe('agy query', () => {
     expect((await pending).done).toBe(true);
   });
 
+  it('streams messages while the process is still running', async () => {
+    const iterable = createAgyQuery({ commandPrefix: prefix() })({ prompt: 'slow', options: queryOpts() });
+    const types: string[] = [];
+    let toolUseAt = 0;
+    let resultAt = 0;
+    for await (const m of iterable) {
+      const t = typeOf(m);
+      types.push(t);
+      if (t === 'assistant' && toolUseAt === 0) {
+        const content = (anyOf(m).message as Record<string, unknown>).content as Record<string, unknown>[];
+        if (content.length > 0 && (content[0] as Record<string, unknown>).type === 'tool_use') toolUseAt = Date.now();
+      }
+      if (t === 'result' && resultAt === 0) resultAt = Date.now();
+    }
+    expect(types).toEqual(['system', 'assistant', 'user', 'assistant', 'result']);
+    expect(toolUseAt).toBeGreaterThan(0);
+    expect(resultAt).toBeGreaterThan(0);
+    // The tool_use arrived ~300 ms before the result: it was streamed live, not after exit.
+    expect(resultAt - toolUseAt).toBeGreaterThanOrEqual(150);
+  });
+
   it('interrupt signals the running process', async () => {
     const iterable = createAgyQuery({ commandPrefix: prefix() })({ prompt: 'hang', options: queryOpts() });
     const it = iterable[Symbol.asyncIterator]();
@@ -285,6 +306,19 @@ describe('agy-hook.py', () => {
     const { code, out } = await runHook(hookInput('run_command', { CommandLine: 'echo hi' }), env);
     expect(code).toBe(0);
     expect(out.decision).toBe('deny');
+  });
+
+  it('asks the dashboard for edits of the root AGENTS.md', async () => {
+    const server = await startHookServer(() => ({ status: 200, json: { decision: 'allow' } }));
+    try {
+      const env = hookEnv({ SWARMKIT_DASH_HOOK_URL: server.url, SWARMKIT_DASH_HOOK_SECRET: 's', SWARMKIT_DASH_CWD: scratch });
+      const { code, out } = await runHook(hookInput('write_to_file', { TargetFile: path.join(scratch, 'AGENTS.md') }), env);
+      expect(code).toBe(0);
+      expect(out).toEqual({ decision: 'allow' });
+      expect(server.seen).toHaveLength(1);
+    } finally {
+      await server.close();
+    }
   });
 
   it('denies malformed stdin', async () => {

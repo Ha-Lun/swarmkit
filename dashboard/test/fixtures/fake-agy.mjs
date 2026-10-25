@@ -23,6 +23,16 @@ if (prompt === 'hang') {
 } else if (prompt === 'crash') {
   console.error('boom: something failed');
   process.exit(1);
+} else if (prompt === 'slow') {
+  const toolParams = { CommandLine: 'echo slow', WaitMsBeforeAsync: 1000, toolSummary: 'slow op' };
+  emit({ event: 'init', conversation_id: id, init: { cwd: process.cwd(), tools: ['run_command'], permission_mode: 'skip' } });
+  emit({ event: 'step_update', step_update: { conversation_id: id, step_index: 0, state: 'ACTIVE', step_type: 'tool', tool_name: 'run_command', tool_info: { name: 'run_command', parameters: toolParams } } });
+  setTimeout(() => {
+    emit({ event: 'step_update', step_update: { conversation_id: id, step_index: 0, state: 'DONE', step_type: 'tool', tool_name: 'run_command', tool_info: { name: 'run_command', parameters: toolParams } } });
+    emit({ event: 'step_update', step_update: { conversation_id: id, step_index: 1, state: 'ACTIVE', step_type: 'agent_response', text_delta: 'slow ' } });
+    emit({ event: 'step_update', step_update: { conversation_id: id, step_index: 1, state: 'DONE', step_type: 'agent_response', text_delta: 'done', usage: { input_tokens: 3, output_tokens: 2, thinking_tokens: 0, cache_read_tokens: 1, total_tokens: 6 } } });
+    emit({ event: 'result', result: { conversation_id: id, status: 'SUCCESS', response: 'slow result', num_turns: 1, usage: { input_tokens: 3, output_tokens: 2, thinking_tokens: 0, cache_read_tokens: 1, total_tokens: 6 } } });
+  }, 300);
 } else {
   const toolParams = { CommandLine: 'echo hi', WaitMsBeforeAsync: 1000, toolSummary: 'say hi' };
   emit({ event: 'init', conversation_id: id, init: { cwd: process.cwd(), tools: ['run_command'], permission_mode: 'skip' } });
