@@ -152,7 +152,7 @@
 .md sup a[data-footnote-ref], .md a[data-footnote-backref] { font-size: 11px; }
 
 /* KaTeX math. */
-.md .katex { color: var(--text); font-size: 1.02em; }
+.md .katex { color: var(--text); font-size: 1.02em; max-width: 100%; overflow-x: auto; overflow-y: hidden; vertical-align: middle; }
 .md .katex-display {
   margin: var(--space-2) 0;
   padding: var(--space-1) 0;

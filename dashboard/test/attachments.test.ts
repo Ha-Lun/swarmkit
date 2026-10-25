@@ -94,10 +94,14 @@ describe('outputType', () => {
     expect(outputType('image/png', false)).toBe('image/png');
     expect(outputType('image/jpeg', false)).toBe('image/jpeg');
     expect(outputType('image/webp', false)).toBe('image/webp');
+    expect(outputType('image/gif', false)).toBe('image/gif');
   });
-  it('uses the canvas output type when resized', () => {
+  it('uses the canvas output type when resized (WebP stays WebP)', () => {
     expect(outputType('image/png', true)).toBe('image/png');
     expect(outputType('image/jpeg', true)).toBe('image/jpeg');
-    expect(outputType('image/webp', true)).toBe('image/jpeg');
+    expect(outputType('image/webp', true)).toBe('image/webp');
+  });
+  it('falls back to JPEG for unknown types once re-encoded', () => {
+    expect(outputType('image/svg+xml', true)).toBe('image/jpeg');
   });
 });

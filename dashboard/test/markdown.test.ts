@@ -170,3 +170,27 @@ describe('large input', () => {
     expect(out).toContain('<pre');
   });
 });
+
+describe('katex limits', () => {
+  it('renders \\rule{1e5em}{1e5em} without throwing (maxSize caps it)', () => {
+    let out = '';
+    expect(() => {
+      out = html('$\\rule{1e5em}{1e5em}$');
+    }).not.toThrow();
+    expect(out).toContain('katex');
+    expect(() => {
+      out = html('$$\\rule{1e5em}{1e5em}$$');
+    }).not.toThrow();
+    expect(out).toContain('katex');
+  });
+});
+
+describe('safe images via shared helper', () => {
+  it('renders data:image/jpeg and webp as <img>, rejects svg data URLs', () => {
+    expect(html('![alt](data:image/jpeg;base64,/9j/4AAQ=)')).toContain('<img');
+    expect(html('![alt](data:image/webp;base64,UklGRg==)')).toContain('<img');
+    const svg = html('![alt](data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=)');
+    expect(svg).not.toContain('<img');
+    expect(svg).toContain('🖼');
+  });
+});

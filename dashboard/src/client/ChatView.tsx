@@ -2,7 +2,7 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
 import { MAX_EVENTS } from '../shared/types';
-import { agentLabel, buildChat, matchWorkerTask, orbColor, orbLabel, orbState, stripImageMarkers } from './chat';
+import { agentLabel, buildChat, isSafeImageUrl, matchWorkerTask, orbColor, orbLabel, orbState, stripImageMarkers } from './chat';
 import type { ChatItem } from './chat';
 import { elapsedMs, fmtDuration, modelLabel, toolGroups, workerElapsedS } from './format';
 import type { ToolKey } from './format';
@@ -40,7 +40,7 @@ function firstLine(s: string): string {
 
 /** User bubble: stored-image thumbnails above the text plus a lightbox viewer. */
 function UserBubble({ item }: { item: Extract<ChatItem, { type: 'user' }> }) {
-  const images = item.images ?? [];
+  const images = (item.images ?? []).filter(isSafeImageUrl);
   const text = images.length > 0 ? stripImageMarkers(item.text) : item.text;
   const [open, setOpen] = useState<number | null>(null);
   const thumbRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -124,6 +124,7 @@ function UserBubble({ item }: { item: Extract<ChatItem, { type: 'user' }> }) {
 }
 
 function ToolsRow({ item }: { item: Extract<ChatItem, { type: 'tools' }> }) {
+  if (!item.events.some((e) => e.kind === 'tool_use')) return null;
   const counts: Record<string, number> = {};
   for (const c of item.counts) counts[c.tool] = c.count;
   const groups = toolGroups(counts);

@@ -1,6 +1,6 @@
 // Tests for the chat transcript helpers.
 import { describe, expect, it } from 'vitest';
-import { agentTabs, buildChat, matchWorkerTask, orbColor, orbLabel, orbState, stripImageMarkers } from '../src/client/chat.ts';
+import { agentTabs, buildChat, isSafeImageUrl, matchWorkerTask, orbColor, orbLabel, orbState, stripImageMarkers } from '../src/client/chat.ts';
 import type { ActivityEvent, AgentNode, PermissionRequest, WorkerTask } from '../src/shared/types.ts';
 import type { OrbState } from 'thinking-orbs';
 
@@ -393,5 +393,100 @@ describe('review findings', () => {
     expect(
       orbState(node({ status: 'idle', events: [ev({ kind: 'tool_use', tool: 'Read', summary: 'x' })] }), false),
     ).toBe('breathing');
+  });
+});
+
+describe('isSafeImageUrl', () => {
+  it('accepts stored session images and demo data URLs', () => {
+    expect(isSafeImageUrl('/api/sessions/s1/images/1.png')).toBe(true);
+    expect(isSafeImageUrl('/api/sessions/abc-DEF_01/images/1234.webp')).toBe(true);
+    expect(isSafeImageUrl('data:image/png;base64,iVBORw0KGgo=')).toBe(true);
+    expect(isSafeImageUrl('data:image/jpeg;base64,/9j/4AAQ=')).toBe(true);
+    expect(isSafeImageUrl('data:image/gif;base64,R0lGODlhAQABAAAAAAA=')).toBe(true);
+    expect(isSafeImageUrl('data:image/webp;base64,UklGRg==')).toBe(true);
+  });
+  it('rejects remote, traversal, wrong ext and non-image data URLs', () => {
+    for (const bad of [
+      'https://example.com/i.png',
+      '//example.com/i.png',
+      'blob:https://example.com/uuid',
+      'javascript:alert(1)',
+      '/api/sessions/s1/images/1.jpeg',
+      '/api/sessions/s1/images/1.txt',
+      '/api/sessions/s1/images/12345.png',
+      '/api/sessions//images/1.png',
+      '/api/sessions/s1/files/1.png',
+      '/api/sessions/s1/images/1.png/evil',
+      '/api/sessions/s1/images/1.png?x=1',
+      'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=',
+      'data:text/html;base64,PGI+hiPC9iPg==',
+      'data:image/png;iVBORw0KGgo=',
+      '',
+    ]) {
+      expect(isSafeImageUrl(bad)).toBe(false);
+    }
+  });
+});
+
+describe('buildChat image filtering', () => {
+  it('drops unsafe image URLs silently', () => {
+    const n = node({
+      events: [
+        ev({
+          id: 'u1',
+          ts: 1,
+          kind: 'user',
+          summary: 'look',
+          images: [
+            '/api/sessions/s1/images/1.png',
+            'https://example.com/evil.png',
+            'javascript:alert(1)',
+            'data:image/png;base64,iVBORw0KGgo=',
+            'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=',
+          ],
+        }),
+      ],
+    });
+    const items = buildChat(n, []);
+    expect(items.length).toBe(1);
+    expect(items[0]).toEqual({
+      type: 'user',
+      id: 'u1',
+      ts: 1,
+      text: 'look',
+      images: ['/api/sessions/s1/images/1.png', 'data:image/png;base64,iVBORw0KGgo='],
+    });
+  });
+  it('omits images entirely when none survive filtering', () => {
+    const n = node({
+      events: [ev({ id: 'u1', ts: 1, kind: 'user', summary: 'hi', images: ['https://example.com/i.png'] })],
+    });
+    const items = buildChat(n, []);
+    expect(items[0]).toEqual({ type: 'user', id: 'u1', ts: 1, text: 'hi' });
+    expect('images' in (items[0] as object)).toBe(false);
+  });
+});
+
+describe('buildChat tools-only-results', () => {
+  it('drops a tools group with no tool_use', () => {
+    const n = node({
+      events: [
+        ev({ id: 'r1', ts: 1, kind: 'tool_result', tool: 'Read', toolUseId: 'x1', summary: 'orphan result' }),
+        ev({ id: 't1', ts: 2, kind: 'text', summary: 'hello' }),
+      ],
+    });
+    const items = buildChat(n, []);
+    expect(items.map((x) => x.type)).toEqual(['assistant']);
+  });
+  it('keeps a tools group that has at least one tool_use', () => {
+    const n = node({
+      events: [
+        ev({ id: 'u1', ts: 1, kind: 'tool_use', tool: 'Read', toolUseId: 'x1', summary: 'read' }),
+        ev({ id: 'r1', ts: 2, kind: 'tool_result', tool: 'Read', toolUseId: 'x1', summary: 'ok' }),
+      ],
+    });
+    const items = buildChat(n, []);
+    expect(items.length).toBe(1);
+    expect(items[0].type).toBe('tools');
   });
 });

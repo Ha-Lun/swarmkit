@@ -2,7 +2,7 @@
 // GFM tables/task lists, math via remark-math + KaTeX, syntax
 // highlighting via rehype-highlight, mermaid diagrams. Raw HTML is
 // never rendered (no rehype-raw); URLs go through a strict transform.
-import { useEffect, useMemo, useRef, useState, isValidElement } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, isValidElement } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import type { Components } from 'react-markdown';
@@ -13,6 +13,7 @@ import rehypeHighlight from 'rehype-highlight';
 import 'katex/dist/katex.min.css';
 import './markdown.css';
 import { Mermaid } from './Mermaid';
+import { isSafeImageUrl } from './chat';
 
 const RAW_LIMIT = 100_000;
 
@@ -118,7 +119,10 @@ function CodeBlock({ className, children }: { className?: string; children?: Rea
   const raw = textOf(children).replace(/\n$/, '');
   const match = /language-([\w+-]+)/.exec(className ?? '');
   const lang = match?.[1];
-  const [copied, setCopied] = useState(false);
+  // Copied state is keyed by content: re-renders with identical text keep
+  // the "Copied" label, while newly streamed content resets it.
+  const [copiedFor, setCopiedFor] = useState<string | null>(null);
+  const copied = copiedFor !== null && copiedFor === raw;
   const timer = useRef<number | null>(null);
   useEffect(
     () => () => {
@@ -137,9 +141,9 @@ function CodeBlock({ className, children }: { className?: string; children?: Rea
     if (!clip) return;
     clip.writeText(raw).then(
       () => {
-        setCopied(true);
+        setCopiedFor(raw);
         if (timer.current !== null) window.clearTimeout(timer.current);
-        timer.current = window.setTimeout(() => setCopied(false), 1500);
+        timer.current = window.setTimeout(() => setCopiedFor(null), 1500);
       },
       () => undefined,
     );
@@ -159,9 +163,7 @@ function CodeBlock({ className, children }: { className?: string; children?: Rea
   );
 }
 
-/** Only stored session images render inline; every other src becomes a 🖼 link. */
-const STORED_IMAGE_RE = /^\/api\/sessions\/[^/]+\/images\/\d{1,4}\.(png|jpg|gif|webp)$/;
-
+/** Only safe image URLs render inline; every other src becomes a 🖼 link. */
 const components: Components = {
   a: ({ href, children }) => (
     <a href={href} target="_blank" rel="noopener noreferrer">
@@ -170,7 +172,7 @@ const components: Components = {
   ),
   img: ({ src, alt }) => {
     const s = src ?? '';
-    if (s.startsWith('data:image/') || STORED_IMAGE_RE.test(s)) {
+    if (isSafeImageUrl(s)) {
       return <img loading="lazy" src={s} alt={alt ?? ''} />;
     }
     return (
@@ -180,7 +182,12 @@ const components: Components = {
     );
   },
   pre: ({ children }) => <>{children}</>,
-  code: ({ className, children }) => <CodeBlock className={className}>{children}</CodeBlock>,
+  code: ({ className, children }) => {
+    // Key the block by its content so identical text keeps the copied state
+    // across parent re-renders, while changed content remounts and resets it.
+    const key = textOf(children);
+    return <CodeBlock key={key} className={className}>{children}</CodeBlock>;
+  },
   table: ({ children }) => (
     <div className="md-table-wrap">
       <table>{children}</table>
@@ -188,7 +195,7 @@ const components: Components = {
   ),
 };
 
-export function Markdown({ text, className }: { text: string; className?: string }): ReactElement {
+function MarkdownInner({ text, className }: { text: string; className?: string }): ReactElement {
   const normalized = useMemo(() => (text.length > RAW_LIMIT ? null : normalizeMath(text)), [text]);
   const tree = useMemo(() => {
     if (normalized === null) return null;
@@ -196,12 +203,12 @@ export function Markdown({ text, className }: { text: string; className?: string
       <ReactMarkdown
         remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
         rehypePlugins={[
-          [rehypeKatex, { throwOnError: false, strict: 'ignore', output: 'htmlAndMathml' }],
+          [rehypeKatex, { throwOnError: false, strict: 'ignore', output: 'htmlAndMathml', maxSize: 20, maxExpand: 1000 }],
           [rehypeHighlight, { detect: false, ignoreMissing: true }],
         ]}
         components={components}
         urlTransform={(url, key) => {
-          if (key === 'src' && /^data:image\/(png|jpeg|gif|webp);base64,/i.test(url)) return url;
+          if (key === 'src' && isSafeImageUrl(url)) return url;
           return defaultUrlTransform(url);
         }}
       >
@@ -214,3 +221,5 @@ export function Markdown({ text, className }: { text: string; className?: string
   }
   return <div className={'md' + (className ? ' ' + className : '')}>{tree}</div>;
 }
+
+export const Markdown = memo(MarkdownInner);

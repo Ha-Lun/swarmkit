@@ -13,6 +13,18 @@ export type ChatItem =
 export type TabPhase = 'live' | 'waiting' | 'done' | 'error';
 export interface AgentTab { node: AgentNode; phase: TabPhase }
 
+const STORED_IMAGE_RE = /^\/api\/sessions\/[^/]+\/images\/\d{1,4}\.(png|jpg|gif|webp)$/;
+const DATA_IMAGE_RE = /^data:image\/(png|jpeg|gif|webp);base64,/;
+
+/**
+ * Only these image URLs may render as <img>: stored session images and
+ * demo data URLs. Anything else (remote, blob:, javascript:, svg, …)
+ * is dropped silently by the caller.
+ */
+export function isSafeImageUrl(url: string): boolean {
+  return STORED_IMAGE_RE.test(url) || DATA_IMAGE_RE.test(url);
+}
+
 const SEARCH_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'WebFetch', 'WebSearch']);
 const SHAPE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const WEAVE_TOOLS = new Set(['Agent', 'Task']);
@@ -52,12 +64,13 @@ export function buildChat(node: AgentNode, children: AgentNode[]): ChatItem[] {
     }
     endGroup();
     if (e.kind === 'user') {
+      const safeImages = (e.images ?? []).filter(isSafeImageUrl);
       out.push({
         type: 'user',
         id: e.id,
         ts: e.ts,
         text: e.detail ?? e.summary,
-        ...(e.images?.length ? { images: [...e.images] } : {}),
+        ...(safeImages.length ? { images: [...safeImages] } : {}),
       });
     } else if (e.kind === 'text') {
       out.push({ type: 'assistant', id: e.id, ts: e.ts, text: e.detail ?? e.summary });
@@ -69,7 +82,9 @@ export function buildChat(node: AgentNode, children: AgentNode[]): ChatItem[] {
       out.push({ type: 'note', id: e.id, ts: e.ts, text: e.summary, isError: e.isError });
     }
   }
-  return out;
+  // A tools group with no tool_use (only orphan results) would render as a
+  // bare "Tools" row with nothing inside — drop it entirely.
+  return out.filter((item) => item.type !== 'tools' || item.events.some((x) => x.kind === 'tool_use'));
 }
 
 /** The server appends one `🖼 image` line per stored image to the user text. */

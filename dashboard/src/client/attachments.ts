@@ -22,12 +22,18 @@ const ACCEPTED_SET: ReadonlySet<string> = new Set(ACCEPTED_TYPES);
 const MAX_RAW_BYTES = 50 * 1024 * 1024;
 
 /**
- * Payload media type: untouched files keep their own type (the server checks
- * magic bytes), resized canvases are PNG — or JPEG for everything else.
+ * Payload media type after canvas re-encoding (which also strips EXIF/GPS):
+ * PNG stays PNG, JPEG stays JPEG, WebP stays WebP. GIF is never re-encoded
+ * so it keeps its own type when untouched; anything unknown falls back to
+ * JPEG once resized. The `resized` flag is kept for compatibility but no
+ * longer changes the result for the supported still types.
  */
 export function outputType(fileType: string, resized: boolean): ImageMediaType {
+  if (fileType === 'image/png') return 'image/png';
+  if (fileType === 'image/jpeg') return 'image/jpeg';
+  if (fileType === 'image/webp') return 'image/webp';
   if (!resized && ACCEPTED_SET.has(fileType)) return fileType as ImageMediaType;
-  return fileType === 'image/png' ? 'image/png' : 'image/jpeg';
+  return 'image/jpeg';
 }
 
 export interface PendingImage {
@@ -222,9 +228,11 @@ export interface UseAttachments {
 
 /**
  * Pending images for one composer. addFiles validates (mime/count/size),
- * downscales the long edge past MAX_LONG_EDGE on a canvas (PNG stays PNG,
- * anything else becomes JPEG quality 0.9; GIF is never resized) and rejects
- * anything still over MAX_IMAGE_BYTES.
+ * always re-encodes PNG/JPEG/WebP through a canvas (long edge capped at
+ * MAX_LONG_EDGE) so EXIF/GPS metadata is stripped even when no downscale
+ * is needed (PNG stays PNG, JPEG stays JPEG at 0.92, WebP stays WebP at
+ * 0.92 falling back to JPEG when the browser cannot encode WebP; GIF is
+ * never resized) and rejects anything still over MAX_IMAGE_BYTES.
  */
 export function useAttachments(): UseAttachments {
   const [items, setItems] = useState<PendingImage[]>([]);
@@ -301,12 +309,29 @@ export function useAttachments(): UseAttachments {
             }
             const size = await loadSize(file);
             const target = fitWithin(size.w, size.h, MAX_LONG_EDGE);
-            const needsShrink = target.w !== Math.round(size.w) || target.h !== Math.round(size.h);
-            // Untouched files keep their own bytes — and their own type.
-            const outType = outputType(file.type, needsShrink);
-            const blob: Blob = needsShrink
-              ? await canvasBlob(file, target.w, target.h, outType === 'image/png' ? 'image/png' : 'image/jpeg', outType === 'image/png' ? undefined : 0.9)
-              : file;
+            // Always re-encode stills through the canvas so EXIF/GPS bytes
+            // never reach the server, even when no shrink is needed.
+            let outType = outputType(file.type, true);
+            let blob: Blob;
+            if (outType === 'image/png') {
+              blob = await canvasBlob(file, target.w, target.h, 'image/png');
+            } else if (outType === 'image/webp') {
+              try {
+                const attempt = await canvasBlob(file, target.w, target.h, 'image/webp', 0.92);
+                if (attempt.type === 'image/webp') {
+                  blob = attempt;
+                } else {
+                  outType = 'image/jpeg';
+                  blob = await canvasBlob(file, target.w, target.h, 'image/jpeg', 0.92);
+                }
+              } catch {
+                outType = 'image/jpeg';
+                blob = await canvasBlob(file, target.w, target.h, 'image/jpeg', 0.92);
+              }
+            } else {
+              outType = 'image/jpeg';
+              blob = await canvasBlob(file, target.w, target.h, 'image/jpeg', 0.92);
+            }
             if (blob.size > MAX_IMAGE_BYTES) {
               problems.push(`“${name}” is still over 5 MB after downscaling.`);
               continue;
