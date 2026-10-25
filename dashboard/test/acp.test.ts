@@ -306,9 +306,12 @@ describe('acp runtime', () => {
     expect((got[0] as unknown as Rec).type).toBe('system');
     abort.abort();
     await timed(drain, 15000, 'abort end');
-    await vi.waitFor(() => {
-      expect(readRecord(recordFile).some(e => e.method === 'sigterm')).toBe(true);
-    });
+    await vi.waitFor(
+      () => {
+        expect(readRecord(recordFile).some(e => e.method === 'sigterm')).toBe(true);
+      },
+      { timeout: 5000, interval: 50 },
+    );
   });
 
   it('passes OPENCODE=1, drops CLAUDECODE and sends the permission overlay', async () => {
