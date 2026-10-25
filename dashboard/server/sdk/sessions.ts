@@ -366,11 +366,11 @@ export class SdkSessions {
     }
     if (!session.hookSecret) session.hookSecret = randomBytes(32).toString('hex');
     const secret = session.hookSecret;
-    this.bridge.register(secret, async req => {
+    this.bridge.register(secret, async (req, signal) => {
       let decision;
       try {
         decision = await canUse(req.tool, req.input, {
-          signal: session.abort.signal,
+          signal: signal ? AbortSignal.any([session.abort.signal, signal]) : session.abort.signal,
           toolUseID: req.toolUseId,
           requestId: req.toolUseId,
           ...(req.title ? { title: req.title } : {}),
@@ -779,7 +779,7 @@ export class SdkSessions {
    * (constant-time); otherwise the bridge maps the tool call and runs it through
    * the session's permission flow.
    */
-  handleAgyHook(id: string, secret: string | undefined, body: unknown): Promise<AgyHookResponse> {
+  handleAgyHook(id: string, secret: string | undefined, body: unknown, signal?: AbortSignal): Promise<AgyHookResponse> {
     const deny = (reason: string): Promise<AgyHookResponse> => Promise.resolve({ status: 403, json: { decision: 'deny', reason } });
     const session = this.sessions.get(id);
     if (!session || session.runtime !== 'agy' || !session.hookSecret) {
@@ -790,7 +790,7 @@ export class SdkSessions {
     if (!given || given.length !== expected.length || !timingSafeEqual(given, expected)) {
       return deny('unknown hook secret');
     }
-    return this.bridge.handle(secret, body);
+    return this.bridge.handle(secret, body, signal);
   }
 
   list(): SessionSummary[] {

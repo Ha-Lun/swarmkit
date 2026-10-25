@@ -470,9 +470,9 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
 }
 
 export class AgyHookBridge {
-  private handlers = new Map<string, (req: AgyHookRequest) => Promise<AgyHookDecision>>();
+  private handlers = new Map<string, (req: AgyHookRequest, signal?: AbortSignal) => Promise<AgyHookDecision>>();
 
-  register(secret: string, handler: (req: AgyHookRequest) => Promise<AgyHookDecision>): void {
+  register(secret: string, handler: (req: AgyHookRequest, signal?: AbortSignal) => Promise<AgyHookDecision>): void {
     this.handlers.set(secret, handler);
   }
 
@@ -480,12 +480,12 @@ export class AgyHookBridge {
     this.handlers.delete(secret);
   }
 
-  async handle(secretHeader: string | undefined, body: unknown): Promise<AgyHookResponse> {
+  async handle(secretHeader: string | undefined, body: unknown, signal?: AbortSignal): Promise<AgyHookResponse> {
     const deny = (status: number, reason?: string): AgyHookResponse => ({
       status,
       json: reason ? { decision: 'deny', reason } : { decision: 'deny' },
     });
-    let handler: ((req: AgyHookRequest) => Promise<AgyHookDecision>) | undefined;
+    let handler: ((req: AgyHookRequest, signal?: AbortSignal) => Promise<AgyHookDecision>) | undefined;
     const given = typeof secretHeader === 'string' ? secretHeader : '';
     for (const [secret, h] of this.handlers) {
       const a = Buffer.from(secret, 'utf8');
@@ -515,7 +515,7 @@ export class AgyHookBridge {
         input: mapped.input,
         toolUseId: `${conv}:${step}`,
         ...(title ? { title } : {}),
-      });
+      }, signal);
       if (decision.allow) return { status: 200, json: { decision: 'allow' } };
       return { status: 200, json: { decision: 'deny', ...(decision.reason ? { reason: decision.reason } : {}) } };
     } catch {

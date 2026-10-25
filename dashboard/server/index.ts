@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { readFile, stat } from 'node:fs/promises';
 import { accessSync, constants as fsConstants, statSync } from 'node:fs';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ViteDevServer } from 'vite';
 import {
@@ -32,6 +32,7 @@ import { resolveDirInHome } from './paths.ts';
 import { abortUsageProbe, getUsage } from './usage.ts';
 import { freshTranscriptMtimeMs, holderMessage, liveHolder } from './livesessions.ts';
 import { TranscriptWatcher } from './watch/transcripts.ts';
+import { isLoopback } from './hookauth.ts';
 import type { AgentNode, ResumeSessionBody, RuntimesResponse, ServerEvent, SessionSummary, StartSessionBody } from '../src/shared/types.ts';
 
 const HOST = process.env.HOST || '127.0.0.1';
@@ -53,14 +54,6 @@ class HttpError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
   }
-}
-
-/** Loopback check for the agy hook route: local IPv4/IPv6 forms, or the bound HOST itself. */
-export function isLoopback(addr: string | undefined, host: string): boolean {
-  if (!addr) return false;
-  const norm = addr.toLowerCase();
-  if (norm === '127.0.0.1' || norm === '::1' || norm === '::ffff:127.0.0.1') return true;
-  return norm === host.toLowerCase();
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -322,7 +315,13 @@ async function main(): Promise<void> {
     } catch {
       throw new HttpError(400, 'invalid JSON body');
     }
-    const out = await sdk.handleAgyHook(decodeURIComponent(id), secret, parsed);
+    // If the hook caller goes away first (plugin timeout, killed agy), withdraw the
+    // pending dashboard permission instead of leaving it stale.
+    const closer = new AbortController();
+    res.on('close', () => {
+      if (!res.writableEnded) closer.abort();
+    });
+    const out = await sdk.handleAgyHook(decodeURIComponent(id), secret, parsed, closer.signal);
     return sendJson(res, out.status, out.json);
   }
 
@@ -424,19 +423,21 @@ async function main(): Promise<void> {
     // Security headers on every response (writeHead merges them).
     for (const [header, value] of Object.entries(securityHeaders(development))) res.setHeader(header, value);
 
+    // The agy plugin hook authenticates by loopback/bound-address + shared secret,
+    // never the fleet token — and before the Host allowlist, which only guards
+    // browsers against DNS rebinding (a Tailscale HOST is not in FLEET_HOSTS).
+    const agyHook = /^\/api\/agy-hook\/([^/]+)$/.exec(url.pathname);
+    if (agyHook) {
+      if ((req.method ?? 'GET') !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+      return handleAgyHookRoute(req, res, agyHook[1] ?? '');
+    }
+
     if (!hostAllowed(req.headers.host, hosts)) {
       return sendJson(res, 421, { error: 'unknown host; use one of ' + hosts.join(', ') });
     }
 
     if (url.pathname === '/api/auth' && (req.method ?? 'GET') === 'POST') {
       return handleAuthPost(req, res);
-    }
-
-    // The agy plugin hook authenticates by loopback + shared secret, never the fleet token.
-    const agyHook = /^\/api\/agy-hook\/([^/]+)$/.exec(url.pathname);
-    if (agyHook) {
-      if ((req.method ?? 'GET') !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
-      return handleAgyHookRoute(req, res, agyHook[1] ?? '');
     }
 
     const isApi = url.pathname === '/api' || url.pathname.startsWith('/api/') || url.pathname === '/events';
@@ -682,10 +683,7 @@ async function main(): Promise<void> {
   });
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  // Started directly (`tsx server/index.ts`); importing this module (e.g. isLoopback in tests) stays side-effect free.
-  main().catch(err => {
-    console.error('SwarmKit failed to start:', err);
-    process.exit(1);
-  });
-}
+main().catch(err => {
+  console.error('SwarmKit failed to start:', err);
+  process.exit(1);
+});

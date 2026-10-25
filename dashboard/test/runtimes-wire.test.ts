@@ -13,7 +13,7 @@ import type { AcpOptions } from '../server/runtimes/acp';
 import type { AgyOptions } from '../server/runtimes/agy';
 import { RUNTIME_MODELS } from '../src/shared/types';
 import { validRuntime, validRuntimeAgent, validRuntimeEffort, validRuntimeModel } from '../server/validate.ts';
-import { isLoopback } from '../server/index.ts';
+import { isLoopback } from '../server/hookauth.ts';
 
 // Same minimal tree fake as sessions.test.ts (that checkout's reducer stub throws).
 vi.mock('../server/model/reducer.ts', async importOriginal => {
@@ -218,6 +218,28 @@ describe('runtime sessions', () => {
     // Stopping unregisters the hook: the secret no longer answers.
     expect(sdk.stop(id)).toBe(true);
     await expect(sdk.handleAgyHook(id, secret, body)).resolves.toMatchObject({ status: 403 });
+  });
+
+  it('aborting the hook request withdraws the pending dashboard permission', async () => {
+    const { events, agySeen, sdk } = rig();
+    const id = sdk.start({ prompt: 'agy abort', cwd: homeDir, runtime: 'agy' });
+    await vi.waitFor(() => {
+      expect(sdk.get(id)?.status).toBe('done');
+    });
+    const secret = agySeen[0]?.hook?.secret ?? '';
+    expect(secret.length).toBeGreaterThan(0);
+    const body = { conversationId: 'c9', stepIdx: 1, toolCall: { name: 'read_file', args: { AbsolutePath: '/x' } } };
+    const closer = new AbortController();
+    const pending = sdk.handleAgyHook(id, secret, body, closer.signal);
+    await vi.waitFor(() => {
+      expect(sdk.get(id)?.pendingPermissions).toBe(1);
+    });
+    closer.abort();
+    const out = await pending;
+    expect(out.status).toBe(200);
+    expect(out.json.decision).toBe('deny');
+    expect(sdk.get(id)?.pendingPermissions).toBe(0);
+    expect(events.some(e => e.type === 'permission.resolved' && e.allow === false)).toBe(true);
   });
 });
 
