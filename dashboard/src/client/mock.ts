@@ -427,8 +427,8 @@ export function createMockBackend(): FleetBackend {
 
   const upsertHead = (n: AgentNode) => emit?.({ type: 'node.upsert', node: toHead(n) });
 
-  const toolCall = (n: AgentNode, tool: string, summary: string, detail?: string) => {
-    pushEvent(n, 'tool_use', summary, { tool, detail });
+  const toolCall = (n: AgentNode, tool: string, summary: string, detail?: string, toolUseId?: string) => {
+    pushEvent(n, 'tool_use', summary, { tool, detail, ...(toolUseId ? { toolUseId } : {}) });
     n.toolCounts[tool] = (n.toolCounts[tool] ?? 0) + 1;
     n.costUsd = r4(n.costUsd + 0.002);
     bumpSession(n.sessionId);
@@ -468,7 +468,7 @@ export function createMockBackend(): FleetBackend {
     const s = sessions.get(parent.sessionId);
     if (s) s.nodeCount += 1;
     upsertHead(n);
-    toolCall(parent, 'Task', `${agentType} — ${description}`, JSON.stringify({ subagent_type: agentType, description, prompt }, null, 2).slice(0, 2000));
+    toolCall(parent, 'Task', `${agentType} — ${description}`, JSON.stringify({ subagent_type: agentType, description, prompt }, null, 2).slice(0, 2000), id);
     bumpSession(parent.sessionId);
     return n;
   };
@@ -514,7 +514,7 @@ export function createMockBackend(): FleetBackend {
       finishNode(fs, 'Tree UI, drawer, composer and new-session dialog shipped. Build and typecheck pass.', 0.031, tu(21_000, 9800, 84_000));
     });
     at(6000, () => {
-      pushEvent(root, 'text', 'Fleet complete: research, UI and worker tracks all landed.');
+      pushEvent(root, 'text', '## Fleet complete\n\n- Research landed (`explore` mapped the SSE merge rules)\n- Tree UI shipped by `frontend-specialist`\n- Worker renames applied, `npm run build` green\n\nSummary: pricing page launched — research, UI and worker tracks all landed.');
     });
     at(7000, () => {
       finishNode(root, 'Pricing page launched. Explore mapped the repo, frontend-specialist shipped the tree UI, the opencode worker landed the renames. Build + typecheck green.', 0.142, tu(48_000, 16_400, 122_000));
@@ -547,6 +547,13 @@ export function createMockBackend(): FleetBackend {
   let worker: AgentNode | undefined;
 
   at(300, () => pushEvent(root, 'text', 'Planning the pricing page: research the current repo, then fan out UI and worker tracks.'));
+  at(700, () =>
+    pushEvent(
+      root,
+      'text',
+      '## Pricing page plan\n\nThe fan-out is live — two subagents plus one worker in parallel:\n\n- `explore` maps the data flow (`ServerEvent` → reducer → tree)\n- `frontend-specialist` builds the tree UI in `dashboard/src/client`\n- the opencode worker does the mechanical renames\n\n```sh\nnpm run build --prefix dashboard\n```\n\nTrack the launch list at https://example.com/pricing-launch — build stays green before the drawer work lands.',
+    ),
+  );
   at(600, () =>
     pushEvent(root, 'thinking', 'Thinking through the fan-out', {
       detail: 'Plan: 1) explore maps the data flow, 2) frontend-specialist builds the tree UI, 3) an opencode worker does the mechanical renames. Gate everything on npm run build.',

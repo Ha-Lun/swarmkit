@@ -7,7 +7,11 @@ import type { FleetBackend, Guard } from './api';
 import { Archive } from './Archive';
 import { Composer } from './Composer';
 import { Continue } from './Continue';
+import { AgentTabs } from './AgentTabs';
+import { ChatView } from './ChatView';
+import { agentTabs } from './chat';
 import { Drawer } from './Drawer';
+import { Orb } from './Orb';
 import { fmtCost, UNTRUSTED_NOTICE } from './format';
 import { Logo } from './icons';
 import { Landing } from './Landing';
@@ -160,7 +164,23 @@ function TokenScreen() {
   );
 }
 
-function Topbar({ session }: { session: SessionSummary }) {
+function readSessionView(): 'chat' | 'map' {
+  try {
+    return localStorage.getItem('fleet.sessionView') === 'map' ? 'map' : 'chat';
+  } catch {
+    return 'chat';
+  }
+}
+
+function Topbar({
+  session,
+  sessionView,
+  onView,
+}: {
+  session: SessionSummary;
+  sessionView: 'chat' | 'map';
+  onView: (v: 'chat' | 'map') => void;
+}) {
   return (
     <header className="topbar">
       <div className="topbar-title">
@@ -168,6 +188,24 @@ function Topbar({ session }: { session: SessionSummary }) {
         <p className="topbar-cwd" title={session.cwd}>
           {session.cwd}
         </p>
+      </div>
+      <div className="view-toggle" role="group" aria-label="Session view">
+        <button
+          type="button"
+          aria-pressed={sessionView === 'chat'}
+          className={sessionView === 'chat' ? 'is-active' : undefined}
+          onClick={() => onView('chat')}
+        >
+          Chat
+        </button>
+        <button
+          type="button"
+          aria-pressed={sessionView === 'map'}
+          className={sessionView === 'map' ? 'is-active' : undefined}
+          onClick={() => onView('map')}
+        >
+          Map
+        </button>
       </div>
       <div className="topbar-meta">
         {session.pendingPermissions > 0 && (
@@ -199,7 +237,18 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   const [endedDraft, setEndedDraft] = useState<{ id: string; text: string } | null>(null);
   const [restartBusy, setRestartBusy] = useState(false);
   const [dismissedRestart, setDismissedRestart] = useState<string[]>(readDismissed);
+  const [sessionView, setSessionView] = useState<'chat' | 'map'>(readSessionView);
+  const [activeAgentId, setActiveAgentId] = useState('root');
+  const [returnStay, setReturnStay] = useState(false);
   const workersAtRef = useRef(Date.now());
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('fleet.sessionView', sessionView);
+    } catch {
+      // private mode — per pageload then
+    }
+  }, [sessionView]);
 
   /** Wrap every call: a 401 surfaces the token screen instead of crashing. */
   const guard = useCallback<Guard>(async (p) => {
@@ -278,6 +327,8 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
       prevSelected.current = state.selectedId;
       setDrawerNodeId(null);
       setLoadError(false);
+      setActiveAgentId('root');
+      setReturnStay(false);
     }
     if (state.selectedId && !state.details[state.selectedId]) {
       guard(backend.detail(state.selectedId))
@@ -289,11 +340,36 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
     }
   }, [state.selectedId, state.details, backend, guard, retryNonce]);
 
-  const anyActive =
+  const baseActive =
     detail?.nodes.some((n) => n.status === 'running' || n.status === 'waiting') ||
     state.workers.some((w) => w.state === 'running') ||
     state.sessions.some((s) => s.status === 'running' || s.status === 'waiting');
+  const tickNow = useTicker(Boolean(baseActive));
+  const tabs = detail ? agentTabs(detail.nodes, tickNow, detail.permissions) : [];
+  const anyActive = Boolean(baseActive) || tabs.length > 0;
   const now = useTicker(Boolean(anyActive));
+
+  const visibleTabs = tabs.slice();
+  if (detail && activeAgentId !== 'root' && !visibleTabs.some((t) => t.node.id === activeAgentId)) {
+    const kept = nodeById(detail, activeAgentId);
+    if (kept) {
+      const phase =
+        kept.status === 'waiting'
+          ? 'waiting'
+          : kept.status === 'running'
+            ? 'live'
+            : kept.status === 'done' || kept.status === 'idle'
+              ? 'done'
+              : 'error';
+      visibleTabs.push({ node: kept, phase });
+    }
+  }
+  const activeNode = detail
+    ? (nodeById(detail, activeAgentId) ??
+      detail.nodes.find((n) => n.kind === 'main') ??
+      detail.nodes.find((n) => n.id === 'root') ??
+      detail.nodes[0])
+    : undefined;
 
   const drawerNode = detail && drawerNodeId ? nodeById(detail, drawerNodeId) : undefined;
   const drawerTask = workerDrawerKey
@@ -326,6 +402,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
     (sessionId: string, nodeId: string) => {
       setWorkerDrawerKey(null);
       selectSession(sessionId);
+      setSessionView('map');
       setDrawerNodeId(nodeId);
     },
     [selectSession],
@@ -407,6 +484,30 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
     [backend, guardSilent],
   );
 
+  const returnName = activeNode
+    ? activeNode.kind === 'worker' && activeNode.worker
+      ? `${activeNode.worker.lane} · ${activeNode.worker.slug}`
+      : activeNode.agentType
+    : '';
+  const showReturn =
+    sessionView === 'chat' &&
+    !!activeNode &&
+    activeAgentId !== 'root' &&
+    (activeNode.status === 'done' ||
+      activeNode.status === 'idle' ||
+      activeNode.status === 'error' ||
+      activeNode.status === 'stopped');
+
+  useEffect(() => {
+    setReturnStay(false);
+  }, [activeAgentId, detail?.id]);
+
+  useEffect(() => {
+    if (!showReturn || returnStay) return;
+    const t = window.setTimeout(() => setActiveAgentId('root'), 3000);
+    return () => window.clearTimeout(t);
+  }, [showReturn, returnStay, activeAgentId, detail?.id]);
+
   if (authNeeded) return <TokenScreen />;
 
   const ended = !!selected && endedDraft?.id === selected.id;
@@ -428,7 +529,9 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
           onOpenArchive={() => setView('archive')}
           onNew={() => setNewOpen(true)}
         />
-        {view === 'session' && selected && <Topbar session={selected} />}
+        {view === 'session' && selected && (
+          <Topbar session={selected} sessionView={sessionView} onView={setSessionView} />
+        )}
         {view === 'session' && selected?.untrustedProject && (
           <p className="notice" role="note">
             {UNTRUSTED_NOTICE}
@@ -473,10 +576,35 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
             </div>
           ) : (
             <div className="canvas-loading" aria-live="polite">
-              <span className="dot st-running" aria-hidden="true" />
+              <Orb size={32} state="connecting" color="#d9ccff" />
               Loading session…
             </div>
           )
+        ) : sessionView === 'chat' && activeNode ? (
+          <>
+            {(visibleTabs.length > 0 || activeAgentId !== 'root') && (
+              <AgentTabs
+                tabs={visibleTabs}
+                activeId={activeAgentId}
+                now={now}
+                workers={state.workers}
+                workersAt={workersAtRef.current}
+                onSelect={setActiveAgentId}
+              />
+            )}
+            <ChatView
+              key={`${detail.id}:${activeNode.id}`}
+              node={activeNode}
+              nodes={detail.nodes}
+              permissions={detail.permissions}
+              workers={state.workers}
+              workersAt={workersAtRef.current}
+              now={now}
+              onOpenAgent={setActiveAgentId}
+              onDecide={decide}
+              onOpenWorkerLog={(task) => setWorkerDrawerKey(workerKey(task))}
+            />
+          </>
         ) : (
           <Tree
             key={detail.id}
@@ -498,6 +626,15 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
             onRestart={() => void restartSession()}
             onDismiss={dismissRestart}
           />
+        )}
+
+        {view === 'session' && selected && showReturn && !returnStay && (
+          <div className="chat-return" role="status">
+            <span>✓ {returnName} finished — returning to Main</span>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setReturnStay(true)}>
+              Stay
+            </button>
+          </div>
         )}
 
         {view === 'session' && selected && (
@@ -528,7 +665,9 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
         )}
       </div>
 
-      {drawerNode && <Drawer node={drawerNode} onClose={() => setDrawerNodeId(null)} />}
+      {drawerNode && sessionView === 'map' && view === 'session' && (
+        <Drawer node={drawerNode} onClose={() => setDrawerNodeId(null)} />
+      )}
 
       {drawerTask && (
         <WorkerDrawer

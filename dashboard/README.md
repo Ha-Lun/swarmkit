@@ -103,6 +103,15 @@ time, model and agent. `GET /api/workers` returns the list (`WorkerTask[]`),
 slug matches a worker node in any known session tree is linked to that node
 (`workers.update` events over `/events`, also sent right after `hello`).
 
+## Chat and Map views
+
+The session view defaults to **Chat**: the Main agent's transcript as bubbles and
+markdown, with subagent handoffs inline as cards (live activity, recent tool calls,
+result preview, permission decisions) and agent tabs above to jump between runners.
+The **Map** toggle in the session header switches back to the agent tree canvas
+with the detail drawer. Finished agents linger on the tabs for a few seconds, then
+return to Main automatically (Stay keeps you put).
+
 ## Folder picker
 
 `GET /api/dirs?path=<abs>&hidden=1` lists the directories of `path` (default

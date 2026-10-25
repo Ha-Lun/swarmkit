@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
 import { NodeCard } from './NodeCard';
+import { matchWorkerTask } from './chat';
 import { FitIcon, ZoomInIcon, ZoomOutIcon } from './icons';
 
 const CARD_W = 232;
@@ -233,11 +234,7 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
     if (workers.length === 0) return m;
     for (const n of nodes) {
       if (n.kind !== 'worker') continue;
-      const t = workers.find(
-        (w) =>
-          (w.sessionId != null && w.nodeId != null && w.sessionId === n.sessionId && w.nodeId === n.id) ||
-          (n.worker != null && w.lane === n.worker.lane && w.slug === n.worker.slug),
-      );
+      const t = matchWorkerTask(n, workers);
       if (t) m.set(n.id, t);
     }
     return m;
