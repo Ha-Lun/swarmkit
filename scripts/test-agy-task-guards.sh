@@ -632,6 +632,10 @@ gate() { printf '%s' "$2" | python3 -I "$G" "$T/gate.json" | jq -r .decision | g
 gate allow "$(call view_file "{\"AbsolutePath\":\"$W/stub.txt\",\"toolAction\":\"Reading\"}")"
 gate allow "$(call edit_file "{\"Path\":\"$W/stub.txt\",\"Target\":\"a\",\"Replacement\":\"/etc/x\"}")"
 gate allow "$(call find_by_name "{\"SearchDirectory\":\"$W\",\"Pattern\":\"*.txt\"}")"
+gate allow "$(call find_by_name "{\"SearchDirectory\":\"$W\",\"Pattern\":\"src/*.js\"}")"
+for p in '../*' '/etc/*' '~/x' 'a/../../b'; do
+  gate deny "$(call find_by_name "{\"SearchDirectory\":\"$W\",\"Pattern\":\"$p\"}")"
+done
 gate allow "$(call grep_search "{\"SearchPath\":\"$W\",\"Query\":\"BUG\",\"MatchPerLine\":true,\"CaseInsensitive\":false}")"
 gate allow "$(call view_file "{\"AbsolutePath\":\"$W/AGENTS.md\"}")"                         # rules: read-only, root only
 gate allow "$(call write_to_file "{\"TargetFile\":\"$W/sub/AGENTS.md\",\"CodeContent\":\"x\"}")"

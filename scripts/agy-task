@@ -231,7 +231,8 @@ def agent_edits_git(agent):
 
 
 HEADLESS_NOTE = ("Headless worker: there is no browser or MCP here, so skip Playwright/screenshot steps;"
-                 " the orchestrator verifies visually.")
+                 " the orchestrator verifies visually. Only files inside this worktree are reachable: skills, rules,"
+                 " plugin and other folders are not available here, so don't look for them.")
 
 
 def agy_agents_dir():
@@ -251,7 +252,8 @@ AGY_EDIT_TOOLS = ("write_to_file", "edit_file", "replace_file_content")
 AGY_ROOTS = (".agents", ".agent", "_agents", "_agent", ".gemini")  # agy's customization roots; the gate denies them
 AGY_WORKER = "swarmkit-worker"  # the plain run's overlay agent; reserved, `--agent swarmkit-worker` is refused
 WORKER_NOTE = ("Headless worker: use your file tools (grep_search / find_by_name to search, view_file, edit_file);"
-               " there is no shell.")
+               " there is no shell. Only files inside this worktree are reachable: skills, rules, plugin and other"
+               " folders are not available here, so don't look for them.")
 PLAIN = re.compile(r"[^\s'\"#&*!|>%@`\[\]{},-][^#]*")  # a plain YAML scalar on one line: no indicator start, no comment
 QUOTED = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"\\]|\\.)*\"")
 

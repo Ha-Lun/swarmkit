@@ -124,6 +124,9 @@ def decide(call, cfg):
             raise ValueError(f"unexpected argument {k}")
         if isinstance(v, (list, dict)) and pathlike(v):
             raise ValueError(f"path-like value in {k}")
+        if name == "find_by_name" and k == "Pattern" and isinstance(v, str):  # a glob under SearchDirectory, not a path
+            if v.startswith(("/", "~", "\\")) or ".." in v.split("/"):
+                raise ValueError("find_by_name Pattern must be relative, without ..")
     if name in EDIT and any(os.path.relpath(p, root).lower() in RULES for p in paths):
         raise ValueError("the worktree's AGENTS.md and GEMINI.md are agy's rules: read-only for workers")
     if name in SHELL:
