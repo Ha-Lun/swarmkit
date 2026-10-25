@@ -559,6 +559,59 @@ export function createMockBackend(): FleetBackend {
       '## Pricing page plan\n\nThe fan-out is live — two subagents plus one worker in parallel:\n\n- `explore` maps the data flow (`ServerEvent` → reducer → tree)\n- `frontend-specialist` builds the tree UI in `dashboard/src/client`\n- the opencode worker does the mechanical renames\n\n```sh\nnpm run build --prefix dashboard\n```\n\nTrack the launch list at https://example.com/pricing-launch — build stays green before the drawer work lands.',
     ),
   );
+  at(850, () => pushEvent(root, 'text', `## Rendering showcase
+
+A paragraph with **bold**, _italic_, ~~strike~~, \`inline code\` and a [link](https://example.com/docs).
+
+| Track | Owner | Status | Cost |
+| --- | --- | --- | --- |
+| Research | \`explore\` | done | $0.04 |
+| Tree UI | \`frontend-specialist\` | running | $0.31 |
+| Renames | opencode worker | queued | $0.00 |
+
+- [x] Plan the fan-out
+- [ ] Land the drawer work
+  - nested item one
+  - nested item two
+    1. deep ordered step
+
+> Keep the build green before merging.
+
+Inline math $e^{i\\pi}+1=0$ and \\(a^2+b^2=c^2\\), then display forms:
+
+$$\\int_0^\\infty e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2}$$
+
+\\[\\sum_{k=1}^{n} k = \\frac{n(n+1)}{2}\\]
+
+\`\`\`ts
+export function total(items: { price: number }[]): number {
+  // sum the plan prices
+  return items.reduce((acc, i) => acc + i.price, 0);
+}
+\`\`\`
+
+\`\`\`bash
+npm run build --prefix dashboard && echo "green"
+\`\`\`
+
+\`\`\`mermaid
+flowchart LR
+  A[Plan] --> B{Fan out}
+  B --> C[explore]
+  B --> D[frontend]
+  C --> E[Merge]
+  D --> E
+\`\`\`
+
+A claim with a footnote.[^1]
+
+[^1]: The footnote text lives at the bottom.`));
+  at(820, () =>
+    pushEvent(root, 'user', 'Here is the mockup I mean', {
+      detail: 'Here is the mockup I mean',
+      images: ['data:image/png;base64,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'],
+    }),
+  );
   at(600, () =>
     pushEvent(root, 'thinking', 'Thinking through the fan-out', {
       detail: 'Plan: 1) explore maps the data flow, 2) frontend-specialist builds the tree UI, 3) an opencode worker does the mechanical renames. Gate everything on npm run build.',

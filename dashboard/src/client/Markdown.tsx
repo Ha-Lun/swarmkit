@@ -53,6 +53,18 @@ export function normalizeMath(input: string): string {
       const prev = i > 0 ? input[i - 1] : '';
       const nx = i + 1 < n ? input[i + 1] : '';
       const isDigit = nx >= '0' && nx <= '9';
+      // A line that is only $$…$$ is display math: give it block delimiters
+      // (remark-math otherwise treats one-line $$ as inline).
+      if (nx === '$' && (i === 0 || prev === '\n')) {
+        const eolAt = input.indexOf('\n', i);
+        const end = eolAt === -1 ? n : eolAt;
+        const line = input.slice(i, end).trimEnd();
+        if (line.length > 4 && line.endsWith('$$') && line.indexOf('$$', 2) === line.length - 2) {
+          out.push('$$\n', line.slice(2, -2), '\n$$');
+          i += line.length;
+          continue;
+        }
+      }
       // Keep $$ delimiters intact; escape $5-style amounts so
       // single-dollar math does not swallow prices.
       if (isDigit && prev !== '$') {

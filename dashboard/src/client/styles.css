@@ -598,7 +598,8 @@ button {
 
 /* ---------- node cards ---------- */
 
-.node {
+/* :not(svg .node) keeps this off mermaid's SVG flowchart nodes. */
+.node:not(svg .node) {
   position: absolute;
   width: 232px;
   animation: node-in 0.2s ease both;
