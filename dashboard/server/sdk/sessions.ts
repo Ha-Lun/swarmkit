@@ -852,6 +852,7 @@ export class SdkSessions {
     const seen = new Set<string>();
     const out: SlashCommandInfo[] = [];
     for (const item of raw) {
+      if (!item || typeof item !== 'object') continue;
       const r = item as { name?: unknown; description?: unknown; argumentHint?: unknown };
       if (typeof r.name !== 'string' || r.name.length === 0) continue;
       let name = r.name;
