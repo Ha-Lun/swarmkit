@@ -357,7 +357,7 @@ export class SdkSessions {
     if (!images || images.length === 0) {
       // The SDK and the adapters never echo page-sent text, so the user event is made here.
       const uuid = randomUUID();
-      const events = applyMessage(session.tree, { type: 'user', uuid, message: { role: 'user', content: text } });
+      const events = applyMessage(session.tree, { type: 'user', uuid, message: { role: 'user', content: text }, swarmkitPage: true });
       return { message: { ...base, uuid, message: { role: 'user', content: text } }, events };
     }
     let stored: { urls: string[]; paths: string[] };
@@ -381,6 +381,7 @@ export class SdkSessions {
       uuid,
       message: { role: 'user', content: text },
       swarmkitImages: stored.urls,
+      swarmkitPage: true,
     });
     return { message: { ...base, uuid, message: { role: 'user', content } }, events };
   }

@@ -191,6 +191,16 @@ describe('reducer', () => {
     expect(echo.filter(e => e.type === 'node.event')).toHaveLength(0);
     expect(tree.nodes.get('root')!.events.filter(e => e.kind === 'user')).toHaveLength(1);
   });
+
+  it('shows a page-sent message that starts with "<", but not a transcript injection', () => {
+    const tree = createTree('s1', { startedAt: 1 });
+    const page = applyMessage(tree, { type: 'user', uuid: 'p1', message: { role: 'user', content: '<div>hello</div>' }, swarmkitPage: true });
+    const pageEvents = page.flatMap(e => (e.type === 'node.event' ? [e.event] : []));
+    expect(pageEvents).toHaveLength(1);
+    expect(pageEvents[0]).toMatchObject({ kind: 'user', summary: '<div>hello</div>' });
+    const injected = applyMessage(tree, { type: 'user', uuid: 't1', message: { role: 'user', content: '<command-name>x</command-name>' } });
+    expect(injected.filter(e => e.type === 'node.event')).toHaveLength(0);
+  });
 });
 
 /** Reads the first queued user message and finishes with a result. */

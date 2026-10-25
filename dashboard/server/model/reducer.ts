@@ -355,6 +355,8 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
   // Page-sent images arrive as stored-image URLs (swarmkitImages); transcript lines carry
   // image blocks. Either way the event holds markers and URLs, never base64.
   const urls = Array.isArray(m.swarmkitImages) ? m.swarmkitImages.filter((u): u is string => typeof u === 'string') : [];
+  // Page-sent text may start with '<' (pasted HTML); only transcript/SDK lines use '<' for system injections.
+  const page = m.swarmkitPage === true;
   const addUser = (text: string, imageCount: number): void => {
     const key = `${str(m.uuid) ?? `user:${ts}`}:user`;
     if (seen.has(key)) return;
@@ -381,13 +383,13 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
   };
 
   if (typeof content === 'string') {
-    if (m.isMeta !== true && !content.startsWith('<')) addUser(content, urls.length);
+    if (m.isMeta !== true && (page || !content.startsWith('<'))) addUser(content, urls.length);
   } else if (Array.isArray(content)) {
     const blocks = content.map(asRaw);
     const imageCount = blocks.filter(b => b?.type === 'image').length;
     if (imageCount > 0 && m.isMeta !== true) {
       const text = blocks.map(b => (b?.type === 'text' && typeof b.text === 'string' ? b.text : '')).filter(t => t).join('\n');
-      if (!text.startsWith('<')) addUser(text, Math.max(imageCount, urls.length));
+      if (page || !text.startsWith('<')) addUser(text, Math.max(imageCount, urls.length));
     }
     for (const raw of content) {
       const block = asRaw(raw);
