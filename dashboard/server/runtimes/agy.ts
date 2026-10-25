@@ -4,6 +4,7 @@ import type { ChildProcess } from 'node:child_process';
 import { timingSafeEqual } from 'node:crypto';
 import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { QueryFn } from '../sdk/sessions.ts';
+import { num, str, userText } from './util.ts';
 
 export interface AgyOptions {
   command?: string;
@@ -26,7 +27,7 @@ export interface AgyHookRequest {
   title?: string;
 }
 
-export interface AgyHookDecision {
+interface AgyHookDecision {
   allow: boolean;
   reason?: string;
 }
@@ -38,8 +39,8 @@ export interface AgyHookResponse {
 
 type Raw = Record<string, unknown>;
 
-const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined);
+type HookHandler = (req: AgyHookRequest, signal?: AbortSignal) => Promise<AgyHookDecision>;
+
 
 function strip(input: Raw): Raw {
   const out: Raw = {};
@@ -112,18 +113,6 @@ function mapUsage(u: unknown): { input_tokens: number; output_tokens: number; ca
   if (!u || typeof u !== 'object' || Array.isArray(u)) return undefined;
   const r = u as Raw;
   return { input_tokens: num(r.input_tokens), output_tokens: num(r.output_tokens), cache_read_input_tokens: num(r.cache_read_tokens) };
-}
-
-function userText(m: SDKUserMessage): string {
-  const content = (m as { message?: { content?: unknown } })?.message?.content;
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) {
-    return content.map(part => {
-      const b = (part && typeof part === 'object' ? part : {}) as Raw;
-      return typeof b.text === 'string' ? b.text : '';
-    }).filter(v => v).join('\n');
-  }
-  return '';
 }
 
 export function createAgyQuery(opts: AgyOptions): QueryFn {
@@ -470,9 +459,9 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
 }
 
 export class AgyHookBridge {
-  private handlers = new Map<string, (req: AgyHookRequest, signal?: AbortSignal) => Promise<AgyHookDecision>>();
+  private handlers = new Map<string, HookHandler>();
 
-  register(secret: string, handler: (req: AgyHookRequest, signal?: AbortSignal) => Promise<AgyHookDecision>): void {
+  register(secret: string, handler: HookHandler): void {
     this.handlers.set(secret, handler);
   }
 
@@ -485,7 +474,7 @@ export class AgyHookBridge {
       status,
       json: reason ? { decision: 'deny', reason } : { decision: 'deny' },
     });
-    let handler: ((req: AgyHookRequest, signal?: AbortSignal) => Promise<AgyHookDecision>) | undefined;
+    let handler: HookHandler | undefined;
     const given = typeof secretHeader === 'string' ? secretHeader : '';
     for (const [secret, h] of this.handlers) {
       const a = Buffer.from(secret, 'utf8');

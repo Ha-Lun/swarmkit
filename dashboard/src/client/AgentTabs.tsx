@@ -1,7 +1,7 @@
 // Agent tabs above the chat: Main + one tab per live/waiting/lingering agent.
 import type { WorkerTask } from '../shared/types';
 import { elapsedMs, fmtDuration, modelLabel, workerElapsedS } from './format';
-import { matchWorkerTask, orbColor, orbState } from './chat';
+import { agentLabel, matchWorkerTask, orbColor, orbState } from './chat';
 import type { AgentTab } from './chat';
 import { Orb } from './Orb';
 
@@ -12,11 +12,6 @@ interface Props {
   workers: WorkerTask[];
   workersAt: number;
   onSelect: (nodeId: string) => void;
-}
-
-function tabName(node: AgentTab['node']): string {
-  if (node.kind === 'worker' && node.worker) return `${node.worker.lane} · ${node.worker.slug}`;
-  return node.agentType;
 }
 
 export function AgentTabs({ tabs, activeId, now, workers, workersAt, onSelect }: Props) {
@@ -82,7 +77,7 @@ export function AgentTabs({ tabs, activeId, now, workers, workersAt, onSelect }:
           );
         return renderTab(
           node.id,
-          tabName(node),
+          agentLabel(node),
           modelLabel(task?.model ?? node.model).split(' ')[0],
           phase,
           activeId === node.id,

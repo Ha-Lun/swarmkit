@@ -2,8 +2,10 @@
 // yields Claude-SDK-shaped messages so SdkSessions can consume them like SDK output.
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
-import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { QueryFn } from '../sdk/sessions.ts';
+import { num, rec, str, userText } from './util.ts';
+import type { Rec } from './util.ts';
 
 export interface AcpOptions {
   command?: string[];
@@ -12,8 +14,6 @@ export interface AcpOptions {
   onSessionId?: (id: string) => void;
   env?: NodeJS.ProcessEnv;
 }
-
-type Rec = Record<string, unknown>;
 
 const OVERLAY = {
   agent: {
@@ -29,18 +29,6 @@ const OVERLAY = {
 };
 
 const MAX_TOOL_TEXT = 20000;
-
-function str(v: unknown): string | undefined {
-  return typeof v === 'string' && v.length > 0 ? v : undefined;
-}
-
-function num(v: unknown): number {
-  return typeof v === 'number' && Number.isFinite(v) ? v : 0;
-}
-
-function rec(v: unknown): Rec | undefined {
-  return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Rec) : undefined;
-}
 
 /** The configOption with id 'model', whatever shape the agent returns it in. */
 function modelCurrentValue(configOptions: unknown): string | undefined {
@@ -71,7 +59,6 @@ function mapToolCall(name: string | undefined, kind: string | undefined, rawInpu
     case 'read':
       return { name: 'Read', input: rawInput };
     case 'edit':
-      return { name: 'Edit', input: rawInput };
     case 'delete':
     case 'move':
       return { name: 'Edit', input: rawInput };
@@ -127,21 +114,6 @@ function pickOptionId(options: unknown, kinds: string[]): string | undefined {
   if (!Array.isArray(options)) return undefined;
   const list = options.map(rec).filter((o): o is Rec => o !== undefined);
   return str(list.find(o => typeof o.kind === 'string' && kinds.includes(o.kind))?.optionId) ?? str(list[0]?.optionId);
-}
-
-function userText(msg: SDKUserMessage): string {
-  const content = rec(msg as unknown as Rec)?.message !== undefined ? rec((msg as unknown as Rec).message)?.content : undefined;
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) {
-    return content
-      .map(part => {
-        const p = rec(part);
-        return p && p.type === 'text' && typeof p.text === 'string' ? p.text : '';
-      })
-      .filter(t => t.length > 0)
-      .join('\n');
-  }
-  return '';
 }
 
 interface ToolState {

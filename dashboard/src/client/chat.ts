@@ -96,10 +96,14 @@ export function orbLabel(state: OrbState): string {
     case 'searching': return 'Searching…';
     case 'shaping': return 'Editing…';
     case 'weaving': return 'Handing off…';
-    case 'working': return 'Working…';
     case 'breathing': return 'Idle';
     default: return 'Working…';
   }
+}
+
+/** Display name for an agent: `lane · slug` for tree-linked workers, else its agent type. */
+export function agentLabel(node: AgentNode): string {
+  return node.kind === 'worker' && node.worker ? `${node.worker.lane} · ${node.worker.slug}` : node.agentType;
 }
 
 export function orbColor(node: AgentNode, task?: WorkerTask): string {

@@ -2,7 +2,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
 import { MAX_EVENTS } from '../shared/types';
-import { buildChat, matchWorkerTask, orbColor, orbLabel, orbState } from './chat';
+import { agentLabel, buildChat, matchWorkerTask, orbColor, orbLabel, orbState } from './chat';
 import type { ChatItem } from './chat';
 import { elapsedMs, fmtDuration, modelLabel, toolGroups, workerElapsedS } from './format';
 import type { ToolKey } from './format';
@@ -108,8 +108,7 @@ function HandoffCard({
   onDecide: (p: PermissionRequest, allow: boolean, message?: string) => void;
 }) {
   const [showFull, setShowFull] = useState(false);
-  const isWorker = child.kind === 'worker' && child.worker;
-  const name = isWorker ? `${child.worker!.lane} · ${child.worker!.slug}` : child.agentType;
+  const name = agentLabel(child);
   const waiting = child.status === 'waiting' || permission != null;
   const elapsed = task
     ? fmtDuration(workerElapsedS(task, now, workersAt) * 1000)

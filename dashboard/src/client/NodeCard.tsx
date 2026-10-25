@@ -2,6 +2,7 @@
 // A matching WorkerTask (tree-linked worker) overlays its live data.
 import type { KeyboardEvent } from 'react';
 import type { AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
+import { agentLabel } from './chat';
 import { elapsedMs, fmtDuration, modelLabel, workerElapsedS, workerStateClass } from './format';
 import { kindIcon } from './icons';
 import { PermissionPanel } from './Permission';
@@ -25,8 +26,7 @@ function isFormTarget(target: EventTarget | null): boolean {
 }
 
 export function NodeCard({ node, now, permission, open, task, workersAt, onOpen, onDecide, clickGuard }: Props) {
-  const isWorker = node.kind === 'worker' && node.worker;
-  const name = isWorker ? `${node.worker!.lane} · ${node.worker!.slug}` : node.agentType;
+  const name = agentLabel(node);
   // Tool calls the user refused in the dashboard (workers report their own count via the task).
   const deniedCalls = task
     ? task.denied
