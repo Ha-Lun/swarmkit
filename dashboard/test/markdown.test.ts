@@ -125,6 +125,44 @@ describe('safety', () => {
   });
 });
 
+describe('stored images', () => {
+  it('renders stored session image paths as <img>', () => {
+    for (const src of [
+      '/api/sessions/abc123/images/1.png',
+      '/api/sessions/abc-DEF_01/images/12.jpg',
+      '/api/sessions/s1/images/1234.gif',
+      '/api/sessions/s1/images/3.webp',
+    ]) {
+      const out = html(`![alt](${src})`);
+      expect(out).toContain('<img');
+      expect(out).toContain(`src="${src}"`);
+    }
+  });
+  it('renders other same-origin paths as 🖼 links', () => {
+    for (const src of [
+      '/api/sessions/s1/images/1.txt',
+      '/api/sessions/s1/images/1.jpeg',
+      '/api/sessions/s1/images/12345.png',
+      '/api/sessions//images/1.png',
+      '/api/sessions/s1/files/1.png',
+      '/other/path.png',
+      '/api/sessions/s1/images/1.png/evil',
+    ]) {
+      const out = html(`![alt](${src})`);
+      expect(out).not.toContain('<img');
+      expect(out).toContain('🖼');
+      expect(out).toContain(src);
+    }
+  });
+  it('renders remote and protocol-relative URLs as 🖼 links', () => {
+    for (const src of ['https://example.com/i.png', '//example.com/i.png']) {
+      const out = html(`![alt](${src})`);
+      expect(out).not.toContain('<img');
+      expect(out).toContain('🖼');
+    }
+  });
+});
+
 describe('large input', () => {
   it('renders text over 100k chars as an md-raw pre', () => {
     const out = html('a'.repeat(100_001));

@@ -649,7 +649,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
         {view === 'session' && selected && (
           selected.source === 'page' && running ? (
             <Composer
-              onSend={(text) => callSession((id) => backend.send(id, text), text)}
+              onSend={(text, images) => callSession((id) => backend.send(id, text, images), text)}
               onInterrupt={() => callSession((id) => backend.interrupt(id))}
               onStop={() => {
                 if (state.selectedId) void guardSilent(backend.stop(state.selectedId));

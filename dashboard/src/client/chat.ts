@@ -3,7 +3,7 @@ import type { OrbState } from 'thinking-orbs';
 import type { ActivityEvent, AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
 
 export type ChatItem =
-  | { type: 'user'; id: string; ts: number; text: string }
+  | { type: 'user'; id: string; ts: number; text: string; images?: string[] }
   | { type: 'assistant'; id: string; ts: number; text: string }
   | { type: 'thinking'; id: string; ts: number; text: string; summary: string }
   | { type: 'tools'; id: string; ts: number; events: ActivityEvent[]; counts: Array<{ tool: string; count: number }> }
@@ -52,7 +52,13 @@ export function buildChat(node: AgentNode, children: AgentNode[]): ChatItem[] {
     }
     endGroup();
     if (e.kind === 'user') {
-      out.push({ type: 'user', id: e.id, ts: e.ts, text: e.detail ?? e.summary });
+      out.push({
+        type: 'user',
+        id: e.id,
+        ts: e.ts,
+        text: e.detail ?? e.summary,
+        ...(e.images?.length ? { images: [...e.images] } : {}),
+      });
     } else if (e.kind === 'text') {
       out.push({ type: 'assistant', id: e.id, ts: e.ts, text: e.detail ?? e.summary });
     } else if (e.kind === 'thinking') {
@@ -64,6 +70,18 @@ export function buildChat(node: AgentNode, children: AgentNode[]): ChatItem[] {
     }
   }
   return out;
+}
+
+/** The server appends one `🖼 image` line per stored image to the user text. */
+const IMAGE_MARK_LINE = /^\s*🖼 image\s*$/;
+
+/** Drop the server's per-image marker lines; the thumbnails carry that meaning. */
+export function stripImageMarkers(text: string): string {
+  return text
+    .split('\n')
+    .filter((line) => !IMAGE_MARK_LINE.test(line))
+    .join('\n')
+    .trimEnd();
 }
 
 export function orbState(node: AgentNode, waiting: boolean): OrbState {

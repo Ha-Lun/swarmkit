@@ -1,8 +1,8 @@
 // Chat transcript for one agent: bubbles, tool rows, handoff cards, thinking indicator.
-import { lazy, Suspense, useLayoutEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
 import { MAX_EVENTS } from '../shared/types';
-import { agentLabel, buildChat, matchWorkerTask, orbColor, orbLabel, orbState } from './chat';
+import { agentLabel, buildChat, matchWorkerTask, orbColor, orbLabel, orbState, stripImageMarkers } from './chat';
 import type { ChatItem } from './chat';
 import { elapsedMs, fmtDuration, modelLabel, toolGroups, workerElapsedS } from './format';
 import type { ToolKey } from './format';
@@ -36,6 +36,91 @@ const GROUP_LABEL: Record<ToolKey, string> = {
 function firstLine(s: string): string {
   const line = s.split('\n')[0].trim();
   return line.length > 80 ? line.slice(0, 80) + '…' : line;
+}
+
+/** User bubble: stored-image thumbnails above the text plus a lightbox viewer. */
+function UserBubble({ item }: { item: Extract<ChatItem, { type: 'user' }> }) {
+  const images = item.images ?? [];
+  const text = images.length > 0 ? stripImageMarkers(item.text) : item.text;
+  const [open, setOpen] = useState<number | null>(null);
+  const thumbRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const returnTo = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (open === null) return;
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        returnTo.current = open;
+        setOpen(null);
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (open === null && returnTo.current !== null) {
+      thumbRefs.current[returnTo.current]?.focus();
+      returnTo.current = null;
+    }
+  }, [open]);
+
+  const close = (index: number) => {
+    returnTo.current = index;
+    setOpen(null);
+  };
+
+  if (images.length === 0) {
+    return <p className="chat-user">{text}</p>;
+  }
+  return (
+    <div className="chat-user-block">
+      <div className="chat-user-images">
+        {images.map((src, i) => (
+          <button
+            key={`${i}-${src.slice(0, 32)}`}
+            ref={(el) => {
+              thumbRefs.current[i] = el;
+            }}
+            type="button"
+            className="chat-user-thumb"
+            aria-label={`Open image ${i + 1} of ${images.length}`}
+            onClick={() => setOpen(i)}
+          >
+            <img src={src} alt={`Attached image ${i + 1}`} />
+          </button>
+        ))}
+      </div>
+      {text ? <p className="chat-user">{text}</p> : null}
+      {open !== null && images[open] && (
+        <div className="lightbox" onClick={() => close(open)}>
+          <div
+            className="lightbox-inner"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Image ${open + 1} of ${images.length}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              ref={closeRef}
+              type="button"
+              className="lightbox-close"
+              aria-label="Close image viewer"
+              onClick={() => close(open)}
+            >
+              ✕
+            </button>
+            <img className="lightbox-img" src={images[open]} alt={`Attached image ${open + 1}`} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ToolsRow({ item }: { item: Extract<ChatItem, { type: 'tools' }> }) {
@@ -157,7 +242,7 @@ function HandoffCard({
             </ul>
           )}
           {!running && child.result && (
-            <div className="handoff-result">
+            <div className={`handoff-result${showFull ? ' is-full' : ''}`}>
               <Suspense fallback={<p className="chat-assistant md-plain">{showFull ? child.result : resultPreview}</p>}>
                 <Markdown text={showFull ? child.result : resultPreview} />
               </Suspense>
@@ -243,11 +328,7 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
           )}
           {items.map((item) => {
             if (item.type === 'user') {
-              return (
-                <p key={item.id} className="chat-user">
-                  {item.text}
-                </p>
-              );
+              return <UserBubble key={item.id} item={item} />;
             }
             if (item.type === 'assistant') {
               return (

@@ -147,6 +147,9 @@ function CodeBlock({ className, children }: { className?: string; children?: Rea
   );
 }
 
+/** Only stored session images render inline; every other src becomes a 🖼 link. */
+const STORED_IMAGE_RE = /^\/api\/sessions\/[^/]+\/images\/\d{1,4}\.(png|jpg|gif|webp)$/;
+
 const components: Components = {
   a: ({ href, children }) => (
     <a href={href} target="_blank" rel="noopener noreferrer">
@@ -155,7 +158,7 @@ const components: Components = {
   ),
   img: ({ src, alt }) => {
     const s = src ?? '';
-    if (s.startsWith('data:image/') || (s.startsWith('/') && !s.startsWith('//'))) {
+    if (s.startsWith('data:image/') || STORED_IMAGE_RE.test(s)) {
       return <img loading="lazy" src={s} alt={alt ?? ''} />;
     }
     return (
