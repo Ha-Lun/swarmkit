@@ -11,6 +11,8 @@ export interface AgyOptions {
   /** e.g. ['node', '/abs/fake-agy.mjs'] for tests; when set, spawn(prefix[0], [...prefix.slice(1), ...args]). */
   commandPrefix?: string[];
   model?: string;
+  /** Reads the lead model per turn (model switches on follow-up turns). */
+  currentModel?: () => string | undefined;
   effort?: string;
   agent?: string;
   /** agy conversation id -> --conversation on the first turn. */
@@ -201,7 +203,8 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
 
     const argsFor = (text: string, conv: string | undefined): string[] => {
       const args = ['-p', text, '--output-format', 'stream-json', '--agent', opts.agent ?? 'lead-dev-hybrid'];
-      if (opts.model) args.push('--model', opts.model);
+      const turnModel = opts.currentModel?.() ?? opts.model;
+      if (turnModel) args.push('--model', turnModel);
       if (opts.effort) args.push('--effort', opts.effort);
       if (conv) args.push('--conversation', conv);
       if (opts.hook) args.push('--dangerously-skip-permissions');
@@ -259,6 +262,7 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
       let finished = false;
       let pending: { idx: number; id: string; text: string; usage?: Raw } | null = null;
       const seenTools = new Set<number>();
+      const finishedTools = new Set<number>();
 
       const flushText = (): void => {
         if (!pending || !pending.text) {
@@ -324,6 +328,18 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
               return;
             }
             if (su.state === 'DONE' || su.state === 'ERROR') {
+              if (!seenTools.has(idx)) {
+                seenTools.add(idx);
+                const mapped = mapTool(rawName, params);
+                push(asMsg({
+                  type: 'assistant',
+                  parent_tool_use_id: null,
+                  session_id: sessionId,
+                  message: { id, role: 'assistant', model, content: [{ type: 'tool_use', id, name: mapped.name, input: mapped.input }] },
+                }));
+              }
+              if (finishedTools.has(idx)) return;
+              finishedTools.add(idx);
               const isErr = su.state === 'ERROR';
               const em = asObj(info.error);
               const content = isErr ? (str(em.message) ?? 'error') : 'done';

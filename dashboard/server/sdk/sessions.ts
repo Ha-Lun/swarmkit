@@ -362,6 +362,7 @@ export class SdkSessions {
         ...(model ? { model } : {}),
         ...(resume && session.runtimeSessionId ? { resumeId: session.runtimeSessionId } : {}),
         onSessionId,
+        currentModel: () => session.model,
       })({ prompt: session.queue, options });
     }
     // A fresh secret per generation: a lingering old agy process cannot get prompts in the new one.
@@ -391,6 +392,7 @@ export class SdkSessions {
       ...(resume && session.runtimeSessionId ? { resumeId: session.runtimeSessionId } : {}),
       onSessionId,
       hook: { url: `${this.hookBase()}/api/agy-hook/${session.id}`, secret },
+      currentModel: () => session.model,
     })({ prompt: session.queue, options });
   }
 
@@ -428,6 +430,9 @@ export class SdkSessions {
       if (generation !== session.generation) {
         // A stale tool request from a replaced query must not surface in the new turn.
         return { behavior: 'deny', message: 'Session restarted' };
+      }
+      if (signal?.aborted) {
+        return { behavior: 'deny', message: 'Aborted' };
       }
       const request: PermissionRequest = {
         id: randomUUID(),

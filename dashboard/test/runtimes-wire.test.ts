@@ -172,6 +172,79 @@ describe('runtime sessions', () => {
     expect(sdk.list().find(s => s.id === id)?.runtime).toBe('agy');
   });
 
+  it('passes a live currentModel to both factories that tracks session.model across an idle resume', async () => {
+    const events: ServerEvent[] = [];
+    const acpSeen: AcpOptions[] = [];
+    const agySeen: AgyOptions[] = [];
+    const sdk = new SdkSessions(e => events.push(e), () => doneQuery(), {
+      acp: (o: AcpOptions): QueryFn => {
+        acpSeen.push(o);
+        o.onSessionId?.('acp-conv-live');
+        return () => (async function* (): AsyncGenerator<SDKMessage> {
+          yield { type: 'system', subtype: 'init', model: 'fake' } as unknown as SDKMessage;
+          await new Promise<void>(() => {});
+        })();
+      },
+      agy: (o: AgyOptions): QueryFn => {
+        agySeen.push(o);
+        o.onSessionId?.('agy-conv-live');
+        return () => doneQuery();
+      },
+      hookBase: () => 'http://127.0.0.1:9',
+    });
+    void events;
+    void agySeen;
+    const modelA = RUNTIME_MODELS.opencode[0]!;
+    const modelB = RUNTIME_MODELS.opencode[1]!;
+    const id = sdk.start({ prompt: 'live one', cwd: homeDir, runtime: 'opencode', model: modelA });
+    await vi.waitFor(() => {
+      expect(acpSeen).toHaveLength(1);
+    });
+    expect(acpSeen[0]?.currentModel?.()).toBe(modelA);
+    // Emulate the idle-but-live state: consuming with an idle root.
+    const map = (sdk as unknown as { sessions: Map<string, { consuming: boolean; tree: SessionTree }> }).sessions;
+    await vi.waitFor(() => {
+      expect(map.get(id)?.consuming).toBe(true);
+    });
+    map.get(id)!.tree.nodes.get('root')!.status = 'idle';
+    const resumed = await sdk.resume(id, { text: 'second with new model', model: modelB }, { cwd: homeDir });
+    expect(resumed).toBe(id);
+    expect(acpSeen).toHaveLength(1); // idle path reuses the live process
+    expect(acpSeen[0]?.currentModel?.()).toBe(modelB);
+    sdk.stop(id);
+  });
+
+  it('passes a live currentModel to the agy factory that tracks session.model across an idle resume', async () => {
+    const agySeen: AgyOptions[] = [];
+    const sdk = new SdkSessions(() => {}, () => doneQuery(), {
+      agy: (o: AgyOptions): QueryFn => {
+        agySeen.push(o);
+        o.onSessionId?.('agy-conv-live');
+        return () => (async function* (): AsyncGenerator<SDKMessage> {
+          yield { type: 'system', subtype: 'init', model: 'fake' } as unknown as SDKMessage;
+          await new Promise<void>(() => {});
+        })();
+      },
+      hookBase: () => 'http://127.0.0.1:9',
+    });
+    const modelA = RUNTIME_MODELS.agy[0]!;
+    const modelB = RUNTIME_MODELS.agy[1]!;
+    const id = sdk.start({ prompt: 'live agy', cwd: homeDir, runtime: 'agy', model: modelA });
+    await vi.waitFor(() => {
+      expect(agySeen).toHaveLength(1);
+    });
+    expect(agySeen[0]?.currentModel?.()).toBe(modelA);
+    const map = (sdk as unknown as { sessions: Map<string, { consuming: boolean; tree: SessionTree }> }).sessions;
+    await vi.waitFor(() => {
+      expect(map.get(id)?.consuming).toBe(true);
+    });
+    map.get(id)!.tree.nodes.get('root')!.status = 'idle';
+    await sdk.resume(id, { text: 'second', model: modelB }, { cwd: homeDir });
+    expect(agySeen).toHaveLength(1);
+    expect(agySeen[0]?.currentModel?.()).toBe(modelB);
+    sdk.stop(id);
+  });
+
   it('a non-claude model on a terminal id refuses resume with 409', async () => {
     const { sdk } = rig();
     await expect(

@@ -280,6 +280,33 @@ describe('SdkSessions', () => {
       expect(decision).toEqual({ behavior: 'deny', message: 'Session restarted' });
     });
 
+    it('denies immediately when the signal is already aborted (no pending, no event)', async () => {
+      const events: ServerEvent[] = [];
+      const spied: Array<NonNullable<Options['canUseTool']>> = [];
+      const sdk = new SdkSessions(e => events.push(e), params => {
+        spied.push(params.options!.canUseTool!);
+        return (async function* generator(): AsyncGenerator<any, void> {
+          yield { type: 'system', subtype: 'init', model: 'claude-opus-5-5' };
+          yield { type: 'result', subtype: 'success' };
+        })() as unknown as AsyncIterable<SDKMessage>;
+      });
+      const id = sdk.start({ prompt: 'turn one', cwd: homeDir });
+      await vi.waitFor(() => {
+        expect(sdk.get(id)?.status).toBe('done');
+      });
+      const before = events.filter(e => e.type === 'permission.request').length;
+      const controller = new AbortController();
+      controller.abort();
+      const decision = await spied[0]!(
+        'Bash',
+        { command: 'ls' },
+        { signal: controller.signal, toolUseID: 't-aborted', requestId: 'req-aborted' },
+      );
+      expect(decision).toEqual({ behavior: 'deny', message: 'Aborted' });
+      expect(events.filter(e => e.type === 'permission.request')).toHaveLength(before);
+      expect(sdk.get(id)?.pendingPermissions).toBe(0);
+    });
+
     it('resume on an idle+consuming session routes the text into the live process (no new query)', async () => {
       const events: ServerEvent[] = [];
       let queries = 0;

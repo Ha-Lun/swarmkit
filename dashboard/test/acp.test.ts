@@ -114,11 +114,11 @@ describe('acp runtime', () => {
     const thinking = messages[1];
     expect((thinking as unknown as Rec).parent_tool_use_id).toBeNull();
     expect((thinking as unknown as Rec).session_id).toBe('ses_fake');
-    expect(messageOf(thinking).id).toBe('m_think_1');
+    expect(messageOf(thinking).id).toBe('m_think_1#0');
     expect(blocksOf(thinking)).toEqual([{ type: 'thinking', thinking: 'thinking one thinking two' }]);
 
     const text = messages[2];
-    expect(messageOf(text).id).toBe('m_text_1');
+    expect(messageOf(text).id).toBe('m_text_1#1');
     expect(blocksOf(text)).toEqual([{ type: 'text', text: 'hello world' }]);
 
     const toolUse = blocksOf(messages[3]!)[0]!;
@@ -372,6 +372,83 @@ describe('acp runtime', () => {
     } finally {
       process.removeListener('unhandledRejection', onRejection);
     }
+  });
+
+  it('passes a live (non-aborted) signal when options.abortController is missing', async () => {
+    const recordFile = makeRecord();
+    const seen: Seen[] = [];
+    const signals: unknown[] = [];
+    const canUse = (async (_toolName: string, _input: Record<string, unknown>, opts: { signal: AbortSignal }) => {
+      signals.push(opts.signal);
+      seen.push({ toolName: _toolName, input: _input });
+      return { behavior: 'allow' };
+    }) as NonNullable<Options['canUseTool']>;
+    const options = { cwd: process.cwd(), sessionId: 'dash-1', canUseTool: canUse } as Options;
+    const messages = await collectAll(createAcpQuery(acpOpts(recordFile)), 'do work', options, new AbortController());
+    expect(seen).toHaveLength(1);
+    expect(signals).toHaveLength(1);
+    const signal = signals[0] as AbortSignal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal.aborted).toBe(false);
+    expect(messages.some(m => (m as unknown as Rec).type === 'result')).toBe(true);
+  });
+
+  it('gives same-messageId chunks split by a tool_call unique ids, both reaching the reducer', async () => {
+    const recordFile = makeRecord();
+    const seen: Seen[] = [];
+    const { options, abort } = sdkOpts(allowUse(seen));
+    const messages = await collectAll(createAcpQuery(acpOpts(recordFile)), 'split-message', options, abort);
+    const assistants = messages.filter(m => (m as unknown as Rec).type === 'assistant');
+    const sameId = assistants.filter(m => String(messageOf(m).id ?? '').startsWith('m_same#'));
+    expect(sameId).toHaveLength(2);
+    expect(messageOf(sameId[0]!).id).not.toBe(messageOf(sameId[1]!).id);
+    const texts = sameId.map(m => (blocksOf(m)[0] as Rec).text as string).sort();
+    expect(texts).toEqual(['after', 'hello world']);
+
+    const { applyMessage, createTree } = await import('../server/model/reducer.ts');
+    const tree = createTree('split-test', { startedAt: Date.now() });
+    const events = sameId.flatMap(m => applyMessage(tree, m));
+    const textEvents = events.filter(
+      e => e.type === 'node.event' && (e as { event: { kind: string } }).event.kind === 'text',
+    );
+    expect(textEvents).toHaveLength(2);
+  });
+
+  it('processes a buffered partial stdout line when the child exits', async () => {
+    const recordFile = makeRecord();
+    const seen: Seen[] = [];
+    const { options, abort } = sdkOpts(allowUse(seen));
+    const messages = await collectAll(createAcpQuery(acpOpts(recordFile)), 'partial-exit', options, abort);
+    const texts = messages.flatMap(blocksOf).filter(b => b.type === 'text');
+    expect(texts.some(b => (b.text as string) === 'partial hello')).toBe(true);
+    const last = messages.at(-1) as unknown as Rec;
+    expect(last.type).toBe('result');
+  });
+
+  it('switches the model on a follow-up turn via currentModel', async () => {
+    const recordFile = makeRecord();
+    const seen: Seen[] = [];
+    const { options, abort } = sdkOpts(allowUse(seen), { sessionId: 'dash-model' });
+    let calls = 0;
+    const currentModel = (): string => (++calls <= 2 ? 'custom-model' : 'custom-model-2');
+    async function* prompts(): AsyncGenerator<SDKUserMessage> {
+      for (const text of ['first', 'second']) {
+        yield { type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null, session_id: 'dash-model' };
+      }
+    }
+    const messages = await collectAll(
+      createAcpQuery(acpOpts(recordFile, { model: 'custom-model', currentModel })),
+      prompts(),
+      options,
+      abort,
+    );
+    const results = messages.filter(m => (m as unknown as Rec).type === 'result');
+    expect(results).toHaveLength(2);
+    const entries = readRecord(recordFile);
+    const switches = entries.filter(
+      e => e.method === 'session/set_config_option' && JSON.stringify(e.params).includes('custom-model-2'),
+    );
+    expect(switches.length).toBeGreaterThanOrEqual(1);
   });
 });
 

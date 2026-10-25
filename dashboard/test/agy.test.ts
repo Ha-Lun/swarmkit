@@ -170,6 +170,44 @@ describe('agy query', () => {
     expect(String(anyOf(got.value!).result)).toContain('SIGINT');
     expect((await it.next()).done).toBe(true);
   });
+
+  it('emits tool_use even when DONE arrives without ACTIVE', async () => {
+    const msgs = await collect('tool-no-active', queryOpts(), { commandPrefix: prefix() });
+    const assistants = msgs.filter(m => typeOf(m) === 'assistant');
+    const toolUses = assistants.flatMap(m => ((anyOf(m).message as Record<string, unknown>).content ?? []) as Record<string, unknown>[])
+      .filter(b => b.type === 'tool_use');
+    expect(toolUses).toHaveLength(1);
+    expect(toolUses[0]).toMatchObject({ id: 'conv-fake-1:0', name: 'Bash' });
+    const toolResults = msgs.filter(m => typeOf(m) === 'user');
+    expect(toolResults).toHaveLength(1);
+  });
+
+  it('emits at most one tool_result per step', async () => {
+    const msgs = await collect('tool-dup-done', queryOpts(), { commandPrefix: prefix() });
+    const toolResults = msgs.filter(m => typeOf(m) === 'user');
+    expect(toolResults).toHaveLength(1);
+    const toolUses = msgs.filter(m => typeOf(m) === 'assistant')
+      .flatMap(m => ((anyOf(m).message as Record<string, unknown>).content ?? []) as Record<string, unknown>[])
+      .filter(b => b.type === 'tool_use');
+    expect(toolUses).toHaveLength(1);
+  });
+
+  it('reads the model per turn via currentModel', async () => {
+    async function* turns(): AsyncGenerator<SDKUserMessage> {
+      yield userMsg('first');
+      yield userMsg('second');
+    }
+    let calls = 0;
+    const msgs = await collect(turns(), queryOpts(), {
+      commandPrefix: prefix(),
+      model: 'fallback-model',
+      currentModel: () => (++calls === 1 ? 'agy-model-a' : 'agy-model-b'),
+    });
+    const results = msgs.filter(m => typeOf(m) === 'result').map(anyOf);
+    expect(results).toHaveLength(2);
+    expect(String(results[0]!.result)).toContain('model=agy-model-a');
+    expect(String(results[1]!.result)).toContain('model=agy-model-b');
+  });
 });
 
 interface SeenRequest {
@@ -387,6 +425,25 @@ describe('agy-hook.py', () => {
     const { code, out } = await runHook('not json', env);
     expect(code).toBe(0);
     expect(out).toEqual({ decision: 'deny', reason: 'swarmkit hook error' });
+  });
+
+  it.each([
+    [{ SWARMKIT_DASH_HOOK_URL: 'http://127.0.0.1:1/unreachable' }],
+    [{ SWARMKIT_DASH_HOOK_SECRET: 's' }],
+    [{ SWARMKIT_DASH_HOOK_URL: '', SWARMKIT_DASH_HOOK_SECRET: 's' }],
+    [{ SWARMKIT_DASH_HOOK_URL: 'http://127.0.0.1:1/unreachable', SWARMKIT_DASH_HOOK_SECRET: '' }],
+  ])('denies when exactly one hook env var is set (%o)', async extra => {
+    const env = hookEnv({ ...extra, SWARMKIT_DASH_CWD: scratch });
+    const { code, out } = await runHook(hookInput('run_command', { CommandLine: 'echo hi' }), env);
+    expect(code).toBe(0);
+    expect(out).toEqual({ decision: 'deny', reason: 'incomplete swarmkit hook configuration' });
+  });
+
+  it('stays inert when both hook env vars are empty strings', async () => {
+    const env = hookEnv({ SWARMKIT_DASH_HOOK_URL: '', SWARMKIT_DASH_HOOK_SECRET: '', SWARMKIT_DASH_CWD: scratch });
+    const { code, out } = await runHook(hookInput('run_command', { CommandLine: 'rm -rf /' }), env);
+    expect(code).toBe(0);
+    expect(out).toEqual({ decision: 'allow' });
   });
 });
 

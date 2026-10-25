@@ -51,6 +51,15 @@ function handlePrompt(id, params) {
     hanging.push({ id, sessionId });
     return;
   }
+  if (text === 'partial-exit') {
+    const line = JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: { sessionId, update: { sessionUpdate: 'agent_message_chunk', messageId: 'm_partial', content: { type: 'text', text: 'partial hello' } } },
+    });
+    process.stdout.write(line, () => process.exit(0));
+    return;
+  }
   if (text === 'echo-env') {
     update(sessionId, {
       sessionUpdate: 'agent_message_chunk',
@@ -69,7 +78,8 @@ function handlePrompt(id, params) {
   }
   const n = (turnSeq += 1);
   const thinkId = `m_think_${n}`;
-  const textId = `m_text_${n}`;
+  const split = text === 'split-message';
+  const textId = split ? 'm_same' : `m_text_${n}`;
   const toolCallId = `tc_${n}`;
   const rawInput = { command: 'agy-task start x' };
   update(sessionId, { sessionUpdate: 'agent_thought_chunk', messageId: thinkId, content: { type: 'text', text: 'thinking one ' } });
@@ -86,7 +96,7 @@ function handlePrompt(id, params) {
     rawInput,
   });
   const permId = 1000 + n;
-  pendingPerm.set(permId, { promptId: id, sessionId, toolCallId, rawInput });
+  pendingPerm.set(permId, { promptId: id, sessionId, toolCallId, rawInput, split });
   send({
     jsonrpc: '2.0',
     id: permId,
@@ -111,6 +121,13 @@ function handlePermissionResponse(id, msg) {
   const outcome = msg?.result?.outcome;
   const allowed = outcome?.outcome === 'selected' && String(outcome.optionId ?? '').startsWith('allow');
   record({ method: 'permission-decision', optionId: outcome?.optionId ?? null, allowed });
+  if (turn.split) {
+    update(turn.sessionId, {
+      sessionUpdate: 'agent_message_chunk',
+      messageId: 'm_same',
+      content: { type: 'text', text: 'after' },
+    });
+  }
   update(turn.sessionId, {
     sessionUpdate: 'tool_call_update',
     toolCallId: turn.toolCallId,

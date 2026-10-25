@@ -13,6 +13,8 @@ import type { Rec } from './util.ts';
 export interface AcpOptions {
   command?: string[];
   model?: string;
+  /** Reads the lead model per turn (model switches on follow-up turns). */
+  currentModel?: () => string | undefined;
   resumeId?: string;
   onSessionId?: (id: string) => void;
   env?: NodeJS.ProcessEnv;
@@ -204,6 +206,7 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
     };
 
     let chunk: PendingChunk | null = null;
+    let flushSeq = 0;
     let lastText = '';
     const tools = new Map<string, ToolState>();
     let turnSettled = false;
@@ -283,7 +286,7 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
         type: 'assistant',
         parent_tool_use_id: null,
         session_id: sessionId,
-        message: { id: pendingChunk.messageId, role: 'assistant', model: modelName, content },
+        message: { id: `${pendingChunk.messageId}#${flushSeq++}`, role: 'assistant', model: modelName, content },
       } as unknown as SDKMessage);
     };
 
@@ -398,7 +401,7 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
             mapped.name,
             (mapped.input ?? {}) as Record<string, unknown>,
             {
-              signal: (signal ?? AbortSignal.abort()) as AbortSignal,
+              signal: (signal ?? new AbortController().signal) as AbortSignal,
               toolUseID: str(toolCall.toolCallId) ?? String(id),
               ...(str(toolCall.title) ? { title: str(toolCall.title) as string } : {}),
               requestId: String(id),
@@ -477,11 +480,21 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
       return Promise.race([waitWake(), endPromise.then(() => undefined, () => undefined)]);
     };
 
-    const readTurn = (sid: string, text: string, n: number): void => {
+    const readTurn = async (sid: string, text: string, n: number): Promise<void> => {
       turnSettled = false;
       turnOutcome = null;
       chunk = null;
       lastText = '';
+      const want = acpOpts.currentModel?.() ?? acpOpts.model;
+      if (want && want !== modelName && !exited) {
+        try {
+          await sendRequest('session/set_config_option', { sessionId: sid, configId: 'model', value: want });
+          modelName = want;
+        } catch (err) {
+          settleTurn({ error: err });
+          return;
+        }
+      }
       void sendRequest('session/prompt', { sessionId: sid, prompt: [{ type: 'text', text }] }).then(
         result => settleTurn({ result }),
         error => settleTurn({ error }),
@@ -553,6 +566,11 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
         });
         const onDead = (): void => {
           if (dead) return;
+          if (rest.trim().length > 0) {
+            const tail = rest;
+            rest = '';
+            onLine(tail);
+          }
           dead = true;
           exited = true;
           if (killTimer) {
@@ -576,18 +594,20 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
         if (acpOpts.resumeId) {
           const loaded = rec(await sendRequest('session/load', { sessionId: acpOpts.resumeId, cwd, mcpServers: [] }));
           sessionId = str(loaded?.sessionId) ?? acpOpts.resumeId;
-          if (acpOpts.model && modelCurrentValue(loaded?.configOptions) !== acpOpts.model) {
-            await sendRequest('session/set_config_option', { sessionId, configId: 'model', value: acpOpts.model });
+          const initialModel = acpOpts.currentModel?.() ?? acpOpts.model;
+          if (initialModel && modelCurrentValue(loaded?.configOptions) !== initialModel) {
+            await sendRequest('session/set_config_option', { sessionId, configId: 'model', value: initialModel });
           }
-          modelName = acpOpts.model ?? modelCurrentValue(loaded?.configOptions) ?? 'opencode';
+          modelName = initialModel ?? modelCurrentValue(loaded?.configOptions) ?? 'opencode';
         } else {
           const created = rec(await sendRequest('session/new', { cwd, mcpServers: [] }));
           sessionId = str(created?.sessionId);
           if (!sessionId) throw new Error('agent did not return a session id');
-          if (acpOpts.model && modelCurrentValue(created?.configOptions) !== acpOpts.model) {
-            await sendRequest('session/set_config_option', { sessionId, configId: 'model', value: acpOpts.model });
+          const initialModel = acpOpts.currentModel?.() ?? acpOpts.model;
+          if (initialModel && modelCurrentValue(created?.configOptions) !== initialModel) {
+            await sendRequest('session/set_config_option', { sessionId, configId: 'model', value: initialModel });
           }
-          modelName = acpOpts.model ?? modelCurrentValue(created?.configOptions) ?? 'opencode';
+          modelName = initialModel ?? modelCurrentValue(created?.configOptions) ?? 'opencode';
         }
         ready = true;
         acpOpts.onSessionId?.(sessionId);
@@ -602,7 +622,7 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
 
         if (typeof params.prompt === 'string') {
           turnCount += 1;
-          readTurn(sid, params.prompt, turnCount);
+          await readTurn(sid, params.prompt, turnCount);
           for (;;) {
             while (outbox.length > 0) yield outbox.shift() as SDKMessage;
             if (turnSettled || aborted || exited) break;
@@ -626,7 +646,7 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
             if (aborted || exited || !next || next.done) break;
             turnCount += 1;
             const n = turnCount;
-            readTurn(sid, userText(next.value), n);
+            await readTurn(sid, userText(next.value), n);
             for (;;) {
               while (outbox.length > 0) yield outbox.shift() as SDKMessage;
               if (turnSettled || aborted || exited) break;
