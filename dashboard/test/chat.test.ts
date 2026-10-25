@@ -281,3 +281,54 @@ describe('matchWorkerTask', () => {
     expect(matchWorkerTask(mainNode(), [])).toBeUndefined();
   });
 });
+
+describe('review findings', () => {
+  it('dropping a handoff tool_result ends the tools group', () => {
+    const child = node({ id: 'child-drop' });
+    const n = node({
+      events: [
+        ev({ id: 'r1', ts: 1, kind: 'tool_use', tool: 'Read', toolUseId: 'x1', summary: 'read' }),
+        ev({ id: 'h2', ts: 2, kind: 'tool_result', tool: 'Agent', toolUseId: 'child-drop', summary: 'done' }),
+        ev({ id: 'r2', ts: 3, kind: 'tool_use', tool: 'Bash', toolUseId: 'x2', summary: 'run' }),
+      ],
+    });
+    const items = buildChat(n, [child]);
+    expect(items.map((x) => x.type)).toEqual(['tools', 'tools']);
+  });
+  it('stale permission on ended nodes falls through; future endedAt excluded', () => {
+    const now = 100_000;
+    const permFor = (nodeId: string): PermissionRequest => ({
+      id: `p-${nodeId}`,
+      sessionId: 's1',
+      nodeId,
+      tool: 'Edit',
+      input: {},
+      createdAt: now,
+    });
+    const doneNode = node({ id: 'done-stale', status: 'done', startedAt: 1, endedAt: now - 1000 });
+    const errNode = node({ id: 'err-stale', status: 'error', startedAt: 2, endedAt: now - 1000 });
+    const runNode = node({ id: 'run-perm', status: 'running', startedAt: 3 });
+    const futureNode = node({ id: 'future', status: 'done', startedAt: 4, endedAt: now + 1000 });
+    const tabs = agentTabs(
+      [doneNode, errNode, runNode, futureNode],
+      now,
+      [permFor('done-stale'), permFor('err-stale'), permFor('run-perm')],
+    );
+    const byId = new Map(tabs.map((t) => [t.node.id, t.phase]));
+    expect(byId.get('done-stale')).toBe('done');
+    expect(byId.get('err-stale')).toBe('error');
+    expect(byId.get('run-perm')).toBe('waiting');
+    expect(byId.has('future')).toBe(false);
+  });
+  it('orbState returns breathing for idle/done before events', () => {
+    expect(
+      orbState(node({ status: 'idle', events: [ev({ kind: 'thinking', summary: 't' })] }), false),
+    ).toBe('breathing');
+    expect(
+      orbState(node({ status: 'done', events: [ev({ kind: 'text', summary: 't' })] }), false),
+    ).toBe('breathing');
+    expect(
+      orbState(node({ status: 'idle', events: [ev({ kind: 'tool_use', tool: 'Read', summary: 'x' })] }), false),
+    ).toBe('breathing');
+  });
+});

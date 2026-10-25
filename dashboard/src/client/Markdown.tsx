@@ -1,6 +1,6 @@
 // Safe markdown subset for agent chat output. Builds React elements only:
 // raw HTML in the input stays literal text (React escapes strings).
-import { Fragment } from 'react';
+import { Fragment, useMemo } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 
 export type Inline =
@@ -35,6 +35,25 @@ function underscoreClose(s: string, from: number): number {
   return -1;
 }
 
+function findStarClose(s: string, from: number): number {
+  for (let k = from; k < s.length; k++) {
+    if (s[k] !== '*') continue;
+    if (s[k + 1] === '*' || (k > 0 && s[k - 1] === '*')) continue;
+    return k;
+  }
+  return -1;
+}
+
+function findUndClose(s: string, from: number): number {
+  for (let k = from; k < s.length; k++) {
+    if (s[k] !== '_') continue;
+    if (s[k + 1] === '_' || (k > 0 && s[k - 1] === '_')) continue;
+    if (WORD.test(s[k + 1] ?? '')) continue;
+    return k;
+  }
+  return -1;
+}
+
 export function parseInline(s: string): Inline[] {
   const out: Inline[] = [];
   let buf = '';
@@ -44,6 +63,14 @@ export function parseInline(s: string): Inline[] {
       buf = '';
     }
   };
+  let noCloseBracket = false;
+  const noCloseParen = s.indexOf(')') === -1;
+  let failTripleStar = false;
+  let failTripleUnd = false;
+  let failStrongStar = false;
+  let failStrongUnd = false;
+  let failStar = false;
+  let failUnd = false;
   let i = 0;
   while (i < s.length) {
     const ch = s[i];
@@ -58,32 +85,90 @@ export function parseInline(s: string): Inline[] {
         i = j + n;
         continue;
       }
+      buf += fence;
+      i += n;
+      continue;
+    }
+    if (ch === '[') {
+      if (noCloseBracket) {
+        buf += ch;
+        i++;
+        continue;
+      }
+      const c = s.indexOf(']', i + 1);
+      if (c === -1) {
+        noCloseBracket = true;
+        buf += ch;
+        i++;
+        continue;
+      }
+      if (s[c + 1] !== '(') {
+        buf += ch;
+        i++;
+        continue;
+      }
+      if (noCloseParen) {
+        buf += ch;
+        i++;
+        continue;
+      }
+      let end = -1;
+      let depth = 1;
+      for (let d = c + 2; d < s.length; d++) {
+        if (d - (c + 2) > 2048) break;
+        const chd = s[d];
+        if (chd === '(') {
+          depth++;
+        } else if (chd === ')') {
+          depth--;
+          if (depth === 0) {
+            end = d;
+            break;
+          }
+        } else if (chd === ' ' || chd === '\t' || chd === '\n' || chd === '\r') {
+          break;
+        }
+      }
+      if (end !== -1) {
+        const href = s.slice(c + 2, end);
+        if (isSafeHref(href)) {
+          flush();
+          out.push({ t: 'link', href: href.trim(), c: parseInline(s.slice(i + 1, c)) });
+        } else {
+          buf += s.slice(i, end + 1);
+        }
+        i = end + 1;
+        continue;
+      }
       buf += ch;
       i++;
       continue;
     }
-    if (ch === '[') {
-      const c = s.indexOf(']', i + 1);
-      if (c >= 0 && s[c + 1] === '(') {
-        let d = c + 2;
-        let depth = 1;
-        while (d < s.length && depth > 0) {
-          if (s[d] === '(') depth++;
-          else if (s[d] === ')') depth--;
-          d++;
-        }
-        if (depth === 0) {
-          const raw = s.slice(i, d);
-          const href = s.slice(c + 2, d - 1);
-          if (isSafeHref(href)) {
-            flush();
-            out.push({ t: 'link', href: href.trim(), c: parseInline(s.slice(i + 1, c)) });
-          } else {
-            buf += raw;
-          }
-          i = d;
+    if (s.startsWith('***', i)) {
+      if (!failTripleStar) {
+        const j = s.indexOf('***', i + 3);
+        if (j > i + 3) {
+          flush();
+          out.push({ t: 'strong', c: [{ t: 'em', c: parseInline(s.slice(i + 3, j)) }] });
+          i = j + 3;
           continue;
         }
+        failTripleStar = true;
+      }
+      buf += ch;
+      i++;
+      continue;
+    }
+    if (s.startsWith('___', i) && !WORD.test(i > 0 ? s[i - 1] : ' ')) {
+      if (!failTripleUnd) {
+        const j = s.indexOf('___', i + 3);
+        if (j > i + 3) {
+          flush();
+          out.push({ t: 'strong', c: [{ t: 'em', c: parseInline(s.slice(i + 3, j)) }] });
+          i = j + 3;
+          continue;
+        }
+        failTripleUnd = true;
       }
       buf += ch;
       i++;
@@ -91,12 +176,30 @@ export function parseInline(s: string): Inline[] {
     }
     const dbl = s[i + 1] === ch ? ch + ch : '';
     if (dbl === '**' || (dbl === '__' && !WORD.test(i > 0 ? s[i - 1] : ' '))) {
-      const j = s.indexOf(dbl, i + 2);
-      if (j > i + 2) {
-        flush();
-        out.push({ t: 'strong', c: parseInline(s.slice(i + 2, j)) });
-        i = j + 2;
+      if (dbl === '**') {
+        if (!failStrongStar) {
+          const j = s.indexOf(dbl, i + 2);
+          if (j > i + 2) {
+            flush();
+            out.push({ t: 'strong', c: parseInline(s.slice(i + 2, j)) });
+            i = j + 2;
+            continue;
+          }
+          failStrongStar = true;
+        }
+        buf += ch;
+        i++;
         continue;
+      }
+      if (!failStrongUnd) {
+        const j = s.indexOf(dbl, i + 2);
+        if (j > i + 2) {
+          flush();
+          out.push({ t: 'strong', c: parseInline(s.slice(i + 2, j)) });
+          i = j + 2;
+          continue;
+        }
+        failStrongUnd = true;
       }
       buf += ch;
       i++;
@@ -108,13 +211,37 @@ export function parseInline(s: string): Inline[] {
         i++;
         continue;
       }
-      const j = ch === '*' ? s.indexOf('*', i + 1) : underscoreClose(s, i + 1);
+      if (ch === '*') {
+        if (failStar) {
+          buf += ch;
+          i++;
+          continue;
+        }
+        const j = findStarClose(s, i + 1);
+        if (j > i + 1) {
+          flush();
+          out.push({ t: 'em', c: parseInline(s.slice(i + 1, j)) });
+          i = j + 1;
+          continue;
+        }
+        failStar = true;
+        buf += ch;
+        i++;
+        continue;
+      }
+      if (failUnd) {
+        buf += ch;
+        i++;
+        continue;
+      }
+      const j = findUndClose(s, i + 1);
       if (j > i + 1) {
         flush();
         out.push({ t: 'em', c: parseInline(s.slice(i + 1, j)) });
         i = j + 1;
         continue;
       }
+      failUnd = true;
       buf += ch;
       i++;
       continue;
@@ -142,16 +269,21 @@ export function parseInline(s: string): Inline[] {
 }
 
 const HR = /^(-{3,}|\*{3,}|_{3,})$/;
-const HEADING = /^(#{1,6})\s+(.*)$/;
-const UL = /^[-*+]\s+(.*)$/;
-const OL = /^(\d+)[.)]\s+(.*)$/;
+const HEADING = /^(#{1,6})[ \t]+([\s\S]*)$/;
+const UL = /^[-*+][ \t]+([\s\S]*)$/;
+const OL = /^(\d+)[.)][ \t]+([\s\S]*)$/;
+
+const MAX_QUOTE_DEPTH = 8;
 
 function blockStart(t: string): boolean {
   return t.startsWith('```') || HR.test(t) || HEADING.test(t) || t.startsWith('>') || UL.test(t) || OL.test(t);
 }
 
-export function parseMarkdown(text: string): Block[] {
-  const lines = text.split(/\r?\n/);
+function blockStartNoQuote(t: string): boolean {
+  return t.startsWith('```') || HR.test(t) || HEADING.test(t) || UL.test(t) || OL.test(t);
+}
+
+function parseBlocks(lines: string[], depth: number): Block[] {
   const blocks: Block[] = [];
   let i = 0;
   while (i < lines.length) {
@@ -185,12 +317,26 @@ export function parseMarkdown(text: string): Block[] {
       continue;
     }
     if (t.startsWith('>')) {
+      if (depth >= MAX_QUOTE_DEPTH) {
+        const buf: string[] = [];
+        while (i < lines.length && lines[i].trim() && !blockStartNoQuote(lines[i].trim())) {
+          buf.push(lines[i]);
+          i++;
+        }
+        if (buf.length) {
+          blocks.push({ t: 'p', c: parseInline(buf.join('\n')) });
+        } else {
+          blocks.push({ t: 'p', c: parseInline(t) });
+          i++;
+        }
+        continue;
+      }
       const inner: string[] = [];
       while (i < lines.length && lines[i].trim().startsWith('>')) {
         inner.push(lines[i].replace(/^\s*>\s?/, ''));
         i++;
       }
-      blocks.push({ t: 'quote', c: parseMarkdown(inner.join('\n')) });
+      blocks.push({ t: 'quote', c: parseBlocks(inner, depth + 1) });
       continue;
     }
     const um = UL.exec(t);
@@ -226,6 +372,10 @@ export function parseMarkdown(text: string): Block[] {
     blocks.push({ t: 'p', c: parseInline(buf.join('\n')) });
   }
   return blocks;
+}
+
+export function parseMarkdown(text: string): Block[] {
+  return parseBlocks(text.split(/\r?\n/), 0);
 }
 
 function renderInline(nodes: Inline[], key: string): ReactElement[] {
@@ -289,7 +439,10 @@ function renderBlock(b: Block, key: number): ReactNode {
 }
 
 export function Markdown({ text, className }: { text: string; className?: string }): ReactElement {
-  const blocks = parseMarkdown(text);
+  const blocks = useMemo(() => (text.length > 100_000 ? [] : parseMarkdown(text)), [text]);
+  if (text.length > 100_000) {
+    return <pre className="md md-raw">{text}</pre>;
+  }
   return (
     <div className={'md' + (className ? ' ' + className : '')}>
       {blocks.map((b, idx) => renderBlock(b, idx))}

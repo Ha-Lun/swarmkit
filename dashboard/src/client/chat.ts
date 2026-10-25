@@ -33,6 +33,7 @@ export function buildChat(node: AgentNode, children: AgentNode[]): ChatItem[] {
       continue;
     }
     if (e.kind === 'tool_result' && e.toolUseId != null && childIds.has(e.toolUseId)) {
+      endGroup();
       continue;
     }
     if (e.kind === 'tool_use' || e.kind === 'tool_result') {
@@ -67,6 +68,7 @@ export function buildChat(node: AgentNode, children: AgentNode[]): ChatItem[] {
 
 export function orbState(node: AgentNode, waiting: boolean): OrbState {
   if (waiting) return 'listening';
+  if (node.status === 'idle' || node.status === 'done') return 'breathing';
   const last = node.events[node.events.length - 1];
   if (!last) return 'connecting';
   if (last.kind === 'thinking') return 'solving';
@@ -120,7 +122,8 @@ export function agentTabs(nodes: AgentNode[], now: number, permissions: Permissi
     .filter((n) => n.kind !== 'main' && n.parentId !== null)
     .sort((a, b) => (a.startedAt - b.startedAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   for (const n of kids) {
-    if (n.status === 'waiting' || permNodes.has(n.id)) {
+    const isActive = n.status === 'running' || n.status === 'waiting';
+    if (isActive && (n.status === 'waiting' || permNodes.has(n.id))) {
       out.push({ node: n, phase: 'waiting' });
       continue;
     }
@@ -128,11 +131,11 @@ export function agentTabs(nodes: AgentNode[], now: number, permissions: Permissi
       out.push({ node: n, phase: 'live' });
       continue;
     }
-    if ((n.status === 'done' || n.status === 'idle') && n.endedAt != null && now - n.endedAt <= 5000) {
+    if ((n.status === 'done' || n.status === 'idle') && n.endedAt != null && now >= n.endedAt && now - n.endedAt <= 5000) {
       out.push({ node: n, phase: 'done' });
       continue;
     }
-    if ((n.status === 'error' || n.status === 'stopped') && n.endedAt != null && now - n.endedAt <= 10000) {
+    if ((n.status === 'error' || n.status === 'stopped') && n.endedAt != null && now >= n.endedAt && now - n.endedAt <= 10000) {
       out.push({ node: n, phase: 'error' });
       continue;
     }

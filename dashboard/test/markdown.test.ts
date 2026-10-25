@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Markdown, parseInline, parseMarkdown } from '../src/client/Markdown.tsx';
 
@@ -99,12 +100,91 @@ describe('parseInline', () => {
 describe('Markdown render', () => {
   it('escapes html and marks links safe', () => {
     const html = renderToStaticMarkup(
-      Markdown({ text: '# Hi\n\nSee [docs](https://example.com).\n\n<script>alert(1)</script>' }),
+      createElement(Markdown, { text: '# Hi\n\nSee [docs](https://example.com).\n\n<script>alert(1)</script>' }),
     );
     expect(html).not.toContain('<script');
     expect(html).toContain('rel="noopener noreferrer"');
     expect(html).toContain('target="_blank"');
     expect(html).toContain('href="https://example.com"');
     expect(html).toContain('&lt;script&gt;');
+  });
+  it('renders raw pre for very large text', () => {
+    const text = 'a'.repeat(100_001);
+    const html = renderToStaticMarkup(createElement(Markdown, { text }));
+    expect(html).toContain('md-raw');
+    expect(html).toContain('<pre');
+  });
+});
+
+describe('parseInline nesting', () => {
+  it('parses em containing strong', () => {
+    const nodes = parseInline('*foo **bar** baz*');
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].t).toBe('em');
+    if (nodes[0].t === 'em') {
+      const inner = nodes[0].c;
+      expect(inner).toHaveLength(3);
+      expect(inner[0]).toEqual({ t: 'text', v: 'foo ' });
+      expect(inner[1]).toEqual({ t: 'strong', c: [{ t: 'text', v: 'bar' }] });
+      expect(inner[2]).toEqual({ t: 'text', v: ' baz' });
+    }
+  });
+  it('parses ***x*** with no stray asterisk', () => {
+    const nodes = parseInline('***x***');
+    expect(JSON.stringify(nodes)).not.toContain('*');
+    const texts: string[] = [];
+    const walk = (ns: typeof nodes): void => {
+      for (const n of ns) {
+        if (n.t === 'text' || n.t === 'code') texts.push(n.v);
+        else if (n.t === 'link') walk(n.c);
+        else walk(n.c);
+      }
+    };
+    walk(nodes);
+    expect(texts.join('')).toBe('x');
+  });
+});
+
+describe('parseMarkdown deep quote', () => {
+  it('caps quote recursion', () => {
+    const blocks = parseMarkdown('> '.repeat(20) + 'x');
+    let depth = 0;
+    let cur: typeof blocks = blocks;
+    while (cur.length === 1 && cur[0].t === 'quote') {
+      depth++;
+      cur = (cur[0] as { t: 'quote'; c: typeof blocks }).c;
+      if (depth > 30) break;
+    }
+    expect(depth).toBeLessThanOrEqual(8);
+    expect(JSON.stringify(cur)).toContain('x');
+  });
+});
+
+describe('adversarial performance', () => {
+  const cases: Array<[string, string]> = [
+    ['brackets', '['.repeat(100_000)],
+    ['link-starts', '[]('.repeat(30_000)],
+    ['backticks', '`'.repeat(100_000)],
+    ['underscore', '(_a'.repeat(30_000)],
+    ['stars', '*a'.repeat(50_000)],
+  ];
+  for (const [name, input] of cases) {
+    it(`parseInline ${name} finishes in < 200ms`, () => {
+      const t0 = performance.now();
+      parseInline(input);
+      expect(performance.now() - t0).toBeLessThan(200);
+    });
+  }
+  it('deep quotes finish in < 200ms', () => {
+    const input = '>'.repeat(50_000) + ' x';
+    const t0 = performance.now();
+    parseMarkdown(input);
+    expect(performance.now() - t0).toBeLessThan(200);
+  });
+  it('long list gap with CR finishes in < 200ms', () => {
+    const input = '-' + ' '.repeat(50_000) + 'a\rb';
+    const t0 = performance.now();
+    parseMarkdown(input);
+    expect(performance.now() - t0).toBeLessThan(200);
   });
 });
