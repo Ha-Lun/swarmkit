@@ -12,13 +12,14 @@ import { pollWorkers } from '../model/workers.ts';
 import { noteRateLimit } from '../usage.ts';
 import { DASHBOARD_ENTRYPOINTS, holderMessage, liveHolder } from '../livesessions.ts';
 import { MAX_EVENTS, RUNTIME_MODELS } from '../../src/shared/types.ts';
-import type { AgentNode, PermissionDecisionBody, PermissionRequest, ResumeSessionBody, Runtime, ServerEvent, SessionDetail, SessionSummary, StartSessionBody } from '../../src/shared/types.ts';
-import { AGENT_RE, validEffort, validResumeModel, validText } from '../validate.ts';
+import type { AgentNode, ImageAttachment, PermissionDecisionBody, PermissionRequest, ResumeSessionBody, Runtime, ServerEvent, SessionDetail, SessionSummary, StartSessionBody } from '../../src/shared/types.ts';
+import { AGENT_RE, validEffort, validImages, validResumeModel, validText } from '../validate.ts';
 import { createAcpQuery } from '../runtimes/acp.ts';
 import type { AcpOptions } from '../runtimes/acp.ts';
 import { AgyHookBridge, createAgyQuery } from '../runtimes/agy.ts';
 import type { AgyHookResponse, AgyOptions } from '../runtimes/agy.ts';
 import { claudeConfigDir, resolveDirInHome } from '../paths.ts';
+import { deleteImages, imageDir, saveImages } from '../images.ts';
 
 /** Main-thread agent names must start alphanumerically and stay short (no '../', no path tricks). */
 export { AGENT_RE };
@@ -105,6 +106,8 @@ interface PageSession {
   runtime: Runtime;
   /** Latest lead conversation id reported by the acp/agy adapter (for resume). */
   runtimeSessionId?: string;
+  /** Directory of this session's stored images, once it has any (agy gets it via --add-dir). */
+  imagesDir?: string;
   /** agy hook secret for POST /api/agy-hook/:id (agy runtime only). */
   hookSecret?: string;
   /** Lead model for non-Claude runtimes (default for the next resume). */
@@ -294,12 +297,19 @@ export class SdkSessions {
     };
     this.sessions.set(id, session);
 
-    this.startQuery(session, body.prompt, body.model, body.effort, false);
+    try {
+      this.startQuery(session, body.prompt, body.model, body.effort, false, body.images);
+    } catch (err) {
+      this.sessions.delete(id);
+      throw err;
+    }
     return id;
   }
 
   /** Runs the SDK query for a session (fresh start or resumed continuation) and consumes it in the background. */
-  private startQuery(session: PageSession, prompt: string, model: string | undefined, effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined, resume: boolean): void {
+  private startQuery(session: PageSession, prompt: string, model: string | undefined, effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined, resume: boolean, images?: ImageAttachment[]): void {
+    // Store the images first: a disk error must not leave a half-started query behind.
+    const turn = this.prepareTurn(session, prompt, images);
     session.generation += 1;
     const generation = session.generation;
     session.abort = new AbortController();
@@ -325,12 +335,7 @@ export class SdkSessions {
     } else {
       session.query = this.startRuntimeQuery(session, generation, model, effort, resume);
     }
-    session.queue.push({
-      type: 'user',
-      message: { role: 'user', content: prompt },
-      parent_tool_use_id: null,
-      session_id: session.id,
-    });
+    session.queue.push(turn.message);
     session.consumePromise = this.consume(session, generation).catch(err => {
       console.error(`Session ${session.id} consume crashed:`, err);
     });
@@ -338,6 +343,43 @@ export class SdkSessions {
       for (const event of setStatus(session.tree, 'root', 'running')) this.emit(event);
     }
     this.scheduleUpsert(session);
+    for (const event of turn.events) this.emit(event);
+  }
+
+  /**
+   * The queued user message of one turn. Without images it is the plain text. With images they
+   * are stored (private files) and the turn carries them per runtime: claude/opencode as base64
+   * image blocks before the text, agy as the file paths appended to the text (it reads them with
+   * read_file). `events` is the user ActivityEvent with the stored-image URLs (never base64).
+   */
+  private prepareTurn(session: PageSession, text: string, images?: ImageAttachment[]): { message: SDKUserMessage; events: ServerEvent[] } {
+    const base = { type: 'user' as const, parent_tool_use_id: null, session_id: session.id };
+    if (!images || images.length === 0) {
+      return { message: { ...base, message: { role: 'user', content: text } }, events: [] };
+    }
+    let stored: { urls: string[]; paths: string[] };
+    try {
+      stored = saveImages(session.id, images);
+      session.imagesDir = imageDir(session.id);
+    } catch (err) {
+      console.error(`Session ${session.id}: could not store images:`, (err as Error).message);
+      throw new SessionError(500, 'could not store the images');
+    }
+    const uuid = randomUUID();
+    const content = session.runtime === 'agy'
+      ? `${text}\n\nAttached images (open them with read_file):\n${stored.paths.join('\n')}`
+      : [
+          ...images.map(i => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: i.mediaType, data: i.data } })),
+          { type: 'text' as const, text },
+        ];
+    // The same uuid lets a replayed/echoed copy of this message dedupe against the event below.
+    const events = applyMessage(session.tree, {
+      type: 'user',
+      uuid,
+      message: { role: 'user', content: text },
+      swarmkitImages: stored.urls,
+    });
+    return { message: { ...base, uuid, message: { role: 'user', content } }, events };
   }
 
   /**
@@ -392,6 +434,7 @@ export class SdkSessions {
       ...(resume && session.runtimeSessionId ? { resumeId: session.runtimeSessionId } : {}),
       onSessionId,
       hook: { url: `${this.hookBase()}/api/agy-hook/${session.id}`, secret },
+      imagesDir: () => session.imagesDir,
       currentModel: () => session.model,
     })({ prompt: session.queue, options });
   }
@@ -493,18 +536,15 @@ export class SdkSessions {
     return true;
   }
 
-  send(id: string, text: string): boolean {
+  send(id: string, text: string, images?: ImageAttachment[]): boolean {
     const session = this.sessions.get(id);
     if (!session) return false;
     if (session.stopped || !session.consuming || !session.query) {
       throw new SessionError(409, 'Session has ended; use Continue');
     }
-    session.queue.push({
-      type: 'user',
-      message: { role: 'user', content: text },
-      parent_tool_use_id: null,
-      session_id: id,
-    });
+    const turn = this.prepareTurn(session, text, images);
+    session.queue.push(turn.message);
+    for (const event of turn.events) this.emit(event);
     for (const event of setStatus(session.tree, 'root', 'running')) this.emit(event);
     this.scheduleUpsert(session);
     return true;
@@ -570,8 +610,10 @@ export class SdkSessions {
     let text: string;
     let model: string | undefined;
     let effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined;
+    let images: ImageAttachment[] | undefined;
     try {
       text = validText(body?.text);
+      images = validImages(body.images);
       model = validResumeModel(body.model);
       effort = validEffort(body.effort);
     } catch (err) {
@@ -588,7 +630,7 @@ export class SdkSessions {
       throw new SessionError(400, `agent must match ${String(AGENT_RE)}`);
     }
     if (existing) {
-      if (existing.runtime !== 'claude') return this.resumeRuntime(existing, text, model, effort);
+      if (existing.runtime !== 'claude') return this.resumeRuntime(existing, text, model, effort, images);
       const root = existing.tree.nodes.get('root');
       if (!existing.stopped && existing.consuming) {
         if (root && (root.status === 'running' || root.status === 'waiting')) {
@@ -597,12 +639,9 @@ export class SdkSessions {
         // Idle (turn ended, input queue open): the live process just takes the message.
         if (effort !== undefined) existing.effort = effort;
         existing.updatedAt = Date.now();
-        existing.queue.push({
-          type: 'user',
-          message: { role: 'user', content: text },
-          parent_tool_use_id: null,
-          session_id: id,
-        });
+        const turn = this.prepareTurn(existing, text, images);
+        existing.queue.push(turn.message);
+        for (const event of turn.events) this.emit(event);
         for (const event of setStatus(existing.tree, 'root', 'running')) this.emit(event);
         this.scheduleUpsert(existing);
         return id;
@@ -626,7 +665,7 @@ export class SdkSessions {
       existing.upsertThrottle = { lastSent: 0, timer: null };
       existing.updatedAt = Date.now();
       if (effort !== undefined) existing.effort = effort;
-      this.startQuery(existing, text, model, effort ?? existing.effort, true);
+      this.startQuery(existing, text, model, effort ?? existing.effort, true, images);
       return id;
     }
     // Non-Claude runtimes live only in page memory: a terminal transcript cannot be adopted into one.
@@ -666,7 +705,7 @@ export class SdkSessions {
       upsertThrottle: { lastSent: 0, timer: null },
     };
     this.sessions.set(id, session);
-    this.startQuery(session, text, model, effort, true);
+    this.startQuery(session, text, model, effort, true, images);
     return id;
   }
 
@@ -676,7 +715,7 @@ export class SdkSessions {
    * conversation id. Idle-but-live sessions just take the message; active ones
    * refuse with 409; ended ones restart the adapter query.
    */
-  private async resumeRuntime(session: PageSession, text: string, model: string | undefined, effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined): Promise<string> {
+  private async resumeRuntime(session: PageSession, text: string, model: string | undefined, effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined, images?: ImageAttachment[]): Promise<string> {
     const root = session.tree.nodes.get('root');
     if (!session.stopped && session.consuming) {
       if (root && (root.status === 'running' || root.status === 'waiting')) {
@@ -685,12 +724,9 @@ export class SdkSessions {
       if (effort !== undefined) session.effort = effort;
       if (model !== undefined) session.model = model;
       session.updatedAt = Date.now();
-      session.queue.push({
-        type: 'user',
-        message: { role: 'user', content: text },
-        parent_tool_use_id: null,
-        session_id: session.id,
-      });
+      const turn = this.prepareTurn(session, text, images);
+      session.queue.push(turn.message);
+      for (const event of turn.events) this.emit(event);
       for (const event of setStatus(session.tree, 'root', 'running')) this.emit(event);
       this.scheduleUpsert(session);
       return session.id;
@@ -714,7 +750,7 @@ export class SdkSessions {
     session.updatedAt = Date.now();
     if (model !== undefined) session.model = model;
     if (effort !== undefined) session.effort = effort;
-    this.startQuery(session, text, model ?? session.model, effort, true);
+    this.startQuery(session, text, model ?? session.model, effort, true, images);
     return session.id;
   }
 
@@ -922,6 +958,7 @@ export class SdkSessions {
       if (finished(session) && now - session.updatedAt > olderThanMs) {
         if (session.hookSecret) this.bridge.unregister(session.hookSecret);
         this.sessions.delete(id);
+        deleteImages(id);
         this.emit({ type: 'session.removed', sessionId: id });
       }
     }
@@ -930,6 +967,7 @@ export class SdkSessions {
       const victim = oldest.shift()!;
       if (victim.hookSecret) this.bridge.unregister(victim.hookSecret);
       if (!this.sessions.delete(victim.id)) continue;
+      deleteImages(victim.id);
       this.emit({ type: 'session.removed', sessionId: victim.id });
     }
   }

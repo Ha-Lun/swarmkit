@@ -45,7 +45,7 @@ def check_path(value, root):
     return resolved
 
 
-def auto_allowed(name, args, root):
+def auto_allowed(name, args, root, images_root=None):
     paths = READ_PATHS.get(name)
     if paths is None:
         edit, paths = True, EDIT_PATHS.get(name)
@@ -53,10 +53,18 @@ def auto_allowed(name, args, root):
         edit = False
     if paths is None or not isinstance(args, dict):
         return False
-    try:
-        resolved = [check_path(args.get(key), root) for key in paths]
-    except ValueError:
-        return False
+    resolved = []
+    for key in paths:
+        try:
+            resolved.append(check_path(args.get(key), root))
+        except ValueError:
+            # Reads (never edits) may also reach the session's pasted-image directory.
+            if edit or not images_root:
+                return False
+            try:
+                check_path(args.get(key), images_root)
+            except ValueError:
+                return False
     if edit and any(os.path.relpath(p, root).lower() in RULES or sensitive_edit(p, root) for p in resolved):
         return False
     return True
@@ -106,7 +114,9 @@ def decide():
     if not isinstance(call, dict):
         call = {}
     root = os.path.realpath(os.environ.get("SWARMKIT_DASH_CWD") or os.getcwd())
-    if auto_allowed(call.get("name"), call.get("args"), root):
+    images = os.environ.get("SWARMKIT_DASH_IMAGES_DIR")
+    images_root = os.path.realpath(images) if images and images.startswith("/") else None
+    if auto_allowed(call.get("name"), call.get("args"), root, images_root):
         return {"decision": "allow"}
     return ask_dashboard(url, secret, raw.encode("utf-8"))
 

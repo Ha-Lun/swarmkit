@@ -47,6 +47,7 @@ export interface ApplyOptions {
 type Raw = Record<string, unknown>;
 
 const emptyTokens = (): TokenUsage => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+const IMAGE_MARK = '🖼 image';
 /** Dedupe sets (costed message ids, seen block keys) keep at most this many entries. */
 const MAX_DEDUPE = 5000;
 
@@ -351,31 +352,43 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
   let dirty = fresh;
   const content = message.content;
 
-  if (typeof content === 'string') {
-    if (m.isMeta !== true && !content.startsWith('<')) {
-      const key = `${str(m.uuid) ?? `user:${ts}`}:user`;
-      if (!seen.has(key)) {
-        addCapped(seen, key);
-        if (node.prompt === undefined) {
-          node.prompt = content;
-          dirty = true;
-        }
-        if (node.description === undefined) {
-          node.description = firstLine(content, 120);
-          dirty = true;
-        }
-        node.lastActivity = firstLine(content, 200);
-        dirty = true;
-        out.touch(node, {
-          id: key,
-          ts,
-          kind: 'user',
-          summary: firstLine(content, 200),
-          detail: cap(content),
-        });
-      }
+  // Page-sent images arrive as stored-image URLs (swarmkitImages); transcript lines carry
+  // image blocks. Either way the event holds markers and URLs, never base64.
+  const urls = Array.isArray(m.swarmkitImages) ? m.swarmkitImages.filter((u): u is string => typeof u === 'string') : [];
+  const addUser = (text: string, imageCount: number): void => {
+    const key = `${str(m.uuid) ?? `user:${ts}`}:user`;
+    if (seen.has(key)) return;
+    addCapped(seen, key);
+    const shown = imageCount > 0 ? [text, ...Array.from({ length: imageCount }, () => IMAGE_MARK)].filter(t => t).join('\n') : text;
+    if (node.prompt === undefined) {
+      node.prompt = text;
+      dirty = true;
     }
+    if (node.description === undefined) {
+      node.description = firstLine(text || shown, 120);
+      dirty = true;
+    }
+    node.lastActivity = firstLine(shown, 200);
+    dirty = true;
+    out.touch(node, {
+      id: key,
+      ts,
+      kind: 'user',
+      summary: firstLine(shown, 200),
+      detail: cap(shown),
+      ...(urls.length > 0 ? { images: urls } : {}),
+    });
+  };
+
+  if (typeof content === 'string') {
+    if (m.isMeta !== true && !content.startsWith('<')) addUser(content, urls.length);
   } else if (Array.isArray(content)) {
+    const blocks = content.map(asRaw);
+    const imageCount = blocks.filter(b => b?.type === 'image').length;
+    if (imageCount > 0 && m.isMeta !== true) {
+      const text = blocks.map(b => (b?.type === 'text' && typeof b.text === 'string' ? b.text : '')).filter(t => t).join('\n');
+      if (!text.startsWith('<')) addUser(text, Math.max(imageCount, urls.length));
+    }
     for (const raw of content) {
       const block = asRaw(raw);
       if (!block || block.type !== 'tool_result') continue;

@@ -24,6 +24,8 @@ export interface ActivityEvent {
   /** Full text, JSON tool input or tool result, at most MAX_DETAIL characters. */
   detail?: string;
   isError?: boolean;
+  /** User events only: URLs of the stored images sent with the message (GET /api/sessions/:id/images/:name). */
+  images?: string[];
 }
 
 export interface TokenUsage {
@@ -168,9 +170,10 @@ export interface WorkerTask {
 // GET  /api/sessions                    -> SessionSummary[]
 // GET  /api/sessions/:id                -> SessionDetail
 // POST /api/sessions                    StartSessionBody -> StartSessionResponse
-// POST /api/sessions/:id/message        -> { text: string } -> { ok: true }
+// POST /api/sessions/:id/message        SendMessageBody -> { ok: true }
 // POST /api/sessions/:id/interrupt      -> { ok: true }
 // POST /api/sessions/:id/resume         ResumeSessionBody -> StartSessionResponse
+// GET  /api/sessions/:id/images/:name   -> the stored image bytes (name like 1.png; 404 when unknown)
 // DELETE /api/sessions/:id              -> { ok: true }   (stops a page session)
 // POST /api/permissions/:id             PermissionDecisionBody -> { ok: true }
 // GET  /api/agents?cwd=<abs path>       -> AgentsResponse
@@ -206,6 +209,16 @@ export interface RuntimesResponse {
   agy: boolean;
 }
 
+/** Max images per message and max decoded bytes per image. */
+export const MAX_IMAGES = 6;
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export type ImageMediaType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+/** One pasted image: base64 without a `data:` prefix. Never echoed back in events. */
+export interface ImageAttachment {
+  mediaType: ImageMediaType;
+  data: string;
+}
+
 export interface StartSessionBody {
   prompt: string;
   /** Absolute path of an existing directory under $HOME. */
@@ -216,6 +229,8 @@ export interface StartSessionBody {
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   /** Which lead runtime drives the session; omitted = 'claude'. */
   runtime?: Runtime;
+  /** Up to MAX_IMAGES images; the prompt may then be empty ("(image)" is used). */
+  images?: ImageAttachment[];
 }
 export interface StartSessionResponse {
   sessionId: string;
@@ -236,7 +251,8 @@ export interface AgentsResponse {
 export interface DirEntry { name: string; path: string; isGitRepo: boolean }
 export interface DirListing { path: string; parent?: string; entries: DirEntry[] }
 export interface SetStarBody { path: string; starred: boolean }
-export interface ResumeSessionBody { text: string; model?: string; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' }
+export interface ResumeSessionBody { text: string; model?: string; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; images?: ImageAttachment[] }
+export interface SendMessageBody { text: string; images?: ImageAttachment[] }
 
 // GET  /api/usage                     -> UsageReport   (?refresh=1 bypasses the caches, at most once per 30 s)
 

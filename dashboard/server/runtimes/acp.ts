@@ -7,7 +7,7 @@ import path from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { QueryFn } from '../sdk/sessions.ts';
-import { num, rec, str, userText } from './util.ts';
+import { num, rec, str, userBlocks } from './util.ts';
 import type { Rec } from './util.ts';
 
 export interface AcpOptions {
@@ -480,7 +480,7 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
       return Promise.race([waitWake(), endPromise.then(() => undefined, () => undefined)]);
     };
 
-    const readTurn = async (sid: string, text: string, n: number): Promise<void> => {
+    const readTurn = async (sid: string, blocks: ReturnType<typeof userBlocks>, n: number): Promise<void> => {
       turnSettled = false;
       turnOutcome = null;
       chunk = null;
@@ -495,7 +495,7 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
           return;
         }
       }
-      void sendRequest('session/prompt', { sessionId: sid, prompt: [{ type: 'text', text }] }).then(
+      void sendRequest('session/prompt', { sessionId: sid, prompt: blocks }).then(
         result => settleTurn({ result }),
         error => settleTurn({ error }),
       );
@@ -622,7 +622,7 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
 
         if (typeof params.prompt === 'string') {
           turnCount += 1;
-          await readTurn(sid, params.prompt, turnCount);
+          await readTurn(sid, [{ type: 'text', text: params.prompt }], turnCount);
           for (;;) {
             while (outbox.length > 0) yield outbox.shift() as SDKMessage;
             if (turnSettled || aborted || exited) break;
@@ -646,7 +646,7 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
             if (aborted || exited || !next || next.done) break;
             turnCount += 1;
             const n = turnCount;
-            await readTurn(sid, userText(next.value), n);
+            await readTurn(sid, userBlocks(next.value), n);
             for (;;) {
               while (outbox.length > 0) yield outbox.shift() as SDKMessage;
               if (turnSettled || aborted || exited) break;

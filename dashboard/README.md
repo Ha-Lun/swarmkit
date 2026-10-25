@@ -86,11 +86,31 @@ not the cookie.
 `POST /api/sessions/:id/message`, `POST /api/sessions/:id/interrupt`,
 `DELETE /api/sessions/:id`, `POST /api/permissions/:id`, `GET /api/agents?cwd=…`,
 `GET /api/cwds`, `GET /api/stars`, `POST /api/stars`, `POST /api/auth`, `GET /api/usage`,
-`GET /api/runtimes`, and `GET /events`
+`GET /api/sessions/:id/images/:name`, `GET /api/runtimes`, and `GET /events`
 (server-sent events). Every
 endpoint needs the token (cookie `fleet_token` or header `x-fleet-token`) except
 `POST /api/auth` and the agy hook callback `POST /api/agy-hook/:id` (loopback +
 `x-swarmkit-hook` secret instead). See `src/shared/types.ts` for the shapes.
+
+## Images
+
+Paste (Ctrl/Cmd+V), drag in or attach (the paperclip) up to 6 images per message: PNG, JPEG,
+GIF or WebP, at most 5 MB each (checked by magic bytes, not just the declared type). They go
+as `images: [{ mediaType, data }]` (base64, no `data:` prefix) on `POST /api/sessions`,
+`/message` and `/resume`; those three accept bodies up to 32 MB, every other endpoint 1 MB.
+A message may be images only (the text becomes "(image)").
+
+The server keeps the files in `${XDG_CACHE_HOME:-~/.cache}/swarmkit/images/<sessionId>/`
+(directory 0700, files 0600, never overwritten, no symlinks followed) and serves them back
+through the authenticated `GET /api/sessions/:id/images/:name`. Events carry only those URLs
+(`ActivityEvent.images`), never base64. A session's images are deleted when the session is
+evicted from memory.
+
+- Claude: sent to the model as image content blocks before the text.
+- OpenCode: sent as ACP `image` prompt blocks before the text.
+- agy: has no image input, so the files' absolute paths are appended to the prompt and the
+  turn runs with `--add-dir <image dir>`; agy opens them with `read_file`. The permission hook
+  auto-allows reads inside that directory (`SWARMKIT_DASH_IMAGES_DIR`), never edits.
 
 ## Usage limits
 

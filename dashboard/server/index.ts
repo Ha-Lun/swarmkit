@@ -27,18 +27,21 @@ import { DirError, listDirs } from './dirs.ts';
 import { listStars, setStar } from './stars.ts';
 import { WorkerRegistry } from './registry.ts';
 import { SdkSessions, SessionError } from './sdk/sessions.ts';
-import { validRuntime, validRuntimeAgent, validRuntimeEffort, validRuntimeModel, validText, ValidationError } from './validate.ts';
+import { validImages, validMessageText, validRuntime, validRuntimeAgent, validRuntimeEffort, validRuntimeModel, ValidationError } from './validate.ts';
+import { readImage } from './images.ts';
 import { resolveDirInHome } from './paths.ts';
 import { abortUsageProbe, getUsage } from './usage.ts';
 import { freshTranscriptMtimeMs, holderMessage, liveHolder } from './livesessions.ts';
 import { TranscriptWatcher } from './watch/transcripts.ts';
 import { isLoopback } from './hookauth.ts';
-import type { AgentNode, ResumeSessionBody, RuntimesResponse, ServerEvent, SessionSummary, StartSessionBody } from '../src/shared/types.ts';
+import type { AgentNode, ResumeSessionBody, RuntimesResponse, SendMessageBody, ServerEvent, SessionSummary, StartSessionBody } from '../src/shared/types.ts';
 
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4317;
 /** Max JSON body size for POST endpoints. */
 const MAX_BODY = 1024 * 1024;
+/** Max JSON body for the endpoints that carry pasted images (base64 inflates ~1.37x). */
+const MAX_IMAGE_BODY = 32 * 1024 * 1024;
 /** SSE clients buffered more than this are dropped instead of written to. */
 const MAX_STREAM_QUEUE = 4 * 1024 * 1024;
 /** GET /api/usage?refresh=1 is honoured at most once per this window. */
@@ -81,13 +84,13 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(data);
 }
 
-async function readJson(req: IncomingMessage): Promise<unknown> {
+async function readJson(req: IncomingMessage, limit = MAX_BODY): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
     size += buf.length;
-    if (size > MAX_BODY) throw new HttpError(413, 'request body too large (max 1 MB)');
+    if (size > limit) throw new HttpError(413, `request body too large (max ${limit / (1024 * 1024)} MB)`);
     chunks.push(buf);
   }
   if (size === 0) throw new HttpError(400, 'expected a JSON body');
@@ -114,7 +117,8 @@ async function resolveCwd(raw: unknown): Promise<string> {
 
 async function validateSessionBody(body: unknown): Promise<StartSessionBody> {
   const raw = requireObject(body);
-  const prompt = validText(raw.prompt, 'prompt');
+  const images = validImages(raw.images);
+  const prompt = validMessageText(raw.prompt, images, 'prompt');
   const runtime = validRuntime(raw.runtime);
   const start: StartSessionBody = { prompt, cwd: await resolveCwd(raw.cwd), runtime };
   const agent = validRuntimeAgent(runtime, raw.agent);
@@ -123,12 +127,15 @@ async function validateSessionBody(body: unknown): Promise<StartSessionBody> {
   if (model !== undefined) start.model = model;
   const effort = validRuntimeEffort(runtime, raw.effort);
   if (effort !== undefined) start.effort = effort;
+  if (images) start.images = images;
   return start;
 }
 
-function validateMessageBody(body: unknown): string {
+function validateMessageBody(body: unknown): SendMessageBody {
   const raw = requireObject(body);
-  return validText(raw.text);
+  const images = validImages(raw.images);
+  const text = validMessageText(raw.text, images);
+  return images ? { text, images } : { text };
 }
 
 function validateDecisionBody(body: unknown): { allow: boolean; message?: string } {
@@ -207,14 +214,16 @@ async function main(): Promise<void> {
 
   /** POST /api/sessions/:id/resume: continue a page-owned or terminal session with a new message. */
   async function resumeSession(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
-    const raw = requireObject(await readJson(req));
+    const raw = requireObject(await readJson(req, MAX_IMAGE_BODY));
     let body: ResumeSessionBody;
     try {
       const runtime = sdk.runtimeOf(id) ?? 'claude';
-      const text = validText(raw.text);
+      const images = validImages(raw.images);
+      const text = validMessageText(raw.text, images);
       const model = validRuntimeModel(runtime, raw.model);
       const effort = validRuntimeEffort(runtime, raw.effort);
       body = { text };
+      if (images) body.images = images;
       if (model !== undefined) body.model = model;
       if (effort !== undefined) body.effort = effort;
     } catch (err) {
@@ -256,6 +265,28 @@ async function main(): Promise<void> {
       }
       throw err;
     }
+  }
+
+  /** GET /api/sessions/:id/images/:name: a stored pasted image of a known session. */
+  function serveImage(req: IncomingMessage, res: ServerResponse, id: string, name: string): void {
+    let sessionId: string;
+    let imageName: string;
+    try {
+      sessionId = decodeURIComponent(id);
+      imageName = decodeURIComponent(name);
+    } catch {
+      return sendJson(res, 404, { error: 'image not found' });
+    }
+    const image = sdk.owns(sessionId) || watcher.fileInfo(sessionId) ? readImage(sessionId, imageName) : undefined;
+    if (!image) return sendJson(res, 404, { error: 'image not found' });
+    res.writeHead(200, {
+      'Content-Type': image.contentType,
+      'Content-Length': image.data.length,
+      'Cache-Control': 'private, max-age=86400',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Disposition': 'inline',
+    });
+    res.end(req.method === 'HEAD' ? undefined : image.data);
   }
 
   const mergedSessions = (): SessionSummary[] =>
@@ -496,7 +527,7 @@ async function main(): Promise<void> {
     if (url.pathname === '/api/sessions') {
       if (method === 'GET') return sendJson(res, 200, mergedSessions());
       if (method === 'POST') {
-        const body = await validateSessionBody(await readJson(req));
+        const body = await validateSessionBody(await readJson(req, MAX_IMAGE_BODY));
         return sendJson(res, 201, { sessionId: sdk.start(body) });
       }
       return sendJson(res, 405, { error: 'method not allowed' });
@@ -512,12 +543,16 @@ async function main(): Promise<void> {
       if (parts.length === 4 && (parts[3] === 'message' || parts[3] === 'interrupt') && method === 'POST') {
         if (!sdk.owns(id)) return sendJson(res, 404, { error: 'session not found' });
         if (parts[3] === 'message') {
-          const text = validateMessageBody(await readJson(req));
-          if (!sdk.send(id, text)) return sendJson(res, 404, { error: 'session not found' });
+          const message = validateMessageBody(await readJson(req, MAX_IMAGE_BODY));
+          if (!sdk.send(id, message.text, message.images)) return sendJson(res, 404, { error: 'session not found' });
         } else if (!sdk.interrupt(id)) {
           return sendJson(res, 404, { error: 'session not found' });
         }
         return sendJson(res, 200, { ok: true });
+      }
+      if (parts.length === 5 && parts[3] === 'images') {
+        if (method !== 'GET' && method !== 'HEAD') return sendJson(res, 405, { error: 'method not allowed' });
+        return serveImage(req, res, id, parts[4] ?? '');
       }
       if (parts.length === 3 && method === 'DELETE') {
         return sdk.stop(id)

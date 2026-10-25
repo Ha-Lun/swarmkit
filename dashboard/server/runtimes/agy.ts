@@ -20,6 +20,8 @@ export interface AgyOptions {
   onSessionId?: (id: string) => void;
   hook?: { url: string; secret: string };
   env?: NodeJS.ProcessEnv;
+  /** Absolute image dir of the session once it has pasted images: --add-dir on each turn, and the hook may read there. */
+  imagesDir?: () => string | undefined;
 }
 
 export interface AgyHookRequest {
@@ -196,6 +198,8 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
         env.SWARMKIT_DASH_HOOK_SECRET = opts.hook.secret;
         if (cwd) env.SWARMKIT_DASH_CWD = cwd;
       }
+      const imagesDir = opts.imagesDir?.();
+      if (opts.hook && imagesDir) env.SWARMKIT_DASH_IMAGES_DIR = imagesDir;
       delete env.CLAUDECODE;
       delete env.OPENCODE;
       return env;
@@ -207,6 +211,8 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
       if (turnModel) args.push('--model', turnModel);
       if (opts.effort) args.push('--effort', opts.effort);
       if (conv) args.push('--conversation', conv);
+      const imagesDir = opts.imagesDir?.();
+      if (imagesDir) args.push('--add-dir', imagesDir);
       if (opts.hook) args.push('--dangerously-skip-permissions');
       return args;
     };

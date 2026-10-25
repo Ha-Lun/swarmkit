@@ -30,3 +30,20 @@ export function userText(msg: SDKUserMessage): string {
   }
   return '';
 }
+
+/** ACP prompt blocks of a user turn: image blocks first (mimeType + base64), then the text. */
+export function userBlocks(msg: SDKUserMessage): Array<{ type: 'image'; mimeType: string; data: string } | { type: 'text'; text: string }> {
+  const blocks: Array<{ type: 'image'; mimeType: string; data: string } | { type: 'text'; text: string }> = [];
+  const content = rec((msg as unknown as Rec).message)?.content;
+  if (Array.isArray(content)) {
+    for (const part of content) {
+      const p = rec(part);
+      const source = rec(p?.source);
+      if (p?.type === 'image' && source?.type === 'base64' && typeof source.media_type === 'string' && typeof source.data === 'string') {
+        blocks.push({ type: 'image', mimeType: source.media_type, data: source.data });
+      }
+    }
+  }
+  blocks.push({ type: 'text', text: userText(msg) });
+  return blocks;
+}

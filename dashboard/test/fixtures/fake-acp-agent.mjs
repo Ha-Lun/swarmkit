@@ -162,7 +162,11 @@ function handle(msg) {
         if (params?.configId === 'model') configuredModel = params.value ?? null;
         reply(msg.id, {});
       } else if (msg.method === 'session/prompt') {
-        record({ method: 'session/prompt', params: { sessionId: params?.sessionId } });
+        record({
+          method: 'session/prompt',
+          params: { sessionId: params?.sessionId },
+          blocks: (Array.isArray(params?.prompt) ? params.prompt : []).map(b => (b.type === 'image' ? { type: b.type, mimeType: b.mimeType, dataLen: String(b.data).length } : b)),
+        });
         handlePrompt(msg.id, params ?? {});
       } else {
         replyError(msg.id, -32601, `Method not found: ${msg.method}`);
