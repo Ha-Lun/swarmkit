@@ -42,7 +42,7 @@ export function AgentTabs({ tabs, activeId, now, workers, workersAt, onSelect }:
         {dot}
       </span>
       <span className="agent-tab-name">{name}</span>
-      {label && <span className="chip">{label}</span>}
+      {label && <span className="agent-tab-model">{label}</span>}
       {waiting && <span className="agent-tab-needs">needs you</span>}
       <span className="agent-tab-time">{elapsed}</span>
     </button>
@@ -83,7 +83,7 @@ export function AgentTabs({ tabs, activeId, now, workers, workersAt, onSelect }:
         return renderTab(
           node.id,
           tabName(node),
-          modelLabel(task?.model ?? node.model),
+          modelLabel(task?.model ?? node.model).split(' ')[0],
           phase,
           activeId === node.id,
           waiting,

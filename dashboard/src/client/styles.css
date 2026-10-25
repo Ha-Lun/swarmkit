@@ -2397,19 +2397,24 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
   gap: var(--space-2);
   flex-wrap: nowrap;
   overflow-x: auto;
-  padding: var(--space-2) var(--space-4);
+  padding: var(--space-1) var(--space-4);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  scrollbar-width: thin;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--space-6)), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--space-6)), transparent);
 }
+.agent-tabs::-webkit-scrollbar { display: none; }
 .agent-tab {
   flex: none;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 44px;
-  max-width: 240px;
-  padding: var(--space-2) var(--space-3);
+  min-height: 36px;
+  max-width: 280px;
+  margin-block: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  position: relative;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface-2);
@@ -2422,6 +2427,7 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
 .agent-tab.is-active { border-color: var(--violet-ring); background: var(--violet-soft); color: var(--ink); }
 .agent-tab.is-waiting { border-color: var(--amber); }
 .agent-tab.is-leaving { opacity: 0.55; }
+.agent-tab::after { content: ''; position: absolute; inset: -4px 0; }
 .agent-tab-dot { display: inline-flex; align-items: center; }
 .agent-tab-name {
   min-width: 0;
@@ -2429,6 +2435,18 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
+  max-width: 120px;
+}
+@media (min-width: 700px) {
+  .agent-tab-name { max-width: 180px; }
+}
+@media (max-width: 699px) {
+  .agent-tab-model { display: none; }
+}
+.agent-tab-model {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-3);
 }
 .agent-tab-check { color: var(--teal); font-weight: 700; }
 .agent-tab-x { color: var(--fail); font-weight: 700; }
@@ -2626,6 +2644,22 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
 .handoff-result .md { max-height: 120px; overflow: hidden; }
 .handoff .perm { margin: var(--space-2) 0 0; border-radius: var(--radius-sm); }
 .handoff-body .btn { align-self: flex-start; margin-top: var(--space-1); }
+.handoff-open {
+  position: relative;
+  flex: none;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.handoff-open::after { content: ''; position: absolute; inset: -14px -4px; }
+.handoff-open:hover { color: var(--ink); background: var(--surface-3); }
+
 
 .chat-perm-line { font-size: 11.5px; color: var(--text-3); font-family: var(--mono); }
 .chat-note { align-self: center; text-align: center; font-size: 12px; color: var(--text-3); }

@@ -489,14 +489,21 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
       ? `${activeNode.worker.lane} · ${activeNode.worker.slug}`
       : activeNode.agentType
     : '';
-  const showReturn =
-    sessionView === 'chat' &&
+  // Auto-return only when the viewed agent finishes while we watch it; opening an
+  // already finished agent stays put.
+  const activeEnded =
     !!activeNode &&
     activeAgentId !== 'root' &&
     (activeNode.status === 'done' ||
       activeNode.status === 'idle' ||
       activeNode.status === 'error' ||
       activeNode.status === 'stopped');
+  const activeLive = !!activeNode && (activeNode.status === 'running' || activeNode.status === 'waiting');
+  const seenLiveRef = useRef<string | null>(null);
+  if (activeAgentId === 'root') seenLiveRef.current = null;
+  else if (activeLive) seenLiveRef.current = `${detail?.id}:${activeAgentId}`;
+  const showReturn =
+    sessionView === 'chat' && activeEnded && seenLiveRef.current === `${detail?.id}:${activeAgentId}`;
 
   useEffect(() => {
     setReturnStay(false);

@@ -19,7 +19,7 @@ export function Orb({ state, color, size }: Props) {
   });
   return (
     <span className="orb" aria-hidden="true" style={{ width: size, height: size }}>
-      <ThinkingOrb theme="dark" state={state} size={size} color={color} paused={paused} />
+      <ThinkingOrb theme="dark" dotSize={1.3} state={state} size={size} color={color} paused={paused} />
     </span>
   );
 }

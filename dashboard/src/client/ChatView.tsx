@@ -142,6 +142,9 @@ function HandoffCard({
             <b>{name}</b>
             {(task?.model ?? child.model) && <span className="chip">{modelLabel(task?.model ?? child.model)}</span>}
             <span className="handoff-time">{elapsed}</span>
+            <button type="button" className="handoff-open" onClick={() => onOpenAgent(child.id)}>
+              Open →
+            </button>
           </p>
           {child.description && <p className="handoff-desc">{child.description}</p>}
           {running && activity && <p className="node-activity is-live">{activity}</p>}
@@ -164,9 +167,6 @@ function HandoffCard({
               )}
             </div>
           )}
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => onOpenAgent(child.id)}>
-            Open →
-          </button>
         </div>
       </div>
       {permission && (
