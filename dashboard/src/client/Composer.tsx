@@ -53,7 +53,7 @@ export function Composer({ onSend, onInterrupt, onStop, loadCommands }: Props) {
       );
     }
     wasOpenRef.current = open;
-  }, [open ]);
+  }, [open]);
 
   useEffect(() => {
     const el = ref.current;
@@ -100,7 +100,7 @@ export function Composer({ onSend, onInterrupt, onStop, loadCommands }: Props) {
           id={menuId}
           items={filtered}
           active={clamped}
-          loading={loading}
+          loading={loading || !wasOpenRef.current}
           onPick={pick}
           onHover={setActive}
         />
