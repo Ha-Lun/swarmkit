@@ -330,14 +330,36 @@ describe('acp runtime', () => {
             bash: {
               '*': 'ask',
               'agy-task *': 'allow',
-              'git status*': 'allow',
-              'git diff*': 'allow',
-              'git log*': 'allow',
-              'ls*': 'allow',
             },
           },
         },
       },
     });
+  });
+
+  it('a child that exits at once ends the iterator with no unhandled rejection', async () => {
+    const rejections: unknown[] = [];
+    const onRejection = (err: unknown): void => {
+      rejections.push(err);
+    };
+    process.on('unhandledRejection', onRejection);
+    try {
+      const seen: Seen[] = [];
+      const { options } = sdkOpts(allowUse(seen));
+      const query = createAcpQuery({ command: ['node', '-e', 'process.exit(1)'] })({ prompt: 'hi', options });
+      let threw: unknown = null;
+      try {
+        for await (const m of query) {
+          void m;
+        }
+      } catch (err) {
+        threw = err;
+      }
+      expect(threw ?? 'ended').toBeDefined();
+      await new Promise(resolve => setTimeout(resolve, 250));
+      expect(rejections).toEqual([]);
+    } finally {
+      process.removeListener('unhandledRejection', onRejection);
+    }
   });
 });

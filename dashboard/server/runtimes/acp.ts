@@ -22,10 +22,6 @@ const OVERLAY = {
         bash: {
           '*': 'ask',
           'agy-task *': 'allow',
-          'git status*': 'allow',
-          'git diff*': 'allow',
-          'git log*': 'allow',
-          'ls*': 'allow',
         },
       },
     },
@@ -215,6 +211,7 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
     const endPromise = new Promise<never>((_resolve, reject) => {
       endReject = reject;
     });
+    endPromise.catch(() => {});
     const finishWaiting = (err: Error): void => {
       if (endReject) {
         const reject = endReject;
@@ -246,18 +243,19 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
     };
 
     const kill = (): void => {
-      if (!child || exited) return;
+      const proc = child;
+      if (!proc || exited) return;
       try {
-        child.kill('SIGTERM');
+        proc.kill('SIGTERM');
       } catch {
         // Already gone.
       }
       if (killTimer) return;
       killTimer = setTimeout(() => {
         killTimer = null;
-        if (child && !exited) {
+        if (proc.exitCode === null && proc.signalCode === null) {
           try {
-            child.kill('SIGKILL');
+            proc.kill('SIGKILL');
           } catch {
             // Already gone.
           }
