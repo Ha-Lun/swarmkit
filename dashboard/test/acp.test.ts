@@ -152,6 +152,26 @@ describe('acp runtime', () => {
     expect(entries.some(e => e.method === 'permission-decision' && e.allowed === true)).toBe(true);
   });
 
+  it('exposes available commands via supportedCommands', async () => {
+    const recordFile = makeRecord();
+    const seen: Seen[] = [];
+    const { options, abort } = sdkOpts(allowUse(seen));
+    const q = createAcpQuery(acpOpts(recordFile))({ prompt: 'do work', options });
+    const first = await timed((q as unknown as AsyncGenerator<SDKMessage>).next(), 15000, 'init');
+    expect((first.value as unknown as Rec).type).toBe('system');
+    await vi.waitFor(async () => {
+      const cmds = await (q as unknown as { supportedCommands: () => Promise<unknown> }).supportedCommands();
+      expect(cmds).toEqual([
+        { name: 'compact', description: 'Compact the session' },
+        { name: 'review', description: 'Review changes', argumentHint: '<path>' },
+      ]);
+    });
+    const rest: SDKMessage[] = [];
+    for await (const m of q) rest.push(m);
+    expect(rest.some(m => (m as unknown as Rec).type === 'result')).toBe(true);
+    abort.abort();
+  });
+
   it('deny answers the permission with a failed tool result', async () => {
     const recordFile = makeRecord();
     const seen: Seen[] = [];

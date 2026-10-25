@@ -12,7 +12,7 @@ import { pollWorkers } from '../model/workers.ts';
 import { noteRateLimit } from '../usage.ts';
 import { DASHBOARD_ENTRYPOINTS, holderMessage, liveHolder } from '../livesessions.ts';
 import { MAX_EVENTS, RUNTIME_MODELS } from '../../src/shared/types.ts';
-import type { AgentNode, ImageAttachment, PermissionDecisionBody, PermissionRequest, ResumeSessionBody, Runtime, ServerEvent, SessionDetail, SessionSummary, StartSessionBody } from '../../src/shared/types.ts';
+import type { AgentNode, ImageAttachment, PermissionDecisionBody, PermissionRequest, ResumeSessionBody, Runtime, ServerEvent, SessionDetail, SessionSummary, SlashCommandInfo, StartSessionBody } from '../../src/shared/types.ts';
 import { AGENT_RE, validEffort, validImages, validMessageText, validResumeModel, validText } from '../validate.ts';
 import { createAcpQuery } from '../runtimes/acp.ts';
 import type { AcpOptions } from '../runtimes/acp.ts';
@@ -129,6 +129,8 @@ interface PageSession {
   consumePromise: Promise<void> | null;
   /** True when the cwd's project settings are untrusted (only user settings are read). */
   untrustedProject: boolean;
+  /** Terminal slash commands from the init message (filtered out of commands()). */
+  terminalCommands?: Set<string>;
   upsertThrottle: { lastSent: number; timer: NodeJS.Timeout | null };
 }
 
@@ -453,6 +455,12 @@ export class SdkSessions {
         if ((message as { type?: string }).type === 'rate_limit_event') {
           // Feed the latest-known plan limits to /api/usage.
           noteRateLimit((message as SDKRateLimitEvent).rate_limit_info);
+        }
+        const init = message as unknown as { type?: unknown; subtype?: unknown; terminal_slash_commands?: unknown };
+        if (init.type === 'system' && init.subtype === 'init' && Array.isArray(init.terminal_slash_commands)) {
+          session.terminalCommands = new Set(
+            init.terminal_slash_commands.filter((v): v is string => typeof v === 'string'),
+          );
         }
         for (const event of applyMessage(session.tree, message)) this.emit(event);
         this.scheduleUpsert(session);
@@ -819,6 +827,45 @@ export class SdkSessions {
   /** Lead runtime of a page session, if we own the id. */
   runtimeOf(id: string): Runtime | undefined {
     return this.sessions.get(id)?.runtime;
+  }
+
+  /** Slash commands of a live page session; undefined when the id isn't ours. */
+  async commands(id: string): Promise<SlashCommandInfo[] | undefined> {
+    const session = this.sessions.get(id);
+    if (!session) return undefined;
+    if (!session.query) return [];
+    const fn = (session.query as unknown as { supportedCommands?: () => Promise<unknown> }).supportedCommands;
+    if (!fn) return [];
+    let timer: NodeJS.Timeout | null = null;
+    let raw: unknown;
+    try {
+      const timeout = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('commands timed out')), 5000);
+      });
+      raw = await Promise.race([fn.call(session.query), timeout]);
+    } catch {
+      return [];
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    if (!Array.isArray(raw)) return [];
+    const seen = new Set<string>();
+    const out: SlashCommandInfo[] = [];
+    for (const item of raw) {
+      const r = item as { name?: unknown; description?: unknown; argumentHint?: unknown };
+      if (typeof r.name !== 'string' || r.name.length === 0) continue;
+      let name = r.name;
+      if (name.startsWith('/')) name = name.slice(1);
+      if (name.length === 0) continue;
+      if (session.terminalCommands?.has(name)) continue;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const cmd: SlashCommandInfo = { name };
+      if (typeof r.description === 'string' && r.description.length > 0) cmd.description = r.description;
+      if (typeof r.argumentHint === 'string' && r.argumentHint.length > 0) cmd.argumentHint = r.argumentHint;
+      out.push(cmd);
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   /**

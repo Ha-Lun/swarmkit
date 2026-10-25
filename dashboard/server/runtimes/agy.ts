@@ -4,7 +4,9 @@ import type { ChildProcess } from 'node:child_process';
 import { timingSafeEqual } from 'node:crypto';
 import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { QueryFn } from '../sdk/sessions.ts';
+import type { SlashCommandInfo } from '../../src/shared/types.ts';
 import { num, str, userText } from './util.ts';
+import { listAgyCommands } from './agy-commands.ts';
 
 export interface AgyOptions {
   command?: string;
@@ -483,11 +485,15 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
       }
     }
 
-    const iterable = gen() as AsyncGenerator<SDKMessage> & { interrupt: () => Promise<unknown> };
+    const iterable = gen() as AsyncGenerator<SDKMessage> & {
+      interrupt: () => Promise<unknown>;
+      supportedCommands: () => Promise<SlashCommandInfo[]>;
+    };
     iterable.interrupt = async (): Promise<unknown> => {
       kill('SIGINT', 'SIGTERM', 2000);
       return undefined;
     };
+    iterable.supportedCommands = () => listAgyCommands(cwd ?? process.cwd());
     return iterable;
   };
   return fn as QueryFn;

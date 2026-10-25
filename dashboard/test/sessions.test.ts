@@ -874,5 +874,43 @@ describe('SdkSessions', () => {
       });
     });
   });
+
+  describe('commands', () => {
+    it('filters terminal, strips slashes, dedupes and sorts; unknown -> undefined; ended -> []', async () => {
+      const hanging: QueryFn = () => {
+        const gen = (async function* (): AsyncGenerator<any, void> {
+          yield { type: 'system', subtype: 'init', terminal_slash_commands: ['exit'] };
+          await new Promise<void>(() => {});
+        })();
+        return Object.assign(gen, {
+          supportedCommands: async () => [
+            { name: 'zeta', description: 'Z' },
+            { name: 'exit', description: 'quit' },
+            { name: '/alpha', description: 'A' },
+            { name: 'zeta', description: 'dup' },
+            { name: 'beta', argumentHint: '<x>' },
+          ],
+        }) as unknown as AsyncIterable<SDKMessage>;
+      };
+      const sdk = new SdkSessions(() => {}, hanging);
+      const id = sdk.start({ prompt: 'live commands', cwd: homeDir });
+      await vi.waitFor(async () => {
+        expect(await sdk.commands(id)).toEqual([
+          { name: 'alpha', description: 'A' },
+          { name: 'beta', argumentHint: '<x>' },
+          { name: 'zeta', description: 'Z' },
+        ]);
+      });
+      expect(await sdk.commands('nope')).toBeUndefined();
+      sdk.stop(id);
+
+      const ended = new SdkSessions(() => {}, makeRecordingQuery([]));
+      const doneId = ended.start({ prompt: 'ended', cwd: homeDir });
+      await vi.waitFor(() => {
+        expect(ended.get(doneId)?.status).toBe('done');
+      });
+      expect(await ended.commands(doneId)).toEqual([]);
+    });
+  });
 });
 
