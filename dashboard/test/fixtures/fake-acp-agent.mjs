@@ -14,6 +14,8 @@ function record(entry) {
   }
 }
 
+record({ method: 'start', pid: process.pid });
+
 const send = obj => {
   process.stdout.write(`${JSON.stringify(obj)}\n`);
 };
@@ -173,6 +175,10 @@ process.stdin.on('data', data => {
       // Non-JSON lines are ignored, like the adapter ignores them.
     }
   }
+});
+
+process.stdin.on('end', () => {
+  record({ method: 'stdin-end' });
 });
 
 process.on('SIGTERM', () => {

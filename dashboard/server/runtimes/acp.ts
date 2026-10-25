@@ -244,16 +244,15 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
 
     const kill = (): void => {
       const proc = child;
-      if (!proc || exited) return;
+      if (!proc || exited || killTimer) return;
       try {
         proc.kill('SIGTERM');
       } catch {
         // Already gone.
       }
-      if (killTimer) return;
       killTimer = setTimeout(() => {
         killTimer = null;
-        if (proc.exitCode === null && proc.signalCode === null) {
+        if (!exited && proc.exitCode === null && proc.signalCode === null) {
           try {
             proc.kill('SIGKILL');
           } catch {
@@ -635,27 +634,43 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
         }
       } finally {
         if (abortSignal) abortSignal.removeEventListener('abort', abortHandler);
-        if (killTimer) {
-          clearTimeout(killTimer);
-          killTimer = null;
-        }
         child?.stdout?.removeAllListeners('data');
         if (child && !exited) {
+          // The child is still alive (e.g. Stop was pressed): SIGTERM first,
+          // then SIGKILL after 3 s via killTimer. stdin EOF alone can let the
+          // child exit 0 on its own before the signal lands, so keep the
+          // signal as the primary cause and keep the SIGKILL fallback and the
+          // exit tracking armed until the child is actually reaped.
           kill();
           try {
             child.stdin?.end();
           } catch {
             // Already gone.
           }
-        } else if (child) {
-          try {
-            child.stdin?.end();
-          } catch {
-            // Already gone.
+          const proc = child;
+          child = null;
+          proc.once('exit', () => {
+            if (killTimer) {
+              clearTimeout(killTimer);
+              killTimer = null;
+            }
+            proc.removeAllListeners();
+          });
+        } else {
+          if (killTimer) {
+            clearTimeout(killTimer);
+            killTimer = null;
           }
+          if (child) {
+            try {
+              child.stdin?.end();
+            } catch {
+              // Already gone.
+            }
+          }
+          child?.removeAllListeners();
+          child = null;
         }
-        child?.removeAllListeners();
-        child = null;
       }
     })();
 
