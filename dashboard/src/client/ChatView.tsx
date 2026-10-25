@@ -209,7 +209,7 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
     if (!el) return;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
     stickRef.current = nearBottom;
-    setShowPill(!nearBottom);
+    if (nearBottom) setShowPill(false);
   };
 
   const scrollDown = () => {

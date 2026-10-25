@@ -344,10 +344,10 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
     detail?.nodes.some((n) => n.status === 'running' || n.status === 'waiting') ||
     state.workers.some((w) => w.state === 'running') ||
     state.sessions.some((s) => s.status === 'running' || s.status === 'waiting');
-  const tickNow = useTicker(Boolean(baseActive));
-  const tabs = detail ? agentTabs(detail.nodes, tickNow, detail.permissions) : [];
-  const anyActive = Boolean(baseActive) || tabs.length > 0;
-  const now = useTicker(Boolean(anyActive));
+  const recentEnd = detail?.nodes.some((n) => n.endedAt != null && Date.now() - n.endedAt < 10_000) ?? false;
+  const anyActive = Boolean(baseActive) || recentEnd;
+  const now = useTicker(anyActive);
+  const tabs = detail ? agentTabs(detail.nodes, now, detail.permissions) : [];
 
   const visibleTabs = tabs.slice();
   if (detail && activeAgentId !== 'root' && !visibleTabs.some((t) => t.node.id === activeAgentId)) {
