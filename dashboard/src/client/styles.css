@@ -2393,8 +2393,10 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
 .view-toggle button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* Setup segmented control on the start form (reuses .view-toggle). */
-.setup-seg { flex-wrap: wrap; }
-.land-setup { margin-bottom: var(--space-2); }
+.amf-setup { margin-bottom: var(--space-2); }
+.setup-seg { max-width: 100%; }
+.setup-seg button { min-height: 44px; white-space: nowrap; }
+.setup-seg button:disabled { text-decoration: line-through; }
 .setup-desc { margin: 4px 0 0; font-size: 12px; }
 
 /* Lead-runtime chips (nothing renders for the default claude runtime). */

@@ -14,6 +14,7 @@ const SETUP_LABEL: Record<Runtime, string> = {
   opencode: 'OpenCode + agy',
   agy: 'agy only',
 };
+const SETUP_SHORT: Record<Runtime, string> = { claude: 'Claude', opencode: 'OpenCode', agy: 'agy' };
 const SETUP_DESC: Record<Runtime, string> = {
   claude: 'Claude lead · opencode + agy workers',
   opencode: 'OpenCode lead · agy worker',
@@ -218,7 +219,7 @@ export function AgentModelFields({
       ? `${agent || 'Default'} · ${modelLabel(modelShown)} · ${effort ? `${effort} effort` : 'default effort'}`
       : `${SETUP_LABEL[runtime]} · ${modelShown}${runtime === 'agy' && effort ? ` · ${effort} effort` : ''}`;
   const setupField = (
-    <>
+    <div className="amf-setup">
       <div className="view-toggle setup-seg" role="group" aria-label="Setup">
         {SETUP_ORDER.map((r) => {
           const ok = !availability || availability[r] !== false;
@@ -229,16 +230,17 @@ export function AgentModelFields({
               aria-pressed={runtime === r}
               className={runtime === r ? 'is-active' : undefined}
               disabled={!ok}
-              title={ok ? undefined : `${r} not found on PATH`}
+              aria-label={SETUP_LABEL[r]}
+              title={ok ? SETUP_LABEL[r] : `${r} not found on PATH`}
               onClick={() => onRuntime(r)}
             >
-              {SETUP_LABEL[r]}
+              {SETUP_SHORT[r]}
             </button>
           );
         })}
       </div>
       <p className="muted setup-desc">{SETUP_DESC[runtime]}</p>
-    </>
+    </div>
   );
   const agentField =
     runtime === 'claude' ? (
@@ -303,6 +305,7 @@ export function AgentModelFields({
   );
   return (
     <div className="amf">
+      {setupField}
       <div className="amf-summary">
         <span className="amf-summary-text">{summary}</span>
         <button
@@ -318,7 +321,6 @@ export function AgentModelFields({
       {open &&
         (layout === 'row' ? (
           <div id={panelId}>
-            <div className="land-setup">{setupField}</div>
             <div className="land-row">
               <div className="land-field">{agentField}</div>
               <div className="land-field">{modelField}</div>
@@ -327,7 +329,6 @@ export function AgentModelFields({
           </div>
         ) : (
           <div id={panelId} className="amf-stack">
-            {setupField}
             {agentField}
             {modelField}
             {runtime !== 'opencode' && effortField}
