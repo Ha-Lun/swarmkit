@@ -6,6 +6,7 @@ import type {
   AgentsResponse,
   DirEntry,
   DirListing,
+  ImageAttachment,
   PermissionRequest,
   ServerEvent,
   SessionDetail,
@@ -424,6 +425,10 @@ export function createMockBackend(): FleetBackend {
     s.updatedAt = Date.now();
     emit?.({ type: 'session.upsert', session: { ...s } });
   };
+
+  /** The demo has no image store: events carry the bytes back as data: URLs. */
+  const toDataUrls = (images?: ImageAttachment[]): string[] | undefined =>
+    images?.length ? images.map((i) => `data:${i.mediaType};base64,${i.data}`) : undefined;
 
   const upsertHead = (n: AgentNode) => emit?.({ type: 'node.upsert', node: toHead(n) });
 
@@ -875,7 +880,16 @@ export function createMockBackend(): FleetBackend {
         costUsd: 0,
         tokens: tu(0, 0, 0, 0),
         toolCounts: {},
-        events: [{ id: uid('ev'), ts: now, kind: 'user', summary: body.prompt.split('\n')[0], detail: body.prompt }],
+        events: [
+          {
+            id: uid('ev'),
+            ts: now,
+            kind: 'user',
+            summary: body.prompt.split('\n')[0],
+            detail: body.prompt,
+            ...(toDataUrls(body.images) ? { images: toDataUrls(body.images)! } : {}),
+          },
+        ],
         lastActivity: body.prompt.split('\n')[0],
       };
       nodeMaps.get(id)!.set('root', n);
@@ -889,14 +903,17 @@ export function createMockBackend(): FleetBackend {
       });
       return Promise.resolve({ sessionId: id } satisfies StartSessionResponse);
     },
-    send: (sessionId, text) => {
+    send: (sessionId, text, images) => {
       const map = nodeMaps.get(sessionId);
       const s = sessions.get(sessionId);
       if (!map || !s) return Promise.reject(new Error('mock: unknown session'));
       if (s.source !== 'page') return Promise.reject(new Error('Terminal sessions are read-only'));
       const n = map.get('root');
       if (!n) return Promise.reject(new Error('mock: no root'));
-      pushEvent(n, 'user', text.split('\n')[0], { detail: text });
+      pushEvent(n, 'user', text.split('\n')[0], {
+        detail: text,
+        ...(toDataUrls(images) ? { images: toDataUrls(images)! } : {}),
+      });
       n.status = 'running';
       n.endedAt = undefined;
       n.result = undefined;
@@ -1019,7 +1036,10 @@ export function createMockBackend(): FleetBackend {
         root.status = 'running';
         root.endedAt = undefined;
         root.result = undefined;
-        pushEvent(root, 'user', body.text.split('\n')[0], { detail: body.text });
+        pushEvent(root, 'user', body.text.split('\n')[0], {
+          detail: body.text,
+          ...(toDataUrls(body.images) ? { images: toDataUrls(body.images)! } : {}),
+        });
         upsertHead(root);
         at(1800, () => {
           if (root.status === 'running') pushEvent(root, 'text', 'Continuing — scripted mock reply.');

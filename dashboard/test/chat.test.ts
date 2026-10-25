@@ -1,6 +1,6 @@
 // Tests for the chat transcript helpers.
 import { describe, expect, it } from 'vitest';
-import { agentTabs, buildChat, matchWorkerTask, orbColor, orbLabel, orbState } from '../src/client/chat.ts';
+import { agentTabs, buildChat, matchWorkerTask, orbColor, orbLabel, orbState, stripImageMarkers } from '../src/client/chat.ts';
 import type { ActivityEvent, AgentNode, PermissionRequest, WorkerTask } from '../src/shared/types.ts';
 import type { OrbState } from 'thinking-orbs';
 
@@ -288,6 +288,60 @@ describe('matchWorkerTask', () => {
     const n = node({ kind: 'subagent' });
     expect(matchWorkerTask(n, [workerTask({ sessionId: 's1', nodeId: n.id })])).toBeUndefined();
     expect(matchWorkerTask(mainNode(), [])).toBeUndefined();
+  });
+});
+
+describe('buildChat user images', () => {
+  it('carries the event image URLs onto the user item', () => {
+    const n = node({
+      events: [
+        ev({
+          id: 'u1',
+          ts: 1,
+          kind: 'user',
+          summary: 'look',
+          detail: 'look\n🖼 image',
+          images: ['/api/sessions/s1/images/1.png'],
+        }),
+      ],
+    });
+    const items = buildChat(n, []);
+    expect(items.length).toBe(1);
+    expect(items[0]).toEqual({
+      type: 'user',
+      id: 'u1',
+      ts: 1,
+      text: 'look\n🖼 image',
+      images: ['/api/sessions/s1/images/1.png'],
+    });
+  });
+  it('omits images when the event has none', () => {
+    const n = node({ events: [ev({ id: 'u1', ts: 1, kind: 'user', summary: 'hi' })] });
+    const items = buildChat(n, []);
+    expect(items[0]).toEqual({ type: 'user', id: 'u1', ts: 1, text: 'hi' });
+    expect('images' in (items[0] as object)).toBe(false);
+  });
+  it('copies the array so later mutations cannot leak in', () => {
+    const urls = ['/api/sessions/s1/images/1.png'];
+    const n = node({ events: [ev({ id: 'u1', ts: 1, kind: 'user', summary: 'hi', images: urls })] });
+    const items = buildChat(n, []);
+    urls.push('/api/sessions/s1/images/2.png');
+    expect((items[0] as { images?: string[] }).images).toEqual(['/api/sessions/s1/images/1.png']);
+  });
+});
+
+describe('stripImageMarkers', () => {
+  it('drops the server marker lines', () => {
+    expect(stripImageMarkers('what is this\n🖼 image\n🖼 image')).toBe('what is this');
+  });
+  it('drops markers with surrounding whitespace and keeps other lines', () => {
+    expect(stripImageMarkers('a\n  🖼 image  \nb')).toBe('a\nb');
+  });
+  it('leaves text without markers alone', () => {
+    expect(stripImageMarkers('just text\nmore text')).toBe('just text\nmore text');
+  });
+  it('does not drop lookalike lines', () => {
+    expect(stripImageMarkers('🖼 images are nice\n🖼 image!')).toBe('🖼 images are nice\n🖼 image!');
   });
 });
 

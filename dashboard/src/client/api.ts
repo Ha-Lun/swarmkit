@@ -2,12 +2,14 @@
 import type {
   AgentsResponse,
   DirListing,
+  ImageAttachment,
   RuntimesResponse,
   ServerEvent,
   SessionDetail,
   SessionSummary,
   StartSessionBody,
   StartSessionResponse,
+  SendMessageBody,
   ResumeSessionBody,
   UsageReport,
   WorkerTask,
@@ -60,7 +62,7 @@ export interface FleetBackend {
   sessions(): Promise<SessionSummary[]>;
   detail(id: string): Promise<SessionDetail>;
   start(body: StartSessionBody): Promise<StartSessionResponse>;
-  send(sessionId: string, text: string): Promise<unknown>;
+  send(sessionId: string, text: string, images?: ImageAttachment[]): Promise<unknown>;
   interrupt(sessionId: string): Promise<unknown>;
   stop(sessionId: string): Promise<unknown>;
   resume(sessionId: string, body: ResumeSessionBody): Promise<StartSessionResponse>;
@@ -85,11 +87,13 @@ export const apiBackend: FleetBackend = {
   detail: (id) => request(`/api/sessions/${encodeURIComponent(id)}`),
   start: (body) =>
     request('/api/sessions', { method: 'POST', body: JSON.stringify(body) }),
-  send: (sessionId, text) =>
-    request(`/api/sessions/${encodeURIComponent(sessionId)}/message`, {
+  send: (sessionId, text, images) => {
+    const body: SendMessageBody = images?.length ? { text, images } : { text };
+    return request(`/api/sessions/${encodeURIComponent(sessionId)}/message`, {
       method: 'POST',
-      body: JSON.stringify({ text }),
-    }),
+      body: JSON.stringify(body),
+    });
+  },
   interrupt: (sessionId) =>
     request(`/api/sessions/${encodeURIComponent(sessionId)}/interrupt`, { method: 'POST' }),
   stop: (sessionId) => request(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }),

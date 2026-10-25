@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import type { SessionSummary, UsageReport, WorkerTask } from '../shared/types';
 import type { FleetBackend, Guard } from './api';
+import { AttachButton, AttachDropzone, AttachmentTray } from './AttachmentTray';
+import { filesFromPaste } from './attachments';
 import { fmtCost, fmtDuration, shortModel, UNTRUSTED_NOTICE } from './format';
 import { FolderPicker } from './FolderPicker';
 import { Logo, StarIcon } from './icons';
@@ -55,8 +57,6 @@ export function Landing({
     setCwd,
     prompt,
     setPrompt,
-    agent,
-    setAgent,
     runtime,
     setRuntime,
     availability,
@@ -64,7 +64,7 @@ export function Landing({
     setModel,
     effort,
     setEffort,
-    agents,
+    attachments,
     starting,
     error,
     submit,
@@ -210,26 +210,37 @@ export function Landing({
               )}
 
               <label htmlFor="land-prompt">Prompt</label>
-              <textarea
-                id="land-prompt"
-                rows={3}
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="What should the swarm do?"
-              />
+              <AttachDropzone onFiles={attachments.addFiles}>
+                <textarea
+                  id="land-prompt"
+                  rows={3}
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  onPaste={(e) => {
+                    const files = filesFromPaste(e);
+                    if (files.length > 0) attachments.addFiles(files);
+                  }}
+                  placeholder="What should the swarm do?"
+                />
+              </AttachDropzone>
+              <AttachmentTray items={attachments.items} onRemove={attachments.remove} />
+              <div className="prompt-attach-row">
+                <AttachButton onFiles={attachments.addFiles} />
+                {attachments.error && (
+                  <p className="attach-error" role="alert">
+                    {attachments.error}
+                  </p>
+                )}
+              </div>
 
               <AgentModelFields
-                agents={agents}
-                agent={agent}
                 runtime={runtime}
                 availability={availability}
                 model={model}
                 effort={effort}
-                onAgent={setAgent}
                 onRuntime={setRuntime}
                 onModel={setModel}
                 onEffort={setEffort}
-                agentId="land-agent"
                 modelId="land-model"
                 effortId="land-effort"
                 layout="row"
@@ -244,7 +255,7 @@ export function Landing({
               <button
                 type="submit"
                 className="btn btn-primary land-start"
-                disabled={!prompt.trim() || !cwd.trim() || starting}
+                disabled={(!prompt.trim() && attachments.items.length === 0) || !cwd.trim() || starting}
               >
                 {starting ? 'Starting…' : 'Start session'}
               </button>

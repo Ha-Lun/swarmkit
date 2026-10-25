@@ -1,9 +1,12 @@
-// Shared start-session form state and agent/model selects (used by Landing and NewSession).
-import { useEffect, useRef, useState } from 'react';
+// Shared start-session form state and model selects (used by Landing and NewSession).
+// Every setup runs the lead-dev-hybrid agent; only the runtime/model/effort vary.
+import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { RUNTIME_MODELS } from '../shared/types';
-import type { AgentInfo, Runtime, RuntimesResponse, StartSessionBody } from '../shared/types';
+import type { Runtime, RuntimesResponse, StartSessionBody } from '../shared/types';
 import type { FleetBackend, Guard } from './api';
+import { useAttachments } from './attachments';
+import type { UseAttachments } from './attachments';
 import { resolveDefaultCwd } from './FolderPicker';
 
 export type EffortValue = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -26,6 +29,9 @@ const SETUP_MODEL: Record<Runtime, string> = {
   agy: RUNTIME_MODELS.agy[0] ?? 'gemini-3.8-flash-high',
 };
 
+/** The only agent any setup starts with. */
+export const LEAD_AGENT = 'lead-dev-hybrid';
+
 function readSetup(): Runtime {
   try {
     const v = localStorage.getItem('fleet.setup');
@@ -43,20 +49,13 @@ export function useStartForm(
 ) {
   const [cwd, setCwd] = useState('');
   const [prompt, setPrompt] = useState('');
-  const [agent, setAgentInner] = useState('');
   const [runtime, setRuntimeInner] = useState<Runtime>(readSetup);
   const [model, setModel] = useState<string>(() => SETUP_MODEL[readSetup()]);
   const [effort, setEffort] = useState<EffortValue>('high');
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [availability, setAvailability] = useState<RuntimesResponse | null>(null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const agentTouched = useRef(false);
-
-  const setAgent = (v: string) => {
-    agentTouched.current = true;
-    setAgentInner(v);
-  };
+  const attachments: UseAttachments = useAttachments();
 
   const setRuntime = (r: Runtime) => {
     setRuntimeInner(r);
@@ -92,57 +91,29 @@ export function useStartForm(
     };
   }, [backend]);
 
-  // Agents available in the selected folder (debounced).
-  useEffect(() => {
-    if (!cwd.trim()) {
-      setAgents([]);
-      return;
-    }
-    let alive = true;
-    const t = window.setTimeout(() => {
-      guard(backend.agents(cwd.trim()))
-        .then((r) => {
-          if (alive) setAgents(r?.agents ?? []);
-        })
-        .catch(() => {
-          if (alive) setAgents([]);
-        });
-    }, 250);
-    return () => {
-      alive = false;
-      window.clearTimeout(t);
-    };
-  }, [cwd, backend, guard]);
-
-  // Default agent once the list for the cwd is known; never override an explicit pick.
-  useEffect(() => {
-    if (agentTouched.current) return;
-    if (agents.some((a) => a.name === 'lead-dev-hybrid')) {
-      setAgentInner('lead-dev-hybrid');
-    } else {
-      setAgentInner('');
-    }
-  }, [agents]);
-
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const p = prompt.trim();
     const c = cwd.trim();
-    if (!p || !c || starting) return;
+    const images = attachments.toPayload();
+    if ((!p && images.length === 0) || !c || starting) return;
     setStarting(true);
     setError(null);
     try {
       const body: StartSessionBody = {
         prompt: p,
         cwd: c,
-        ...(runtime === 'claude' && agent ? { agent } : {}),
+        agent: LEAD_AGENT,
         ...(model ? { model } : {}),
         ...(runtime === 'opencode' ? {} : { effort }),
         runtime,
+        ...(images.length > 0 ? { images } : {}),
       };
       const res = await guard(backend.start(body));
-      if (res) onStarted(res.sessionId);
-      else setStarting(false);
+      if (res) {
+        attachments.clear();
+        onStarted(res.sessionId);
+      } else setStarting(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not start the session.');
       setStarting(false);
@@ -154,8 +125,6 @@ export function useStartForm(
     setCwd,
     prompt,
     setPrompt,
-    agent,
-    setAgent,
     runtime,
     setRuntime,
     availability,
@@ -163,7 +132,7 @@ export function useStartForm(
     setModel,
     effort,
     setEffort,
-    agents,
+    attachments,
     starting,
     error,
     submit,
@@ -171,17 +140,13 @@ export function useStartForm(
 }
 
 interface FieldsProps {
-  agents: AgentInfo[];
-  agent: string;
   runtime: Runtime;
   availability: RuntimesResponse | null;
   model: string;
   effort: EffortValue;
-  onAgent: (v: string) => void;
   onRuntime: (v: Runtime) => void;
   onModel: (v: string) => void;
   onEffort: (v: EffortValue) => void;
-  agentId: string;
   modelId: string;
   effortId: string;
   layout: 'row' | 'stack';
@@ -196,27 +161,23 @@ function modelLabel(model: string): string {
 }
 
 export function AgentModelFields({
-  agents,
-  agent,
   runtime,
   availability,
   model,
   effort,
-  onAgent,
   onRuntime,
   onModel,
   onEffort,
-  agentId,
   modelId,
   effortId,
   layout,
 }: FieldsProps) {
   const [open, setOpen] = useState(false);
-  const panelId = `${agentId}-panel`;
+  const panelId = `${modelId}-panel`;
   const modelShown = model || SETUP_MODEL[runtime];
   const summary =
     runtime === 'claude'
-      ? `${agent || 'Default'} · ${modelLabel(modelShown)} · ${effort ? `${effort} effort` : 'default effort'}`
+      ? `${LEAD_AGENT} · ${modelLabel(modelShown)} · ${effort ? `${effort} effort` : 'default effort'}`
       : `${SETUP_LABEL[runtime]} · ${modelShown}${runtime === 'agy' && effort ? ` · ${effort} effort` : ''}`;
   const setupField = (
     <div className="amf-setup">
@@ -242,28 +203,14 @@ export function AgentModelFields({
       <p className="muted setup-desc">{SETUP_DESC[runtime]}</p>
     </div>
   );
-  const agentField =
-    runtime === 'claude' ? (
-      <>
-        <label htmlFor={agentId}>Agent</label>
-        <select id={agentId} value={agent} onChange={(e) => onAgent(e.target.value)}>
-          <option value="">Default (no agent)</option>
-          {agents.map((a) => (
-            <option key={a.name} value={a.name}>
-              {a.name}
-              {a.description ? ` — ${a.description}` : ''}
-            </option>
-          ))}
-        </select>
-      </>
-    ) : (
-      <>
-        <label htmlFor={agentId}>Agent</label>
-        <span className="badge" id={agentId}>
-          lead-dev-hybrid
-        </span>
-      </>
-    );
+  const agentField = (
+    <>
+      <label htmlFor={`${modelId}-agent`}>Agent</label>
+      <span className="badge" id={`${modelId}-agent`}>
+        {LEAD_AGENT}
+      </span>
+    </>
+  );
   const modelField =
     runtime === 'claude' ? (
       <>
