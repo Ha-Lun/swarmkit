@@ -12,8 +12,8 @@ The start form offers three setups (remembered in `localStorage` as `fleet.setup
 
 | Setup | Lead | How it runs |
 |---|---|---|
-| **Claude + workers** — "Claude lead · opencode + agy workers" | Claude Code | The Claude Agent SDK, as before; `opus` / `sonnet` / `haiku` models, any agent, effort levels |
-| **OpenCode + agy** — "OpenCode lead · agy worker" | `opencode acp` | The dashboard drives `opencode acp` over stdio and renders its stream like SDK messages; fixed `lead-dev-hybrid` agent, `opencode-go/*` models, no effort |
+| **Claude + workers** — "Claude lead · opencode + agy workers" | Claude Code | The Claude Agent SDK, as before; `opus` / `sonnet` / `haiku` models, fixed `lead-dev-hybrid` agent, effort levels |
+| **OpenCode + agy** — "OpenCode lead · agy worker" | `opencode acp` | The dashboard drives `opencode acp` over stdio and renders its stream like SDK messages; always the `lead-dev-hybrid` agent, `opencode-go/*` models, no effort |
 | **agy only** — "Antigravity lead, no workers" | `agy` | One `agy -p --output-format stream-json` process per turn with the `lead-dev-hybrid` agent; `gemini-3.8-flash-*` models, effort levels |
 
 Setups whose binary is missing from `PATH` are disabled in the form with a
@@ -97,7 +97,7 @@ endpoint needs the token (cookie `fleet_token` or header `x-fleet-token`) except
 Paste (Ctrl/Cmd+V), drag in or attach (the paperclip) up to 6 images per message: PNG, JPEG,
 GIF or WebP, at most 5 MB each (checked by magic bytes, not just the declared type). They go
 as `images: [{ mediaType, data }]` (base64, no `data:` prefix) on `POST /api/sessions`,
-`/message` and `/resume`; those three accept bodies up to 32 MB, every other endpoint 1 MB.
+`/message` and `/resume`; those three accept bodies up to 48 MB, every other endpoint 1 MB.
 A message may be images only (the text becomes "(image)").
 
 The server keeps the files in `${XDG_CACHE_HOME:-~/.cache}/swarmkit/images/<sessionId>/`

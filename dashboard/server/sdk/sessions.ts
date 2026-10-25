@@ -272,11 +272,11 @@ export class SdkSessions {
     const id = randomUUID();
     const startedAt = Date.now();
     const runtime = body.runtime ?? 'claude';
-    const tree = createTree(id, { startedAt, agentType: runtime === 'claude' ? body.agent || 'main' : 'lead-dev-hybrid', prompt: body.prompt });
+    const tree = createTree(id, { startedAt, agentType: 'lead-dev-hybrid', prompt: body.prompt });
     const session: PageSession = {
       id,
       cwd: body.cwd,
-      ...(body.agent ? { agent: body.agent } : {}),
+      agent: 'lead-dev-hybrid',
       ...(body.effort ? { effort: body.effort } : {}),
       runtime,
       ...(body.model ? { model: body.model } : {}),
@@ -355,7 +355,10 @@ export class SdkSessions {
   private prepareTurn(session: PageSession, text: string, images?: ImageAttachment[]): { message: SDKUserMessage; events: ServerEvent[] } {
     const base = { type: 'user' as const, parent_tool_use_id: null, session_id: session.id };
     if (!images || images.length === 0) {
-      return { message: { ...base, message: { role: 'user', content: text } }, events: [] };
+      // The SDK and the adapters never echo page-sent text, so the user event is made here.
+      const uuid = randomUUID();
+      const events = applyMessage(session.tree, { type: 'user', uuid, message: { role: 'user', content: text } });
+      return { message: { ...base, uuid, message: { role: 'user', content: text } }, events };
     }
     let stored: { urls: string[]; paths: string[] };
     try {

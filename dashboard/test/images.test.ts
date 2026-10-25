@@ -211,6 +211,35 @@ function recordingQuery(seen: SDKUserMessage[]): QueryFn {
 
 const userEvents = (events: ServerEvent[]) => events.flatMap(e => (e.type === 'node.event' && e.event.kind === 'user' ? [e.event] : []));
 
+describe('page-sent user events', () => {
+  it('start and send each produce exactly one user event; an echo with the same uuid dedupes', async () => {
+    const seen: SDKUserMessage[] = [];
+    const events: ServerEvent[] = [];
+    const sdk = new SdkSessions(e => events.push(e), recordingQuery(seen));
+    const id = sdk.start({ prompt: 'first line\nsecond line', cwd: homeDir });
+    await vi_waitFor(() => seen.length === 1);
+    await vi_waitFor(() => sdk.get(id)?.nodes.find(n => n.id === 'root')?.status !== 'running');
+    sdk.send(id, 'follow up');
+    await vi_waitFor(() => seen.length === 2);
+    const users = userEvents(events);
+    expect(users).toHaveLength(2);
+    expect(users[0]).toMatchObject({ summary: 'first line', detail: 'first line\nsecond line' });
+    expect(users[0]!.images).toBeUndefined();
+    expect(users[1]).toMatchObject({ summary: 'follow up', detail: 'follow up' });
+    // An echoed SDK copy of the queued message does not add a third event.
+    const tree = (sdk as unknown as { sessions: Map<string, { tree: ReturnType<typeof createTree> }> }).sessions.get(id)!.tree;
+    const echo = applyMessage(tree, { type: 'user', uuid: seen[1]!.uuid, message: { role: 'user', content: 'follow up' } });
+    expect(userEvents(echo)).toHaveLength(0);
+    expect(tree.nodes.get('root')!.events.filter(e => e.kind === 'user')).toHaveLength(2);
+    expect(sdk.get(id)!.nodes.find(n => n.id === 'root')!.agentType).toBe('lead-dev-hybrid');
+    // Resuming the idle live session adds exactly one more.
+    await vi_waitFor(() => sdk.get(id)?.nodes.find(n => n.id === 'root')?.status !== 'running');
+    await sdk.resume(id, { text: 'resumed' }, { cwd: homeDir });
+    await vi_waitFor(() => seen.length === 3);
+    expect(userEvents(events).map(e => e.detail)).toEqual(['first line\nsecond line', 'follow up', 'resumed']);
+  });
+});
+
 describe('sessions with images', () => {
   it('claude: image blocks before the text, user event with URLs, no base64 emitted', async () => {
     const seen: SDKUserMessage[] = [];
@@ -286,7 +315,7 @@ describe('sessions with images', () => {
     expect(second.args[second.args.indexOf('--add-dir') + 1]).toBe(dir);
     expect(second.args[1]).toBe(`see this\n\nAttached images (open them with read_file):\n${path.join(dir, '1.png')}`);
     expect(second.imagesDir).toBe(dir);
-    expect(userEvents(events)[0]!.images).toEqual([`/api/sessions/${id}/images/1.png`]);
+    expect(userEvents(events)[1]!.images).toEqual([`/api/sessions/${id}/images/1.png`]);
     expect(JSON.stringify(events)).not.toContain(img.data);
     // The flag sticks on later plain turns.
     await vi_waitFor(() => sdk.get(id)?.nodes.find(n => n.id === 'root')?.status !== 'running');

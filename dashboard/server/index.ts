@@ -41,7 +41,7 @@ const PORT = Number(process.env.PORT) || 4317;
 /** Max JSON body size for POST endpoints. */
 const MAX_BODY = 1024 * 1024;
 /** Max JSON body for the endpoints that carry pasted images (base64 inflates ~1.37x). */
-const MAX_IMAGE_BODY = 32 * 1024 * 1024;
+const MAX_IMAGE_BODY = 48 * 1024 * 1024;
 /** SSE clients buffered more than this are dropped instead of written to. */
 const MAX_STREAM_QUEUE = 4 * 1024 * 1024;
 /** GET /api/usage?refresh=1 is honoured at most once per this window. */

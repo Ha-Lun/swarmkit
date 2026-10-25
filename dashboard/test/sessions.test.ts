@@ -109,7 +109,7 @@ describe('SdkSessions', () => {
     const state: FakeState = {};
     const sdk = new SdkSessions(e => events.push(e), makeFakeQuery(state));
 
-    const id = sdk.start({ prompt: 'review the fleet server', cwd: homeDir, agent: 'reviewer' });
+    const id = sdk.start({ prompt: 'review the fleet server', cwd: homeDir, agent: 'lead-dev-hybrid' });
     expect(id).toBeTruthy();
     expect(sdk.owns(id)).toBe(true);
     expect(state.options?.sessionId).toBe(id);
@@ -148,7 +148,7 @@ describe('SdkSessions', () => {
     expect(summary.project).toBe(homeDir.split('/').pop());
     expect(summary.title).toBe('review the fleet server');
     expect(summary.status).toBe('done');
-    expect(summary.agent).toBe('reviewer');
+    expect(summary.agent).toBe('lead-dev-hybrid');
     expect(summary.nodeCount).toBe(1);
     expect(summary.pendingPermissions).toBe(0);
     expect(typeof summary.startedAt).toBe('number');

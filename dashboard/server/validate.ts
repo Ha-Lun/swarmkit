@@ -58,17 +58,11 @@ export function validRuntimeModel(runtime: Runtime, raw: unknown): string | unde
   throw new ValidationError(`model must be one of ${RUNTIME_MODELS[runtime].join(', ')}`);
 }
 
-/** Start agent for a runtime: Claude keeps AGENT_RE, others must be absent or 'lead-dev-hybrid'. */
-export function validRuntimeAgent(runtime: Runtime, raw: unknown): string | undefined {
+/** Start agent: every runtime runs 'lead-dev-hybrid'; the field may be absent or exactly that. */
+export function validRuntimeAgent(_runtime: Runtime, raw: unknown): string | undefined {
   if (raw === undefined || raw === null) return undefined;
-  if (runtime === 'claude') {
-    if (typeof raw !== 'string' || !AGENT_RE.test(raw)) {
-      throw new ValidationError(`agent must match ${String(AGENT_RE)}`);
-    }
-    return raw;
-  }
   if (raw !== 'lead-dev-hybrid') {
-    throw new ValidationError("agent must be 'lead-dev-hybrid' for this runtime");
+    throw new ValidationError("agent must be 'lead-dev-hybrid'");
   }
   return raw;
 }

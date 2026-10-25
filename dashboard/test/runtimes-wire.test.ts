@@ -85,9 +85,10 @@ describe('runtime validation', () => {
     expect(() => validRuntimeModel('agy', 'opus')).toThrow('model must be one of');
   });
 
-  it('agents are fixed to lead-dev-hybrid off claude', () => {
-    expect(validRuntimeAgent('claude', 'reviewer')).toBe('reviewer');
+  it('agents are fixed to lead-dev-hybrid on every runtime', () => {
+    expect(validRuntimeAgent('claude', 'lead-dev-hybrid')).toBe('lead-dev-hybrid');
     expect(validRuntimeAgent('claude', undefined)).toBeUndefined();
+    expect(() => validRuntimeAgent('claude', 'reviewer')).toThrow('lead-dev-hybrid');
     expect(() => validRuntimeAgent('claude', '../evil')).toThrow();
     expect(validRuntimeAgent('opencode', undefined)).toBeUndefined();
     expect(validRuntimeAgent('opencode', 'lead-dev-hybrid')).toBe('lead-dev-hybrid');
