@@ -96,8 +96,10 @@ def ask_dashboard(url, secret, raw):
 def decide():
     url = os.environ.get("SWARMKIT_DASH_HOOK_URL")
     secret = os.environ.get("SWARMKIT_DASH_HOOK_SECRET")
-    if not url or not secret:
+    if not url and not secret:
         return {"decision": "allow"}
+    if not url or not secret:
+        return {"decision": "deny", "reason": "incomplete swarmkit hook configuration"}
     raw = sys.stdin.read()
     body = json.loads(raw)
     call = body.get("toolCall") if isinstance(body, dict) else None
