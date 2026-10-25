@@ -840,6 +840,7 @@ export function createMockBackend(): FleetBackend {
       const now = Date.now();
       const id = uid('page');
       const title = body.prompt.split('\n')[0].slice(0, 120) || 'New session';
+      const runtime = body.runtime ?? 'claude';
       const s: SessionSummary = {
         id,
         source: 'page',
@@ -855,6 +856,7 @@ export function createMockBackend(): FleetBackend {
         nodeCount: 1,
         pendingPermissions: 0,
         resumable: false,
+        runtime,
       };
       sessions.set(id, s);
       nodeMaps.set(id, new Map());
@@ -864,7 +866,7 @@ export function createMockBackend(): FleetBackend {
         sessionId: id,
         parentId: null,
         kind: 'main',
-        agentType: body.agent ?? 'main',
+        agentType: runtime === 'claude' ? (body.agent ?? 'main') : 'lead-dev-hybrid',
         model: body.model,
         description: title,
         prompt: body.prompt,
@@ -1000,6 +1002,7 @@ export function createMockBackend(): FleetBackend {
       return Promise.resolve({ lines: workerLogLines(t) });
     },
     usage: () => Promise.resolve<UsageReport>(mockUsage),
+    runtimes: () => Promise.resolve({ claude: true, opencode: true, agy: true }),
     resume: (sessionId, body: ResumeSessionBody) => {
       const s = sessions.get(sessionId);
       const map = nodeMaps.get(sessionId);

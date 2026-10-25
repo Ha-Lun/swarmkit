@@ -109,6 +109,8 @@ export interface SessionSummary {
   model?: string;
   nodeCount: number;
   pendingPermissions: number;
+  /** Which lead runtime drives this page session (terminal sessions never set it). */
+  runtime?: Runtime;
   /**
    * True when this ended session could be continued via POST /api/sessions/:id/resume:
    * not running/waiting/idle, its transcript .jsonl exists on disk, its cwd still exists
@@ -178,7 +180,31 @@ export interface WorkerTask {
 // GET  /api/dirs?path=<abs>&hidden=1    -> DirListing     (path defaults to $HOME)
 // GET  /api/stars                       -> string[]       (starred folders, existing dirs only)
 // POST /api/stars                       SetStarBody -> string[]
+// GET  /api/runtimes                    -> RuntimesResponse
+// POST /api/agy-hook/:id                -> hook callback from the agy plugin (loopback + x-swarmkit-hook only, no token)
 // GET  /events                          -> text/event-stream of ServerEvent
+
+/** Which lead runtime drives a page session: the Claude Agent SDK, `opencode acp`, or `agy -p`. */
+export type Runtime = 'claude' | 'opencode' | 'agy';
+
+/** Non-Claude lead models (first = default), shared by server validation and the client select. */
+export const RUNTIME_MODELS: Record<Exclude<Runtime, 'claude'>, string[]> = {
+  opencode: [
+    'opencode-go/mimo-v2.6-pro',
+    'opencode-go/glm-5.3-flash',
+    'opencode-go/mimo-v2.6-flash',
+    'opencode-go/deepseek-v4.1-flash',
+    'opencode-go/muse-spark-1.3-contributor',
+  ],
+  agy: ['gemini-3.8-flash-high', 'gemini-3.8-flash-medium', 'gemini-3.8-flash-low'],
+};
+
+/** Lead-runtime availability on the server's PATH (`claude` is always true). */
+export interface RuntimesResponse {
+  claude: boolean;
+  opencode: boolean;
+  agy: boolean;
+}
 
 export interface StartSessionBody {
   prompt: string;
@@ -188,6 +214,8 @@ export interface StartSessionBody {
   /** 'opus' | 'sonnet' | 'haiku' or a full model id; omitted = default. */
   model?: string;
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  /** Which lead runtime drives the session; omitted = 'claude'. */
+  runtime?: Runtime;
 }
 export interface StartSessionResponse {
   sessionId: string;

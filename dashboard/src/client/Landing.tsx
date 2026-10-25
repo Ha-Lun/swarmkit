@@ -57,6 +57,9 @@ export function Landing({
     setPrompt,
     agent,
     setAgent,
+    runtime,
+    setRuntime,
+    availability,
     model,
     setModel,
     effort,
@@ -218,9 +221,12 @@ export function Landing({
               <AgentModelFields
                 agents={agents}
                 agent={agent}
+                runtime={runtime}
+                availability={availability}
                 model={model}
                 effort={effort}
                 onAgent={setAgent}
+                onRuntime={setRuntime}
                 onModel={setModel}
                 onEffort={setEffort}
                 agentId="land-agent"

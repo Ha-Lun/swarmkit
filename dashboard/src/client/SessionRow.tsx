@@ -25,6 +25,8 @@ export function SessionRow({ session: s, now, selected, onSelect }: Props) {
           {s.source}
         </span>
         <span className="sess-project">{s.project}</span>
+        {s.runtime === 'opencode' && <span className="badge rt-opencode">OpenCode</span>}
+        {s.runtime === 'agy' && <span className="badge rt-agy">agy</span>}
         {s.pendingPermissions > 0 && (
           <span className="sess-pending" title={`${s.pendingPermissions} pending permission(s)`}>
             {s.pendingPermissions}

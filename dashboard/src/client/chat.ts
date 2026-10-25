@@ -108,6 +108,10 @@ export function orbColor(node: AgentNode, task?: WorkerTask): string {
     return lane === 'agy' ? '#ffb547' : '#2ee6c8';
   }
   const model = (task?.model ?? node.model ?? '').toLowerCase();
+  if (node.kind === 'main') {
+    if (model.startsWith('opencode-go/')) return '#2ee6c8';
+    if (model.includes('gemini')) return '#ffb547';
+  }
   if (model.includes('opus')) return '#d9ccff';
   if (model.includes('sonnet')) return '#2ee6c8';
   if (model.includes('haiku')) return '#b4b1d0';

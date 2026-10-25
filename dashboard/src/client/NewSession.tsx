@@ -18,6 +18,9 @@ export function NewSession({ backend, guard, onClose, onStarted }: Props) {
     setPrompt,
     agent,
     setAgent,
+    runtime,
+    setRuntime,
+    availability,
     model,
     setModel,
     effort,
@@ -57,9 +60,12 @@ export function NewSession({ backend, guard, onClose, onStarted }: Props) {
         <AgentModelFields
           agents={agents}
           agent={agent}
+          runtime={runtime}
+          availability={availability}
           model={model}
           effort={effort}
           onAgent={setAgent}
+          onRuntime={setRuntime}
           onModel={setModel}
           onEffort={setEffort}
           agentId="ns-agent"

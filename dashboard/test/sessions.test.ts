@@ -557,7 +557,9 @@ describe('SdkSessions', () => {
 
     it('validates resume input: empty/oversized text and bad models are 400', async () => {
       const sdk = new SdkSessions(() => {}, makeRecordingQuery([]));
-      for (const bad of [{ text: '' }, { text: 'x'.repeat(100_001) }, { text: 'ok', model: 'opencode-go/glm-5.3-flash' }]) {
+      // 'not-a-model' is invalid for every runtime (a non-Claude runtime model on a
+      // terminal id is a 409 instead — see runtimes-wire.test.ts).
+      for (const bad of [{ text: '' }, { text: 'x'.repeat(100_001) }, { text: 'ok', model: 'not-a-model' }]) {
         await expect(sdk.resume('term-1', bad, { cwd: homeDir })).rejects.toMatchObject({ status: 400 });
       }
     });

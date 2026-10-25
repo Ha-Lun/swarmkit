@@ -2390,6 +2390,16 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
 }
 .view-toggle button:hover { color: var(--ink); }
 .view-toggle button.is-active { background: var(--surface-3); color: var(--ink); }
+.view-toggle button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Setup segmented control on the start form (reuses .view-toggle). */
+.setup-seg { flex-wrap: wrap; }
+.land-setup { margin-bottom: var(--space-2); }
+.setup-desc { margin: 4px 0 0; font-size: 12px; }
+
+/* Lead-runtime chips (nothing renders for the default claude runtime). */
+.badge.rt-opencode { background: var(--teal-soft); color: var(--teal); border-color: rgba(46, 230, 200, 0.3); }
+.badge.rt-agy { background: var(--amber-soft); color: var(--amber); border-color: rgba(255, 181, 71, 0.3); }
 
 .agent-tabs {
   flex: none;
