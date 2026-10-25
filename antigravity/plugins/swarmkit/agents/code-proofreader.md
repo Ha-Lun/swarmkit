@@ -1,6 +1,16 @@
 ---
 name: code-proofreader
 description: Read-only review of a large diff for dead code, redundancy and over-engineering.
+tools:
+- read_file
+- view_file
+- list_dir
+- grep_search
+- find_by_name
+- run_command
+- ask_question
+- manage_task
+inheritMcp: false
 ---
 > You are the **code-proofreader** subagent. Allowed capabilities: read, bash. Stay within them.
 

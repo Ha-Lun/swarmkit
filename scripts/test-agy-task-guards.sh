@@ -487,18 +487,26 @@ unset STUB_PLANT
 # --- agy gate: every sandboxed agy run (plain and --agent) gets the agy-gate.py PreToolUse hook, never committed
 export SWARMKIT_AGY_AGENTS_DIR="$T/agy-agents"
 mkdir -p "$SWARMKIT_AGY_AGENTS_DIR"
-printf -- '---\nname: frontend-specialist\ndescription: d\n---\nBODY\n' > "$SWARMKIT_AGY_AGENTS_DIR/frontend-specialist.md"
+printf -- '---\nname: frontend-specialist\ndescription: d\ntools:\n- read_file\n- run_command\n---\nBODY\n' > "$SWARMKIT_AGY_AGENTS_DIR/frontend-specialist.md"
 adir() { ls -d "$AGY_TASK_DIR"/*/"$1"; }
 ares() { jq -r "$2" "$(adir "$1")/result.json"; }
 call() { printf '{"toolCall":{"name":"%s","args":%s}}' "$1" "$2"; }
-# plain lane: the gate is installed, logs its allow, keeps a read-only shell (no test runner), and nothing of it is committed
+# plain lane: the gate is installed (no shell), logs its allow, runs as the swarmkit-worker overlay agent, and nothing of it is committed
+notes() { grep -c "Headless worker: use your file tools" "$STUB_ARGS.agy" || true; }; n0=$(notes)
 "$AGY_TASK" start gp1 "p" >/dev/null 2>&1 || fail "plain gated agy run not ok: $(ares gp1 .warnings)"
 W=$(adir gp1)/worktree
 [ "$(jq -r .decision "$STUB_ARGS.gate")" = allow ] || fail "plain gate denied a worktree write: $(cat "$STUB_ARGS.gate")"
-jq -e '.edit == true and (.shell | index("git diff *")) != null and ([.shell[] | select(test("^(npm|node|python|pytest|go|cargo|make|bun|yarn|pnpm)"))] == [])' "$(adir gp1)/gate.json" >/dev/null || fail "plain gate config: $(cat "$(adir gp1)/gate.json")"
+jq -e '.edit == true and .shell == []' "$(adir gp1)/gate.json" >/dev/null || fail "plain gate config: $(cat "$(adir gp1)/gate.json")"
+[ "$(notes)" = $((n0 + 1)) ] || fail "plain agy prompt lacks the worker note: $(tail -c 300 "$STUB_ARGS.agy")"
+grep -q -- "--agent swarmkit-worker" "$STUB_ARGS.agy" || fail "plain run did not launch swarmkit-worker: $(cat "$STUB_ARGS.agy")"
+PA="$W/.agents/agents/swarmkit-worker/agent.md"
+grep -q '^name: swarmkit-worker$' "$PA" && grep -q '^  - grep_search$' "$PA" && grep -q '^  - find_by_name$' "$PA" && grep -q '^  - edit_file$' "$PA" \
+  && ! grep -q 'run_command' "$PA" && [ "$(grep -c '^inheritMcp: false$' "$PA")" = 1 ] && [ "$(grep -c '^tools:' "$PA")" = 1 ] \
+  || fail "plain overlay agent: $(cat "$PA")"
+rc=0; out=$("$AGY_TASK" start gp_res --agent swarmkit-worker "hi" 2>&1) || rc=$?
+[ "$rc" = 2 ] && echo "$out" | grep -q "swarmkit-worker" || fail "--agent swarmkit-worker accepted ($rc): $out"
 grep -q "^allow write_to_file $W/stub.txt$" "$(adir gp1)/gate.log" || fail "gate did not log the allow: $(cat "$(adir gp1)/gate.log")"
 [ "$(git -C "$W" show --name-only --format= HEAD)" = stub.txt ] || fail "gate overlay committed: $(git -C "$W" show --name-only --format= HEAD)"
-grep -q -- "--agent" "$STUB_ARGS.agy" && fail "plain run passed --agent"
 # plain lane: a write to a sibling dir is denied and reported
 mkdir -p "$T/sib"
 STUB_CALL=$(call write_to_file "{\"TargetFile\":\"$T/sib/x.txt\",\"CodeContent\":\"x\"}") "$AGY_TASK" start gp2 "p" >/dev/null 2>&1 \
@@ -561,7 +569,10 @@ STUB_CALL=$(call list_dir '{"DirectoryPath":"@WT@/.agents"}') "$AGY_TASK" start 
 [ "$(ares gp7 '.denied_actions | length')" = 0 ] && grep -q "^deny-quiet list_dir " "$(adir gp7)/gate.log" \
   || fail "a quiet denial counted: $(ares gp7 .denied_actions) $(cat "$(adir gp7)/gate.log")"
 [ "$(ares gp7 .quiet_denials)" = 1 ] || fail "quiet_denials: $(ares gp7 .quiet_denials)"
+n1=$(notes)
 "$AGY_TASK" start gp5 --yolo "p" >/dev/null 2>&1 || fail "yolo agy run not ok: $(ares gp5 .warnings)"
+[ "$(notes)" = "$n1" ] || fail "--yolo prompt has the worker note"
+tail -1 "$STUB_ARGS.agy" | grep -q -- "--agent" && fail "--yolo plain run passed --agent"
 [ ! -e "$(adir gp5)/worktree/.agents/hooks.json" ] || fail "--yolo kept the gate"
 # --agent: the agent overlay (file tools only) next to the gate; no shell in the gate either
 rc=0; out=$("$AGY_TASK" start ag_agy --agent no-such-agent "hi" 2>&1) || rc=$?
@@ -569,28 +580,43 @@ rc=0; out=$("$AGY_TASK" start ag_agy --agent no-such-agent "hi" 2>&1) || rc=$?
 [ ! -e "$AGY_TASK_DIR"/*/ag_agy ] || fail "agy lane agent left a task dir"
 rc=0; "$AGY_TASK" start ag_agy2 --agent lead-dev-hybrid "hi" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "agy lane orchestrator exit code: $rc"
-for k in tools inheritMcp hooks plugins commandExecutionPolicy; do
-  printf -- '---\nname: x\n%s: []\n---\nB\n' "$k" > "$SWARMKIT_AGY_AGENTS_DIR/own-${k,,}.md"
-  rc=0; out=$("$AGY_TASK" start ag_own --agent "own-${k,,}" "hi" 2>&1) || rc=$?
-  [ "$rc" = 2 ] && echo "$out" | grep -q "sets $k in its frontmatter" || fail "agent with its own $k accepted ($rc): $out"
+# the allowlist: name, one-line description, the generated tools block and inheritMcp; anything else refuses the agent
+own() { printf -- "---\nname: x\ndescription: d\n$2---\nB\n" > "$SWARMKIT_AGY_AGENTS_DIR/own-$1.md"; }
+own hooks 'hooks: {}\n'; own plugins 'plugins: []\n'; own policy 'commandExecutionPolicy: allow\n'
+own inline 'tools: [run_command]\n'; own dup 'tools:\n- read_file\ntools:\n- run_command\n'; own unknown 'color: red\n'
+own multi 'more: |\n  x\n'; own indent 'tools:\n  - run_command\n'; own strayitem '- run_command\n'; own badmcp 'inheritMcp: yes\n'
+own quoted "tools:\n- read_file\n- 'run_command'\n"; own desc2 'description: again\n'
+printf -- '---\nname: x\ndescription: line one\n  line two\n---\nB\n' > "$SWARMKIT_AGY_AGENTS_DIR/own-multidesc.md"
+printf -- "---\nname: x\ndescription: 'open\ntools: [run_command]\n---\nB\n" > "$SWARMKIT_AGY_AGENTS_DIR/own-openq.md"
+for k in hooks plugins policy inline dup unknown multi indent strayitem badmcp quoted desc2 multidesc openq; do
+  rc=0; out=$("$AGY_TASK" start ag_own --agent "own-$k" "hi" 2>&1) || rc=$?
+  [ "$rc" = 2 ] && echo "$out" | grep -q "frontmatter line the worker sandbox does not accept" || fail "agent own-$k accepted ($rc): $out"
 done
+printf -- '---\nname: x\ndescription: d\n---\nB\n---\nC\n' > "$SWARMKIT_AGY_AGENTS_DIR/own-bodydash.md"
+rc=0; out=$("$AGY_TASK" start ag_own --agent own-bodydash "hi" 2>&1) || rc=$?
+[ "$rc" = 2 ] && echo "$out" | grep -q "has a '---' line in its body" || fail "agent with --- body accepted ($rc): $out"
+n1=$(notes)
 "$AGY_TASK" start ga1 --agent frontend-specialist "p" >/dev/null 2>&1 || fail "agy agent start not ok: $(ares ga1 .warnings)"
 grep -q -- "--agent frontend-specialist" "$STUB_ARGS.agy" || fail "agy --agent not passed: $(cat "$STUB_ARGS.agy")"
 grep -q -- "-p Headless worker" "$STUB_ARGS.agy" || fail "agy agent prompt lacks the headless note"
 jq -e '.shell == []' "$(adir ga1)/gate.json" >/dev/null || fail "--agent gate allows a shell"
+[ "$(notes)" = "$n1" ] || fail "--agent prompt has the grep note"
 W=$(adir ga1)/worktree
 A="$W/.agents/agents/frontend-specialist/agent.md"
-grep -q '^  - edit_file$' "$A" && ! grep -q 'run_command' "$A" && grep -q '^inheritMcp: false$' "$A" && grep -q '^BODY$' "$A" \
+grep -q '^  - edit_file$' "$A" && ! grep -q 'run_command' "$A" && grep -q '^BODY$' "$A" \
+  && grep -qx 'name: frontend-specialist' "$A" && grep -qx 'description: SwarmKit headless worker (frontend-specialist)' "$A" \
   || fail "agy agent overlay: $(cat "$A")"
+[ "$(grep -c '^tools:' "$A")" = 1 ] && [ "$(grep -c '^inheritMcp: false$' "$A")" = 1 ] && ! grep -q 'inheritMcp: true\|^- ' "$A" \
+  || fail "generated tools block not replaced: $(cat "$A")"
 [ "$(git -C "$W" show --name-only --format= HEAD)" = stub.txt ] || fail "overlay committed: $(git -C "$W" show --name-only --format= HEAD)"
 rc=0; "$AGY_TASK" resume ga1 --agent frontend-specialist "again" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "--agent on resume accepted ($rc)"
 "$AGY_TASK" resume ga1 "again" >/dev/null 2>&1 || true
 [ "$(grep -c -- '--agent frontend-specialist' "$STUB_ARGS.agy")" = 2 ] || fail "agy resume must keep --agent"
-printf -- '---\nname: frontend-specialist\nhooks: {}\n---\nBODY\n' > "$SWARMKIT_AGY_AGENTS_DIR/frontend-specialist.md"
+printf -- '---\nname: frontend-specialist\ndescription: d\nhooks: {}\n---\nBODY\n' > "$SWARMKIT_AGY_AGENTS_DIR/frontend-specialist.md"
 out=$("$AGY_TASK" resume ga1 "again" 2>&1) && fail "resume accepted an agent that now sets hooks"
-echo "$out" | grep -q "sets hooks in its frontmatter" || fail "resume agent check message: $out"
-printf -- '---\nname: frontend-specialist\ndescription: d\n---\nBODY\n' > "$SWARMKIT_AGY_AGENTS_DIR/frontend-specialist.md"
+echo "$out" | grep -q "frontmatter line the worker sandbox does not accept" || fail "resume agent check message: $out"
+printf -- '---\nname: frontend-specialist\ndescription: d\ntools:\n- read_file\n- run_command\ninheritMcp: true\n---\nBODY\n' > "$SWARMKIT_AGY_AGENTS_DIR/frontend-specialist.md"
 STUB_CALL=$(call view_file '{"AbsolutePath":"/etc/hostname"}') "$AGY_TASK" start ga2 --agent frontend-specialist "p" >/dev/null 2>&1 \
   && fail "outside read reported ok"
 [ "$(ares ga2 '.denied_actions[0]')" = "view_file /etc/hostname" ] || fail "gate denial not in denied_actions"
@@ -600,12 +626,13 @@ jq -e '.edit == false' "$(adir ga3)/gate.json" >/dev/null || fail "--review gate
 # the gate itself (W = ga1's worktree)
 G="${TASK%/*}/agy-gate.py"; ln -s /etc "$W/out"; mkdir -p "$W/sub/x"
 cfg() { jq -n --arg r "$W" --arg l "$T/g.log" --argjson e "$1" --argjson s "$2" '{root: $r, log: $l, edit: $e, shell: $s}' > "$T/gate.json"; }
-SH='["npm test","npm test *","ls","ls *","wc *","cat src/*","git log","git log *","git diff","git diff *"]'
+SH='["npm test","npm test *","ls","ls *","wc *","cat src/*","git log","git log *","git diff","git diff *","grep *"]'
 cfg true "$SH"
 gate() { printf '%s' "$2" | python3 -I "$G" "$T/gate.json" | jq -r .decision | grep -qx "$1" || fail "gate not $1: $2"; }
 gate allow "$(call view_file "{\"AbsolutePath\":\"$W/stub.txt\",\"toolAction\":\"Reading\"}")"
 gate allow "$(call edit_file "{\"Path\":\"$W/stub.txt\",\"Target\":\"a\",\"Replacement\":\"/etc/x\"}")"
 gate allow "$(call find_by_name "{\"SearchDirectory\":\"$W\",\"Pattern\":\"*.txt\"}")"
+gate allow "$(call grep_search "{\"SearchPath\":\"$W\",\"Query\":\"BUG\",\"MatchPerLine\":true,\"CaseInsensitive\":false}")"
 gate allow "$(call view_file "{\"AbsolutePath\":\"$W/AGENTS.md\"}")"                         # rules: read-only, root only
 gate allow "$(call write_to_file "{\"TargetFile\":\"$W/sub/AGENTS.md\",\"CodeContent\":\"x\"}")"
 gate allow "$(call view_file "{\"AbsolutePath\":\"$W/stub.txt\",\"StartLine\":1,\"EndLine\":2,\"toolSummary\":\"s\"}")"
@@ -616,6 +643,11 @@ gate deny "$(call edit_file "{\"Path\":\"$W/stub.txt\",\"Target\":\"a\",\"Replac
 gate deny "$(call run_command "{\"CommandLine\":\"ls\",\"Cwd\":\"$W\",\"BypassSandbox\":true}")"
 gate allow "$(call run_command '{"CommandLine":"ls","WaitMsBeforeAsync":"5000","toolSummary":"s"}')"  # no Cwd (1.4.7): the worktree
 gate allow "$(call run_command '{"CommandLine":"git log --oneline -5"}')"
+gate allow "$(call run_command '{"CommandLine":"grep -rn BUG ."}')"
+# option clusters: every suffix is a path candidate (the shell list allows grep and git diff here)
+for c in 'grep -rf/etc/passwd .' 'git diff -pO/etc/passwd' 'grep -rn x /etc' 'grep -rn x ..'; do
+  gate deny "$(call run_command "{\"CommandLine\":\"$c\"}")"
+done
 gate deny "$(call run_command '{"CommandLine":"find . -name x"}')"                           # not allowlisted
 gate deny "$(call run_command '{"CommandLine":"ls /etc"}')"                                  # outside, relative to the worktree
 gate deny "$(call run_command '{"CommandLine":"ls","Cwd":null}')"                            # a Cwd must be a path

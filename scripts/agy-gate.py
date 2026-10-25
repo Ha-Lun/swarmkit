@@ -4,8 +4,8 @@
 agy-task writes CONFIG (task dir, outside the worktree) and points the worktree's .agents/hooks.json (a per-run
 file, never committed) at this script. CONFIG: {"root": worktree, "log": file, "edit": bool, "shell": [globs]}.
 Allowed: the file tools below on paths inside root, the edit tools only if "edit", and run_command only if its
-command matches a "shell" glob (plain runs: the read-only part of the runner allowlist); a run_command without
-Cwd (agy 1.4.7 has none) runs in agy's workspace, which agy-task launches in root. Everything else is denied:
+command matches a "shell" glob (no agy run configures one now); a run_command without Cwd (agy 1.4.7 has none)
+runs in agy's workspace, which agy-task launches in root. Everything else is denied:
 other tools (MCP, browser, web), paths outside root, any path component named .git or one of agy's
 customization roots (.agents, .gemini etc.: a written hooks.json would run commands), edits of the root
 AGENTS.md or GEMINI.md (agy loads them as rules), relative paths, backslashes,
@@ -23,7 +23,7 @@ import fnmatch, json, os, re, stat, sys
 COMMON = ("toolAction", "toolSummary")
 READ = {"view_file": (("AbsolutePath",), ("StartLine", "EndLine")),
         "list_dir": (("DirectoryPath",), ()),
-        "grep_search": (("SearchPath",), ("Query", "IsRegex", "MatchPerLine")),
+        "grep_search": (("SearchPath",), ("Query", "IsRegex", "MatchPerLine", "CaseInsensitive")),
         "find_by_name": (("SearchDirectory",), ("Pattern",)),
         "read_file": (("Path",), ("StartLine", "EndLine"))}
 EDIT = {"write_to_file": (("TargetFile",), ("CodeContent", "Description", "Overwrite")),
@@ -95,8 +95,8 @@ def check_command(cmd, cwd, root, globs):
     for w in words[1:]:
         if w.startswith("--") and len(w.split("=", 1)[0]) >= 3 and "--files0-from".startswith(w.split("=", 1)[0]):
             raise ValueError("--files0-from reads a list of paths")
-        # the value after =, and after a short option (-O/etc/x)
-        for c in [w] + w.split("=", 1)[1:] + ([w[2:]] if re.match(r"-[^-].", w) else []):
+        # the value after =, and every suffix of a short-option cluster (-O/etc/x, -rf/etc/x, -pO/etc/x)
+        for c in [w] + w.split("=", 1)[1:] + ([w[i:] for i in range(2, len(w))] if re.match(r"-[^-]", w) else []):
             if "/" in c or c.startswith(".") or os.path.lexists(os.path.join(cwd, c)):  # e.g. a symlinked README.md
                 inside(os.path.join(cwd, c), root)
         if words[0] == "git" and any(len(o) >= 4 and (d.startswith(o) or o.startswith(d))

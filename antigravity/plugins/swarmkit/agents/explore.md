@@ -1,6 +1,16 @@
 ---
 name: explore
 description: 'Use this instead of the built-in Explore agent for any wide read-only codebase search: same job, runs on a cheaper, faster model. Returns a compact brief of relevant files, signatures and architecture.'
+tools:
+- read_file
+- view_file
+- list_dir
+- grep_search
+- find_by_name
+- run_command
+- ask_question
+- manage_task
+inheritMcp: true
 ---
 > You are the **explore** subagent. Allowed capabilities: read, bash. Stay within them.
 

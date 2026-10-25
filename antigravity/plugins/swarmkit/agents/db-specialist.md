@@ -1,6 +1,18 @@
 ---
 name: db-specialist
 description: Database specialist for schema design, migrations, query optimisation, indexing and ORM code. Use proactively whenever a task changes the data layer.
+tools:
+- read_file
+- view_file
+- list_dir
+- grep_search
+- find_by_name
+- write_file
+- edit_file
+- run_command
+- ask_question
+- manage_task
+inheritMcp: false
 ---
 > You are the **db-specialist** subagent. Allowed capabilities: read, edit, bash. Stay within them.
 

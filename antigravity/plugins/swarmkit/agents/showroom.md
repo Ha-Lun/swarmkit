@@ -1,6 +1,18 @@
 ---
 name: showroom
 description: Showroom coordinator for premium scroll-driven, dark-theme product pages in Astro, Tailwind and GSAP, running the S0-S10 pipeline with G1-G5 human gates and .showroom/state.json. Use proactively when the user wants a showroom or scroll-driven product page built from a brief.
+tools:
+- read_file
+- view_file
+- list_dir
+- grep_search
+- find_by_name
+- write_file
+- edit_file
+- run_command
+- ask_question
+- manage_task
+inheritMcp: false
 ---
 > You are the **showroom** subagent. Allowed capabilities: read, edit, bash. Stay within them.
 

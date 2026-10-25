@@ -1,6 +1,18 @@
 ---
 name: lead-dev-hybrid
 description: 'Orchestrator for `agy --agent lead-dev-hybrid` sessions only. Never invoke it as a subagent: subagents cannot spawn subagents, so it cannot work there.'
+tools:
+- read_file
+- view_file
+- list_dir
+- grep_search
+- find_by_name
+- invoke_subagent
+- manage_subagents
+- run_command
+- ask_question
+- manage_task
+inheritMcp: false
 ---
 > You are the **lead-dev-hybrid** orchestrator. Allowed capabilities: read, delegate, bash. Stay within them.
 

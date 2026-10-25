@@ -1,6 +1,18 @@
 ---
 name: swarm-architect
 description: 'Changes to the SwarmKit swarm itself: agents, skills, rules, MCP wiring, build.py and CLI parity. Use proactively whenever a task edits this config repo''s agents, skills or routing.'
+tools:
+- read_file
+- view_file
+- list_dir
+- grep_search
+- find_by_name
+- write_file
+- edit_file
+- run_command
+- ask_question
+- manage_task
+inheritMcp: false
 ---
 > You are the **swarm-architect** subagent. Allowed capabilities: read, edit, bash. Stay within them.
 

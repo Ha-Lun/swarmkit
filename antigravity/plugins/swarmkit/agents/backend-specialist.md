@@ -1,6 +1,18 @@
 ---
 name: backend-specialist
 description: Backend specialist for APIs, services, auth, validation, background jobs and DB queries, including Cloudflare Workers (wrangler.toml). Use proactively for server-side work once the plan is approved.
+tools:
+- read_file
+- view_file
+- list_dir
+- grep_search
+- find_by_name
+- write_file
+- edit_file
+- run_command
+- ask_question
+- manage_task
+inheritMcp: false
 ---
 > You are the **backend-specialist** subagent. Allowed capabilities: read, edit, bash. Stay within them.
 

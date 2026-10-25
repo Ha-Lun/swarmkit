@@ -20,6 +20,7 @@ goes; it is not emitted. OpenCode and Antigravity get every agent.
 import glob
 import os
 import shutil
+import sys
 
 import yaml
 
@@ -45,6 +46,17 @@ CLAUDE_TOOLS = {
     'web': ['WebFetch', 'WebSearch'],
     'delegate': ['Agent'],
 }
+
+# Names must exist in agy's registry: one unknown name fails the whole agent load.
+# MCP tools (call_mcp_tool, ...) are inherited without being listed.
+AGY_TOOLS = {
+    'read': ['read_file', 'view_file', 'list_dir', 'grep_search', 'find_by_name'],
+    'edit': ['write_file', 'edit_file'],
+    'bash': ['run_command'],
+    'web': ['search_web', 'read_url_content'],
+    'delegate': ['invoke_subagent', 'manage_subagents'],
+}
+AGY_ALWAYS = ['ask_question', 'manage_task']
 
 
 def load_agents():
@@ -96,7 +108,7 @@ def build_opencode(a, body):
 
 
 def capability_header(a):
-    # agy can't restrict every tool per agent, so state the limits as instructions.
+    # agy enforces the frontmatter tool list; this header states the limits it can't express.
     caps = ', '.join(a['capabilities']) or 'none (conversation only)'
     kind = 'orchestrator' if a.get('role') == 'orchestrator' else 'subagent'
     return (f"> You are the **{a['name']}** {kind}. "
@@ -110,8 +122,17 @@ def delegating_description(cli, a):
 
 
 def build_antigravity(a, body):
+    c = a.get('antigravity', {})
+    tools = c.get('tools') or [t for cap in a['capabilities'] for t in AGY_TOOLS[cap]] + AGY_ALWAYS
+    tools = list(dict.fromkeys(tools + c.get('extra_tools', [])))
+    known = {t for v in AGY_TOOLS.values() for t in v} | set(AGY_ALWAYS)
+    if set(tools) - known:
+        sys.exit(f"{a['name']}: unknown agy tool(s) {sorted(set(tools) - known)}; agy rejects the whole agent")
+    cl = a.get('claude', {})
+    mcp = any(t.startswith('mcp__') for t in cl.get('tools', []) + cl.get('extra_tools', []))
     write(f"{ROOT}/antigravity/plugins/swarmkit/agents/{a['name']}.md",
-          {'name': a['name'], 'description': delegating_description('antigravity', a)},
+          {'name': a['name'], 'description': delegating_description('antigravity', a), 'tools': tools,
+           'inheritMcp': mcp},
           capability_header(a) + body)
 
 

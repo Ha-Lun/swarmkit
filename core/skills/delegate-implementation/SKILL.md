@@ -50,7 +50,7 @@ The worker starts cold. Each prompt states:
 - the verify command (`npm test -- src/api`, `python3 -m pytest tests/test_x.py`);
 - "done when": the observable result.
 
-For agy, add "use your file view, search and edit tools, not the shell": every agy run is gated to worktree files, and its shell to read-only commands (no test runner; none under `--agent`), so you run its verify.
+For agy, add "use your file view, search and edit tools, not the shell": every agy run is gated to worktree files and has no shell (`grep_search` and `find_by_name` search), so you run its verify.
 
 ## 4. Run
 

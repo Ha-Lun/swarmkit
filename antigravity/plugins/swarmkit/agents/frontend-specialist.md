@@ -1,6 +1,18 @@
 ---
 name: frontend-specialist
 description: 'Production UI specialist: components, layouts, design systems, WCAG 2.2 AA, responsive token-driven styles. Use proactively for any non-trivial UI or styling work once the plan is approved, except in Lovable projects (use lovable-specialist).'
+tools:
+- read_file
+- view_file
+- list_dir
+- grep_search
+- find_by_name
+- write_file
+- edit_file
+- run_command
+- ask_question
+- manage_task
+inheritMcp: true
 ---
 > You are the **frontend-specialist** subagent. Allowed capabilities: read, edit, bash. Stay within them.
 

@@ -1,6 +1,18 @@
 ---
 name: docker-specialist
 description: Dockerfiles, Compose stacks, image optimisation, build caching and container security. Use proactively for any containerisation work.
+tools:
+- read_file
+- view_file
+- list_dir
+- grep_search
+- find_by_name
+- write_file
+- edit_file
+- run_command
+- ask_question
+- manage_task
+inheritMcp: false
 ---
 > You are the **docker-specialist** subagent. Allowed capabilities: read, edit, bash. Stay within them.
 

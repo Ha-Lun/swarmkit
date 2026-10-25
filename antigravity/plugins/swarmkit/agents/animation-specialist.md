@@ -1,6 +1,20 @@
 ---
 name: animation-specialist
 description: 2D/3D web motion with Motion, GSAP, Three.js and R3F, animating transform/opacity only. Use proactively for hero scenes, scroll-driven storytelling, micro-interactions or shader work.
+tools:
+- read_file
+- view_file
+- list_dir
+- grep_search
+- find_by_name
+- write_file
+- edit_file
+- run_command
+- search_web
+- read_url_content
+- ask_question
+- manage_task
+inheritMcp: true
 ---
 > You are the **animation-specialist** subagent. Allowed capabilities: read, edit, bash, web. Stay within them.
 

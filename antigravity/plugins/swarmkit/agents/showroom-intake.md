@@ -1,6 +1,18 @@
 ---
 name: showroom-intake
 description: 'Showroom intake: checks brief completeness, asks one batched question set, writes BRIEF.md and halts at G1. Use when the main agent dispatches it from a showroom coordinator handoff to turn the initial brief into BRIEF.md.'
+tools:
+- read_file
+- view_file
+- list_dir
+- grep_search
+- find_by_name
+- write_file
+- edit_file
+- run_command
+- ask_question
+- manage_task
+inheritMcp: false
 ---
 > You are the **showroom-intake** subagent. Allowed capabilities: read, edit, bash. Stay within them.
 

@@ -13,8 +13,8 @@ start and resume: opencode-task runs under Claude Code (CLAUDECODE=1), never und
 response", not "files changed". --setup CMD runs in the worktree before agy (e.g. installing
 or linking dependencies; a fresh worktree has tracked files only). At most $AGY_TASK_MAX
 (default 3) tasks run at once; --wait queues for a free slot instead of refusing.
-Gated by default (see "agy gate" below): agy reads and edits worktree files only, and its shell is
-limited to read-only commands (none under --agent), so run tests and builds yourself on the branch.
+Gated by default (see "agy gate" below): agy reads and edits worktree files only, and has no shell (plain or
+--agent; grep_search / find_by_name search), so run tests and builds yourself on the branch.
 --yolo auto-approves every tool and is NOT sandboxed (agy can then write outside the worktree and
 reach the network); use it only for trusted work.
 Everything lands under $AGY_TASK_DIR (default ~/.agy-tasks/<repo>/<slug>): the worktree,
@@ -32,9 +32,9 @@ agy gate: agy itself lets a plain accept-edits run write anywhere by absolute pa
 (plain and --agent; not --yolo) gets a PreToolUse hook in <wt>/.agents/hooks.json (never committed):
 scripts/agy-gate.py allows view_file, read_file, list_dir, grep_search, find_by_name and (not under --review)
 write_to_file, write_file, edit_file, replace_file_content on absolute or file:/// paths that resolve inside the
-worktree, outside any .git or .agents-style component (.gemini too), never the root AGENTS.md or GEMINI.md; plain runs also get run_command for read-only
-commands from the runner allowlist (git status/diff/log/show, ls, pwd, echo, wc, cat of source paths; no
-shell syntax, paths inside the worktree). No test runner: it would run worker-written code past the gate. Everything else is denied (MCP, browser, web),
+worktree, outside any .git or .agents-style component (.gemini too), never the root AGENTS.md or GEMINI.md; no agy run gets a shell
+(agy 1.4.7 headless ignores the gate's permission grants, so a gated run_command could not run anyway): workers
+search with grep_search / find_by_name, and you run tests yourself. Everything else is denied (MCP, browser, web),
 and every decision is logged into task/gate.log; denials land in denied_actions (reads of .git or .agents are
 denied quietly: counted in quiet_denials, a warning above 3). agy runs a hook that crashes or prints nothing as
 an allow, so before the commit the tool names in agy's transcript of this run are matched one by one against
@@ -73,8 +73,13 @@ opencode: `--agent NAME` instead of `--agent build`; the sandbox overlay is also
 Agents: opencode/agents/NAME.md ($SWARMKIT_OPENCODE_AGENTS_DIR in tests).
 agy: `--agent NAME` plus .agents/agents/NAME/agent.md in the worktree (never committed): the plugin agent
 with an explicit tool list (file tools only, read-only under --review, no shell or MCP), next to the gate
-hook above (no shell for --agent). An agent whose frontmatter already sets tools, inheritMcp, hooks, plugins
-or commandExecutionPolicy is refused, on start and again on resume. --yolo adds the shell and drops the hook.
+hook above (no shell for --agent). The worktree agent gets the launch name, a fixed description and the plugin
+agent's body, with the sandbox's tools and inheritMcp: false. The plugin frontmatter may hold only name, a
+one-line description, the generated `tools:` block and `inheritMcp:` line (both dropped), and its body may not
+contain a `---` line. Any other frontmatter line (hooks, plugins, commandExecutionPolicy, an inline tools list, a
+multi-line description...) refuses the agent, on start and again on resume. --yolo adds the shell and drops the hook.
+A plain run (no --agent, no --yolo) launches the same way as the reserved agent swarmkit-worker (`--agent
+swarmkit-worker` is refused): file tools only, edit tools unless --review, no shell, no MCP.
 Agents: antigravity/plugins/swarmkit/agents/NAME.md ($SWARMKIT_AGY_AGENTS_DIR in tests).
 
 start and resume print one banner line to stderr before the worker launches (slug, model, effort, base, log);
@@ -100,11 +105,13 @@ def seconds(s):
 
 def agy_cmd(task, prompt, a, resume_id, _p=None):
     agent = getattr(a, "agent", None)
-    agy_overlay(task, a, agent)
+    launch = agy_overlay(task, a, agent)
     if agent:
         prompt = HEADLESS_NOTE + "\n\n" + prompt
+    elif launch:
+        prompt = WORKER_NOTE + "\n\n" + prompt
     cmd = ["agy", "-p", prompt, "--output-format", "json", "--mode", "accept-edits",
-           "--print-timeout", f"{seconds(a.timeout)}s"] + (["--agent", agent] if agent else [])
+           "--print-timeout", f"{seconds(a.timeout)}s"] + (["--agent", launch] if launch else [])
     if resume_id:
         cmd += ["--conversation", resume_id]
     else:
@@ -233,37 +240,65 @@ def agy_agents_dir():
 
 
 # Every agy run (plain and --agent) gets a PreToolUse hook in the worktree's .agents/hooks.json, a workspace
-# customization agy loads for plain runs too: agy-gate.py allows the file tools on worktree paths only, and
-# on plain runs run_command for read-only commands (AGY_SHELL); everything else (MCP, browser, other paths,
-# .git, .agents) is denied. A named agy agent also gets only the tools its frontmatter lists, and headless agy
-# auto-denies even reads under it, so --agent adds the agent with an explicit tool list (no run_command, no
-# MCP) next to the hook. The commit skips both; the user's agy settings stay untouched.
+# customization agy loads for plain runs too: agy-gate.py allows the file tools on worktree paths only (no
+# run_command in any agy run); everything else (MCP, browser, other paths, .git, .agents) is denied. agy 1.4.7
+# headless ignores the gate's permission grants, so there is no shell to grant. A named agy agent gets only the
+# tools its frontmatter lists, and headless agy auto-denies even reads under it, so every non-yolo run launches
+# an overlay agent with an explicit tool list (no run_command, no MCP) next to the hook: the plugin agent for
+# --agent, else the reserved swarmkit-worker. The commit skips both; the user's agy settings stay untouched.
 AGY_TOOLS = ("view_file", "list_dir", "grep_search", "find_by_name")
 AGY_EDIT_TOOLS = ("write_to_file", "edit_file", "replace_file_content")
 AGY_ROOTS = (".agents", ".agent", "_agents", "_agent", ".gemini")  # agy's customization roots; the gate denies them
-AGY_AGENT_KEYS = ("tools", "inheritMcp", "hooks", "plugins", "commandExecutionPolicy")  # the overlay sets these
-# A plain run's shell: the read-only part of the runner allowlist. No test runner: it runs code the worker can
-# write, which would walk around the gate (plain agy had no shell at all before the gate).
-AGY_SHELL = [p for c in RUNNERS if c.startswith("git ") for p in (c, c + " *")] + \
-            [g for g in RUNNER_GLOBS if not g.startswith(("node ", "python3 "))]
+AGY_WORKER = "swarmkit-worker"  # the plain run's overlay agent; reserved, `--agent swarmkit-worker` is refused
+WORKER_NOTE = ("Headless worker: use your file tools (grep_search / find_by_name to search, view_file, edit_file);"
+               " there is no shell.")
+PLAIN = re.compile(r"[^\s'\"#&*!|>%@`\[\]{},-][^#]*")  # a plain YAML scalar on one line: no indicator start, no comment
+QUOTED = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"\\]|\\.)*\"")
+
+
+def agy_agent_parts(agent):
+    """(None, name, description, body) of the plugin agent, or (problem, ...). The frontmatter may hold only name,
+    a one-line description, build.py's `tools:` block list and an `inheritMcp: true|false` line; the worktree agent
+    gets the launch name and a fixed description, and only the body is copied, so nothing else (hooks, plugins, ...) gets through."""
+    bad = lambda m: (f"agent {agent} {m}", None, None, None)
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", agent or ""):
+        return (f"invalid agent name: {agent}", None, None, None)
+    if agent == "lead-dev-hybrid":
+        return ("orchestrators cannot run as workers: lead-dev-hybrid", None, None, None)
+    if agent == AGY_WORKER:
+        return (f"{AGY_WORKER} is the plain worker's own agent", None, None, None)
+    f = agy_agents_dir() / f"{agent}.md"
+    if not f.is_file() or f.is_symlink():
+        return (f"unknown Antigravity agent: {agent}", None, None, None)
+    parts = f.read_text().split("---\n", 2)
+    if len(parts) != 3 or parts[0]:
+        return bad("has no frontmatter")
+    if re.search(r"^---[ \t]*$", parts[2], re.M):
+        return bad("has a '---' line in its body")
+    seen, in_tools = {}, False
+    for line in parts[1].splitlines():
+        if in_tools and re.fullmatch(r"- [A-Za-z0-9_]+", line):
+            continue
+        in_tools = False
+        m = re.fullmatch(r"(name|description|tools|inheritMcp):(?: (.*))?", line)
+        if not m or m[1] in seen:
+            return bad(f"has a frontmatter line the worker sandbox does not accept: {line[:60]!r}")
+        k, v = m[1], m[2]
+        ok = {"tools": v is None, "inheritMcp": v in ("true", "false"),
+              "name": bool(v and re.fullmatch(r"[a-z0-9][a-z0-9-]*", v)),
+              "description": bool(v and (PLAIN.fullmatch(v) and ": " not in v or QUOTED.fullmatch(v)))}[k]
+        if not ok:
+            return bad(f"has a frontmatter line the worker sandbox does not accept: {line[:60]!r}")
+        seen[k] = v
+        in_tools = k == "tools"
+    if "name" not in seen or "description" not in seen:
+        return bad("needs a name and a one-line description in its frontmatter")
+    return (None, seen["name"], seen["description"], parts[2])
 
 
 def agy_agent_problem(agent):
     """Why NAME cannot run as an agy worker, or None (checked on start and again on resume)."""
-    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", agent or ""):
-        return f"invalid agent name: {agent}"
-    if agent == "lead-dev-hybrid":
-        return "orchestrators cannot run as workers: lead-dev-hybrid"
-    f = agy_agents_dir() / f"{agent}.md"
-    if not f.is_file() or f.is_symlink():
-        return f"unknown Antigravity agent: {agent}"
-    parts = f.read_text().split("---\n", 2)
-    if len(parts) != 3 or parts[0]:
-        return f"agent {agent} has no frontmatter"
-    keys = [k for k in AGY_AGENT_KEYS if re.search(rf"^\s*['\"]?{k}['\"]?\s*:", parts[1], re.M | re.I)]
-    if keys:
-        return f"agent {agent} sets {', '.join(keys)} in its frontmatter; the worker sandbox sets those itself"
-    return None
+    return agy_agent_parts(agent)[0]
 
 
 AGY_PROBED = "1.4.7"  # the agy version the gate schema and transcript check were probed on
@@ -288,7 +323,7 @@ def agy_roots_problem(wt, agent):
     """Why agy must not launch in WT, or None: agy loads hooks, agents and rules from .agents-style dirs, so the
     only entries allowed there are the overlay's own (real dirs and files, no symlinks)."""
     own = {".agents": "d", ".agents/hooks.json": "f"}
-    if agent:
+    if agent:  # the agent the launch runs as
         own.update({".agents/agents": "d", f".agents/agents/{agent}": "d", f".agents/agents/{agent}/agent.md": "f"})
     for d, dirs, files in os.walk(wt):  # followlinks=False: a symlinked dir is listed, not entered
         if d == str(wt):
@@ -306,30 +341,34 @@ def agy_roots_problem(wt, agent):
 
 def agy_overlay(task, a, agent):
     wt = task / "worktree"
-    bad = agy_roots_problem(wt, agent)  # every launch: --setup or an earlier run could have planted one
+    launch = agent or (None if a.yolo else AGY_WORKER)  # the overlay agent agy is launched as
+    bad = agy_roots_problem(wt, launch)  # every launch: --setup or an earlier run could have planted one
     if bad:
         refuse(task, f"refusing to launch agy: {bad}; remove it from {wt} or clean the task")
     hooks, overlay = wt / ".agents" / "hooks.json", [".agents/hooks.json"]
-    if agent:
-        _, fm, body = (agy_agents_dir() / f"{agent}.md").read_text().split("---\n", 2)
+    if launch:
+        if agent:
+            body = agy_agent_parts(agent)[3]
+        else:
+            body = WORKER_NOTE + "\n"
         tools = AGY_TOOLS + (() if a.review else AGY_EDIT_TOOLS) + (("run_command",) if a.yolo else ())
-        fm = fm.rstrip("\n") + "\ninheritMcp: false\ntools:\n" + "".join(f"  - {t}\n" for t in tools)
-        d = wt / ".agents" / "agents" / agent
+        fm = f"name: {launch}\ndescription: SwarmKit headless worker ({launch})\ntools:\n" + "".join(f"  - {t}\n" for t in tools) + "inheritMcp: false\n"
+        d = wt / ".agents" / "agents" / launch
         d.mkdir(parents=True, exist_ok=True)
         write_nofollow(d / "agent.md", f"---\n{fm}---\n{body}")
-        overlay.append(f".agents/agents/{agent}")
+        overlay.append(f".agents/agents/{launch}")
     (task / "gate.log").unlink(missing_ok=True)  # this run's gate decisions (the gate creates it, O_NOFOLLOW)
     if a.yolo:  # unsandboxed: no gate
         hooks.unlink(missing_ok=True)
     else:
         hooks.parent.mkdir(exist_ok=True)
-        shell = [] if agent else AGY_SHELL
         write_nofollow(task / "gate.json", json.dumps({"root": str(wt), "log": str(task / "gate.log"),
-                                                       "edit": not a.review, "shell": shell}))
+                                                       "edit": not a.review, "shell": []}))
         gate = ["python3", "-I", str(Path(__file__).resolve().parent / "agy-gate.py"), str(task / "gate.json")]
         write_nofollow(hooks, json.dumps({"swarmkit-worktree-gate": {"PreToolUse": [
             {"matcher": "*", "hooks": [{"type": "command", "command": shlex.join(gate), "timeout": 10}]}]}}, indent=1))
     write_nofollow(task / "overlay", "\n".join(overlay))
+    return launch
 
 
 def gate_name(s):
@@ -899,7 +938,7 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     tokens = u.get("total_tokens", sum(v for v in u.values() if isinstance(v, int))) if isinstance(u, dict) and u else None
     dispatch_log("finish", task.name, o.get("model"), ok=ok, denied=len(denied), tokens=tokens,
                  wall_s=round(wall), stopped_by=stopped_by, agent=o.get("agent"))
-    hint = " (resume it: file tools on worktree files only, no shell beyond git status/diff/log/show, ls, cat)" if CLI == "agy" else ""
+    hint = " (resume it: file tools on worktree files only, no shell; grep_search / find_by_name to search)" if CLI == "agy" else ""
     note = (f" DENIED: {', '.join(denied)}{hint}" if denied else "") \
         + "".join(f" WARNING: {w}" for w in warnings)
     print(f"{PROG} {task.name}: {'ok' if ok else 'NOT ok'} ({changed}){note} -> {task}/result.json")

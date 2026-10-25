@@ -1,6 +1,20 @@
 ---
 name: seo-specialist
 description: Technical SEO, structured data, sitemaps, Core Web Vitals and AI-search visibility with free tools. Use proactively for SEO audits or search-visibility work.
+tools:
+- read_file
+- view_file
+- list_dir
+- grep_search
+- find_by_name
+- write_file
+- edit_file
+- run_command
+- search_web
+- read_url_content
+- ask_question
+- manage_task
+inheritMcp: true
 ---
 > You are the **seo-specialist** subagent. Allowed capabilities: read, edit, bash, web. Stay within them.
 
