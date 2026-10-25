@@ -28,7 +28,7 @@ import { listStars, setStar } from './stars.ts';
 import { WorkerRegistry } from './registry.ts';
 import { SdkSessions, SessionError } from './sdk/sessions.ts';
 import { validImages, validMessageText, validRuntime, validRuntimeAgent, validRuntimeEffort, validRuntimeModel, ValidationError } from './validate.ts';
-import { readImage } from './images.ts';
+import { imageEtag, readImage } from './images.ts';
 import { resolveDirInHome } from './paths.ts';
 import { abortUsageProbe, getUsage } from './usage.ts';
 import { freshTranscriptMtimeMs, holderMessage, liveHolder } from './livesessions.ts';
@@ -279,10 +279,19 @@ async function main(): Promise<void> {
     }
     const image = sdk.owns(sessionId) || watcher.fileInfo(sessionId) ? readImage(sessionId, imageName) : undefined;
     if (!image) return sendJson(res, 404, { error: 'image not found' });
+    // Numbering restarts after eviction, so revalidate every time instead of caching by URL.
+    const etag = imageEtag(image.data);
+    const cacheHeaders = { ETag: etag, 'Cache-Control': 'private, no-cache', 'X-Content-Type-Options': 'nosniff' };
+    const inm = req.headers['if-none-match'];
+    if (typeof inm === 'string' && inm.split(',').some(t => t.trim().replace(/^W\//, '') === etag)) {
+      res.writeHead(304, cacheHeaders);
+      return void res.end();
+    }
     res.writeHead(200, {
       'Content-Type': image.contentType,
       'Content-Length': image.data.length,
-      'Cache-Control': 'private, max-age=86400',
+      ETag: etag,
+      'Cache-Control': 'private, no-cache',
       'X-Content-Type-Options': 'nosniff',
       'Content-Disposition': 'inline',
     });

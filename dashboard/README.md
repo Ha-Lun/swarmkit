@@ -104,7 +104,11 @@ The server keeps the files in `${XDG_CACHE_HOME:-~/.cache}/swarmkit/images/<sess
 (directory 0700, files 0600, never overwritten, no symlinks followed) and serves them back
 through the authenticated `GET /api/sessions/:id/images/:name`. Events carry only those URLs
 (`ActivityEvent.images`), never base64. A session's images are deleted when the session is
-evicted from memory.
+evicted from memory; at server start and then at most hourly, store directories that no live
+session owns and that have not changed for 7 days are removed too. Images are served with
+`Cache-Control: private, no-cache` and an `ETag` (`If-None-Match` answers 304). Note that
+Claude's own transcripts (`~/.claude/projects/*.jsonl`) also keep a copy of attached images as
+base64, outside this store.
 
 - Claude: sent to the model as image content blocks before the text.
 - OpenCode: sent as ACP `image` prompt blocks before the text.

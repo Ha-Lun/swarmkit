@@ -42,7 +42,15 @@ export interface TreeInit {
 export interface ApplyOptions {
   /** Force the node for this message: used for transcript lines read from a subagent file (agent-<id>.jsonl). */
   nodeId?: string;
+  /**
+   * Set only by the page-send path (never derived from a message, so transcript lines cannot
+   * claim it): the user text may start with '<' and carries the stored-image URLs.
+   */
+  pageUser?: { images?: string[] };
 }
+
+/** Stored-image URLs the page may attach to a user event (see images.ts). */
+const PAGE_IMAGE_URL_RE = /^\/api\/sessions\/[^/]+\/images\/\d{1,4}\.(png|jpg|gif|webp)$/;
 
 type Raw = Record<string, unknown>;
 
@@ -352,11 +360,11 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
   let dirty = fresh;
   const content = message.content;
 
-  // Page-sent images arrive as stored-image URLs (swarmkitImages); transcript lines carry
+  // Page-sent images arrive as stored-image URLs (opts.pageUser); transcript lines carry
   // image blocks. Either way the event holds markers and URLs, never base64.
-  const urls = Array.isArray(m.swarmkitImages) ? m.swarmkitImages.filter((u): u is string => typeof u === 'string') : [];
+  const urls = (opts?.pageUser?.images ?? []).filter(u => typeof u === 'string' && PAGE_IMAGE_URL_RE.test(u));
   // Page-sent text may start with '<' (pasted HTML); only transcript/SDK lines use '<' for system injections.
-  const page = m.swarmkitPage === true;
+  const page = opts?.pageUser !== undefined;
   const addUser = (text: string, imageCount: number): void => {
     const key = `${str(m.uuid) ?? `user:${ts}`}:user`;
     if (seen.has(key)) return;

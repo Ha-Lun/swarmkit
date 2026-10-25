@@ -1,7 +1,7 @@
 // Pasted images: validation, the private store, the GET route helper, the user event,
 // the per-runtime hand-off (claude blocks, ACP image blocks, agy paths) and the agy hook.
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, utimesSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,7 +10,7 @@ import type { SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { ImageAttachment, ServerEvent } from '../src/shared/types.ts';
 import { MAX_IMAGE_BYTES } from '../src/shared/types.ts';
 import { validImages, validMessageText, ValidationError } from '../server/validate.ts';
-import { deleteImages, imageDir, readImage, resolveImagePath, saveImages } from '../server/images.ts';
+import { deleteImages, imageDir, imageEtag, pruneOrphanImages, readImage, resolveImagePath, saveImages } from '../server/images.ts';
 import { SdkSessions } from '../server/sdk/sessions.ts';
 import type { QueryFn } from '../server/sdk/sessions.ts';
 import { createAcpQuery } from '../server/runtimes/acp.ts';
@@ -185,7 +185,7 @@ describe('reducer', () => {
 
   it('keeps the page-sent images on the event and dedupes an echoed copy', () => {
     const tree = createTree('s1', { startedAt: 1 });
-    const first = applyMessage(tree, { type: 'user', uuid: 'u2', message: { role: 'user', content: 'look' }, swarmkitImages: ['/api/sessions/s1/images/1.png'] });
+    const first = applyMessage(tree, { type: 'user', uuid: 'u2', message: { role: 'user', content: 'look' } }, { pageUser: { images: ['/api/sessions/s1/images/1.png'] } });
     const echo = applyMessage(tree, { type: 'user', uuid: 'u2', message: { role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: b64(PNG) } }, { type: 'text', text: 'look' }] } });
     expect(first.some(e => e.type === 'node.event' && e.event.images?.[0] === '/api/sessions/s1/images/1.png')).toBe(true);
     expect(echo.filter(e => e.type === 'node.event')).toHaveLength(0);
@@ -194,12 +194,29 @@ describe('reducer', () => {
 
   it('shows a page-sent message that starts with "<", but not a transcript injection', () => {
     const tree = createTree('s1', { startedAt: 1 });
-    const page = applyMessage(tree, { type: 'user', uuid: 'p1', message: { role: 'user', content: '<div>hello</div>' }, swarmkitPage: true });
+    const page = applyMessage(tree, { type: 'user', uuid: 'p1', message: { role: 'user', content: '<div>hello</div>' } }, { pageUser: {} });
     const pageEvents = page.flatMap(e => (e.type === 'node.event' ? [e.event] : []));
     expect(pageEvents).toHaveLength(1);
     expect(pageEvents[0]).toMatchObject({ kind: 'user', summary: '<div>hello</div>' });
     const injected = applyMessage(tree, { type: 'user', uuid: 't1', message: { role: 'user', content: '<command-name>x</command-name>' } });
     expect(injected.filter(e => e.type === 'node.event')).toHaveLength(0);
+  });
+
+  it('ignores swarmkitImages / swarmkitPage on a transcript line', () => {
+    const tree = createTree('s1', { startedAt: 1 });
+    const forged = applyMessage(tree, { type: 'user', uuid: 'f1', message: { role: 'user', content: '<command-name>x</command-name>' }, swarmkitPage: true, swarmkitImages: ['https://evil.example/x.png'] });
+    expect(forged.filter(e => e.type === 'node.event')).toHaveLength(0);
+    const withImg = applyMessage(tree, { type: 'user', uuid: 'f2', message: { role: 'user', content: 'hi' }, swarmkitImages: ['/api/sessions/s1/images/1.png'], swarmkitPage: true });
+    const ev = withImg.flatMap(e => (e.type === 'node.event' ? [e.event] : []));
+    expect(ev).toHaveLength(1);
+    expect(ev[0]!.images).toBeUndefined();
+  });
+
+  it('drops page image URLs that are not stored-image URLs', () => {
+    const tree = createTree('s1', { startedAt: 1 });
+    const evs = applyMessage(tree, { type: 'user', uuid: 'g1', message: { role: 'user', content: 'x' } }, { pageUser: { images: ['https://evil.example/a.png', '/api/sessions/s1/images/../2.png', '/api/sessions/s1/images/2.png'] } });
+    const ev = evs.flatMap(e => (e.type === 'node.event' ? [e.event] : []));
+    expect(ev[0]!.images).toEqual(['/api/sessions/s1/images/2.png']);
   });
 });
 
@@ -383,5 +400,35 @@ describe('agy-hook.py images dir', () => {
     expect((await runHook('write_to_file', { TargetFile: path.join(images, '2.png') }, withImages)).decision).toBe('deny');
     expect((await runHook('read_file', { Path: path.join(images, 'link', 'f') }, withImages)).decision).toBe('deny');
     expect((await runHook('read_file', { Path: path.join(images, '..', 'other', 'f') }, withImages)).decision).toBe('deny');
+  });
+});
+
+describe('etag and orphan pruning', () => {
+  it('gives a strong etag that differs per content', () => {
+    expect(imageEtag(Buffer.from('a'))).toMatch(/^"[0-9a-f]{40}"$/);
+    expect(imageEtag(Buffer.from('a'))).not.toBe(imageEtag(Buffer.from('b')));
+  });
+
+  it('removes only old, unowned, well-named store directories', () => {
+    const saved = saveImages('orph-old', [png()]);
+    saveImages('orph-new', [png()]);
+    saveImages('orph-live', [png()]);
+    const old = new Date(Date.now() - 8 * 86_400_000);
+    for (const id of ['orph-old', 'orph-live']) {
+      utimesSync(saved.paths[0]!.replace('orph-old', id), old, old);
+      utimesSync(imageDir(id), old, old);
+    }
+    const root = path.dirname(imageDir('orph-old'));
+    mkdirSync(path.join(scratch, 'outside'), { recursive: true });
+    symlinkSync(path.join(scratch, 'outside'), path.join(root, 'orph-link'));
+    mkdirSync(path.join(root, 'bad.name'));
+    utimesSync(path.join(root, 'bad.name'), old, old);
+    pruneOrphanImages(id => id === 'orph-live', 7 * 86_400_000);
+    expect(existsSync(imageDir('orph-old'))).toBe(false);
+    expect(existsSync(imageDir('orph-new'))).toBe(true);
+    expect(existsSync(imageDir('orph-live'))).toBe(true);
+    expect(existsSync(path.join(root, 'orph-link'))).toBe(true);
+    expect(existsSync(path.join(root, 'bad.name'))).toBe(true);
+    expect(existsSync(path.join(scratch, 'outside'))).toBe(true);
   });
 });

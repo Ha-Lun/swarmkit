@@ -2,6 +2,7 @@
 // Private (dir 0700, files 0600, O_EXCL, no symlinks followed). Synchronous on purpose: the
 // session start/send paths are synchronous and the files are small. Never log image data.
 import { constants as fsConstants, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, rmSync, writeSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { MAX_IMAGE_BYTES } from '../src/shared/types.ts';
@@ -44,6 +45,11 @@ export function resolveImagePath(sessionId: string, name: string): string | unde
   const dir = path.join(root, sessionId);
   const file = path.resolve(dir, name);
   return file.startsWith(dir + path.sep) && dir.startsWith(root + path.sep) ? file : undefined;
+}
+
+/** Strong ETag for stored bytes (numbering restarts after eviction, so a URL alone is not a cache key). */
+export function imageEtag(data: Buffer): string {
+  return `"${createHash('sha1').update(data).digest('hex')}"`;
 }
 
 /** Content-Type for a validated image name. */
@@ -135,4 +141,31 @@ export function deleteImages(sessionId: string): void {
   } catch {
     // Best effort: leftovers are private and small.
   }
+}
+
+/**
+ * Removes store directories that no live session owns and whose newest entry is older than
+ * maxAgeMs. Only plain directories named like a session id are touched; symlinks are never followed.
+ */
+export function pruneOrphanImages(isLive: (sessionId: string) => boolean, maxAgeMs: number, now = Date.now()): number {
+  let removed = 0;
+  try {
+    const root = imagesRoot();
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.isSymbolicLink() || !IMAGE_SESSION_RE.test(entry.name) || isLive(entry.name)) continue;
+      try {
+        const dir = path.join(root, entry.name);
+        let newest = lstatSync(dir).mtimeMs;
+        for (const name of readdirSync(dir)) newest = Math.max(newest, lstatSync(path.join(dir, name)).mtimeMs);
+        if (now - newest < maxAgeMs) continue;
+        rmSync(dir, { recursive: true, force: true });
+        removed += 1;
+      } catch {
+        // Best effort: skip what cannot be read or removed.
+      }
+    }
+  } catch {
+    // No store yet.
+  }
+  return removed;
 }

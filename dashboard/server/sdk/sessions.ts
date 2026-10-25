@@ -19,7 +19,7 @@ import type { AcpOptions } from '../runtimes/acp.ts';
 import { AgyHookBridge, createAgyQuery } from '../runtimes/agy.ts';
 import type { AgyHookResponse, AgyOptions } from '../runtimes/agy.ts';
 import { claudeConfigDir, resolveDirInHome } from '../paths.ts';
-import { deleteImages, imageDir, saveImages } from '../images.ts';
+import { deleteImages, imageDir, pruneOrphanImages, saveImages } from '../images.ts';
 
 /** Main-thread agent names must start alphanumerically and stay short (no '../', no path tricks). */
 export { AGENT_RE };
@@ -247,6 +247,7 @@ export function pageResumable(
 export class SdkSessions {
   private sessions = new Map<string, PageSession>();
   private pollTimer: NodeJS.Timeout;
+  private lastImagePrune = 0;
   /** Session ids with a pollWorkers call in flight (one poll at a time per session). */
   private polling = new Set<string>();
   /** Permission-hook bridge for agy runtime sessions (one handler per hook secret). */
@@ -263,6 +264,7 @@ export class SdkSessions {
     this.acpFactory = runtimes?.acp ?? createAcpQuery;
     this.agyFactory = runtimes?.agy ?? createAgyQuery;
     this.hookBase = runtimes?.hookBase ?? (() => 'http://127.0.0.1:4317');
+    this.pruneImages();
     this.pollTimer = setInterval(() => this.poll(), POLL_MS);
     this.pollTimer.unref();
   }
@@ -357,7 +359,7 @@ export class SdkSessions {
     if (!images || images.length === 0) {
       // The SDK and the adapters never echo page-sent text, so the user event is made here.
       const uuid = randomUUID();
-      const events = applyMessage(session.tree, { type: 'user', uuid, message: { role: 'user', content: text }, swarmkitPage: true });
+      const events = applyMessage(session.tree, { type: 'user', uuid, message: { role: 'user', content: text } }, { pageUser: {} });
       return { message: { ...base, uuid, message: { role: 'user', content: text } }, events };
     }
     let stored: { urls: string[]; paths: string[] };
@@ -380,9 +382,7 @@ export class SdkSessions {
       type: 'user',
       uuid,
       message: { role: 'user', content: text },
-      swarmkitImages: stored.urls,
-      swarmkitPage: true,
-    });
+    }, { pageUser: { images: stored.urls } });
     return { message: { ...base, uuid, message: { role: 'user', content } }, events };
   }
 
@@ -924,8 +924,17 @@ export class SdkSessions {
    * A session is polled when its root is running OR any node is a running worker,
    * regardless of the query state, at most one poll in flight per session.
    */
+  /** Deletes image stores of long-gone sessions (at most hourly; at start and from poll). */
+  private pruneImages(): void {
+    const now = Date.now();
+    if (now - this.lastImagePrune < 3_600_000) return;
+    this.lastImagePrune = now;
+    pruneOrphanImages(id => this.sessions.has(id), 7 * 86_400_000, now);
+  }
+
   private poll(): void {
     this.evict();
+    this.pruneImages();
     for (const session of this.sessions.values()) {
       if (this.polling.has(session.id)) continue;
       const root = session.tree.nodes.get('root');
