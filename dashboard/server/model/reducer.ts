@@ -394,10 +394,17 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
     if (m.isMeta !== true && (page || !content.startsWith('<'))) addUser(content, urls.length);
   } else if (Array.isArray(content)) {
     const blocks = content.map(asRaw);
-    const imageCount = blocks.filter(b => b?.type === 'image').length;
-    if (imageCount > 0 && m.isMeta !== true) {
-      const text = blocks.map(b => (b?.type === 'text' && typeof b.text === 'string' ? b.text : '')).filter(t => t).join('\n');
-      if (page || !text.startsWith('<')) addUser(text, Math.max(imageCount, urls.length));
+    const hasToolResult = blocks.some(b => b?.type === 'tool_result');
+    if (!hasToolResult && m.isMeta !== true) {
+      const text = blocks
+        .map(b => (b?.type === 'text' && typeof b.text === 'string' ? b.text : ''))
+        .filter(t => t.length > 0 && (page || !t.startsWith('<')))
+        .join('\n');
+      const imageCount = blocks.filter(b => b?.type === 'image').length;
+      const effectiveImages = Math.max(imageCount, urls.length);
+      if (text.length > 0 || effectiveImages > 0) {
+        if (page || !text.startsWith('<')) addUser(text, effectiveImages);
+      }
     }
     for (const raw of content) {
       const block = asRaw(raw);

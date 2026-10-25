@@ -99,11 +99,13 @@ describe('validImages', () => {
     expect(validMessageText(undefined, [png()])).toBe('(image)');
     expect(validMessageText('hi', [png()])).toBe('hi');
     expect(() => validMessageText('  ', undefined)).toThrow(ValidationError);
+    expect(() => validMessageText('  ', [])).toThrow(ValidationError);
+    expect(() => validMessageText(undefined, [])).toThrow(ValidationError);
   });
 });
 
 describe('image store', () => {
-  it('numbers files per session, 0600 files in 0700 dirs', () => {
+  it('numbers files per session, 0600 files in 0700 dirs', async () => {
     const id = 'sess-numbering';
     const first = saveImages(id, [png(), { mediaType: 'image/jpeg', data: b64(JPG) }]);
     const second = saveImages(id, [{ mediaType: 'image/webp', data: b64(WEBP) }]);
@@ -113,12 +115,12 @@ describe('image store', () => {
     expect(statSync(first.paths[0]!).mode & 0o777).toBe(0o600);
     expect(statSync(imageDir(id)).mode & 0o777).toBe(0o700);
     expect(readFileSync(first.paths[0]!)).toEqual(Buffer.from(png().data, 'base64'));
-    expect(readImage(id, '2.jpg')?.contentType).toBe('image/jpeg');
+    expect((await readImage(id, '2.jpg'))?.contentType).toBe('image/jpeg');
     deleteImages(id);
     expect(existsSync(imageDir(id))).toBe(false);
   });
 
-  it('refuses a symlinked session directory and never writes through it', () => {
+  it('refuses a symlinked session directory and never writes through it', async () => {
     const id = 'sess-symlink';
     const target = path.join(scratch, 'elsewhere');
     mkdirSync(target, { recursive: true });
@@ -126,12 +128,12 @@ describe('image store', () => {
     symlinkSync(target, imageDir(id));
     expect(() => saveImages(id, [png()])).toThrow();
     expect(readdirSync(target)).toEqual([]);
-    expect(readImage(id, '1.png')).toBeUndefined();
+    expect(await readImage(id, '1.png')).toBeUndefined();
     deleteImages(id);
     expect(existsSync(target)).toBe(true);
   });
 
-  it('does not follow a planted symlink file', () => {
+  it('does not follow a planted symlink file', async () => {
     const id = 'sess-planted';
     const outside = path.join(scratch, 'outside.png');
     writeFileSync(outside, 'secret');
@@ -140,7 +142,7 @@ describe('image store', () => {
     const saved = saveImages(id, [png()]);
     expect(saved.urls[0]).toMatch(/\/2\.png$/);
     expect(readFileSync(outside, 'utf8')).toBe('secret');
-    expect(readImage(id, '1.png')).toBeUndefined();
+    expect(await readImage(id, '1.png')).toBeUndefined();
     deleteImages(id);
   });
 

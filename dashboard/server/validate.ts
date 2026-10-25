@@ -148,7 +148,7 @@ export function validImages(raw: unknown): ImageAttachment[] | undefined {
 
 /** Message text: like validText, but blank text is allowed (and becomes "(image)") when images are attached. */
 export function validMessageText(raw: unknown, images: ImageAttachment[] | undefined, label = 'text'): string {
-  if (images && (raw === undefined || raw === null || (typeof raw === 'string' && raw.trim().length === 0))) {
+  if (images && images.length > 0 && (raw === undefined || raw === null || (typeof raw === 'string' && raw.trim().length === 0))) {
     return '(image)';
   }
   return validText(raw, label);

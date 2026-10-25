@@ -721,3 +721,78 @@ describe('reducer: worker resume', () => {
     expect(tree.nodes.get('toolu_w1')!.status).toBe('running');
   });
 });
+
+describe('reducer: array user content', () => {
+  const userEvents = (events: ServerEvent[]) =>
+    events.filter((e) => e.type === 'node.event' && e.event.kind === 'user').map((e) => (e as { event: { summary: string; detail?: string } }).event);
+
+  it('shows array text-only content as one user event', () => {
+    const tree = createTree('arr1', { startedAt: 1_700_000_000_000 });
+    const events = applyMessage(tree, {
+      type: 'user',
+      uuid: 'arr-text',
+      message: { role: 'user', content: [{ type: 'text', text: 'hello world' }] },
+    });
+    const users = userEvents(events);
+    expect(users).toHaveLength(1);
+    expect(users[0]!.summary).toBe('hello world');
+    expect(users[0]!.detail).toBe('hello world');
+  });
+
+  it('drops array content with only a system injection', () => {
+    const tree = createTree('arr2', { startedAt: 1_700_000_000_000 });
+    const events = applyMessage(tree, {
+      type: 'user',
+      uuid: 'arr-inject',
+      message: { role: 'user', content: [{ type: 'text', text: '<system-reminder>do this</system-reminder>' }] },
+    });
+    expect(events.filter((e) => e.type === 'node.event')).toHaveLength(0);
+  });
+
+  it('emits no user event for array content with a tool_result (tool result still recorded)', () => {
+    const tree = createTree('arr3', { startedAt: 1_700_000_000_000 });
+    const events = applyMessage(tree, {
+      type: 'user',
+      uuid: 'arr-tool',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'hello' },
+          { type: 'tool_result', tool_use_id: 'toolu_x', content: 'out' },
+        ],
+      },
+    });
+    expect(userEvents(events)).toHaveLength(0);
+    expect(events.some((e) => e.type === 'node.event' && (e as { event: { kind: string } }).event.kind === 'tool_result')).toBe(true);
+  });
+
+  it('shows array text plus an image marker', () => {
+    const tree = createTree('arr4', { startedAt: 1_700_000_000_000 });
+    const events = applyMessage(tree, {
+      type: 'user',
+      uuid: 'arr-mixed',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'look' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+        ],
+      },
+    });
+    const users = userEvents(events);
+    expect(users).toHaveLength(1);
+    expect(users[0]!.summary).toBe('look');
+    expect(users[0]!.detail).toBe('look\n🖼 image');
+  });
+
+  it('skips array content when isMeta is true', () => {
+    const tree = createTree('arr5', { startedAt: 1_700_000_000_000 });
+    const events = applyMessage(tree, {
+      type: 'user',
+      uuid: 'arr-meta',
+      isMeta: true,
+      message: { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+    });
+    expect(events.filter((e) => e.type === 'node.event')).toHaveLength(0);
+  });
+});

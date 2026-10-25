@@ -1,13 +1,14 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { AgentNode, AgentNodeHead, ServerEvent } from '../src/shared/types';
+import type { AgentNode, AgentNodeHead, ImageAttachment, ServerEvent } from '../src/shared/types';
 import type { SessionTree, TreeInit } from '../server/model/reducer';
 import { AGENT_RE, EVICT_AFTER_MS, SdkSessions, SessionError } from '../server/sdk/sessions';
 import type { QueryFn, ResumeInfo } from '../server/sdk/sessions';
 import { validEffort, ValidationError } from '../server/validate.ts';
+import { deleteImages, imageDir, imagesRoot } from '../server/images.ts';
 
 // The data-model team builds the real reducer in parallel this checkout only
 // has the throwing stub, so stand in a minimal tree fake with the final signatures.
@@ -822,6 +823,54 @@ describe('SdkSessions', () => {
         expect(summary.status === 'running' || summary.status === 'waiting').toBe(true);
         expect(summary.resumable).toBe(false);
         expect(sdk.stop(id)).toBe(true);
+      });
+    });
+  });
+
+  describe('images', () => {
+    const b64 = (bytes: number[], total = 24): string =>
+      Buffer.from([...bytes, ...new Array(Math.max(0, total - bytes.length)).fill(1)]).toString('base64');
+    const png = (): ImageAttachment => ({
+      mediaType: 'image/png',
+      data: b64([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    });
+
+    const withImageCache = async (fn: (scratch: string) => Promise<void>): Promise<void> => {
+      const scratch = mkdtempSync(path.join(tmpdir(), 'fleet-sessions-images-'));
+      const prev = process.env.XDG_CACHE_HOME;
+      process.env.XDG_CACHE_HOME = path.join(scratch, 'cache');
+      try {
+        await fn(scratch);
+      } finally {
+        if (prev === undefined) delete process.env.XDG_CACHE_HOME;
+        else process.env.XDG_CACHE_HOME = prev;
+        rmSync(scratch, { recursive: true, force: true });
+      }
+    };
+
+    it('resume accepts blank text when images are attached (becomes "(image)")', async () => {
+      await withImageCache(async () => {
+        const sdk = new SdkSessions(() => {}, makeRecordingQuery([]));
+        const id = `term-img-${Date.now().toString(36)}`;
+        const resumed = await sdk.resume(id, { text: '   ', images: [png()] }, { cwd: homeDir });
+        expect(resumed).toBe(id);
+        expect(sdk.owns(id)).toBe(true);
+        expect(existsSync(imageDir(id))).toBe(true);
+        deleteImages(id);
+      });
+    });
+
+    it('start removes stored images when the query fails to start', async () => {
+      await withImageCache(async () => {
+        const throwing: QueryFn = () => {
+          throw new Error('query boom');
+        };
+        const sdk = new SdkSessions(() => {}, throwing);
+        expect(() => sdk.start({ prompt: 'hi', cwd: homeDir, images: [png()] })).toThrow('query boom');
+        expect(sdk.list()).toHaveLength(0);
+        const root = imagesRoot();
+        const entries = existsSync(root) ? readdirSync(root) : [];
+        expect(entries).toEqual([]);
       });
     });
   });

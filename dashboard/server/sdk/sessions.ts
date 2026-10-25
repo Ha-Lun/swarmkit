@@ -13,7 +13,7 @@ import { noteRateLimit } from '../usage.ts';
 import { DASHBOARD_ENTRYPOINTS, holderMessage, liveHolder } from '../livesessions.ts';
 import { MAX_EVENTS, RUNTIME_MODELS } from '../../src/shared/types.ts';
 import type { AgentNode, ImageAttachment, PermissionDecisionBody, PermissionRequest, ResumeSessionBody, Runtime, ServerEvent, SessionDetail, SessionSummary, StartSessionBody } from '../../src/shared/types.ts';
-import { AGENT_RE, validEffort, validImages, validResumeModel, validText } from '../validate.ts';
+import { AGENT_RE, validEffort, validImages, validMessageText, validResumeModel, validText } from '../validate.ts';
 import { createAcpQuery } from '../runtimes/acp.ts';
 import type { AcpOptions } from '../runtimes/acp.ts';
 import { AgyHookBridge, createAgyQuery } from '../runtimes/agy.ts';
@@ -303,6 +303,7 @@ export class SdkSessions {
       this.startQuery(session, body.prompt, body.model, body.effort, false, body.images);
     } catch (err) {
       this.sessions.delete(id);
+      deleteImages(id);
       throw err;
     }
     return id;
@@ -616,8 +617,8 @@ export class SdkSessions {
     let effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined;
     let images: ImageAttachment[] | undefined;
     try {
-      text = validText(body?.text);
-      images = validImages(body.images);
+      images = validImages(body?.images);
+      text = validMessageText(body?.text, images);
       model = validResumeModel(body.model);
       effort = validEffort(body.effort);
     } catch (err) {

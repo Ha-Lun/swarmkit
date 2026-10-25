@@ -268,7 +268,7 @@ async function main(): Promise<void> {
   }
 
   /** GET /api/sessions/:id/images/:name: a stored pasted image of a known session. */
-  function serveImage(req: IncomingMessage, res: ServerResponse, id: string, name: string): void {
+  async function serveImage(req: IncomingMessage, res: ServerResponse, id: string, name: string): Promise<void> {
     let sessionId: string;
     let imageName: string;
     try {
@@ -277,7 +277,7 @@ async function main(): Promise<void> {
     } catch {
       return sendJson(res, 404, { error: 'image not found' });
     }
-    const image = sdk.owns(sessionId) || watcher.fileInfo(sessionId) ? readImage(sessionId, imageName) : undefined;
+    const image = sdk.owns(sessionId) || watcher.fileInfo(sessionId) ? await readImage(sessionId, imageName) : undefined;
     if (!image) return sendJson(res, 404, { error: 'image not found' });
     // Numbering restarts after eviction, so revalidate every time instead of caching by URL.
     const etag = imageEtag(image.data);

@@ -1,7 +1,8 @@
 // Image store for pasted screenshots: ${XDG_CACHE_HOME || ~/.cache}/swarmkit/images/<sessionId>/<n>.<ext>.
 // Private (dir 0700, files 0600, O_EXCL, no symlinks followed). Synchronous on purpose: the
 // session start/send paths are synchronous and the files are small. Never log image data.
-import { constants as fsConstants, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, rmSync, writeSync } from 'node:fs';
+import { constants as fsConstants, closeSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, rmSync, writeSync, fstatSync } from 'node:fs';
+import { lstat, open } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -108,25 +109,20 @@ export function saveImages(sessionId: string, images: ImageAttachment[]): { urls
 }
 
 /** Bytes of a stored image, or undefined when the name is invalid, missing, a symlink or too big. */
-export function readImage(sessionId: string, name: string): { data: Buffer; contentType: string } | undefined {
+export async function readImage(sessionId: string, name: string): Promise<{ data: Buffer; contentType: string } | undefined> {
   const file = resolveImagePath(sessionId, name);
   if (!file) return undefined;
   try {
-    if (lstatSync(path.dirname(file)).isSymbolicLink()) return undefined;
-    const fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    if ((await lstat(path.dirname(file))).isSymbolicLink()) return undefined;
+    const filehandle = await open(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
     try {
-      const st = fstatSync(fd);
+      const st = await filehandle.stat();
       if (!st.isFile() || st.size > MAX_IMAGE_BYTES) return undefined;
-      const data = Buffer.alloc(st.size);
-      let off = 0;
-      while (off < data.length) {
-        const n = readSync(fd, data, off, data.length - off, off);
-        if (n === 0) break;
-        off += n;
-      }
-      return { data: data.subarray(0, off), contentType: imageContentType(name) };
+      const data = await filehandle.readFile();
+      if (data.length > MAX_IMAGE_BYTES) return undefined;
+      return { data, contentType: imageContentType(name) };
     } finally {
-      closeSync(fd);
+      await filehandle.close();
     }
   } catch {
     return undefined;
