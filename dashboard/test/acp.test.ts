@@ -306,9 +306,22 @@ describe('acp runtime', () => {
     expect((got[0] as unknown as Rec).type).toBe('system');
     abort.abort();
     await timed(drain, 15000, 'abort end');
+    // Stop must terminate the child. Usually the SIGTERM handler records
+    // 'sigterm', but stdin EOF can drain the fake's event loop first so it
+    // exits 0 via 'stdin-end' instead. Both are valid terminations, so accept
+    // either and then assert the child process is actually gone.
     await vi.waitFor(
       () => {
-        expect(readRecord(recordFile).some(e => e.method === 'sigterm')).toBe(true);
+        expect(readRecord(recordFile).some(e => e.method === 'sigterm' || e.method === 'stdin-end')).toBe(true);
+      },
+      { timeout: 5000, interval: 50 },
+    );
+    const started = readRecord(recordFile).find(e => e.method === 'start');
+    const pid = started?.pid;
+    expect(typeof pid).toBe('number');
+    await vi.waitFor(
+      () => {
+        expect(() => process.kill(pid as number, 0)).toThrow();
       },
       { timeout: 5000, interval: 50 },
     );
