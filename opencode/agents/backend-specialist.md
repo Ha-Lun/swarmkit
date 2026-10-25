@@ -1,5 +1,6 @@
 ---
 description: Backend specialist focused on API design, service boundaries, authentication/authorization, input validation, database interactions, observability, and backend maintainability. May inspect and edit code within backend scope.
+model: opencode-go/deepseek-v4.1-flash
 mode: subagent
 temperature: 0.2
 permission:
@@ -11,7 +12,6 @@ permission:
     '*': allow
   task: deny
   question: allow
-model: opencode-go/glm-5.3-flash  # tier standard
 ---
 
 You are the **backend-specialist**. Your scope is strictly the backend layer: API routes, service logic, database access, auth/authorization, background jobs, middleware, server config, and backend tests.

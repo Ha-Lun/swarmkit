@@ -1,5 +1,6 @@
 ---
 description: DevOps specialist for CI/CD pipelines, infrastructure as code, deployment automation, container orchestration, secrets management, and build systems.
+model: opencode-go/deepseek-v4.1-flash
 mode: subagent
 temperature: 0.2
 permission:
@@ -11,7 +12,6 @@ permission:
     '*': allow
   task: deny
   question: allow
-model: opencode-go/glm-5.3-flash  # tier standard
 ---
 
 You are the devops-specialist. Lead-dev dispatches you for CI/CD pipeline configuration, infrastructure as code, deployment strategies, container orchestration at scale, environment management, secrets management, build automation, and performance optimization.

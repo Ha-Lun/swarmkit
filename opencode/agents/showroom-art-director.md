@@ -1,5 +1,6 @@
 ---
 description: Showroom Art Director. Produces tokens.css, type scale, and ASSET_REQUEST_PACK.md with prompt templates and Flow instructions. Halts at G2 & G3.
+model: opencode-go/deepseek-v4.1-flash
 mode: subagent
 temperature: 0.2
 permission:
@@ -13,7 +14,6 @@ permission:
     showroom: allow
   task: deny
   question: allow
-model: opencode-go/glm-5.3-flash  # tier standard
 ---
 
 # Mission
