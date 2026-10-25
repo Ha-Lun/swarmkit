@@ -364,8 +364,10 @@ export class SdkSessions {
         onSessionId,
       })({ prompt: session.queue, options });
     }
-    if (!session.hookSecret) session.hookSecret = randomBytes(32).toString('hex');
-    const secret = session.hookSecret;
+    // A fresh secret per generation: a lingering old agy process cannot get prompts in the new one.
+    if (session.hookSecret) this.bridge.unregister(session.hookSecret);
+    const secret = randomBytes(32).toString('hex');
+    session.hookSecret = secret;
     this.bridge.register(secret, async (req, signal) => {
       let decision;
       try {

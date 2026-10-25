@@ -1,11 +1,11 @@
 // Tests for the OpenCode ACP runtime adapter against a fake `opencode acp` child.
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { createAcpQuery } from '../server/runtimes/acp.ts';
+import { buildOverlay, createAcpQuery, pickOptionId } from '../server/runtimes/acp.ts';
 import type { AcpOptions } from '../server/runtimes/acp.ts';
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-acp-agent.mjs');
@@ -339,18 +339,13 @@ describe('acp runtime', () => {
     const envSeen = JSON.parse(envBlock!.text as string) as Rec;
     expect(envSeen.OPENCODE).toBe('1');
     expect(envSeen.CLAUDECODE).toBeNull();
-    expect(JSON.parse(envSeen.overlay as string)).toEqual({
-      agent: {
-        'lead-dev-hybrid': {
-          permission: {
-            bash: {
-              '*': 'ask',
-              'agy-task *': 'allow',
-            },
-          },
-        },
-      },
-    });
+    const overlay = JSON.parse(envSeen.overlay as string) as Rec;
+    expect(overlay.permission).toEqual({ bash: { '*': 'ask' } });
+    const agents = overlay.agent as Record<string, Rec>;
+    for (const name of ['build', 'plan', 'general', 'explore', 'lead-dev-hybrid']) {
+      expect(agents[name]).toEqual({ permission: { bash: { '*': 'ask' } } });
+    }
+    expect(JSON.stringify(overlay)).not.toContain('allow');
   });
 
   it('a child that exits at once ends the iterator with no unhandled rejection', async () => {
@@ -377,5 +372,49 @@ describe('acp runtime', () => {
     } finally {
       process.removeListener('unhandledRejection', onRejection);
     }
+  });
+});
+
+describe('buildOverlay', () => {
+  it('adds an ask-bash entry for every agent file in the XDG and project agent dirs', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'acp-overlay-'));
+    dirs.push(root);
+    const xdg = path.join(root, 'xdg');
+    const cwd = path.join(root, 'proj');
+    for (const d of [path.join(xdg, 'opencode', 'agents'), path.join(xdg, 'opencode', 'agent'), path.join(cwd, '.opencode', 'agents')]) mkdirSync(d, { recursive: true });
+    writeFileSync(path.join(xdg, 'opencode', 'agents', 'backend-specialist.md'), '');
+    writeFileSync(path.join(xdg, 'opencode', 'agent', 'old-one.md'), '');
+    writeFileSync(path.join(cwd, '.opencode', 'agents', 'proj-agent.md'), '');
+    writeFileSync(path.join(xdg, 'opencode', 'agents', 'notes.txt'), '');
+    const overlay = buildOverlay(cwd, { XDG_CONFIG_HOME: xdg }) as { permission: Rec; agent: Record<string, Rec> };
+    expect(overlay.permission).toEqual({ bash: { '*': 'ask' } });
+    for (const name of ['backend-specialist', 'old-one', 'proj-agent', 'build', 'plan', 'general', 'explore', 'lead-dev-hybrid']) {
+      expect(overlay.agent[name]).toEqual({ permission: { bash: { '*': 'ask' } } });
+    }
+    expect(overlay.agent.notes).toBeUndefined();
+  });
+
+  it('tolerates missing dirs', () => {
+    const overlay = buildOverlay('/nonexistent-cwd', { XDG_CONFIG_HOME: '/nonexistent-xdg' }) as { agent: Record<string, Rec> };
+    expect(Object.keys(overlay.agent).sort()).toEqual(['build', 'explore', 'general', 'lead-dev-hybrid', 'plan']);
+  });
+});
+
+describe('pickOptionId', () => {
+  const opts = [
+    { optionId: 'aa', kind: 'allow_always' },
+    { optionId: 'ra', kind: 'reject_always' },
+    { optionId: 'ao', kind: 'allow_once' },
+    { optionId: 'ro', kind: 'reject_once' },
+  ];
+  it('allow only picks allow_once', () => {
+    expect(pickOptionId(opts, ['allow_once'])).toBe('ao');
+    expect(pickOptionId([opts[0], opts[1]], ['allow_once'])).toBeUndefined();
+  });
+  it('deny prefers reject_once, then reject_always, never list[0]', () => {
+    expect(pickOptionId(opts, ['reject_once', 'reject_always'])).toBe('ro');
+    expect(pickOptionId([opts[0], opts[1]], ['reject_once', 'reject_always'])).toBe('ra');
+    expect(pickOptionId([opts[0]], ['reject_once', 'reject_always'])).toBeUndefined();
+    expect(pickOptionId('x', ['reject_once'])).toBeUndefined();
   });
 });

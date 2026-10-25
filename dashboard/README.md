@@ -20,12 +20,15 @@ Setups whose binary is missing from `PATH` are disabled in the form with a
 "`<name>` not found on PATH" title; `GET /api/runtimes` reports the same
 availability (`{ claude, opencode, agy }`, cached for a minute).
 
-Permission prompts appear in the dashboard for all three. OpenCode asks about
-bash runs except `agy-task *` (allowed). For agy, the plugin calls back to
+Permission prompts appear in the dashboard for all three. OpenCode asks for
+every bash command, including `agy-task` delegations, for the lead and its subagents. For agy, the plugin calls back to
 `POST /api/agy-hook/:id` — loopback plus the per-session `x-swarmkit-hook`
 secret only, never the fleet token — and the dashboard answers from your
 Allow/Deny clicks: file reads and edits inside the folder are auto-allowed,
-everything else asks, and a killed hook fails closed.
+everything else asks (edits to tool-config files such as `.claude/`, `.github/`,
+`CLAUDE.md`, `package.json` or hard-linked files always ask). A hook that times
+out fails closed (the tool errors); if the hook process is killed outright agy
+may treat it as allow (accepted risk).
 
 Non-Claude sessions live in the dashboard server's memory: they resume only
 while the server runs (no transcript file to adopt later), and their tree is

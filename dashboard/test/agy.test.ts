@@ -1,6 +1,6 @@
 // Tests for the agy runtime adapter, its PreToolUse hook and the hook bridge.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { linkSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -321,6 +321,67 @@ describe('agy-hook.py', () => {
     }
   });
 
+  it.each([
+    ['.claude/settings.json'],
+    ['CLAUDE.md'],
+    ['sub/dir/CLAUDE.md'],
+    ['.github/workflows/x.yml'],
+    ['pkg/.GitHub/a.yml'],
+    ['package.json'],
+    ['.env.local'],
+    ['Makefile'],
+    ['.husky/pre-commit'],
+  ])('asks the dashboard for edits of %s', async rel => {
+    const server = await startHookServer(() => ({ status: 200, json: { decision: 'deny', reason: 'asked' } }));
+    try {
+      const env = hookEnv({ SWARMKIT_DASH_HOOK_URL: server.url, SWARMKIT_DASH_HOOK_SECRET: 's', SWARMKIT_DASH_CWD: scratch });
+      const { out } = await runHook(hookInput('write_to_file', { TargetFile: path.join(scratch, rel) }), env);
+      expect(out).toEqual({ decision: 'deny', reason: 'asked' });
+      expect(server.seen).toHaveLength(1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('asks for edits of a hard-linked file but auto-allows a plain edit and a read in .claude', async () => {
+    const plain = path.join(scratch, 'plain.txt');
+    const linked = path.join(scratch, 'linked.txt');
+    writeFileSync(plain, 'x');
+    writeFileSync(linked, 'x');
+    linkSync(linked, path.join(scratch, 'linked2.txt'));
+    const server = await startHookServer(() => ({ status: 200, json: { decision: 'deny', reason: 'asked' } }));
+    try {
+      const env = hookEnv({ SWARMKIT_DASH_HOOK_URL: server.url, SWARMKIT_DASH_HOOK_SECRET: 's', SWARMKIT_DASH_CWD: scratch });
+      expect((await runHook(hookInput('write_to_file', { TargetFile: plain }), env)).out).toEqual({ decision: 'allow' });
+      expect((await runHook(hookInput('view_file', { AbsolutePath: path.join(scratch, '.claude', 'settings.json') }), env)).out).toEqual({ decision: 'allow' });
+      expect(server.seen).toHaveLength(0);
+      expect((await runHook(hookInput('write_to_file', { TargetFile: linked }), env)).out).toEqual({ decision: 'deny', reason: 'asked' });
+      expect(server.seen).toHaveLength(1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('ignores HTTP(S)_PROXY for the dashboard call', async () => {
+    const server = await startHookServer(() => ({ status: 200, json: { decision: 'allow' } }));
+    try {
+      const env = hookEnv({
+        SWARMKIT_DASH_HOOK_URL: server.url,
+        SWARMKIT_DASH_HOOK_SECRET: 's',
+        SWARMKIT_DASH_CWD: scratch,
+        HTTP_PROXY: 'http://127.0.0.1:1',
+        http_proxy: 'http://127.0.0.1:1',
+        NO_PROXY: '',
+        no_proxy: '',
+      });
+      const { out } = await runHook(hookInput('run_command', { CommandLine: 'echo hi' }), env);
+      expect(out).toEqual({ decision: 'allow' });
+      expect(server.seen).toHaveLength(1);
+    } finally {
+      await server.close();
+    }
+  });
+
   it('denies malformed stdin', async () => {
     const env = hookEnv({ SWARMKIT_DASH_HOOK_URL: 'http://127.0.0.1:1/unreachable', SWARMKIT_DASH_HOOK_SECRET: 's', SWARMKIT_DASH_CWD: scratch });
     const { code, out } = await runHook('not json', env);
@@ -345,7 +406,22 @@ describe('AgyHookBridge', () => {
     });
     const res = await bridge.handle('s1', bridgeBody('run_command', { CommandLine: 'ls', toolSummary: 'list' }));
     expect(res).toEqual({ status: 200, json: { decision: 'allow' } });
-    expect(seen).toEqual([{ tool: 'Bash', input: { command: 'ls', description: 'list' }, toolUseId: 'c1:3', title: 'list' }]);
+    expect(seen).toEqual([{ tool: 'Bash', input: { command: 'ls', description: 'list', raw: { CommandLine: 'ls', toolSummary: 'list' } }, toolUseId: 'c1:3', title: 'list' }]);
+  });
+
+  it('passes all raw tool params (bounded) alongside the mapped fields', async () => {
+    const bridge = new AgyHookBridge();
+    const seen: AgyHookRequest[] = [];
+    bridge.register('sr', async req => {
+      seen.push(req);
+      return { allow: true };
+    });
+    await bridge.handle('sr', bridgeBody('run_command', { CommandLine: 'ls', Cwd: '/etc', toolSummary: 'list' }));
+    expect(seen[0]!.input).toMatchObject({ command: 'ls', raw: { CommandLine: 'ls', Cwd: '/etc', toolSummary: 'list' } });
+    await bridge.handle('sr', bridgeBody('write_to_file', { TargetFile: '/a', CodeContent: 'x'.repeat(30000) }));
+    const raw = seen[1]!.input.raw as string;
+    expect(typeof raw).toBe('string');
+    expect(raw.length).toBeLessThan(20100);
   });
 
   it('returns the handler deny reason', async () => {

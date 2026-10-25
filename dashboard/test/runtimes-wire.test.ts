@@ -220,6 +220,25 @@ describe('runtime sessions', () => {
     await expect(sdk.handleAgyHook(id, secret, body)).resolves.toMatchObject({ status: 403 });
   });
 
+  it('mints a fresh hook secret per generation and drops the previous one', async () => {
+    const { agySeen, sdk } = rig();
+    const id = sdk.start({ prompt: 'first', cwd: homeDir, runtime: 'agy' });
+    await vi.waitFor(() => {
+      expect(sdk.get(id)?.status).toBe('done');
+    });
+    const first = agySeen[0]?.hook?.secret ?? '';
+    sdk.stop(id);
+    await sdk.resume(id, { text: 'second' }, { cwd: homeDir });
+    await vi.waitFor(() => {
+      expect(agySeen).toHaveLength(2);
+    });
+    const second = agySeen[1]?.hook?.secret ?? '';
+    expect(second.length).toBeGreaterThan(0);
+    expect(second).not.toBe(first);
+    const body = { conversationId: 'c1', stepIdx: 1, toolCall: { name: 'view_file', args: { AbsolutePath: '/x' } } };
+    await expect(sdk.handleAgyHook(id, first, body)).resolves.toMatchObject({ status: 403 });
+  });
+
   it('aborting the hook request withdraws the pending dashboard permission', async () => {
     const { events, agySeen, sdk } = rig();
     const id = sdk.start({ prompt: 'agy abort', cwd: homeDir, runtime: 'agy' });

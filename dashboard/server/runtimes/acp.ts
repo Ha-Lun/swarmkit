@@ -1,6 +1,9 @@
 // OpenCode ACP runtime adapter: drives `opencode acp` over stdio JSON-RPC and
 // yields Claude-SDK-shaped messages so SdkSessions can consume them like SDK output.
 import { spawn } from 'node:child_process';
+import { readdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import path from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { QueryFn } from '../sdk/sessions.ts';
@@ -15,18 +18,40 @@ export interface AcpOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-const OVERLAY = {
-  agent: {
-    'lead-dev-hybrid': {
-      permission: {
-        bash: {
-          '*': 'ask',
-          'agy-task *': 'allow',
-        },
-      },
-    },
-  },
-};
+const BUILTIN_AGENTS = ['build', 'plan', 'general', 'explore', 'lead-dev-hybrid'];
+
+/** Agent names OpenCode may load: built-ins plus the .md basenames in its agent dirs. */
+function agentNames(cwd: string, env: NodeJS.ProcessEnv): string[] {
+  const home = env.HOME ?? homedir();
+  const cfg = env.XDG_CONFIG_HOME || path.join(home, '.config');
+  const dirs = [
+    path.join(cfg, 'opencode', 'agent'),
+    path.join(cfg, 'opencode', 'agents'),
+    path.join(cwd, '.opencode', 'agent'),
+    path.join(cwd, '.opencode', 'agents'),
+  ];
+  const names = new Set(BUILTIN_AGENTS);
+  for (const dir of dirs) {
+    let entries: string[] = [];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      // Missing dir.
+    }
+    for (const f of entries) if (f.endsWith('.md') && f.length > 3) names.add(f.slice(0, -3));
+  }
+  return [...names];
+}
+
+/**
+ * Every bash call asks, for the lead and for every subagent it can dispatch
+ * (agent-level permission wins over the agent's own block and the global one).
+ */
+export function buildOverlay(cwd: string, env: NodeJS.ProcessEnv): Rec {
+  const agent: Record<string, unknown> = {};
+  for (const name of agentNames(cwd, env)) agent[name] = { permission: { bash: { '*': 'ask' } } };
+  return { permission: { bash: { '*': 'ask' } }, agent };
+}
 
 const MAX_TOOL_TEXT = 20000;
 
@@ -110,10 +135,21 @@ function toolResultText(update: Rec): string {
   return '';
 }
 
-function pickOptionId(options: unknown, kinds: string[]): string | undefined {
+/** Allow only picks `allow_once` (never allow_always); deny picks reject_once, then reject_always. No match -> cancelled. */
+export function pickOptionId(options: unknown, kinds: string[]): string | undefined {
   if (!Array.isArray(options)) return undefined;
   const list = options.map(rec).filter((o): o is Rec => o !== undefined);
-  return str(list.find(o => typeof o.kind === 'string' && kinds.includes(o.kind))?.optionId) ?? str(list[0]?.optionId);
+  for (const kind of kinds) {
+    const id = str(list.find(o => o.kind === kind)?.optionId);
+    if (id) return id;
+  }
+  return undefined;
+}
+
+/** The JSON-RPC permission outcome for the given acceptable kinds (cancelled when none exists). */
+function outcomeFor(options: unknown, kinds: string[]): { outcome: Rec } {
+  const optionId = pickOptionId(options, kinds);
+  return { outcome: optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' } };
 }
 
 interface ToolState {
@@ -137,7 +173,7 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
     const cmd = acpOpts.command ?? ['opencode', 'acp'];
     const cwd = typeof options.cwd === 'string' ? options.cwd : process.cwd();
     const baseEnv = acpOpts.env ?? process.env;
-    const env: NodeJS.ProcessEnv = { ...baseEnv, OPENCODE: '1', OPENCODE_CONFIG_CONTENT: JSON.stringify(OVERLAY) };
+    const env: NodeJS.ProcessEnv = { ...baseEnv, OPENCODE: '1', OPENCODE_CONFIG_CONTENT: JSON.stringify(buildOverlay(cwd, baseEnv)) };
     delete env.CLAUDECODE;
 
     let child: ChildProcess | null = null;
@@ -346,7 +382,7 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
         write({
           jsonrpc: '2.0',
           id,
-          result: { outcome: { outcome: 'selected', optionId: pickOptionId(reqOptions, ['reject_once', 'reject_always']) } },
+          result: outcomeFor(reqOptions, ['reject_once', 'reject_always']),
         });
         return;
       }
@@ -381,7 +417,7 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
         write({
           jsonrpc: '2.0',
           id,
-          result: { outcome: { outcome: 'selected', optionId: pickOptionId(reqOptions, ['allow_once', 'allow_always']) } },
+          result: outcomeFor(reqOptions, ['allow_once']),
         });
       } else if (aborted || signal?.aborted) {
         write({ jsonrpc: '2.0', id, result: { outcome: { outcome: 'cancelled' } } });
@@ -389,7 +425,7 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
         write({
           jsonrpc: '2.0',
           id,
-          result: { outcome: { outcome: 'selected', optionId: pickOptionId(reqOptions, ['reject_once', 'reject_always']) } },
+          result: outcomeFor(reqOptions, ['reject_once', 'reject_always']),
         });
       }
     };

@@ -52,6 +52,19 @@ function asObj(v: unknown): Raw {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Raw) : {};
 }
 
+const MAX_RAW = 20000;
+
+/** All raw tool parameters for the permission prompt, bounded to MAX_RAW chars when stringified. */
+function boundedRaw(params: Raw): unknown {
+  let text: string;
+  try {
+    text = JSON.stringify(params) ?? '';
+  } catch {
+    return '[unserializable parameters]';
+  }
+  return text.length <= MAX_RAW ? params : `${text.slice(0, MAX_RAW)}... [truncated]`;
+}
+
 /** agy tool name + raw params -> the Claude tool name/input the dashboard reducer understands. */
 function mapTool(name: string, params: Raw): { name: string; input: Raw } {
   const pick = (...keys: string[]): string | undefined => {
@@ -497,6 +510,7 @@ export class AgyHookBridge {
       return deny(400, 'bad hook body');
     }
     const mapped = mapTool(toolCall.name, args as Raw);
+    mapped.input.raw = boundedRaw(args as Raw);
     const title = typeof (args as Raw).toolSummary === 'string' ? (args as Raw).toolSummary as string : undefined;
     try {
       const decision = await handler({

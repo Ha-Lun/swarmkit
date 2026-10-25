@@ -21,6 +21,12 @@ EDIT_PATHS = {
 }
 GUARDED = {".git", ".agents", ".agent", ".gemini"}
 RULES = {"agents.md", "gemini.md"}  # agy loads these from the session root as rules: edits ask the dashboard
+# Edits to these run code or change tool config later: they always ask the dashboard (any depth, case-insensitive).
+SENSITIVE_DIRS = {".claude", ".opencode", ".vscode", ".husky", ".github", ".devcontainer", ".idea"}
+SENSITIVE_FILES = {
+    "claude.md", "agents.md", "gemini.md", ".mcp.json", "opencode.json", "opencode.jsonc", ".envrc",
+    "package.json", "makefile", ".gitattributes", ".gitmodules",
+}
 
 
 def check_path(value, root):
@@ -51,9 +57,21 @@ def auto_allowed(name, args, root):
         resolved = [check_path(args.get(key), root) for key in paths]
     except ValueError:
         return False
-    if edit and any(os.path.relpath(p, root).lower() in RULES for p in resolved):
+    if edit and any(os.path.relpath(p, root).lower() in RULES or sensitive_edit(p, root) for p in resolved):
         return False
     return True
+
+
+def sensitive_edit(resolved, root):
+    parts = [p.lower() for p in os.path.relpath(resolved, root).split(os.sep)]
+    if any(p in SENSITIVE_DIRS for p in parts[:-1]) or parts[-1] in SENSITIVE_DIRS:
+        return True
+    if parts[-1] in SENSITIVE_FILES or parts[-1].startswith(".env"):
+        return True
+    try:
+        return os.stat(resolved).st_nlink > 1
+    except OSError:
+        return False
 
 
 def ask_dashboard(url, secret, raw):
@@ -63,7 +81,8 @@ def ask_dashboard(url, secret, raw):
         headers={"content-type": "application/json", "x-swarmkit-hook": secret},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=870) as resp:
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(req, timeout=870) as resp:
         try:
             payload = json.loads(resp.read().decode("utf-8"))
         except ValueError:
