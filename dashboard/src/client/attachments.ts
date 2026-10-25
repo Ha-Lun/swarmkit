@@ -18,6 +18,18 @@ export const ACCEPTED_TYPES: readonly ImageMediaType[] = [
 
 const ACCEPTED_SET: ReadonlySet<string> = new Set(ACCEPTED_TYPES);
 
+/** Raw non-GIF files bigger than this are refused before decoding (downscaling handles the rest). */
+const MAX_RAW_BYTES = 50 * 1024 * 1024;
+
+/**
+ * Payload media type: untouched files keep their own type (the server checks
+ * magic bytes), resized canvases are PNG — or JPEG for everything else.
+ */
+export function outputType(fileType: string, resized: boolean): ImageMediaType {
+  if (!resized && ACCEPTED_SET.has(fileType)) return fileType as ImageMediaType;
+  return fileType === 'image/png' ? 'image/png' : 'image/jpeg';
+}
+
 export interface PendingImage {
   id: string;
   mediaType: ImageMediaType;
@@ -73,8 +85,15 @@ export function checkFiles(files: FileLike[], existingCount: number): CheckResul
       problems.push(`“${label(f, `image ${i + 1}`)}” is not a supported image (PNG, JPEG, GIF or WebP).`);
       return;
     }
-    if (f.size > MAX_IMAGE_BYTES) {
-      problems.push(`“${label(f, `image ${i + 1}`)}” is too large — the limit is 5 MB per image.`);
+    // GIFs are never resized, so the 5 MB cap applies up front. Anything else
+    // shrinks on the canvas first — only refuse absurd raw sizes here so a big
+    // screenshot still gets its chance after the downscale.
+    if (f.type === 'image/gif' ? f.size > MAX_IMAGE_BYTES : f.size > MAX_RAW_BYTES) {
+      problems.push(
+        f.type === 'image/gif'
+          ? `“${label(f, `image ${i + 1}`)}” is too large — the limit is 5 MB per image.`
+          : `“${label(f, `image ${i + 1}`)}” is too large to process (over 50 MB).`,
+      );
       return;
     }
     accepted.push(f);
@@ -212,6 +231,8 @@ export function useAttachments(): UseAttachments {
   const [error, setError] = useState<string | null>(null);
   const itemsRef = useRef<PendingImage[]>([]);
   const seq = useRef(0);
+  /** Slots promised to in-flight addFiles work, so two quick pastes cannot overfill the tray. */
+  const inFlight = useRef(0);
   itemsRef.current = items;
 
   const remove = useCallback((id: string) => {
@@ -238,64 +259,89 @@ export function useAttachments(): UseAttachments {
   const addFiles = useCallback((input: FileList | File[]) => {
     const incoming = Array.from(input);
     if (incoming.length === 0) return;
-    const gate = checkFiles(incoming, itemsRef.current.length);
+    const gate = checkFiles(incoming, itemsRef.current.length + inFlight.current);
     const problems: string[] = gate.error ? [gate.error] : [];
-    // checkFiles also enforces the byte cap on the raw files; the hook
-    // re-checks after downscaling, so only mime-gated files proceed.
-    const candidates = gate.accepted as File[];
+    // checkFiles enforces the GIF byte cap up front; other types are
+    // re-checked after downscaling, so every mime-gated file proceeds.
+    // Reserve the slots now: the async work below resolves after render,
+    // when itemsRef would still be stale for a second quick paste.
+    const room = Math.max(0, MAX_IMAGES - itemsRef.current.length - inFlight.current);
+    const candidates = (gate.accepted as File[]).slice(0, room);
+    if (candidates.length < gate.accepted.length) {
+      problems.push(`You can attach at most ${MAX_IMAGES} images per message.`);
+    }
+    inFlight.current += candidates.length;
     if (candidates.length === 0) {
       setError(problems.join(' ') || 'Those files could not be attached.');
       return;
     }
     void (async () => {
       const next: PendingImage[] = [];
-      for (const file of candidates) {
-        const name = file.name || 'pasted image';
-        try {
-          if (file.type === 'image/gif') {
-            // GIF is kept as-is, never resized.
-            if (file.size > MAX_IMAGE_BYTES) {
-              problems.push(`“${name}” is too large — the limit is 5 MB per image.`);
+      try {
+        for (const file of candidates) {
+          const name = file.name || 'pasted image';
+          try {
+            if (file.type === 'image/gif') {
+              // GIF is kept as-is, never resized.
+              if (file.size > MAX_IMAGE_BYTES) {
+                problems.push(`“${name}” is too large — the limit is 5 MB per image.`);
+                continue;
+              }
+              const url = await readAsDataUrl(file);
+              const data = url.split(',', 2)[1] ?? '';
+              if (!data) throw new Error('empty');
+              next.push({
+                id: `img-${Date.now().toString(36)}-${seq.current++}`,
+                mediaType: 'image/gif',
+                data,
+                previewUrl: URL.createObjectURL(file),
+                name,
+              });
               continue;
             }
-            const url = await readAsDataUrl(file);
+            const size = await loadSize(file);
+            const target = fitWithin(size.w, size.h, MAX_LONG_EDGE);
+            const needsShrink = target.w !== Math.round(size.w) || target.h !== Math.round(size.h);
+            // Untouched files keep their own bytes — and their own type.
+            const outType = outputType(file.type, needsShrink);
+            const blob: Blob = needsShrink
+              ? await canvasBlob(file, target.w, target.h, outType === 'image/png' ? 'image/png' : 'image/jpeg', outType === 'image/png' ? undefined : 0.9)
+              : file;
+            if (blob.size > MAX_IMAGE_BYTES) {
+              problems.push(`“${name}” is still over 5 MB after downscaling.`);
+              continue;
+            }
+            const url = await readAsDataUrl(blob);
             const data = url.split(',', 2)[1] ?? '';
             if (!data) throw new Error('empty');
             next.push({
               id: `img-${Date.now().toString(36)}-${seq.current++}`,
-              mediaType: 'image/gif',
+              mediaType: outType,
               data,
-              previewUrl: URL.createObjectURL(file),
+              previewUrl: URL.createObjectURL(blob),
               name,
             });
-            continue;
+          } catch {
+            problems.push(`“${name}” could not be read as an image.`);
           }
-          const size = await loadSize(file);
-          const target = fitWithin(size.w, size.h, MAX_LONG_EDGE);
-          const needsShrink = target.w !== Math.round(size.w) || target.h !== Math.round(size.h);
-          const outType: ImageMediaType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
-          const blob: Blob = needsShrink
-            ? await canvasBlob(file, target.w, target.h, outType === 'image/png' ? 'image/png' : 'image/jpeg', outType === 'image/png' ? undefined : 0.9)
-            : file;
-          if (blob.size > MAX_IMAGE_BYTES) {
-            problems.push(`“${name}” is still over 5 MB after downscaling.`);
-            continue;
-          }
-          const url = await readAsDataUrl(blob);
-          const data = url.split(',', 2)[1] ?? '';
-          if (!data) throw new Error('empty');
-          next.push({
-            id: `img-${Date.now().toString(36)}-${seq.current++}`,
-            mediaType: outType,
-            data,
-            previewUrl: URL.createObjectURL(blob),
-            name,
-          });
-        } catch {
-          problems.push(`“${name}” could not be read as an image.`);
         }
+      } finally {
+        inFlight.current = Math.max(0, inFlight.current - candidates.length);
       }
-      if (next.length > 0) setItems((prev) => [...prev, ...next]);
+      if (next.length > 0) {
+        setItems((prev) => {
+          // Belt-and-braces: never exceed the cap even if the tray changed
+          // while this batch was decoding; revoke whatever does not fit.
+          const slots = Math.max(0, MAX_IMAGES - prev.length);
+          const kept = next.slice(0, slots);
+          const dropped = next.slice(slots);
+          for (const p of dropped) URL.revokeObjectURL(p.previewUrl);
+          if (dropped.length > 0) {
+            problems.push(`You can attach at most ${MAX_IMAGES} images per message.`);
+          }
+          return [...prev, ...kept];
+        });
+      }
       setError(problems.length > 0 ? problems.join(' ') : null);
     })();
   }, []);

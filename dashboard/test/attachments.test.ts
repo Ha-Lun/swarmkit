@@ -1,11 +1,13 @@
 // Pure attachment helpers: sizing math and the mime/count/size gate.
 import { describe, expect, it } from 'vitest';
 import { MAX_IMAGE_BYTES, MAX_IMAGES } from '../src/shared/types.ts';
-import { checkFiles, fitWithin, MAX_LONG_EDGE } from '../src/client/attachments.ts';
+import { checkFiles, fitWithin, MAX_LONG_EDGE, outputType } from '../src/client/attachments.ts';
 import type { FileLike } from '../src/client/attachments.ts';
 
 const png = (size = 1024, name = 'a.png'): FileLike => ({ type: 'image/png', size, name });
 const jpg = (size = 1024, name = 'a.jpg'): FileLike => ({ type: 'image/jpeg', size, name });
+const gif = (size = 1024, name = 'a.gif'): FileLike => ({ type: 'image/gif', size, name });
+const MB = 1024 * 1024;
 
 describe('fitWithin', () => {
   it('leaves small images untouched', () => {
@@ -63,15 +65,39 @@ describe('checkFiles', () => {
     expect(r.accepted).toEqual([]);
     expect(r.error).toContain(`${MAX_IMAGES}`);
   });
-  it('rejects files over MAX_IMAGE_BYTES', () => {
-    const r = checkFiles([png(MAX_IMAGE_BYTES + 1, 'huge.png'), jpg(10, 'ok.jpg')], 0);
-    expect(r.accepted).toEqual([jpg(10, 'ok.jpg')]);
-    expect(r.error).toContain('huge.png');
-    expect(r.error).toContain('5 MB');
-  });
-  it('accepts a file exactly at the byte cap', () => {
-    const r = checkFiles([png(MAX_IMAGE_BYTES, 'edge.png')], 0);
+  it('accepts a big resizable PNG — the downscale happens later', () => {
+    const r = checkFiles([png(8 * MB, 'screenshot.png')], 0);
     expect(r.accepted.length).toBe(1);
     expect(r.error).toBeNull();
+  });
+  it('refuses a GIF over MAX_IMAGE_BYTES (never resized)', () => {
+    const r = checkFiles([gif(8 * MB, 'anim.gif'), gif(10, 'ok.gif')], 0);
+    expect(r.accepted).toEqual([gif(10, 'ok.gif')]);
+    expect(r.error).toContain('anim.gif');
+    expect(r.error).toContain('5 MB');
+  });
+  it('refuses absurd raw sizes over 50 MB', () => {
+    const r = checkFiles([png(60 * MB, 'huge.png'), jpg(10, 'ok.jpg')], 0);
+    expect(r.accepted).toEqual([jpg(10, 'ok.jpg')]);
+    expect(r.error).toContain('huge.png');
+    expect(r.error).toContain('50 MB');
+  });
+  it('accepts a GIF exactly at the byte cap', () => {
+    const r = checkFiles([gif(MAX_IMAGE_BYTES, 'edge.gif')], 0);
+    expect(r.accepted.length).toBe(1);
+    expect(r.error).toBeNull();
+  });
+});
+
+describe('outputType', () => {
+  it('keeps the file type when not resized', () => {
+    expect(outputType('image/png', false)).toBe('image/png');
+    expect(outputType('image/jpeg', false)).toBe('image/jpeg');
+    expect(outputType('image/webp', false)).toBe('image/webp');
+  });
+  it('uses the canvas output type when resized', () => {
+    expect(outputType('image/png', true)).toBe('image/png');
+    expect(outputType('image/jpeg', true)).toBe('image/jpeg');
+    expect(outputType('image/webp', true)).toBe('image/jpeg');
   });
 });
