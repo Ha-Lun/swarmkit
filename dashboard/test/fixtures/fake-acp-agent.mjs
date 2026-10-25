@@ -1,0 +1,181 @@
+// Fake `opencode acp` server for acp.test.ts: line-delimited JSON-RPC over stdio.
+// Answers initialize, session/new, session/load and set_config_option, streams one
+// canned turn per session/prompt, and records what it saw when FAKE_ACP_RECORD is set.
+import { appendFileSync } from 'node:fs';
+
+const recordPath = process.env.FAKE_ACP_RECORD;
+
+function record(entry) {
+  if (!recordPath) return;
+  try {
+    appendFileSync(recordPath, `${JSON.stringify(entry)}\n`);
+  } catch {
+    // The test does not depend on the record file.
+  }
+}
+
+const send = obj => {
+  process.stdout.write(`${JSON.stringify(obj)}\n`);
+};
+
+const reply = (id, result) => send({ jsonrpc: '2.0', id, result });
+const replyError = (id, code, message) => send({ jsonrpc: '2.0', id, error: { code, message } });
+
+const MODEL = 'fake-model';
+let configuredModel = null;
+const modelValue = () => configuredModel ?? MODEL;
+
+let turnSeq = 0;
+const hanging = [];
+const pendingPerm = new Map();
+
+const configOptions = () => [{ id: 'model', name: 'Model', currentValue: modelValue() }];
+
+function update(sessionId, upd) {
+  send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId, update: upd } });
+}
+
+function promptText(params) {
+  const parts = Array.isArray(params?.prompt) ? params.prompt : [];
+  return parts
+    .map(p => (p && typeof p === 'object' && typeof p.text === 'string' ? p.text : ''))
+    .join('\n');
+}
+
+function handlePrompt(id, params) {
+  const sessionId = params?.sessionId;
+  const text = promptText(params);
+  if (text === 'hang') {
+    hanging.push({ id, sessionId });
+    return;
+  }
+  if (text === 'echo-env') {
+    update(sessionId, {
+      sessionUpdate: 'agent_message_chunk',
+      messageId: 'm_env',
+      content: {
+        type: 'text',
+        text: JSON.stringify({
+          OPENCODE: process.env.OPENCODE ?? null,
+          CLAUDECODE: process.env.CLAUDECODE ?? null,
+          overlay: process.env.OPENCODE_CONFIG_CONTENT ?? null,
+        }),
+      },
+    });
+    reply(id, { stopReason: 'completed', usage: { inputTokens: 1, outputTokens: 1, cachedReadTokens: 0 } });
+    return;
+  }
+  const n = (turnSeq += 1);
+  const thinkId = `m_think_${n}`;
+  const textId = `m_text_${n}`;
+  const toolCallId = `tc_${n}`;
+  const rawInput = { command: 'agy-task start x' };
+  update(sessionId, { sessionUpdate: 'agent_thought_chunk', messageId: thinkId, content: { type: 'text', text: 'thinking one ' } });
+  update(sessionId, { sessionUpdate: 'agent_thought_chunk', messageId: thinkId, content: { type: 'text', text: 'thinking two' } });
+  update(sessionId, { sessionUpdate: 'agent_message_chunk', messageId: textId, content: { type: 'text', text: 'hello ' } });
+  update(sessionId, { sessionUpdate: 'agent_message_chunk', messageId: textId, content: { type: 'text', text: 'world' } });
+  update(sessionId, { sessionUpdate: 'tool_call', toolCallId, name: 'run', title: 'run worker', kind: 'execute', status: 'in_progress', rawInput });
+  update(sessionId, {
+    sessionUpdate: 'tool_call_update',
+    toolCallId,
+    title: 'run worker',
+    kind: 'execute',
+    status: 'in_progress',
+    rawInput,
+  });
+  const permId = 1000 + n;
+  pendingPerm.set(permId, { promptId: id, sessionId, toolCallId, rawInput });
+  send({
+    jsonrpc: '2.0',
+    id: permId,
+    method: 'session/request_permission',
+    params: {
+      sessionId,
+      toolCall: { toolCallId, title: 'run worker', kind: 'execute', rawInput },
+      options: [
+        { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
+        { optionId: 'allow-always', name: 'Allow always', kind: 'allow_always' },
+        { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
+        { optionId: 'reject-always', name: 'Reject always', kind: 'reject_always' },
+      ],
+    },
+  });
+}
+
+function handlePermissionResponse(id, msg) {
+  const turn = pendingPerm.get(Number(id));
+  if (!turn) return;
+  pendingPerm.delete(Number(id));
+  const outcome = msg?.result?.outcome;
+  const allowed = outcome?.outcome === 'selected' && String(outcome.optionId ?? '').startsWith('allow');
+  record({ method: 'permission-decision', optionId: outcome?.optionId ?? null, allowed });
+  update(turn.sessionId, {
+    sessionUpdate: 'tool_call_update',
+    toolCallId: turn.toolCallId,
+    title: 'run worker',
+    kind: 'execute',
+    status: allowed ? 'completed' : 'failed',
+    rawInput: turn.rawInput,
+    content: [{ type: 'text', text: allowed ? 'worker output ok' : 'permission denied' }],
+  });
+  update(turn.sessionId, { sessionUpdate: 'usage_update', cost: { amount: 0.05 } });
+  reply(turn.promptId, {
+    stopReason: 'finished',
+    usage: { inputTokens: 10, outputTokens: 20, cachedReadTokens: 5 },
+  });
+}
+
+function handle(msg) {
+  if (msg === null || typeof msg !== 'object') return;
+  if (typeof msg.method === 'string') {
+    if (msg.id !== undefined) {
+      const params = msg.method === undefined ? {} : (msg.params ?? {});
+      if (msg.method === 'initialize') {
+        reply(msg.id, { protocolVersion: 1, agentCapabilities: { loadSession: true, promptCapabilities: { image: false } } });
+      } else if (msg.method === 'session/new') {
+        record({ method: 'session/new', params });
+        reply(msg.id, { sessionId: 'ses_fake', configOptions: configOptions() });
+      } else if (msg.method === 'session/load') {
+        record({ method: 'session/load', params });
+        reply(msg.id, { sessionId: params?.sessionId ?? 'ses_fake', configOptions: configOptions() });
+      } else if (msg.method === 'session/set_config_option') {
+        record({ method: 'session/set_config_option', params });
+        if (params?.configId === 'model') configuredModel = params.value ?? null;
+        reply(msg.id, {});
+      } else if (msg.method === 'session/prompt') {
+        record({ method: 'session/prompt', params: { sessionId: params?.sessionId } });
+        handlePrompt(msg.id, params ?? {});
+      } else {
+        replyError(msg.id, -32601, `Method not found: ${msg.method}`);
+      }
+    } else if (msg.method === 'session/cancel') {
+      record({ method: 'session/cancel', params: msg.params ?? {} });
+      for (const h of hanging.splice(0)) {
+        reply(h.id, { stopReason: 'cancelled', usage: { inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 } });
+      }
+    }
+    return;
+  }
+  if (msg.id !== undefined) handlePermissionResponse(msg.id, msg);
+}
+
+let buffer = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', data => {
+  buffer += data;
+  const lines = buffer.split('\n');
+  buffer = lines.pop() ?? '';
+  for (const line of lines) {
+    if (line.trim().length === 0) continue;
+    try {
+      handle(JSON.parse(line));
+    } catch {
+      // Non-JSON lines are ignored, like the adapter ignores them.
+    }
+  }
+});
+
+process.on('SIGTERM', () => {
+  record({ method: 'sigterm' });
+  process.exit(0);
+});
