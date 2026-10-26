@@ -616,7 +616,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
           </>
         ) : (
           <Tree
-            key={detail.id}
+            key={`tree:${detail.id}`}
             nodes={detail.nodes}
             permissions={detail.permissions}
             workers={state.workers}
@@ -649,7 +649,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
         {view === 'session' && selected && (
           selected.source === 'page' && running ? (
             <Composer
-              key={selected.id}
+              key={`composer:${selected.id}`}
               onSend={(text, images) => callSession((id) => backend.send(id, text, images), text)}
               onInterrupt={() => callSession((id) => backend.interrupt(id))}
               onStop={() => {
