@@ -30,6 +30,7 @@ import { SdkSessions, SessionError } from './sdk/sessions.ts';
 import { validImages, validMessageText, validRuntime, validRuntimeAgent, validRuntimeEffort, validRuntimeModel, ValidationError } from './validate.ts';
 import { imageEtag, readImage } from './images.ts';
 import { resolveDirInHome } from './paths.ts';
+import { staticPolicy } from './static.ts';
 import { abortUsageProbe, getUsage } from './usage.ts';
 import { freshTranscriptMtimeMs, holderMessage, liveHolder } from './livesessions.ts';
 import { TranscriptWatcher } from './watch/transcripts.ts';
@@ -435,19 +436,26 @@ async function main(): Promise<void> {
     if (resolved !== distDir && !resolved.startsWith(distDir + path.sep)) {
       return sendJson(res, 403, { error: 'forbidden' });
     }
-    let file = resolved;
+    let exists = false;
     try {
-      const stats = await stat(file);
-      if (!stats.isFile()) throw new Error('not a file');
+      const stats = await stat(resolved);
+      exists = stats.isFile();
     } catch {
-      file = path.join(distDir, 'index.html');
+      exists = false;
     }
+    const policy = staticPolicy(pathname, exists);
+    if (policy.status === 404) {
+      return sendJson(res, 404, { error: 'not found' });
+    }
+    const file = policy.file === 'index' ? path.join(distDir, 'index.html') : resolved;
     try {
       const data = await readFile(file);
-      res.writeHead(200, {
+      const headers: Record<string, string | number> = {
         'Content-Type': CONTENT_TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
         'Content-Length': data.length,
-      });
+      };
+      if (policy.cacheControl) headers['Cache-Control'] = policy.cacheControl;
+      res.writeHead(200, headers);
       res.end(req.method === 'HEAD' ? undefined : data);
     } catch {
       sendJson(res, 404, { error: 'not found — run `npm run build` to create dist/' });
