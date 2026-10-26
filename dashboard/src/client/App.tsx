@@ -64,6 +64,13 @@ function useKeyboardInset(): void {
   }, []);
 }
 
+/** True when an error looks like a stale lazy chunk after a redeploy. */
+export function isStaleChunkError(message: string): boolean {
+  return /dynamically imported module|importing a module script failed|failed to fetch dynamically imported module|error loading dynamically imported module/i.test(
+    message,
+  );
+}
+
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   readonly state: { error: Error | null } = { error: null };
   static getDerivedStateFromError(error: Error) {
@@ -74,6 +81,20 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
   }
   render() {
     if (this.state.error) {
+      if (isStaleChunkError(this.state.error.message)) {
+        return (
+          <div className="crash">
+            <div>
+              <Logo size={40} />
+              <p style={{ fontWeight: 600 }}>SwarmKit was updated.</p>
+              <p className="muted" style={{ fontSize: 12.5 }}>Reload to load the new version.</p>
+              <button type="button" className="btn btn-primary" onClick={() => window.location.reload()}>
+                Reload
+              </button>
+            </div>
+          </div>
+        );
+      }
       return (
         <div className="crash">
           <div>
