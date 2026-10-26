@@ -1135,12 +1135,13 @@ details.collapsible > summary:hover { color: var(--ink); }
 .composer-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   padding-top: 4px;
 }
+.composer-actions > :first-child { margin-right: auto; }
 .composer-actions .btn { min-height: 32px; }
 .composer-hint {
-  margin-left: auto;
   font-size: 11px;
   color: var(--text-3);
   white-space: nowrap;
@@ -2153,7 +2154,7 @@ details.collapsible > summary:hover { color: var(--ink); }
 /* ---------- continue ---------- */
 
 .continue textarea { flex: 1 1 220px; }
-.continue-hint { font-size: 11.5px; align-self: center; }
+.continue-hint { font-size: 11.5px; align-self: center; min-width: 0; }
 .continue-error {
   flex-basis: 100%;
   margin: 0;

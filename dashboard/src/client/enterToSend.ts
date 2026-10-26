@@ -62,7 +62,9 @@ export function useEnterToSend(
     // Shift state for the beforeinput path (InputEvent carries no shiftKey).
     let shiftHeld = false;
     const onNativeKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'Shift') shiftHeld = true;
+      // Mirror the live modifier state on every keydown: Shift may already have
+      // been held before the textarea got focus (no Shift keydown seen here).
+      shiftHeld = e.shiftKey;
     };
     const onNativeKeyUp = (e: globalThis.KeyboardEvent) => {
       if (e.key === 'Shift') shiftHeld = false;
