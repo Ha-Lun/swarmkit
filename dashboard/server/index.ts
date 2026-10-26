@@ -138,13 +138,27 @@ function validateMessageBody(body: unknown): SendMessageBody {
   return images ? { text, images } : { text };
 }
 
-function validateDecisionBody(body: unknown): { allow: boolean; message?: string } {
+export function validateDecisionBody(body: unknown): { allow: boolean; message?: string; answers?: Record<string, string> } {
   const raw = requireObject(body);
   if (typeof raw.allow !== 'boolean') throw new HttpError(400, 'allow must be a boolean');
-  const out: { allow: boolean; message?: string } = { allow: raw.allow };
+  const out: { allow: boolean; message?: string; answers?: Record<string, string> } = { allow: raw.allow };
   if (raw.message !== undefined) {
     if (typeof raw.message !== 'string') throw new HttpError(400, 'message must be a string');
     out.message = raw.message;
+  }
+  if (raw.answers !== undefined) {
+    if (typeof raw.answers !== 'object' || raw.answers === null || Array.isArray(raw.answers)) {
+      throw new HttpError(400, 'answers must be an object');
+    }
+    const entries = Object.entries(raw.answers as Record<string, unknown>);
+    if (entries.length > 4) throw new HttpError(400, 'answers must have at most 4 entries');
+    const clean: Record<string, string> = {};
+    for (const [k, v] of entries) {
+      if (typeof v !== 'string') throw new HttpError(400, 'answers values must be strings');
+      if (k.length > 4000 || v.length > 4000) throw new HttpError(400, 'answers keys and values must be at most 4000 characters');
+      clean[k] = v;
+    }
+    out.answers = clean;
   }
   return out;
 }

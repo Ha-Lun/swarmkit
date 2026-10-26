@@ -238,8 +238,10 @@ export interface StartSessionResponse {
 }
 export interface PermissionDecisionBody {
   allow: boolean;
-  /** Required by the SDK on deny; also how the user answers AskUserQuestion. */
+  /** Required by the SDK on deny (free-text reason). Answers carry AskUserQuestion choices instead. */
   message?: string;
+  /** AskUserQuestion answers keyed by the exact question text. */
+  answers?: Record<string, string>;
 }
 export interface AgentInfo {
   name: string;

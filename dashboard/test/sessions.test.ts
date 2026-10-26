@@ -157,6 +157,87 @@ describe('SdkSessions', () => {
     expect(typeof summary.costUsd).toBe('number');
   });
 
+  it('decide with answers on AskUserQuestion resolves allow with updatedInput answers', async () => {
+    interface AskState { decision?: { behavior?: string; updatedInput?: unknown } | null }
+    const askState: AskState = {};
+    const askInput = {
+      questions: [
+        {
+          question: 'Which layout should we ship?',
+          header: 'Layout',
+          multiSelect: false,
+          options: [
+            { label: 'Three tiers', description: 'Classic grid.' },
+            { label: 'Two tiers', description: 'Simpler split.' },
+          ],
+        },
+      ],
+    };
+    const askQuery: QueryFn = (params) => {
+      const options = params.options!;
+      return (async function* generator(): AsyncGenerator<any, void> {
+        yield { type: 'system', subtype: 'init', session_id: options.sessionId, model: 'claude-opus-5-5' };
+        askState.decision = await options.canUseTool!(
+          'AskUserQuestion',
+          askInput,
+          { signal: options.abortController!.signal, toolUseID: 'ask-1', requestId: 'req-ask-1' },
+        );
+        yield { type: 'result', subtype: 'success' };
+      })() as unknown as AsyncIterable<SDKMessage>;
+    };
+    const events: ServerEvent[] = [];
+    const sdk = new SdkSessions(e => events.push(e), askQuery);
+    const id = sdk.start({ prompt: 'ask flow', cwd: homeDir });
+    await vi.waitFor(() => {
+      expect(events.some(e => e.type === 'permission.request')).toBe(true);
+    });
+    const request = (events.find(e => e.type === 'permission.request')! as { request: { id: string; tool: string } }).request;
+    expect(request.tool).toBe('AskUserQuestion');
+    const answers = { 'Which layout should we ship?': 'Three tiers' };
+    expect(sdk.decide(request.id, { allow: true, answers })).toBe(true);
+    await vi.waitFor(() => {
+      expect(askState.decision?.behavior).toBe('allow');
+    });
+    expect(askState.decision).toMatchObject({
+      behavior: 'allow',
+      updatedInput: { questions: askInput.questions, answers },
+    });
+  });
+
+  it('decide ignores answers for non-AskUserQuestion tools (original input, no answers key)', async () => {
+    const events: ServerEvent[] = [];
+    const state: FakeState = {};
+    const sdk = new SdkSessions(e => events.push(e), makeFakeQuery(state));
+    const id = sdk.start({ prompt: 'bash with stray answers', cwd: homeDir });
+    await vi.waitFor(() => {
+      expect(events.some(e => e.type === 'permission.request')).toBe(true);
+    });
+    const request = (events.find(e => e.type === 'permission.request')! as { request: { id: string } }).request;
+    expect(sdk.decide(request.id, { allow: true, answers: { 'Which layout?': 'Three tiers' } })).toBe(true);
+    await vi.waitFor(() => {
+      expect(state.decision?.behavior).toBe('allow');
+    });
+    expect(state.decision).toEqual({ behavior: 'allow', updatedInput: { command: 'ls' } });
+    expect(state.decision).not.toHaveProperty(['updatedInput', 'answers']);
+  });
+
+  it('deny with a message still resolves a deny (answers never applied)', async () => {
+    const events: ServerEvent[] = [];
+    const state: FakeState = {};
+    const sdk = new SdkSessions(e => events.push(e), makeFakeQuery(state));
+    const id = sdk.start({ prompt: 'deny me', cwd: homeDir });
+    expect(id).toBeTruthy();
+    await vi.waitFor(() => {
+      expect(events.some(e => e.type === 'permission.request')).toBe(true);
+    });
+    const request = (events.find(e => e.type === 'permission.request')! as { request: { id: string } }).request;
+    expect(sdk.decide(request.id, { allow: false, message: 'nope', answers: { q: 'a' } })).toBe(true);
+    await vi.waitFor(() => {
+      expect(state.decision?.behavior).toBe('deny');
+    });
+    expect(state.decision).toEqual({ behavior: 'deny', message: 'nope' });
+  });
+
   it('stop() denies pending permissions and marks the session stopped', async () => {
     const events: ServerEvent[] = [];
     const state: FakeState = {};

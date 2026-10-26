@@ -67,7 +67,7 @@ export interface FleetBackend {
   interrupt(sessionId: string): Promise<unknown>;
   stop(sessionId: string): Promise<unknown>;
   resume(sessionId: string, body: ResumeSessionBody): Promise<StartSessionResponse>;
-  decide(permissionId: string, allow: boolean, message?: string): Promise<unknown>;
+  decide(permissionId: string, allow: boolean, message?: string, answers?: Record<string, string>): Promise<unknown>;
   agents(cwd: string): Promise<AgentsResponse>;
   cwds(): Promise<string[]>;
   dirs(path?: string, hidden?: boolean): Promise<DirListing>;
@@ -104,11 +104,15 @@ export const apiBackend: FleetBackend = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
-  decide: (permissionId, allow, message) =>
-    request(`/api/permissions/${encodeURIComponent(permissionId)}`, {
+  decide: (permissionId, allow, message, answers) => {
+    const body: { allow: boolean; message?: string; answers?: Record<string, string> } = { allow };
+    if (message !== undefined) body.message = message;
+    if (answers !== undefined) body.answers = answers;
+    return request(`/api/permissions/${encodeURIComponent(permissionId)}`, {
       method: 'POST',
-      body: JSON.stringify(message === undefined ? { allow } : { allow, message }),
-    }),
+      body: JSON.stringify(body),
+    });
+  },
   agents: (cwd) => request(`/api/agents?cwd=${encodeURIComponent(cwd)}`),
   cwds: () => request('/api/cwds'),
   dirs: (path, hidden) => {

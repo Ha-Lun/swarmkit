@@ -209,7 +209,7 @@ interface Props {
   now: number;
   openNodeId: string | null;
   onOpen: (nodeId: string) => void;
-  onDecide: (permission: PermissionRequest, allow: boolean, message?: string) => void;
+  onDecide: (permission: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>) => void;
 }
 
 interface View {

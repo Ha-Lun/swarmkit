@@ -1,0 +1,204 @@
+/* AskUserQuestion option picker. Reads only the shared tokens from styles.css. */
+
+.perm-ask-q {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.perm-ask-q + .perm-ask-q {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.perm-ask-legend {
+  padding: 0;
+  margin-bottom: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.perm-ask-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid var(--border-2);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1.6;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.perm-ask-text {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--text);
+  overflow-wrap: break-word;
+  min-width: 0;
+}
+
+.perm-ask-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.perm-ask-opt {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  min-width: 0;
+}
+
+.perm-ask-opt:hover {
+  border-color: var(--border-2);
+  background: var(--surface-2);
+}
+
+.perm-ask-opt:has(input:checked) {
+  border-color: var(--violet-ring);
+  background: var(--surface-2);
+}
+
+.perm-ask-opt input[type='radio'],
+.perm-ask-opt input[type='checkbox'] {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--violet-ring);
+}
+
+.perm-ask-opt input[type='radio']:focus-visible,
+.perm-ask-opt input[type='checkbox']:focus-visible {
+  outline: 2px solid var(--violet-ring);
+  outline-offset: 2px;
+}
+
+.perm-ask-opt-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.perm-ask-opt-body b {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text);
+  overflow-wrap: break-word;
+}
+
+.perm-ask-opt-body span {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+  overflow-wrap: break-word;
+}
+
+.perm-ask-opt.is-other-on {
+  border-color: var(--violet-ring);
+  background: var(--surface-2);
+  flex-direction: column;
+  gap: 0;
+}
+
+.perm-ask-other-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.perm-ask-other-label input[type='radio'],
+.perm-ask-other-label input[type='checkbox'] {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--violet-ring);
+}
+
+.perm-ask-other-label input[type='radio']:focus-visible,
+.perm-ask-other-label input[type='checkbox']:focus-visible {
+  outline: 2px solid var(--violet-ring);
+  outline-offset: 2px;
+}
+
+.perm-ask-other-input {
+  width: 100%;
+  margin-top: 8px;
+  resize: vertical;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.perm-ask-other-input:focus-visible {
+  outline: 2px solid var(--violet-ring);
+  outline-offset: 1px;
+}
+
+.perm-ask-preview {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 200px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+@media (pointer: coarse) {
+  .perm-ask-other-input {
+    font-size: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .perm-ask-opt {
+    transition: none;
+  }
+}
