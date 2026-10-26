@@ -15,7 +15,7 @@ interface Props {
   task?: WorkerTask;
   workersAt: number;
   onOpen: () => void;
-  onDecide: (permission: PermissionRequest, allow: boolean, message?: string) => void;
+  onDecide: (permission: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>) => void;
   clickGuard: () => boolean;
 }
 
@@ -106,7 +106,7 @@ export function NodeCard({ node, now, permission, open, task, workersAt, onOpen,
       {permission && (
         <PermissionPanel
           request={permission}
-          onDecide={(allow, message) => onDecide(permission, allow, message)}
+          onDecide={(allow, message, answers) => onDecide(permission, allow, message, answers)}
         />
       )}
     </div>

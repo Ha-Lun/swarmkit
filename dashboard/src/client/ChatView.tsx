@@ -19,7 +19,7 @@ interface Props {
   workersAt: number;
   now: number;
   onOpenAgent: (nodeId: string) => void;
-  onDecide: (p: PermissionRequest, allow: boolean, message?: string) => void;
+  onDecide: (p: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>) => void;
   onOpenWorkerLog?: (task: WorkerTask) => void;
 }
 
@@ -191,7 +191,7 @@ function HandoffCard({
   now: number;
   workersAt: number;
   onOpenAgent: (nodeId: string) => void;
-  onDecide: (p: PermissionRequest, allow: boolean, message?: string) => void;
+  onDecide: (p: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>) => void;
 }) {
   const [showFull, setShowFull] = useState(false);
   const name = agentLabel(child);
@@ -257,7 +257,7 @@ function HandoffCard({
         </div>
       </div>
       {permission && (
-        <PermissionPanel request={permission} onDecide={(allow, message) => onDecide(permission, allow, message)} />
+        <PermissionPanel request={permission} onDecide={(allow, message, answers) => onDecide(permission, allow, message, answers)} />
       )}
     </div>
   );
@@ -381,7 +381,7 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
             );
           })}
           {pendingForNode.map((p) => (
-            <PermissionPanel key={p.id} request={p} onDecide={(allow, message) => onDecide(p, allow, message)} />
+            <PermissionPanel key={p.id} request={p} onDecide={(allow, message, answers) => onDecide(p, allow, message, answers)} />
           ))}
           {thinking && (
             <div className="chat-thinking">

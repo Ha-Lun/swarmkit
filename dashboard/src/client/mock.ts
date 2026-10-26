@@ -527,7 +527,7 @@ export function createMockBackend(): FleetBackend {
     });
   };
 
-  const resolvePermission = (allow: boolean, message?: string) => {
+  const resolvePermission = (allow: boolean, message?: string, answers?: Record<string, string>) => {
     const p = pendingPerm;
     if (!p) return;
     pendingPerm = null;
@@ -538,14 +538,44 @@ export function createMockBackend(): FleetBackend {
     const idx = list.findIndex((r) => r.id === p.id);
     if (idx >= 0) list.splice(idx, 1);
     emit?.({ type: 'permission.resolved', sessionId: s1.id, id: p.id, allow });
-    s1.status = 'running';
-    s1.pendingPermissions = 0;
+    s1.status = list.length > 0 ? 'waiting' : 'running';
+    s1.pendingPermissions = list.length;
     bumpSession(s1.id);
-    if (req && fs) {
-      pushEvent(fs, 'permission', `${req.tool} ${allow ? 'allowed' : 'denied'}${message ? `: “${message}”` : ''}`);
-      if (!allow) toolBack(fs, req.tool, 'Permission denied by the user', undefined, true);
+    const nodeMap = nodeMaps.get(s1.id)!;
+    const target = req ? (nodeMap.get(req.nodeId) ?? fs) : fs;
+    if (req && target) {
+      const answerText = answers && Object.keys(answers).length > 0
+        ? `: ${Object.entries(answers).map(([k, v]) => `${k} → ${v}`).join('; ')}`
+        : message ? `: “${message}”` : '';
+      pushEvent(target, 'permission', `${req.tool} ${allow ? 'allowed' : 'denied'}${answerText}`);
+      if (!allow) toolBack(target, req.tool, 'Permission denied by the user', undefined, true);
     }
-    scheduleCompletion(!allow);
+    if (!askPerm) scheduleCompletion(!allow);
+  };
+
+  let askPerm: { id: string } | null = null;
+  const resolveAsk = (allow: boolean, message?: string, answers?: Record<string, string>) => {
+    if (!askPerm) return;
+    const id = askPerm.id;
+    askPerm = null;
+    const list = permLists.get(s1.id)!;
+    const req = list.find((r) => r.id === id) ?? null;
+    const idx = list.findIndex((r) => r.id === id);
+    if (idx >= 0) list.splice(idx, 1);
+    emit?.({ type: 'permission.resolved', sessionId: s1.id, id, allow });
+    s1.status = list.length > 0 ? 'waiting' : 'running';
+    s1.pendingPermissions = list.length;
+    bumpSession(s1.id);
+    const nodeMap = nodeMaps.get(s1.id)!;
+    const target = req ? (nodeMap.get(req.nodeId) ?? root) : root;
+    if (req && target) {
+      if (allow && answers && Object.keys(answers).length > 0) {
+        pushEvent(target, 'permission', `AskUserQuestion answered: ${Object.entries(answers).map(([k, v]) => `${k} → ${v}`).join('; ')}`);
+      } else {
+        pushEvent(target, 'permission', `AskUserQuestion ${allow ? 'allowed' : 'denied'}${message ? `: “${message}”` : ''}`);
+        if (!allow) toolBack(target, req.tool, 'Permission denied by the user', undefined, true);
+      }
+    }
   };
 
   let explore: AgentNode | undefined;
@@ -713,6 +743,58 @@ A claim with a footnote.[^1]
     const auto = window.setTimeout(() => resolvePermission(true), 6000);
     timers.add(auto);
     pendingPerm = { id: req.id, auto };
+  });
+
+  // scripted AskUserQuestion on the main session node (stays open for the user to answer)
+  at(18000, () => {
+    const req: PermissionRequest = {
+      id: uid('perm'),
+      sessionId: s1.id,
+      nodeId: root.id,
+      tool: 'AskUserQuestion',
+      input: {
+        questions: [
+          {
+            question: 'Which pricing layout should we ship first?',
+            header: 'Layout',
+            multiSelect: false,
+            options: [
+              {
+                label: 'Three tiers',
+                description: 'Classic three-column pricing with a highlighted middle plan.',
+                preview: '<PricingGrid tiers={3} highlight="middle" />\n// monthly $19 / $49 / $99\n// annual saves 20%',
+              },
+              {
+                label: 'Two tiers',
+                description: 'Simpler starter/pro split for a faster launch.',
+              },
+              {
+                label: 'Usage-based',
+                description: 'Pay per seat with metered overages.',
+              },
+            ],
+          },
+          {
+            question: 'Which extras should the launch include?',
+            header: 'Extras',
+            multiSelect: true,
+            options: [
+              { label: 'FAQ section', description: 'Accordion with the top five questions.' },
+              { label: 'Annual toggle', description: 'Monthly/annual switch with savings callout.' },
+              { label: 'Testimonials', description: 'Two customer quotes under the grid.' },
+            ],
+          },
+        ],
+      },
+      title: 'Claude wants to ask a question',
+      createdAt: Date.now(),
+    };
+    permLists.get(s1.id)!.push(req);
+    emit?.({ type: 'permission.request', request: req });
+    s1.status = 'waiting';
+    s1.pendingPermissions = permLists.get(s1.id)!.length;
+    bumpSession(s1.id);
+    askPerm = { id: req.id };
   });
 
   // ---- crowded demo tree: leaf pills, one wrapped audit group, one nested backend ----
@@ -1023,11 +1105,14 @@ A claim with a footnote.[^1]
       s.pendingPermissions = 0;
       s.resumable = true;
       pendingPerm = null;
+      askPerm = null;
+      permLists.get(sessionId)?.splice(0);
       bumpSession(sessionId);
       return Promise.resolve({ ok: true });
     },
-    decide: (permissionId, allow, message) => {
-      if (pendingPerm?.id === permissionId) resolvePermission(allow, message);
+    decide: (permissionId, allow, message, answers) => {
+      if (pendingPerm?.id === permissionId) resolvePermission(allow, message, answers);
+      else if (askPerm?.id === permissionId) resolveAsk(allow, message, answers);
       return Promise.resolve({ ok: true });
     },
     agents: (_cwd) =>

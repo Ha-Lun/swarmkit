@@ -540,9 +540,12 @@ export class SdkSessions {
     if (!entry) return false;
     target.pending.delete(permissionId);
 
-    const result: PermissionResult = body.allow
-      ? { behavior: 'allow', updatedInput: entry.request.input }
-      : { behavior: 'deny', message: body.message || 'Denied in SwarmKit' };
+    const result: PermissionResult =
+      body.allow && body.answers && entry.request.tool === 'AskUserQuestion'
+        ? { behavior: 'allow', updatedInput: { ...entry.request.input, answers: body.answers } }
+        : body.allow
+          ? { behavior: 'allow', updatedInput: entry.request.input }
+          : { behavior: 'deny', message: body.message || 'Denied in SwarmKit' };
     this.emit({ type: 'permission.resolved', sessionId: target.id, id: permissionId, allow: body.allow });
     for (const event of setStatus(target.tree, entry.request.nodeId, 'running')) this.emit(event);
     this.scheduleUpsert(target);

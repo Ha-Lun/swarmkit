@@ -411,8 +411,8 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   );
 
   const decide = useCallback(
-    (p: PermissionRequest, allow: boolean, message?: string) => {
-      void guardSilent(backend.decide(p.id, allow, message));
+    (p: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>) => {
+      void guardSilent(backend.decide(p.id, allow, message, answers));
     },
     [backend, guardSilent],
   );
