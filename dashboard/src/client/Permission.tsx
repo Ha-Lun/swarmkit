@@ -65,8 +65,7 @@ function parseAskQuestions(input: unknown): AskQuestion[] {
   return out;
 }
 
-function answerFor(q: AskQuestion, s: QuestionState): string {
-  void q;
+function answerFor(s: QuestionState): string {
   const parts = [...s.picked];
   const other = s.otherText.trim();
   if (s.otherOn && other) parts.push(other);
@@ -104,7 +103,7 @@ export function PermissionPanel({ request, onDecide }: Props) {
     if (!usePicker) return null;
     const out: Record<string, string> = {};
     for (let i = 0; i < askQuestions.length; i++) {
-      const text = answerFor(askQuestions[i]!, effective[i] ?? { picked: [], otherOn: false, otherText: '' });
+      const text = answerFor(effective[i] ?? { picked: [], otherOn: false, otherText: '' });
       if (!text.trim()) return null;
       out[askQuestions[i]!.question] = text.trim();
     }

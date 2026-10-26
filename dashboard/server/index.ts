@@ -138,7 +138,7 @@ function validateMessageBody(body: unknown): SendMessageBody {
   return images ? { text, images } : { text };
 }
 
-export function validateDecisionBody(body: unknown): { allow: boolean; message?: string; answers?: Record<string, string> } {
+function validateDecisionBody(body: unknown): { allow: boolean; message?: string; answers?: Record<string, string> } {
   const raw = requireObject(body);
   if (typeof raw.allow !== 'boolean') throw new HttpError(400, 'allow must be a boolean');
   const out: { allow: boolean; message?: string; answers?: Record<string, string> } = { allow: raw.allow };

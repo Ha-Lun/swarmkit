@@ -795,6 +795,15 @@ A claim with a footnote.[^1]
     s1.pendingPermissions = permLists.get(s1.id)!.length;
     bumpSession(s1.id);
     askPerm = { id: req.id };
+    const autoAsk = window.setTimeout(() => {
+      if (askPerm?.id === req.id) {
+        resolveAsk(true, undefined, {
+          'Which pricing layout should we ship first?': 'Three tiers',
+          'Which extras should the launch include?': 'FAQ section, Annual toggle',
+        });
+      }
+    }, 30000);
+    timers.add(autoAsk);
   });
 
   // ---- crowded demo tree: leaf pills, one wrapped audit group, one nested backend ----
