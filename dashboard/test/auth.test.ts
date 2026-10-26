@@ -59,7 +59,7 @@ const restoreEnv = (): void => {
 };
 
 describe('loadToken', () => {
-  it('creates $XDG_CONFIG_HOME/claude-fleet/token (0600) in a 0700 dir', () => {
+  it('creates $XDG_CONFIG_HOME/swarmkit/token (0600) in a 0700 dir', () => {
     const xdg = mkdtempSync(path.join(tmpdir(), 'fleet-auth-xdg-'));
     const home = tempHome();
     withXdg(xdg);
@@ -67,9 +67,9 @@ describe('loadToken', () => {
     try {
       const { token, file } = loadToken(home);
       expect(token).toMatch(/^[A-Za-z0-9_-]+$/);
-      expect(file).toBe(path.join(xdg, 'claude-fleet', 'token'));
+      expect(file).toBe(path.join(xdg, 'swarmkit', 'token'));
       expect(statSync(file).mode & 0o777).toBe(0o600);
-      expect(statSync(path.join(xdg, 'claude-fleet')).mode & 0o777).toBe(0o700);
+      expect(statSync(path.join(xdg, 'swarmkit')).mode & 0o777).toBe(0o700);
       // A second load reuses the stored token instead of rotating it.
       expect(loadToken(home)).toEqual({ token, file });
     } finally {
@@ -79,14 +79,14 @@ describe('loadToken', () => {
     }
   });
 
-  it('defaults to ~/.config/claude-fleet/token without XDG_CONFIG_HOME', () => {
+  it('defaults to ~/.config/swarmkit/token without XDG_CONFIG_HOME', () => {
     const home = tempHome();
     const fakeHomeDir = fakeHome();
     delete process.env.XDG_CONFIG_HOME;
     delete process.env.FLEET_TOKEN;
     try {
       const { file, token } = loadToken(home);
-      expect(file).toBe(path.join(fakeHomeDir, '.config', 'claude-fleet', 'token'));
+      expect(file).toBe(path.join(fakeHomeDir, '.config', 'swarmkit', 'token'));
       expect(existsSync(file)).toBe(true);
       expect(token.length).toBeGreaterThanOrEqual(32);
     } finally {
@@ -113,6 +113,87 @@ describe('loadToken', () => {
       // A second load does not resurrect the legacy value.
       writeFileSync(path.join(legacyDir, 'token'), 'someone-recreated-it');
       expect(loadToken(home).token).toBe('legacy-secret-token');
+    } finally {
+      restoreEnv();
+      rmSync(xdg, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('migrates the token from claude-fleet to swarmkit and removes the emptied old dir', () => {
+    const xdg = mkdtempSync(path.join(tmpdir(), 'fleet-auth-xdg-'));
+    const home = tempHome();
+    const oldDir = path.join(xdg, 'claude-fleet');
+    mkdirSync(oldDir, { recursive: true });
+    writeFileSync(path.join(oldDir, 'token'), 'old-dir-fake-token', { mode: 0o600 });
+    withXdg(xdg);
+    delete process.env.FLEET_TOKEN;
+    try {
+      const { token, file } = loadToken(home);
+      expect(token).toBe('old-dir-fake-token');
+      expect(file).toBe(path.join(xdg, 'swarmkit', 'token'));
+      expect(readToken(file)).toBe('old-dir-fake-token');
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      expect(statSync(path.dirname(file)).mode & 0o777).toBe(0o700);
+      expect(existsSync(oldDir)).toBe(false);
+    } finally {
+      restoreEnv();
+      rmSync(xdg, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the old dir when it still holds other files after the token migration', () => {
+    const xdg = mkdtempSync(path.join(tmpdir(), 'fleet-auth-xdg-'));
+    const home = tempHome();
+    const oldDir = path.join(xdg, 'claude-fleet');
+    mkdirSync(oldDir, { recursive: true });
+    writeFileSync(path.join(oldDir, 'token'), 'old-dir-fake-token');
+    writeFileSync(path.join(oldDir, 'other.json'), '[]');
+    withXdg(xdg);
+    delete process.env.FLEET_TOKEN;
+    try {
+      expect(loadToken(home).token).toBe('old-dir-fake-token');
+      expect(existsSync(path.join(oldDir, 'token'))).toBe(false);
+      expect(existsSync(path.join(oldDir, 'other.json'))).toBe(true);
+    } finally {
+      restoreEnv();
+      rmSync(xdg, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('does not migrate when the swarmkit token exists (new wins, old untouched)', () => {
+    const xdg = mkdtempSync(path.join(tmpdir(), 'fleet-auth-xdg-'));
+    const home = tempHome();
+    mkdirSync(path.join(xdg, 'claude-fleet'), { recursive: true });
+    mkdirSync(path.join(xdg, 'swarmkit'), { recursive: true });
+    writeFileSync(path.join(xdg, 'claude-fleet', 'token'), 'old-dir-fake-token');
+    writeFileSync(path.join(xdg, 'swarmkit', 'token'), 'new-dir-fake-token');
+    withXdg(xdg);
+    delete process.env.FLEET_TOKEN;
+    try {
+      expect(loadToken(home).token).toBe('new-dir-fake-token');
+      expect(readToken(path.join(xdg, 'claude-fleet', 'token'))).toBe('old-dir-fake-token');
+    } finally {
+      restoreEnv();
+      rmSync(xdg, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps using the old token and file when the new location cannot be written', () => {
+    const xdg = mkdtempSync(path.join(tmpdir(), 'fleet-auth-xdg-'));
+    const home = tempHome();
+    mkdirSync(path.join(xdg, 'claude-fleet'), { recursive: true });
+    writeFileSync(path.join(xdg, 'claude-fleet', 'token'), 'old-dir-fake-token');
+    // A regular file where the swarmkit dir should be makes the write fail.
+    writeFileSync(path.join(xdg, 'swarmkit'), 'in the way');
+    withXdg(xdg);
+    delete process.env.FLEET_TOKEN;
+    try {
+      expect(loadToken(home).token).toBe('old-dir-fake-token');
+      expect(readToken(path.join(xdg, 'claude-fleet', 'token'))).toBe('old-dir-fake-token');
     } finally {
       restoreEnv();
       rmSync(xdg, { recursive: true, force: true });
@@ -155,7 +236,7 @@ describe('loadToken', () => {
 
 function tokenFileOf(): string {
   const xdg = process.env.XDG_CONFIG_HOME?.trim();
-  return path.join(xdg || path.join(homedir(), '.config'), 'claude-fleet', 'token');
+  return path.join(xdg || path.join(homedir(), '.config'), 'swarmkit', 'token');
 }
 
 function readToken(file: string): string {

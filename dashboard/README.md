@@ -51,7 +51,7 @@ Open the URL the server prints on startup, e.g.
 
 ```
 SwarmKit: http://127.0.0.1:4317
-SwarmKit: token: /home/you/.config/claude-fleet/token
+SwarmKit: token: /home/you/.config/swarmkit/token
 ```
 
 The first visit with `?token=…` (printed on an interactive terminal — on a TTY only)
@@ -65,12 +65,16 @@ per minute per address) to get the cookie.
 | -------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------ |
 | `PORT`         | `4317`                                                                     | HTTP port                                                     |
 | `HOST`         | `127.0.0.1`                                                                | Bind address (`0.0.0.0` also prints LAN URLs)                 |
-| `FLEET_TOKEN`  | stored at `$XDG_CONFIG_HOME/claude-fleet/token` (default `~/.config/claude-fleet/token`, dir `0700`, file `0600`) | Shared token; must be **≥ 32 chars** when set |
+| `FLEET_TOKEN`  | stored at `$XDG_CONFIG_HOME/swarmkit/token` (default `~/.config/swarmkit/token`, dir `0700`, file `0600`) | Shared token; must be **≥ 32 chars** when set |
 | `FLEET_HOSTS`  | `127.0.0.1:<PORT>,localhost:<PORT>,ll-server.tail3e28e1.ts.net:<PORT>`      | Comma-separated Host allowlist; other Hosts get `421`         |
 | `FLEET_OWNER`  | unset                                                                      | When set, requests carrying a different `tailscale-user-login` header are rejected with `403` (requests without the header, i.e. local access, pass) |
 
-A legacy `dashboard/.data/token` is migrated to `$XDG_CONFIG_HOME/claude-fleet/token`
-on start (the old file is deleted). `FLEET_TOKEN` is scrubbed from the environment
+A legacy `dashboard/.data/token` is migrated to `$XDG_CONFIG_HOME/swarmkit/token`
+on start (the old file is deleted). The same one-time move applies to the previous
+`$XDG_CONFIG_HOME/claude-fleet/` location: `token` and `starred.json` are copied to
+`swarmkit/`, the old files are deleted only after the new ones are written, and the
+old directory is removed if it is then empty. If the new file already exists it wins
+and the old one is left alone. `FLEET_TOKEN` is scrubbed from the environment
 right after reading, so child agents never see it.
 
 **Auth shapes.** The raw token is accepted via the `x-fleet-token` header and the
@@ -174,7 +178,7 @@ every path outside `$HOME` (including symlinks that would escape it), hides
 dotfiles unless `hidden=1`, and never lists `node_modules`; git repositories
 are flagged with `isGitRepo`.
 
-Folders can be starred from the picker, and starred repos are listed first on the landing page. `GET /api/stars` returns the starred paths that still exist inside `$HOME`; `POST /api/stars` with `{"path": "<abs dir>", "starred": true|false}` sets one and returns the new list (`400` for a path outside `$HOME` or a missing boolean). Stars are stored in `$XDG_CONFIG_HOME/claude-fleet/starred.json` (default `~/.config/claude-fleet/starred.json`, mode `0600`, next to the token file), capped at 50 folders.
+Folders can be starred from the picker, and starred repos are listed first on the landing page. `GET /api/stars` returns the starred paths that still exist inside `$HOME`; `POST /api/stars` with `{"path": "<abs dir>", "starred": true|false}` sets one and returns the new list (`400` for a path outside `$HOME` or a missing boolean). Stars are stored in `$XDG_CONFIG_HOME/swarmkit/starred.json` (default `~/.config/swarmkit/starred.json`, mode `0600`, next to the token file), capped at 50 folders.
 
 ## Continue (resume)
 
@@ -206,12 +210,12 @@ Run the service from a **pinned deployment worktree**, not from the development
 checkout. One-time setup:
 
 ```sh
-git -C /home/ha-lun/opencode-config branch fleet-live dashboard
-git -C /home/ha-lun/opencode-config worktree add /home/ha-lun/apps/claude-fleet fleet-live
-npm ci --prefix /home/ha-lun/apps/claude-fleet/dashboard
-ln -sf /home/ha-lun/apps/claude-fleet/dashboard/deploy/claude-fleet.service ~/.config/systemd/user/
+git -C /home/ha-lun/opencode-config branch swarmkit-live dashboard
+git -C /home/ha-lun/opencode-config worktree add /home/ha-lun/apps/swarmkit swarmkit-live
+npm ci --prefix /home/ha-lun/apps/swarmkit/dashboard
+ln -sf /home/ha-lun/apps/swarmkit/dashboard/deploy/swarmkit.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now claude-fleet.service
+systemctl --user enable --now swarmkit.service
 ```
 
 Expose it to your tailnet only (never Funnel):
@@ -223,16 +227,16 @@ tailscale serve --bg --https=4317 http://127.0.0.1:4317
 To update the service to the latest dashboard code (fast-forward only):
 
 ```sh
-git -C /home/ha-lun/apps/claude-fleet merge --ff-only dashboard && systemctl --user restart claude-fleet
+git -C /home/ha-lun/apps/swarmkit merge --ff-only dashboard && systemctl --user restart swarmkit
 ```
 
 Undo with `tailscale serve --https=4317 off` and
-`systemctl --user disable --now claude-fleet.service`.
+`systemctl --user disable --now swarmkit.service`.
 
 ## Security notes
 
 - **Every API call is token-gated.** The token is generated on first start
-  (`$XDG_CONFIG_HOME/claude-fleet/token`, dir mode `0700`, file mode `0600`, legacy
+  (`$XDG_CONFIG_HOME/swarmkit/token`, dir mode `0700`, file mode `0600`, legacy
   `.data/token` migrated) or taken from `FLEET_TOKEN` (≥ 32 chars, scrubbed from the
   environment after reading).
 - Startup logs never contain the token — only the token file path; the full

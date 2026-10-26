@@ -1,6 +1,6 @@
 // Starred folders: user-pinned quick-access dirs under $HOME, stored as a JSON
-// array of absolute paths in $XDG_CONFIG_HOME/claude-fleet/starred.json.
-import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+// array of absolute paths in $XDG_CONFIG_HOME/swarmkit/starred.json.
+import { mkdir, readFile, rename, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,16 +13,45 @@ const MAX_STARS = 50;
 /** Serialises concurrent setStar writers so two toggles cannot clobber each other. */
 let writeChain: Promise<void> = Promise.resolve();
 
-/** Storage file: $XDG_CONFIG_HOME/claude-fleet/starred.json, default ~/.config/claude-fleet/starred.json. */
-export function starsFilePath(): string {
+function configBase(): string {
   const xdg = process.env.XDG_CONFIG_HOME?.trim();
-  const base = xdg ? path.resolve(xdg) : path.join(os.homedir(), '.config');
-  return path.join(base, 'claude-fleet', 'starred.json');
+  return xdg ? path.resolve(xdg) : path.join(os.homedir(), '.config');
+}
+
+/** Storage file: $XDG_CONFIG_HOME/swarmkit/starred.json, default ~/.config/swarmkit/starred.json. */
+export function starsFilePath(): string {
+  return path.join(configBase(), 'swarmkit', 'starred.json');
+}
+
+/**
+ * One-time move of the pre-rename $XDG_CONFIG_HOME/claude-fleet/starred.json to `file`.
+ * Returns the old content (or undefined when there is none). The old file is deleted only
+ * after the new one was written, so a failed write never loses the stars.
+ */
+async function migrateOldStars(file: string): Promise<string | undefined> {
+  const oldFile = path.join(configBase(), 'claude-fleet', 'starred.json');
+  let raw: string;
+  try {
+    raw = await readFile(oldFile, 'utf8');
+  } catch {
+    return undefined;
+  }
+  try {
+    await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+    await writeFile(file, raw, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+    await unlink(oldFile);
+    await rmdir(path.dirname(oldFile)).catch(() => undefined); // only succeeds when empty
+  } catch {
+    // Keep the old file; its content is still used for this read.
+  }
+  return raw;
 }
 
 async function readStored(): Promise<string[]> {
   try {
-    const raw = await readFile(starsFilePath(), 'utf8');
+    const file = starsFilePath();
+    const raw = await readFile(file, 'utf8').catch(() => migrateOldStars(file));
+    if (raw === undefined) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return parsed.filter((p): p is string => typeof p === 'string');
