@@ -1,5 +1,5 @@
 // Inline permission decision panel inside a node card.
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { PermissionRequest } from '../shared/types';
 import { permissionSummary } from './format';
 import { WarnIcon } from './icons';
@@ -32,7 +32,7 @@ interface QuestionState {
 const OTHER_KEY = '__other__';
 const SKIP_MESSAGE = 'The user skipped the question';
 
-function parseAskQuestions(input: unknown): AskQuestion[] {
+export function parseAskQuestions(input: unknown): AskQuestion[] {
   if (!input || typeof input !== 'object') return [];
   const rawQuestions = (input as { questions?: unknown }).questions;
   if (!Array.isArray(rawQuestions)) return [];
@@ -65,16 +65,35 @@ function parseAskQuestions(input: unknown): AskQuestion[] {
   return out;
 }
 
-function answerFor(s: QuestionState): string {
-  const parts = [...s.picked];
+export function answerFor(s: QuestionState): string {
   const other = s.otherText.trim();
+  // "Other" checked with blank text is unanswered — even when options are picked.
+  if (s.otherOn && !other) return '';
+  const parts = [...s.picked];
   if (s.otherOn && other) parts.push(other);
   return parts.join(', ');
+}
+
+/** Raw question texts for the free-text fallback (skips missing/empty strings). */
+export function fallbackQuestionTexts(input: unknown): string[] {
+  if (!input || typeof input !== 'object') return [];
+  const rawQuestions = (input as { questions?: unknown }).questions;
+  if (!Array.isArray(rawQuestions)) return [];
+  const out: string[] = [];
+  for (const raw of rawQuestions) {
+    if (!raw || typeof raw !== 'object') continue;
+    const q = (raw as Record<string, unknown>).question;
+    if (typeof q === 'string' && q.length > 0) out.push(q);
+  }
+  return out;
 }
 
 export function PermissionPanel({ request, onDecide }: Props) {
   const [answer, setAnswer] = useState('');
   const [busy, setBusy] = useState(false);
+  // Synchronous double-submit guard: set before setBusy so a second click in
+  // the same tick cannot slip through while `busy` is still false.
+  const submittedRef = useRef(false);
 
   const isPlan = request.tool === 'ExitPlanMode';
   const isAsk = request.tool === 'AskUserQuestion';
@@ -84,7 +103,12 @@ export function PermissionPanel({ request, onDecide }: Props) {
     () => (isAsk ? parseAskQuestions(request.input) : []),
     [isAsk, request.input],
   );
-  const usePicker = isAsk && askQuestions.length > 0;
+  // Only use the picker when EVERY raw question parsed (1-4 total); otherwise
+  // fall back to free text so no question is silently dropped.
+  const rawCount = Array.isArray((request.input as { questions?: unknown } | undefined)?.questions)
+    ? ((request.input as { questions: unknown[] }).questions.length)
+    : -1;
+  const usePicker = isAsk && rawCount >= 1 && rawCount <= 4 && askQuestions.length === rawCount;
 
   const [states, setStates] = useState<QuestionState[]>([]);
   const effective: QuestionState[] = useMemo(() => {
@@ -111,7 +135,8 @@ export function PermissionPanel({ request, onDecide }: Props) {
   }, [usePicker, askQuestions, effective]);
 
   const go = (allow: boolean, message?: string, ans?: Record<string, string>) => {
-    if (busy) return;
+    if (submittedRef.current) return;
+    submittedRef.current = true;
     setBusy(true);
     onDecide(allow, message, ans);
   };
@@ -119,6 +144,23 @@ export function PermissionPanel({ request, onDecide }: Props) {
   const submitPicker = () => {
     if (!answers) return;
     go(true, undefined, answers);
+  };
+
+  const fallbackTexts = useMemo(
+    () => (!isAsk || usePicker ? [] : fallbackQuestionTexts(request.input)),
+    [isAsk, usePicker, request.input],
+  );
+
+  const submitFallback = () => {
+    const text = answer.trim();
+    if (!text) return;
+    if (fallbackTexts.length > 0) {
+      const ans: Record<string, string> = {};
+      for (const t of fallbackTexts) ans[t] = text;
+      go(true, undefined, ans);
+    } else {
+      go(false, text);
+    }
   };
 
   const setPicked = (qi: number, label: string, multi: boolean) => {
@@ -254,6 +296,12 @@ export function PermissionPanel({ request, onDecide }: Props) {
             rows={2}
             value={answer}
             onChange={(e) => setAnswer(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && !(e.nativeEvent as KeyboardEvent).isComposing) {
+                e.preventDefault();
+                submitFallback();
+              }
+            }}
           />
         </div>
       ) : (
@@ -287,7 +335,7 @@ export function PermissionPanel({ request, onDecide }: Props) {
             type="button"
             className="btn btn-primary btn-sm"
             disabled={busy || !answer.trim()}
-            onClick={() => go(false, answer.trim())}
+            onClick={submitFallback}
           >
             Answer
           </button>

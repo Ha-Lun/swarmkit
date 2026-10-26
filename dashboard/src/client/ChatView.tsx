@@ -257,7 +257,7 @@ function HandoffCard({
         </div>
       </div>
       {permission && (
-        <PermissionPanel request={permission} onDecide={(allow, message, answers) => onDecide(permission, allow, message, answers)} />
+        <PermissionPanel key={permission.id} request={permission} onDecide={(allow, message, answers) => onDecide(permission, allow, message, answers)} />
       )}
     </div>
   );

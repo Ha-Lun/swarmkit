@@ -105,6 +105,7 @@ export function NodeCard({ node, now, permission, open, task, workersAt, onOpen,
 
       {permission && (
         <PermissionPanel
+          key={permission.id}
           request={permission}
           onDecide={(allow, message, answers) => onDecide(permission, allow, message, answers)}
         />

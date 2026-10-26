@@ -152,12 +152,17 @@ function validateDecisionBody(body: unknown): { allow: boolean; message?: string
     }
     const entries = Object.entries(raw.answers as Record<string, unknown>);
     if (entries.length > 4) throw new HttpError(400, 'answers must have at most 4 entries');
-    const clean: Record<string, string> = {};
-    for (const [k, v] of entries) {
-      if (typeof v !== 'string') throw new HttpError(400, 'answers values must be strings');
-      if (k.length > 4000 || v.length > 4000) throw new HttpError(400, 'answers keys and values must be at most 4000 characters');
-      clean[k] = v;
-    }
+    if (entries.length === 0) throw new HttpError(400, 'answers must not be empty');
+    // Object.fromEntries keeps "__proto__" an own property instead of hitting
+    // the prototype setter (assignment would silently drop/shadow it).
+    const clean: Record<string, string> = Object.fromEntries(
+      entries.map(([k, v]) => {
+        if (k.length === 0) throw new HttpError(400, 'answers keys must not be empty');
+        if (typeof v !== 'string') throw new HttpError(400, 'answers values must be strings');
+        if (k.length > 4000 || v.length > 4000) throw new HttpError(400, 'answers keys and values must be at most 4000 characters');
+        return [k, v] as const;
+      }),
+    );
     out.answers = clean;
   }
   return out;
