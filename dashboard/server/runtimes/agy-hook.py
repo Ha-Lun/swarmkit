@@ -69,6 +69,10 @@ def auto_allowed(name, args, root, images_root=None):
                 return False
     if edit and any(os.path.relpath(p, root).lower() in RULES or sensitive_edit(p, root) for p in resolved):
         return False
+    if edit:
+        settings = os.path.realpath(settings_path())
+        if any(p == settings or ".gemini" in (q.lower() for q in p.split(os.sep)) for p in resolved):
+            return False
     return True
 
 
@@ -83,11 +87,14 @@ def sensitive_edit(resolved, root):
     except OSError:
         return False
 
+def settings_path():
+    return os.environ.get("SWARMKIT_DASH_AGY_SETTINGS") or os.path.expanduser("~/.gemini/antigravity-cli/settings.json")
+
+
 def load_rules():
     """Read the agy CLI's own `command(...)` permission rules; any problem yields empty lists."""
-    path = os.environ.get("SWARMKIT_DASH_AGY_SETTINGS") or os.path.expanduser("~/.gemini/antigravity-cli/settings.json")
     try:
-        with open(path, encoding="utf-8") as fh:
+        with open(settings_path(), encoding="utf-8") as fh:
             perms = json.load(fh).get("permissions")
         return parse_rules(perms.get("allow")), parse_rules(perms.get("deny"))
     except Exception:
@@ -113,7 +120,7 @@ def parse_rules(entries):
 
 def split_command(cmd):
     """Quote-aware split on && || ; | newline. Returns (segments, unsafe) or None when quoting is unbalanced."""
-    segs, cur, unsafe = [], [], False
+    segs, cur, unsafe = [], [], "\r" in cmd
     quote = None
     i, n = 0, len(cmd)
     while i < n:
@@ -145,8 +152,11 @@ def split_command(cmd):
         elif c in "'\"":
             quote = c
             cur.append(c)
-        elif c == "`" or c in "<>" or (c == "$" and nxt in ("(", "{")):
+        elif c == "`" or c in "<>" or (c == "$" and nxt in ("(", "{", "'")):
             unsafe = True
+            cur.append(c)
+        elif c == "#" and (not cur or cur[-1].isspace()):
+            unsafe = True  # a comment: bash would ignore the rest, the hook would not
             cur.append(c)
         elif c == "&" and nxt != "&":
             unsafe = True
@@ -170,7 +180,7 @@ def command_decision(cmd):
     if not isinstance(cmd, str) or not cmd.strip():
         return None
     allow, deny = load_rules()
-    split = split_command(cmd.strip())
+    split = split_command(cmd.strip() if "\r" not in cmd else cmd)
     if split is None:
         return None
     segs, unsafe = split

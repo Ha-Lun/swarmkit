@@ -8,7 +8,6 @@ import './styles.css';
 // A redeploy empties dist/: stale lazy chunks 404 as JSON. Reload once for the
 // fresh index.html; the sessionStorage guard stops reload loops.
 window.addEventListener('vite:preloadError', (event) => {
-  event.preventDefault();
   const now = Date.now();
   let last: string | null = null;
   try {
@@ -17,6 +16,7 @@ window.addEventListener('vite:preloadError', (event) => {
     // Storage unavailable: fall through and reload once.
   }
   if (!shouldReloadChunk(now, last)) return;
+  event.preventDefault();
   try {
     sessionStorage.setItem(CHUNK_RELOAD_KEY, String(now));
   } catch {

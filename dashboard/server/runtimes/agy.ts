@@ -202,6 +202,7 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
       }
       const imagesDir = opts.imagesDir?.();
       if (opts.hook && imagesDir) env.SWARMKIT_DASH_IMAGES_DIR = imagesDir;
+      delete env.SWARMKIT_DASH_AGY_SETTINGS;
       delete env.CLAUDECODE;
       delete env.OPENCODE;
       return env;
