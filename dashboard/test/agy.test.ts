@@ -246,6 +246,7 @@ async function startHookServer(respond: (seen: SeenRequest) => { status: number;
 function hookEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, NO_PROXY: '*', no_proxy: '*' };
   for (const k of ['SWARMKIT_DASH_HOOK_URL', 'SWARMKIT_DASH_HOOK_SECRET', 'SWARMKIT_DASH_CWD', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) delete env[k];
+  env.SWARMKIT_DASH_AGY_SETTINGS = path.join(scratch, 'no-such-agy-settings.json');
   return { ...env, ...extra };
 }
 
@@ -523,5 +524,65 @@ describe('AgyHookBridge', () => {
     bridge.register('s9', async () => ({ allow: true }));
     bridge.unregister('s9');
     expect(await bridge.handle('s9', bridgeBody('view_file', { AbsolutePath: '/x' }))).toMatchObject({ status: 403 });
+  });
+});
+
+describe('agy-hook.py command permissions from agy settings', () => {
+  async function run(cmd: string, settings: unknown | null, raw?: string) {
+    const file = path.join(scratch, `agy-settings-${Math.random().toString(36).slice(2)}.json`);
+    if (raw !== undefined) writeFileSync(file, raw);
+    else if (settings !== null) writeFileSync(file, JSON.stringify(settings));
+    const server = await startHookServer(() => ({ status: 200, json: { decision: 'deny', reason: 'asked' } }));
+    try {
+      const env = hookEnv({ SWARMKIT_DASH_HOOK_URL: server.url, SWARMKIT_DASH_HOOK_SECRET: 's', SWARMKIT_DASH_CWD: scratch, SWARMKIT_DASH_AGY_SETTINGS: file });
+      const { out } = await runHook(hookInput('run_command', { CommandLine: cmd }), env);
+      return { out, asked: server.seen.length };
+    } finally {
+      await server.close();
+    }
+  }
+  const perms = { permissions: { allow: ['command(ls)', 'command(git status)', 'command(grep)', 7, 'other(x)'], deny: ['command(rm)'] } };
+
+  it.each([
+    ['ls -la src'],
+    ['git status -s'],
+    ['ls && git status'],
+    ['cd src && ls'],
+    ['grep "a|b" file'],
+    ["grep 'a;b' file | ls"],
+  ])('allows %s without asking', async cmd => {
+    const r = await run(cmd, perms);
+    expect(r.out).toEqual({ decision: 'allow' });
+    expect(r.asked).toBe(0);
+  });
+
+  it.each([
+    ['lsblk'],
+    ['git stash'],
+    ['ls && rm x'.replace('rm', 'echo')],
+    ['ls; echo $(id)'],
+    ['ls `id`'],
+    ['ls > out.txt'],
+    ['ls &'],
+    ['FOO=1 ls'],
+    ['ls "unbalanced'],
+    ['ls "a\nb"'],
+    [''],
+  ])('asks the dashboard for %j', async cmd => {
+    const r = await run(cmd, perms);
+    expect(r.out).toEqual({ decision: 'deny', reason: 'asked' });
+    expect(r.asked).toBe(1);
+  });
+
+  it('deny rules win over allow rules without asking', async () => {
+    const r = await run('ls && rm -rf x', { permissions: { allow: ['command(ls)', 'command(rm)'], deny: ['command(rm)'] } });
+    expect(r.out).toEqual({ decision: 'deny', reason: 'denied by your agy settings (permissions.deny)' });
+    expect(r.asked).toBe(0);
+  });
+
+  it('asks when the settings file is missing or invalid', async () => {
+    expect((await run('ls', null)).asked).toBe(1);
+    expect((await run('ls', null, '{not json')).asked).toBe(1);
+    expect((await run('ls', null, '{"permissions": {"allow": "command(ls)"}}')).asked).toBe(1);
   });
 });
