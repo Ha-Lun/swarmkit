@@ -20,13 +20,20 @@ Setups whose binary is missing from `PATH` are disabled in the form with a
 "`<name>` not found on PATH" title; `GET /api/runtimes` reports the same
 availability (`{ claude, opencode, agy }`, cached for a minute).
 
-Permission prompts appear in the dashboard for all three. OpenCode asks for
-every bash command, including `agy-task` delegations, for the lead and its subagents. For agy, the plugin calls back to
+Permission prompts appear in the dashboard for all three. OpenCode and agy
+sessions follow the same permission settings as their CLIs on this machine.
+OpenCode uses your normal OpenCode config (opencode.json/jsonc, global and per
+agent); only what it would ask about in the terminal (`ask`) shows up as a
+prompt in the dashboard. For agy, commands matching `permissions.allow`
+(`command(<binary and subcommand>)` prefixes) in
+~/.gemini/antigravity-cli/settings.json run without asking,
+`permissions.deny` matches are refused, `cd` is always allowed, file reads and
+edits inside the folder are auto-allowed (edits to tool-config files such as
+.claude/, .github/, CLAUDE.md, package.json or hard-linked files always ask),
+and everything else asks in the dashboard. For agy, the plugin calls back to
 `POST /api/agy-hook/:id` — loopback plus the per-session `x-swarmkit-hook`
 secret only, never the fleet token — and the dashboard answers from your
-Allow/Deny clicks: file reads and edits inside the folder are auto-allowed,
-everything else asks (edits to tool-config files such as `.claude/`, `.github/`,
-`CLAUDE.md`, `package.json` or hard-linked files always ask). A hook that times
+Allow/Deny clicks. A hook that times
 out fails closed (the tool errors); if the hook process is killed outright agy
 may treat it as allow (accepted risk).
 

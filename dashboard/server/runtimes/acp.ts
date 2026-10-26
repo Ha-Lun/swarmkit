@@ -1,9 +1,10 @@
 // OpenCode ACP runtime adapter: drives `opencode acp` over stdio JSON-RPC and
 // yields Claude-SDK-shaped messages so SdkSessions can consume them like SDK output.
+// Sessions use the user's normal OpenCode config exactly like the `opencode` CLI:
+// the dashboard never injects OPENCODE_CONFIG_CONTENT (and strips any
+// caller-provided value) so only what the config marks `ask` reaches the
+// dashboard via session/request_permission.
 import { spawn } from 'node:child_process';
-import { readdirSync } from 'node:fs';
-import { homedir } from 'node:os';
-import path from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { QueryFn } from '../sdk/sessions.ts';
@@ -19,41 +20,6 @@ export interface AcpOptions {
   resumeId?: string;
   onSessionId?: (id: string) => void;
   env?: NodeJS.ProcessEnv;
-}
-
-const BUILTIN_AGENTS = ['build', 'plan', 'general', 'explore', 'lead-dev-hybrid'];
-
-/** Agent names OpenCode may load: built-ins plus the .md basenames in its agent dirs. */
-function agentNames(cwd: string, env: NodeJS.ProcessEnv): string[] {
-  const home = env.HOME ?? homedir();
-  const cfg = env.XDG_CONFIG_HOME || path.join(home, '.config');
-  const dirs = [
-    path.join(cfg, 'opencode', 'agent'),
-    path.join(cfg, 'opencode', 'agents'),
-    path.join(cwd, '.opencode', 'agent'),
-    path.join(cwd, '.opencode', 'agents'),
-  ];
-  const names = new Set(BUILTIN_AGENTS);
-  for (const dir of dirs) {
-    let entries: string[] = [];
-    try {
-      entries = readdirSync(dir);
-    } catch {
-      // Missing dir.
-    }
-    for (const f of entries) if (f.endsWith('.md') && f.length > 3) names.add(f.slice(0, -3));
-  }
-  return [...names];
-}
-
-/**
- * Every bash call asks, for the lead and for every subagent it can dispatch
- * (agent-level permission wins over the agent's own block and the global one).
- */
-export function buildOverlay(cwd: string, env: NodeJS.ProcessEnv): Rec {
-  const agent: Record<string, unknown> = {};
-  for (const name of agentNames(cwd, env)) agent[name] = { permission: { bash: { '*': 'ask' } } };
-  return { permission: { bash: { '*': 'ask' } }, agent };
 }
 
 const MAX_TOOL_TEXT = 20000;
@@ -176,7 +142,10 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
     const cmd = acpOpts.command ?? ['opencode', 'acp'];
     const cwd = typeof options.cwd === 'string' ? options.cwd : process.cwd();
     const baseEnv = acpOpts.env ?? process.env;
-    const env: NodeJS.ProcessEnv = { ...baseEnv, OPENCODE: '1', OPENCODE_CONFIG_CONTENT: JSON.stringify(buildOverlay(cwd, baseEnv)) };
+    // Use the user's normal OpenCode config: never inject OPENCODE_CONFIG_CONTENT,
+    // and strip any caller-provided value so the dashboard cannot alter permissions.
+    const env: NodeJS.ProcessEnv = { ...baseEnv, OPENCODE: '1' };
+    delete env.OPENCODE_CONFIG_CONTENT;
     delete env.CLAUDECODE;
 
     let child: ChildProcess | null = null;

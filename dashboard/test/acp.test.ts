@@ -1,11 +1,11 @@
 // Tests for the OpenCode ACP runtime adapter against a fake `opencode acp` child.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { buildOverlay, createAcpQuery, pickOptionId } from '../server/runtimes/acp.ts';
+import { createAcpQuery, pickOptionId } from '../server/runtimes/acp.ts';
 import type { AcpOptions } from '../server/runtimes/acp.ts';
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-acp-agent.mjs');
@@ -347,11 +347,20 @@ describe('acp runtime', () => {
     );
   });
 
-  it('passes OPENCODE=1, drops CLAUDECODE and sends the permission overlay', async () => {
+  it('passes OPENCODE=1, drops CLAUDECODE and never sets OPENCODE_CONFIG_CONTENT', async () => {
     const recordFile = makeRecord();
     const seen: Seen[] = [];
     const { options, abort } = sdkOpts(allowUse(seen));
-    const messages = await collectAll(createAcpQuery(acpOpts(recordFile)), 'echo-env', options, abort);
+    const messages = await collectAll(
+      createAcpQuery(
+        acpOpts(recordFile, {
+          env: { ...process.env, CLAUDECODE: '1', OPENCODE_CONFIG_CONTENT: '{"permission":{"bash":"allow"}}', FAKE_ACP_RECORD: recordFile },
+        }),
+      ),
+      'echo-env',
+      options,
+      abort,
+    );
     const envBlock = messages
       .flatMap(blocksOf)
       .find(b => b.type === 'text' && typeof b.text === 'string' && (b.text as string).startsWith('{'));
@@ -359,13 +368,9 @@ describe('acp runtime', () => {
     const envSeen = JSON.parse(envBlock!.text as string) as Rec;
     expect(envSeen.OPENCODE).toBe('1');
     expect(envSeen.CLAUDECODE).toBeNull();
-    const overlay = JSON.parse(envSeen.overlay as string) as Rec;
-    expect(overlay.permission).toEqual({ bash: { '*': 'ask' } });
-    const agents = overlay.agent as Record<string, Rec>;
-    for (const name of ['build', 'plan', 'general', 'explore', 'lead-dev-hybrid']) {
-      expect(agents[name]).toEqual({ permission: { bash: { '*': 'ask' } } });
-    }
-    expect(JSON.stringify(overlay)).not.toContain('allow');
+    // Even a caller-provided value must not reach the child: the dashboard
+    // never alters the user's OpenCode permission config.
+    expect(envSeen.overlay).toBeNull();
   });
 
   it('a child that exits at once ends the iterator with no unhandled rejection', async () => {
@@ -469,31 +474,6 @@ describe('acp runtime', () => {
       e => e.method === 'session/set_config_option' && JSON.stringify(e.params).includes('custom-model-2'),
     );
     expect(switches.length).toBeGreaterThanOrEqual(1);
-  });
-});
-
-describe('buildOverlay', () => {
-  it('adds an ask-bash entry for every agent file in the XDG and project agent dirs', () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'acp-overlay-'));
-    dirs.push(root);
-    const xdg = path.join(root, 'xdg');
-    const cwd = path.join(root, 'proj');
-    for (const d of [path.join(xdg, 'opencode', 'agents'), path.join(xdg, 'opencode', 'agent'), path.join(cwd, '.opencode', 'agents')]) mkdirSync(d, { recursive: true });
-    writeFileSync(path.join(xdg, 'opencode', 'agents', 'backend-specialist.md'), '');
-    writeFileSync(path.join(xdg, 'opencode', 'agent', 'old-one.md'), '');
-    writeFileSync(path.join(cwd, '.opencode', 'agents', 'proj-agent.md'), '');
-    writeFileSync(path.join(xdg, 'opencode', 'agents', 'notes.txt'), '');
-    const overlay = buildOverlay(cwd, { XDG_CONFIG_HOME: xdg }) as { permission: Rec; agent: Record<string, Rec> };
-    expect(overlay.permission).toEqual({ bash: { '*': 'ask' } });
-    for (const name of ['backend-specialist', 'old-one', 'proj-agent', 'build', 'plan', 'general', 'explore', 'lead-dev-hybrid']) {
-      expect(overlay.agent[name]).toEqual({ permission: { bash: { '*': 'ask' } } });
-    }
-    expect(overlay.agent.notes).toBeUndefined();
-  });
-
-  it('tolerates missing dirs', () => {
-    const overlay = buildOverlay('/nonexistent-cwd', { XDG_CONFIG_HOME: '/nonexistent-xdg' }) as { agent: Record<string, Rec> };
-    expect(Object.keys(overlay.agent).sort()).toEqual(['build', 'explore', 'general', 'lead-dev-hybrid', 'plan']);
   });
 });
 
