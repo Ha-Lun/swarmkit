@@ -1,7 +1,9 @@
 // New session dialog: prompt, folder picker (shared with the landing page), model.
+import { useRef } from 'react';
 import type { FleetBackend, Guard } from './api';
 import { AttachButton, AttachDropzone, AttachmentTray } from './AttachmentTray';
 import { filesFromPaste } from './attachments';
+import { useEnterToSend } from './enterToSend';
 import { FolderPicker } from './FolderPicker';
 import { AgentModelFields, useStartForm } from './StartForm';
 
@@ -31,6 +33,11 @@ export function NewSession({ backend, guard, onClose, onStarted }: Props) {
     submit,
   } = useStartForm(backend, guard, onStarted);
 
+  const promptRef = useRef<HTMLTextAreaElement>(null);
+  const promptEnter = useEnterToSend(promptRef, () => {
+    promptRef.current?.form?.requestSubmit();
+  });
+
   return (
     <div
       className="overlay"
@@ -48,15 +55,20 @@ export function NewSession({ backend, guard, onClose, onStarted }: Props) {
         <AttachDropzone onFiles={attachments.addFiles}>
           <textarea
             id="ns-prompt"
+            ref={promptRef}
             autoFocus
             rows={4}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              promptEnter.onKeyDown(e);
+            }}
             onPaste={(e) => {
               const files = filesFromPaste(e);
               if (files.length > 0) attachments.addFiles(files);
             }}
             placeholder="What should the fleet do?"
+            title="Enter to send, Shift+Enter for a new line"
           />
         </AttachDropzone>
         <AttachmentTray items={attachments.items} onRemove={attachments.remove} />

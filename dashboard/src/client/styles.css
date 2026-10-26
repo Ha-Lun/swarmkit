@@ -883,25 +883,6 @@ button {
   word-break: break-word;
 }
 
-.perm-q {
-  font-size: 11.5px;
-  color: var(--text);
-}
-
-.perm-answer {
-  width: 100%;
-  resize: vertical;
-  min-height: 44px;
-  padding: 6px 8px;
-  border: 1px solid var(--border-2);
-  border-radius: var(--radius-sm);
-  font: inherit;
-  font-size: 12px;
-  background: var(--surface);
-  color: var(--text);
-}
-.perm-answer:focus-visible { outline: 2px solid var(--violet-ring); outline-offset: 1px; }
-
 .perm-actions {
   display: flex;
   gap: 8px;
@@ -1119,31 +1100,58 @@ details.collapsible > summary:hover { color: var(--ink); }
   position: relative;
   flex: none;
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
   gap: 8px;
-  flex-wrap: wrap;
   padding: 10px calc(12px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom) + var(--kb, 0px)) calc(12px + env(safe-area-inset-left));
   background: var(--surface);
   border-top: 1px solid var(--border);
 }
-.composer textarea {
-  flex: 1 1 220px;
-  resize: none;
-  min-height: 38px;
-  max-height: 140px;
-  padding: 8px 10px;
-  border: 1px solid var(--border-2);
-  border-radius: var(--radius-sm);
+.composer-box {
+  position: relative;
   background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  padding: 8px 10px 6px;
+}
+.composer-box:focus-within {
+  border-color: var(--violet-ring);
+  box-shadow: 0 0 0 3px var(--violet-soft);
+}
+.composer-box textarea {
+  width: 100%;
+  padding: 4px 2px;
+  border: 0;
+  background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: none;
+  min-height: 24px;
+  max-height: 200px;
+  outline: none;
 }
-.composer textarea:focus-visible { outline: 2px solid var(--violet-ring); outline-offset: 1px; }
+.composer-box textarea::placeholder { color: var(--text-3); }
 .composer-actions {
   display: flex;
+  align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  padding-top: 4px;
+}
+.composer-actions .btn { min-height: 32px; }
+.composer-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+@media (max-width: 700px) {
+  .composer-hint { display: none; }
+}
+@media (pointer: coarse) {
+  .composer-box textarea { font-size: 16px; }
+  .composer-hint { display: none; }
+  .composer-actions .btn { min-height: 44px; }
 }
 
 .slash-menu {

@@ -1,10 +1,11 @@
 // Landing: hero, what's running, start form, usage slot and recent sessions.
 // Shown whenever no session is selected; on phones it is the first screen.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { SessionSummary, UsageReport, WorkerTask } from '../shared/types';
 import type { FleetBackend, Guard } from './api';
 import { AttachButton, AttachDropzone, AttachmentTray } from './AttachmentTray';
 import { filesFromPaste } from './attachments';
+import { useEnterToSend } from './enterToSend';
 import { fmtCost, fmtDuration, shortModel, UNTRUSTED_NOTICE } from './format';
 import { FolderPicker } from './FolderPicker';
 import { Logo, StarIcon } from './icons';
@@ -72,6 +73,10 @@ export function Landing({
 
   // Recent working dirs for one-tap repo chips (most recent first).
   const [cwds, setCwds] = useState<string[]>([]);
+  const landPromptRef = useRef<HTMLTextAreaElement>(null);
+  const landPromptEnter = useEnterToSend(landPromptRef, () => {
+    landPromptRef.current?.form?.requestSubmit();
+  });
   const { stars } = useStars(backend);
   // Starred folders first, then recent cwds not already starred.
   const repos = [...stars, ...cwds.filter((c) => !stars.includes(c))];
@@ -213,14 +218,19 @@ export function Landing({
               <AttachDropzone onFiles={attachments.addFiles}>
                 <textarea
                   id="land-prompt"
+                  ref={landPromptRef}
                   rows={3}
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
+                  onKeyDown={(e) => {
+                    landPromptEnter.onKeyDown(e);
+                  }}
                   onPaste={(e) => {
                     const files = filesFromPaste(e);
                     if (files.length > 0) attachments.addFiles(files);
                   }}
                   placeholder="What should the swarm do?"
+                  title="Enter to send, Shift+Enter for a new line"
                 />
               </AttachDropzone>
               <AttachmentTray items={attachments.items} onRemove={attachments.remove} />
