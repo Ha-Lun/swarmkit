@@ -135,6 +135,14 @@ interface PageSession {
   upsertThrottle: { lastSent: number; timer: NodeJS.Timeout | null };
 }
 
+/** The string-valued entries of a decision's answers object, undefined when there are none. */
+function stringAnswers(v: unknown): Record<string, string> | undefined {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, a] of Object.entries(v)) if (typeof a === 'string' && a.length > 0) out[k] = a;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 const firstPromptLine = (prompt: string): string => {
   const line = prompt.split('\n', 1)[0] ?? prompt;
   return line.length > 120 ? line.slice(0, 120) : line;
@@ -433,7 +441,11 @@ export class SdkSessions {
       } catch {
         return { allow: false, reason: 'permission check failed' };
       }
-      if (decision && decision.behavior === 'allow') return { allow: true };
+      if (decision && decision.behavior === 'allow') {
+        // A question's answers travel back so the agy bridge can phrase them for the model.
+        const answers = req.tool === 'AskUserQuestion' ? stringAnswers((decision as { updatedInput?: { answers?: unknown } }).updatedInput?.answers) : undefined;
+        return answers ? { allow: true, answers } : { allow: true };
+      }
       const message = (decision as { message?: unknown }).message;
       return typeof message === 'string' && message ? { allow: false, reason: message } : { allow: false };
     });
@@ -498,6 +510,7 @@ export class SdkSessions {
         sessionId: session.id,
         nodeId: ownerOf(session.tree, toolUseID),
         tool: toolName,
+        kind: toolName === 'AskUserQuestion' ? 'question' : toolName === 'ExitPlanMode' ? 'plan' : 'tool',
         ...(toolUseID ? { toolUseId: toolUseID } : {}),
         input,
         ...(title ? { title } : {}),

@@ -87,6 +87,11 @@ export interface PermissionRequest {
   /** The node whose tool call asks (found from the tool_use_id), 'root' if unknown. */
   nodeId: string;
   tool: string;
+  /**
+   * What the request is, set by the server: 'question' (AskUserQuestion: answers go back
+   * in the decision), 'plan' (ExitPlanMode: approve or send feedback), 'tool' (everything else).
+   */
+  kind?: 'question' | 'plan' | 'tool';
   toolUseId?: string;
   input: Record<string, unknown>;
   /** The SDK's prompt sentence, e.g. "Claude wants to read foo.txt", when present. */

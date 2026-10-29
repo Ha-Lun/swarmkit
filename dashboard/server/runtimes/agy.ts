@@ -36,6 +36,8 @@ export interface AgyHookRequest {
 interface AgyHookDecision {
   allow: boolean;
   reason?: string;
+  /** Answers to an AskUserQuestion request, keyed by question text. */
+  answers?: Record<string, string>;
 }
 
 export interface AgyHookResponse {
@@ -44,6 +46,54 @@ export interface AgyHookResponse {
 }
 
 type Raw = Record<string, unknown>;
+
+const MAX_QUESTIONS = 4;
+const MAX_OPTIONS = 10;
+const MAX_QUESTION_TEXT = 500;
+const MAX_OPTION_TEXT = 100;
+const MAX_ANSWER_TEXT = 2000;
+
+const clip = (v: string, n: number): string => (v.length > n ? v.slice(0, n) : v);
+
+/**
+ * agy's ask_question args ({questions:[{question, options:[string], is_multi_select}]}) as the
+ * AskUserQuestion input the dashboard shows, or undefined when the payload is not usable.
+ * Model-controlled: counts and lengths are capped.
+ */
+export function agyQuestions(args: Raw): { questions: Raw[] } | undefined {
+  if (!Array.isArray(args.questions) || args.questions.length === 0) return undefined;
+  const questions: Raw[] = [];
+  for (const q of args.questions.slice(0, MAX_QUESTIONS)) {
+    const o = asObj(q);
+    if (typeof o.question !== 'string' || o.question.length === 0) return undefined;
+    const options: Raw[] = [];
+    if (Array.isArray(o.options)) {
+      for (const opt of o.options.slice(0, MAX_OPTIONS)) {
+        const label = typeof opt === 'string' ? opt : asObj(opt).label;
+        if (typeof label === 'string' && label.length > 0) options.push({ label: clip(label, MAX_OPTION_TEXT) });
+      }
+    }
+    questions.push({
+      question: clip(o.question, MAX_QUESTION_TEXT),
+      header: 'Question',
+      multiSelect: o.is_multi_select === true,
+      options,
+    });
+  }
+  return { questions };
+}
+
+/** The deny reason that hands the user's answers (or a skip) back to the agy model. */
+export function agyAnswerReason(questions: Raw[], answers: Record<string, string> | undefined): string {
+  const parts: string[] = [];
+  for (const q of questions) {
+    const a = typeof q.question === 'string' ? answers?.[q.question] : undefined;
+    if (a) parts.push(`${JSON.stringify(q.question)} \u2192 ${JSON.stringify(clip(a, MAX_ANSWER_TEXT))}`);
+  }
+  return parts.length > 0
+    ? `The user answered your question(s): ${parts.join('; ')}. Treat these as the final answers and continue; do not ask again.`
+    : 'The user skipped the question; continue without an answer.';
+}
 
 type HookHandler = (req: AgyHookRequest, signal?: AbortSignal) => Promise<AgyHookDecision>;
 
@@ -537,6 +587,16 @@ export class AgyHookBridge {
       !args || typeof args !== 'object' || Array.isArray(args)
     ) {
       return deny(400, 'bad hook body');
+    }
+    // ask_question becomes a question request; its answer returns as a deny reason (allow means skipped).
+    const asked = toolCall.name === 'ask_question' ? agyQuestions(args as Raw) : undefined;
+    if (asked) {
+      try {
+        const decision = await handler({ tool: 'AskUserQuestion', input: asked, toolUseId: `${conv}:${step}` }, signal);
+        return { status: 200, json: { decision: 'deny', reason: agyAnswerReason(asked.questions, decision.allow ? decision.answers : undefined) } };
+      } catch {
+        return deny(200, 'hook handler failed');
+      }
     }
     const mapped = mapTool(toolCall.name, args as Raw);
     mapped.input.raw = boundedRaw(args as Raw);

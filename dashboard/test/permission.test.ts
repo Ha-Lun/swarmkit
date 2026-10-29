@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { answerFor, fallbackQuestionTexts, parseAskQuestions } from '../src/client/Permission';
+import { answerFor, fallbackQuestionTexts, parseAskQuestions, planRejectMessage } from '../src/client/Permission';
 
 const opt = (label: string, description = 'd') => ({ label, description });
 
@@ -73,5 +73,18 @@ describe('fallbackQuestionTexts', () => {
     expect(fallbackQuestionTexts(askInput([null, 42, {}, { question: 7 }, { question: '' }, { question: 'Ok?' }]))).toEqual(['Ok?']);
     expect(fallbackQuestionTexts({})).toEqual([]);
     expect(fallbackQuestionTexts(undefined)).toEqual([]);
+  });
+});
+
+describe('planRejectMessage', () => {
+  it('wraps trimmed feedback for the model', () => {
+    expect(planRejectMessage('  use a smaller scope \n')).toBe(
+      'Keep planning. Feedback from the user: use a smaller scope',
+    );
+  });
+
+  it('falls back to a plain rejection when feedback is blank', () => {
+    expect(planRejectMessage('')).toBe('The user rejected the plan; keep planning.');
+    expect(planRejectMessage('   \n ')).toBe('The user rejected the plan; keep planning.');
   });
 });

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { createAcpQuery, pickOptionId } from '../server/runtimes/acp.ts';
+import { createAcpQuery, elicitationContent, parseElicitation, pickOptionId } from '../server/runtimes/acp.ts';
 import type { AcpOptions } from '../server/runtimes/acp.ts';
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-acp-agent.mjs');
@@ -494,4 +494,122 @@ describe('pickOptionId', () => {
     expect(pickOptionId([opts[0]], ['reject_once', 'reject_always'])).toBeUndefined();
     expect(pickOptionId('x', ['reject_once'])).toBeUndefined();
   });
+});
+
+/** Answers the AskUserQuestion that an elicitation becomes with `decide`, recording what canUseTool saw. */
+const askUse = (seen: Seen[], decide: (input: Record<string, unknown>) => unknown): NonNullable<Options['canUseTool']> =>
+  (async (toolName, input, opts) => {
+    seen.push({ toolName, input, ...(opts.toolUseID ? { toolUseID: opts.toolUseID } : {}) });
+    return decide(input);
+  }) as NonNullable<Options['canUseTool']>;
+
+const elicitationResult = (recordFile: string): Rec | undefined => readRecord(recordFile).find(e => e.method === 'elicitation-result');
+
+describe('acp elicitation', () => {
+  it('advertises the form elicitation capability', async () => {
+    const recordFile = makeRecord();
+    const { options, abort } = sdkOpts(allowUse([]));
+    await collectAll(createAcpQuery(acpOpts(recordFile)), 'do work', options, abort);
+    const init = readRecord(recordFile).find(e => e.method === 'initialize');
+    expect(((init?.params as Rec).clientCapabilities as Rec).elicitation).toEqual({ form: {} });
+  });
+
+  it('turns the form into one AskUserQuestion and maps the answers back to consts', async () => {
+    const recordFile = makeRecord();
+    const seen: Seen[] = [];
+    const { options, abort } = sdkOpts(askUse(seen, () => ({
+      behavior: 'allow',
+      updatedInput: { answers: { 'Color?': 'Blue', 'Which letters?': 'Alpha, Beta, gamma', 'How many?': '3', 'Are you sure?': 'yes' } },
+    })));
+    const messages = await collectAll(createAcpQuery(acpOpts(recordFile)), 'elicit', options, abort);
+    expect(typesOf(messages).at(-1)).toBe('result');
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.toolName).toBe('AskUserQuestion');
+    expect(seen[0]!.toolUseID).toBe('tc_q');
+    expect(seen[0]!.input).toEqual({
+      questions: [
+        { question: 'Color?', header: 'Color', multiSelect: false, options: [{ label: 'Red', description: 'the Red' }, { label: 'Blue', description: 'the Blue' }] },
+        { question: 'Which letters?', header: 'Letters', multiSelect: true, options: [{ label: 'Alpha' }, { label: 'Beta, gamma' }, { label: 'Delta' }] },
+        { question: 'How many?', header: 'Count', multiSelect: false, options: [] },
+        { question: 'Are you sure?', header: 'Sure', multiSelect: false, options: [] },
+      ],
+    });
+    expect(elicitationResult(recordFile)?.result).toEqual({ action: 'accept', content: { q0: 'blue', q1: ['a', 'b'], q2: 3, q3: true } });
+  });
+
+  it('puts typed text in q<i>_custom, without the choice it would override', async () => {
+    const recordFile = makeRecord();
+    const { options, abort } = sdkOpts(askUse([], () => ({
+      behavior: 'allow',
+      updatedInput: { answers: { 'Color?': 'Green', 'Which letters?': 'Alpha, something else' } },
+    })));
+    await collectAll(createAcpQuery(acpOpts(recordFile)), 'elicit', options, abort);
+    expect(elicitationResult(recordFile)?.result).toEqual({
+      action: 'accept',
+      content: { q0_custom: 'Green', q1_custom: 'Alpha, something else' },
+    });
+  });
+
+  it('a skipped question accepts with empty content instead of declining', async () => {
+    const recordFile = makeRecord();
+    const { options, abort } = sdkOpts(askUse([], () => ({ behavior: 'deny', message: 'The user skipped the question' })));
+    const messages = await collectAll(createAcpQuery(acpOpts(recordFile)), 'elicit', options, abort);
+    expect(elicitationResult(recordFile)?.result).toEqual({ action: 'accept', content: {} });
+    expect(((messages.at(-1) as unknown as Rec).subtype)).toBe('success');
+  });
+
+  it('rejects a form with an unsupported field type', async () => {
+    const recordFile = makeRecord();
+    const seen: Seen[] = [];
+    const { options, abort } = sdkOpts(askUse(seen, () => ({ behavior: 'allow' })));
+    await collectAll(createAcpQuery(acpOpts(recordFile)), 'elicit-unknown', options, abort);
+    expect(seen).toHaveLength(0);
+    expect((elicitationResult(recordFile)?.error as Rec).code).toBe(-32602);
+  });
+
+  it('rejects a form with more than four questions', async () => {
+    const recordFile = makeRecord();
+    const seen: Seen[] = [];
+    const { options, abort } = sdkOpts(askUse(seen, () => ({ behavior: 'allow' })));
+    await collectAll(createAcpQuery(acpOpts(recordFile)), 'elicit-big', options, abort);
+    expect(seen).toHaveLength(0);
+    expect((elicitationResult(recordFile)?.error as Rec).code).toBe(-32602);
+  });
+});
+
+describe('parseElicitation / elicitationContent', () => {
+  const schema = (properties: Rec): Rec => ({ mode: 'form', requestedSchema: { type: 'object', properties } });
+  const opts = (n: number): Rec[] => Array.from({ length: n }, (_v, i) => ({ const: `v${i}`, title: `L${i}` }));
+
+  it('rejects more than ten options, non-form modes and empty schemas', () => {
+    expect(typeof parseElicitation(schema({ q0: { type: 'string', oneOf: opts(11) } }))).toBe('string');
+    expect(typeof parseElicitation({ mode: 'url', requestedSchema: { properties: {} } })).toBe('string');
+    expect(typeof parseElicitation(schema({}))).toBe('string');
+    expect(typeof parseElicitation({})).toBe('string');
+  });
+
+  it('caps long strings and keeps question texts unique', () => {
+    const long = 'x'.repeat(5000);
+    const parsed = parseElicitation(schema({
+      q0: { type: 'string', title: 'A very long header', description: long, oneOf: [{ const: 'a', title: long }] },
+      q1: { type: 'string', title: 'Same', description: long },
+    }));
+    if (typeof parsed === 'string') throw new Error(parsed);
+    const [first, second] = parsed.input.questions;
+    expect(first!.header).toBe('A very long ');
+    expect(first!.question.length).toBe(500);
+    expect(first!.options[0]!.label.length).toBe(100);
+    expect(second!.question).not.toBe(first!.question);
+  });
+
+  it('uses the text as q<i> when the schema has no _custom field, and ignores unusable numbers', () => {
+    const parsed = parseElicitation(schema({ q0: choice(), q1: { type: 'integer', description: 'N' } }));
+    if (typeof parsed === 'string') throw new Error(parsed);
+    expect(elicitationContent(parsed, { 'Pick?': 'Other thing', N: '2.5' })).toEqual({ q0: 'Other thing' });
+    expect(elicitationContent(parsed, undefined)).toEqual({});
+  });
+
+  function choice(): Rec {
+    return { type: 'string', description: 'Pick?', oneOf: [{ const: 'x', title: 'X' }] };
+  }
 });

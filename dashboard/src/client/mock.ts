@@ -553,6 +553,23 @@ export function createMockBackend(): FleetBackend {
     if (!askPerm) scheduleCompletion(!allow);
   };
 
+  let planPerm: { id: string } | null = null;
+  const resolvePlan = (allow: boolean, message?: string) => {
+    if (!planPerm) return;
+    const id = planPerm.id;
+    planPerm = null;
+    const list = permLists.get(s1.id)!;
+    const idx = list.findIndex((r) => r.id === id);
+    const req = idx >= 0 ? list[idx]! : null;
+    if (idx >= 0) list.splice(idx, 1);
+    emit?.({ type: 'permission.resolved', sessionId: s1.id, id, allow });
+    s1.status = list.length > 0 ? 'waiting' : 'running';
+    s1.pendingPermissions = list.length;
+    bumpSession(s1.id);
+    const target = req ? (nodeMaps.get(s1.id)!.get(req.nodeId) ?? root) : root;
+    pushEvent(target, 'permission', `ExitPlanMode ${allow ? 'approved' : 'rejected'}${message ? `: “${message}”` : ''}`);
+  };
+
   let askPerm: { id: string } | null = null;
   const resolveAsk = (allow: boolean, message?: string, answers?: Record<string, string>) => {
     if (!askPerm) return;
@@ -804,6 +821,28 @@ A claim with a footnote.[^1]
       }
     }, 30000);
     timers.add(autoAsk);
+  });
+
+  // scripted ExitPlanMode on the main session node (stays open for the user to decide)
+  at(20000, () => {
+    const req: PermissionRequest = {
+      id: uid('perm'),
+      sessionId: s1.id,
+      nodeId: root.id,
+      tool: 'ExitPlanMode',
+      kind: 'plan',
+      input: {
+        plan: '## Plan: pricing page\n\n1. Add a `PricingGrid` component with three tiers\n2. Wire the annual toggle to `usePricing()`\n3. Cover tier switching with tests\n\n| Step | Owner |\n| --- | --- |\n| Grid | frontend-specialist |\n| Tests | test-writer |\n\nSee [the spec](https://example.com/spec).',
+      },
+      title: 'Claude wants to exit plan mode',
+      createdAt: Date.now(),
+    };
+    permLists.get(s1.id)!.push(req);
+    emit?.({ type: 'permission.request', request: req });
+    s1.status = 'waiting';
+    s1.pendingPermissions = permLists.get(s1.id)!.length;
+    bumpSession(s1.id);
+    planPerm = { id: req.id };
   });
 
   // ---- crowded demo tree: leaf pills, one wrapped audit group, one nested backend ----
@@ -1164,6 +1203,7 @@ A claim with a footnote.[^1]
       s.resumable = true;
       pendingPerm = null;
       askPerm = null;
+      planPerm = null;
       permLists.get(sessionId)?.splice(0);
       bumpSession(sessionId);
       return Promise.resolve({ ok: true });
@@ -1171,6 +1211,7 @@ A claim with a footnote.[^1]
     decide: (permissionId, allow, message, answers) => {
       if (pendingPerm?.id === permissionId) resolvePermission(allow, message, answers);
       else if (askPerm?.id === permissionId) resolveAsk(allow, message, answers);
+      else if (planPerm?.id === permissionId) resolvePlan(allow, message);
       return Promise.resolve({ ok: true });
     },
     agents: (_cwd) =>

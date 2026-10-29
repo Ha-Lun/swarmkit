@@ -527,6 +527,56 @@ describe('AgyHookBridge', () => {
   });
 });
 
+describe('AgyHookBridge ask_question', () => {
+  const ask = { questions: [{ question: 'Pick a color', options: ['Red', 'Blue'], is_multi_select: false }, { question: 'Letters?', options: ['A', 'B'], is_multi_select: true }] };
+
+  it('maps ask_question to an AskUserQuestion request and returns the answers as a deny reason', async () => {
+    const seen: AgyHookRequest[] = [];
+    const bridge = new AgyHookBridge();
+    bridge.register('q1', async req => {
+      seen.push(req);
+      return { allow: true, answers: { 'Pick a color': 'Blue', 'Letters?': 'A, B' } };
+    });
+    const res = await bridge.handle('q1', bridgeBody('ask_question', ask));
+    expect(seen).toEqual([{
+      tool: 'AskUserQuestion',
+      toolUseId: 'c1:3',
+      input: { questions: [
+        { question: 'Pick a color', header: 'Question', multiSelect: false, options: [{ label: 'Red' }, { label: 'Blue' }] },
+        { question: 'Letters?', header: 'Question', multiSelect: true, options: [{ label: 'A' }, { label: 'B' }] },
+      ] },
+    }]);
+    expect(res.status).toBe(200);
+    expect(res.json.decision).toBe('deny');
+    expect(res.json.reason).toContain('The user answered your question(s): "Pick a color" \u2192 "Blue"; "Letters?" \u2192 "A, B"');
+  });
+
+  it('never allows: a skip, an allow without answers and a deny all say skipped', async () => {
+    const bridge = new AgyHookBridge();
+    for (const decision of [{ allow: false, reason: 'whatever' }, { allow: true }, { allow: true, answers: { other: 'x' } }]) {
+      bridge.register('q2', async () => decision);
+      const res = await bridge.handle('q2', bridgeBody('ask_question', ask));
+      expect(res.json).toEqual({ decision: 'deny', reason: 'The user skipped the question; continue without an answer.' });
+    }
+  });
+
+  it('caps questions and options, and falls back to the generic path for unusable payloads', async () => {
+    const seen: AgyHookRequest[] = [];
+    const bridge = new AgyHookBridge();
+    bridge.register('q3', async req => {
+      seen.push(req);
+      return { allow: false };
+    });
+    const many = Array.from({ length: 9 }, (_v, i) => ({ question: `q${i}`, options: Array.from({ length: 30 }, (_w, j) => `o${j}`) }));
+    await bridge.handle('q3', bridgeBody('ask_question', { questions: many }));
+    const questions = (seen[0]!.input as { questions: Array<{ options: unknown[] }> }).questions;
+    expect(questions).toHaveLength(4);
+    expect(questions[0]!.options).toHaveLength(10);
+    await bridge.handle('q3', bridgeBody('ask_question', { questions: [{ options: ['a'] }] }));
+    expect(seen[1]!.tool).not.toBe('AskUserQuestion');
+  });
+});
+
 describe('agy-hook.py command permissions from agy settings', () => {
   async function run(cmd: string, settings: unknown | null, raw?: string) {
     const file = path.join(scratch, `agy-settings-${Math.random().toString(36).slice(2)}.json`);

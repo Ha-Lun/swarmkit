@@ -1,9 +1,11 @@
 // Inline permission decision panel inside a node card.
-import { useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useMemo, useRef, useState } from 'react';
 import type { PermissionRequest } from '../shared/types';
 import { permissionSummary } from './format';
 import { WarnIcon } from './icons';
 import './permission.css';
+
+const Markdown = lazy(() => import('./Markdown').then((m) => ({ default: m.Markdown })));
 
 interface Props {
   request: PermissionRequest;
@@ -31,6 +33,13 @@ interface QuestionState {
 
 const OTHER_KEY = '__other__';
 const SKIP_MESSAGE = 'The user skipped the question';
+const PLAN_REJECT_MESSAGE = 'The user rejected the plan; keep planning.';
+
+/** Deny message sent to the model when the user rejects a plan, with optional feedback. */
+export function planRejectMessage(feedback: string): string {
+  const text = feedback.trim();
+  return text ? `Keep planning. Feedback from the user: ${text}` : PLAN_REJECT_MESSAGE;
+}
 
 export function parseAskQuestions(input: unknown): AskQuestion[] {
   if (!input || typeof input !== 'object') return [];
@@ -95,8 +104,15 @@ export function PermissionPanel({ request, onDecide }: Props) {
   // the same tick cannot slip through while `busy` is still false.
   const submittedRef = useRef(false);
 
-  const isPlan = request.tool === 'ExitPlanMode';
-  const isAsk = request.tool === 'AskUserQuestion';
+  const [rejecting, setRejecting] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const rejectBtnRef = useRef<HTMLButtonElement>(null);
+  const feedbackRef = useRef<HTMLTextAreaElement>(null);
+
+  // Prefer the server-provided kind; fall back to the tool name for older payloads.
+  const kind = request.kind;
+  const isPlan = kind ? kind === 'plan' : request.tool === 'ExitPlanMode';
+  const isAsk = kind ? kind === 'question' : request.tool === 'AskUserQuestion';
   const plan = typeof request.input?.plan === 'string' ? (request.input.plan as string) : '';
 
   const askQuestions = useMemo(
@@ -163,6 +179,20 @@ export function PermissionPanel({ request, onDecide }: Props) {
     }
   };
 
+  const openReject = () => {
+    setRejecting(true);
+    // Focus after the textarea mounts.
+    requestAnimationFrame(() => feedbackRef.current?.focus());
+  };
+
+  const cancelReject = () => {
+    setRejecting(false);
+    setFeedback('');
+    requestAnimationFrame(() => rejectBtnRef.current?.focus());
+  };
+
+  const sendFeedback = () => go(false, planRejectMessage(feedback));
+
   const setPicked = (qi: number, label: string, multi: boolean) => {
     const base = ensureStates();
     const next = base.map((s, i) => (i === qi ? { ...s, picked: [...s.picked] } : s));
@@ -204,7 +234,13 @@ export function PermissionPanel({ request, onDecide }: Props) {
 
       {isPlan ? (
         <div className="perm-plan" role="region" aria-label="Proposed plan" tabIndex={0}>
-          <pre>{plan || permissionSummary(request)}</pre>
+          {plan ? (
+            <Suspense fallback={<pre className="perm-plan-raw">{plan}</pre>}>
+              <Markdown className="perm-plan-md" text={plan} />
+            </Suspense>
+          ) : (
+            <pre className="perm-plan-raw">{permissionSummary(request)}</pre>
+          )}
         </div>
       ) : usePicker ? (
         <div className="perm-questions">
@@ -310,6 +346,39 @@ export function PermissionPanel({ request, onDecide }: Props) {
         </p>
       )}
 
+      {isPlan && rejecting ? (
+        <div className="perm-feedback">
+          <label className="perm-feedback-label" htmlFor={`perm-fb-${request.id}`}>
+            What should change?
+          </label>
+          <textarea
+            id={`perm-fb-${request.id}`}
+            ref={feedbackRef}
+            className="perm-answer"
+            rows={3}
+            value={feedback}
+            disabled={busy}
+            onChange={(e) => setFeedback(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                cancelReject();
+              } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !(e.nativeEvent as KeyboardEvent).isComposing) {
+                e.preventDefault();
+                sendFeedback();
+              }
+            }}
+          />
+          <div className="perm-actions">
+            <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={sendFeedback}>
+              Send feedback
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={cancelReject}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
       <div className="perm-actions">
         {usePicker ? (
           <>
@@ -349,17 +418,30 @@ export function PermissionPanel({ request, onDecide }: Props) {
             >
               {isPlan ? 'Approve' : 'Allow'}
             </button>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              disabled={busy}
-              onClick={() => go(false, isPlan ? 'Plan rejected from the dashboard' : 'Denied from the dashboard')}
-            >
-              {isPlan ? 'Reject' : 'Deny'}
-            </button>
+            {isPlan ? (
+              <button
+                ref={rejectBtnRef}
+                type="button"
+                className="btn btn-ghost btn-sm"
+                disabled={busy}
+                onClick={openReject}
+              >
+                Reject with feedback
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                disabled={busy}
+                onClick={() => go(false, 'Denied from the dashboard')}
+              >
+                Deny
+              </button>
+            )}
           </>
         )}
       </div>
+      )}
     </div>
   );
 }

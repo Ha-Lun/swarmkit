@@ -294,6 +294,36 @@ describe('runtime sessions', () => {
     await expect(sdk.handleAgyHook(id, secret, body)).resolves.toMatchObject({ status: 403 });
   });
 
+  it('an agy ask_question reaches the dashboard as a question and the answer returns as a deny reason', async () => {
+    const { events, agySeen, sdk } = rig();
+    const id = sdk.start({ prompt: 'agy asks', cwd: homeDir, runtime: 'agy' });
+    await vi.waitFor(() => {
+      expect(sdk.get(id)?.status).toBe('done');
+    });
+    const secret = agySeen[0]?.hook?.secret ?? '';
+    const body = { conversationId: 'c1', stepIdx: 7, toolCall: { name: 'ask_question', args: { questions: [{ question: 'Pick a color', options: ['Red', 'Blue'], is_multi_select: false }] } } };
+
+    const pending = sdk.handleAgyHook(id, secret, body);
+    await vi.waitFor(() => {
+      expect(events.some(e => e.type === 'permission.request')).toBe(true);
+    });
+    const request = (events.find(e => e.type === 'permission.request') as { request: { id: string; tool: string; kind?: string; nodeId: string } }).request;
+    expect(request).toMatchObject({ tool: 'AskUserQuestion', kind: 'question', nodeId: 'root' });
+    expect(sdk.decide(request.id, { allow: true, answers: { 'Pick a color': 'Blue' } })).toBe(true);
+    const res = await pending;
+    expect(res.json.decision).toBe('deny');
+    expect(res.json.reason).toContain('"Pick a color" \u2192 "Blue"');
+
+    const skipped = sdk.handleAgyHook(id, secret, body);
+    await vi.waitFor(() => {
+      expect(events.filter(e => e.type === 'permission.request')).toHaveLength(2);
+    });
+    const second = (events.filter(e => e.type === 'permission.request')[1] as { request: { id: string } }).request;
+    expect(sdk.decide(second.id, { allow: false, message: 'skip' })).toBe(true);
+    expect((await skipped).json).toEqual({ decision: 'deny', reason: 'The user skipped the question; continue without an answer.' });
+    sdk.stop(id);
+  });
+
   it('mints a fresh hook secret per generation and drops the previous one', async () => {
     const { agySeen, sdk } = rig();
     const id = sdk.start({ prompt: 'first', cwd: homeDir, runtime: 'agy' });

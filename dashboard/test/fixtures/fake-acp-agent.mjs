@@ -30,6 +30,25 @@ const modelValue = () => configuredModel ?? MODEL;
 let turnSeq = 0;
 const hanging = [];
 const pendingPerm = new Map();
+const pendingElicit = new Map();
+
+const choice = (title, consts) => ({ type: 'string', title, description: `${title}?`, oneOf: consts.map(c => ({ const: c.toLowerCase(), title: c, description: `the ${c}` })) });
+const elicitSchemas = {
+  elicit: {
+    type: 'object',
+    properties: {
+      q0: choice('Color', ['Red', 'Blue']),
+      q0_custom: { type: 'string', title: 'Color (other)', description: 'Type your own answer' },
+      q1: { type: 'array', title: 'Letters', description: 'Which letters?', items: { anyOf: [{ const: 'a', title: 'Alpha' }, { const: 'b', title: 'Beta, gamma' }, { const: 'c', title: 'Delta' }] } },
+      q1_custom: { type: 'string', title: 'Letters (other)' },
+      q2: { type: 'integer', title: 'Count', description: 'How many?' },
+      q3: { type: 'boolean', title: 'Sure', description: 'Are you sure?' },
+    },
+    required: [],
+  },
+  'elicit-unknown': { type: 'object', properties: { q0: { type: 'object', title: 'Nested' } } },
+  'elicit-big': { type: 'object', properties: Object.fromEntries([0, 1, 2, 3, 4].map(i => [`q${i}`, choice(`Q${i}`, ['A', 'B'])])) },
+};
 
 const configOptions = () => [{ id: 'model', name: 'Model', currentValue: modelValue() }];
 
@@ -76,6 +95,17 @@ function handlePrompt(id, params) {
     reply(id, { stopReason: 'completed', usage: { inputTokens: 1, outputTokens: 1, cachedReadTokens: 0 } });
     return;
   }
+  if (Object.hasOwn(elicitSchemas, text)) {
+    const elicitId = 2000 + (turnSeq += 1);
+    pendingElicit.set(elicitId, { promptId: id, sessionId });
+    send({
+      jsonrpc: '2.0',
+      id: elicitId,
+      method: 'elicitation/create',
+      params: { mode: 'form', sessionId, toolCallId: 'tc_q', message: 'Questions', requestedSchema: elicitSchemas[text] },
+    });
+    return;
+  }
   const n = (turnSeq += 1);
   const thinkId = `m_think_${n}`;
   const split = text === 'split-message';
@@ -115,6 +145,13 @@ function handlePrompt(id, params) {
 }
 
 function handlePermissionResponse(id, msg) {
+  const elicit = pendingElicit.get(Number(id));
+  if (elicit) {
+    pendingElicit.delete(Number(id));
+    record({ method: 'elicitation-result', result: msg?.result ?? null, error: msg?.error ?? null });
+    reply(elicit.promptId, { stopReason: msg?.result?.action === 'cancel' ? 'cancelled' : 'end_turn', usage: { inputTokens: 1, outputTokens: 1, cachedReadTokens: 0 } });
+    return;
+  }
   const turn = pendingPerm.get(Number(id));
   if (!turn) return;
   pendingPerm.delete(Number(id));
@@ -150,6 +187,7 @@ function handle(msg) {
     if (msg.id !== undefined) {
       const params = msg.method === undefined ? {} : (msg.params ?? {});
       if (msg.method === 'initialize') {
+        record({ method: 'initialize', params });
         reply(msg.id, { protocolVersion: 1, agentCapabilities: { loadSession: true, promptCapabilities: { image: false } } });
       } else if (msg.method === 'session/new') {
         record({ method: 'session/new', params });
