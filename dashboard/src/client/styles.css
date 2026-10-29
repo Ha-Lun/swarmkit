@@ -540,103 +540,141 @@ button {
   margin-top: 8px;
 }
 
-/* ---------- swarm map ---------- */
+/* ---------- swarm map (canvas) ---------- */
 
-.swarm-map {
+.canvas {
+  position: relative;
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   background: transparent;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
 }
-.swarm-inner {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-8);
-  width: 100%;
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: var(--space-8) var(--space-6) var(--space-9);
+.canvas.is-dragging { cursor: grabbing; }
+
+.canvas-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
 }
 
-.map-empty {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-3);
+.edges {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.edges path {
+  fill: none;
+  stroke: var(--border-2);
+  stroke-width: 1;
+}
+.edges path.is-live { stroke: var(--teal); }
+
+/* wrapped sibling grids sit on a faint band, no outline and no label */
+.node-band {
+  position: absolute;
+  background: var(--surface);
+  opacity: 0.6;
+  border-radius: var(--radius);
+  pointer-events: none;
 }
 
-.map-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-.map-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-2);
-}
-.map-head::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--border);
-}
-.map-head-count {
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0;
-  color: var(--text-3);
-  font-variant-numeric: tabular-nums;
-}
-.map-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  margin-left: calc(var(--space-2) * -1);
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
-  color: inherit;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-.map-toggle:hover { background: var(--surface-2); }
-.map-toggle:focus-visible { outline: 2px solid var(--violet-ring); outline-offset: 2px; }
-.map-toggle-chevron { transition: transform 0.15s ease; transform: rotate(-90deg); }
-.map-toggle[aria-expanded='true'] .map-toggle-chevron { transform: rotate(0deg); }
-.map-toggle-hint {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--text-3);
-}
-
-.map-grid,
-.map-rows {
+.canvas-nodes {
   list-style: none;
   margin: 0;
   padding: 0;
 }
-.map-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: var(--space-3);
+.canvas-nodes > .node {
+  position: absolute;
+  width: 240px;
+  animation: node-in 0.2s ease both;
 }
-.map-grid > li { display: flex; }
-.map-grid > li > .agent-card { flex: 1; min-width: 0; }
-.map-rows[hidden] { display: none; }
+@keyframes node-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.canvas-note {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-6);
+  transform: translateX(-50%);
+  margin: 0;
+  max-width: min(440px, calc(100% - var(--space-8)));
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+.canvas-tools {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: var(--shadow-card);
+  cursor: auto;
+}
+.canvas-tool-text {
+  height: 44px;
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.canvas-tool-text:hover { background: var(--surface-2); color: var(--ink); }
+.canvas-tool-text:focus-visible,
+.canvas-tools .icon-btn:focus-visible { outline: 2px solid var(--violet-ring); outline-offset: 2px; }
+
+/* Fold control: a small chip straddling the bottom edge of a parent whose done children are shown */
+.fold-chip {
+  position: absolute;
+  right: var(--space-3);
+  bottom: 0;
+  transform: translateY(50%);
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 24px;
+  padding: 0 var(--space-2) 0 var(--space-1);
+  border: 1px solid var(--border-2);
+  border-radius: 999px;
+  background: var(--surface-2);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.fold-chip:hover { border-color: var(--border-3); color: var(--ink); }
+.fold-chip:focus-visible { outline: 2px solid var(--violet-ring); outline-offset: 2px; }
+.fold-chip-icon { transform: rotate(180deg); }
+
+@media (max-width: 700px) {
+  .canvas-tools { top: auto; bottom: var(--space-3); }
+  .canvas-note { bottom: 80px; }
+}
 
 /* ---------- agent cards (map) ---------- */
 
@@ -673,11 +711,7 @@ button {
 .agent-card.st-stopped::before { background: var(--fail); }
 .agent-card.st-done::before,
 .agent-card.st-idle::before { background: var(--border-3); }
-.agent-card.is-root { padding-block: var(--space-4); }
-.is-root > .agent-top > .agent-meta { padding-left: 0; flex: none; }
-.is-root > .agent-top { align-items: center; }
-.is-root > .agent-top > .agent-name { flex: 0 1 auto; }
-.is-root > .agent-top > .agent-time { margin-left: auto; }
+.agent-card.is-root { border-color: var(--border-2); }
 
 .agent-top {
   display: flex;
@@ -802,7 +836,7 @@ button {
 }
 .agent-desc {
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
   overflow-wrap: anywhere;
@@ -813,69 +847,6 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.st-error > .agent-activity,
-.st-stopped > .agent-activity {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
-/* done rows: one line each, a hairline between */
-.agent-row {
-  display: grid;
-  grid-template-columns: 16px minmax(120px, 220px) minmax(0, 1fr) auto auto;
-  align-items: center;
-  column-gap: var(--space-3);
-  width: 100%;
-  padding: var(--space-2) var(--space-3);
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
-  background: transparent;
-  font: inherit;
-  text-align: left;
-  color: var(--text);
-  cursor: pointer;
-  transition: background-color 0.15s ease;
-}
-.map-rows li:last-child .agent-row { border-bottom-color: transparent; }
-.agent-row:hover { background: var(--surface-2); }
-.agent-row:focus-visible { outline: 2px solid var(--violet-ring); outline-offset: -2px; }
-.agent-row.is-open { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--violet); }
-.agent-row .agent-name { font-size: 13px; flex-wrap: nowrap; }
-.agent-row .agent-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; }
-.agent-row-desc,
-.agent-row-model {
-  font-size: 12px;
-  line-height: 20px;
-  color: var(--text-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.agent-row-model { font-family: var(--mono); font-size: 11px; text-align: right; }
-.agent-row > .agent-time { min-width: 56px; text-align: right; }
-.agent-row .agent-state { align-self: center; }
-
-@media (max-width: 700px) {
-  .swarm-inner { padding: var(--space-5) var(--space-4) var(--space-9); gap: var(--space-6); }
-  .map-grid { grid-template-columns: 1fr; }
-  .agent-row {
-    grid-template-columns: 16px minmax(0, 1fr) auto;
-    grid-template-areas:
-      'state name time'
-      '. desc model';
-    row-gap: 2px;
-  }
-  .agent-row > .agent-state { grid-area: state; }
-  .agent-row > .agent-name { grid-area: name; }
-  .agent-row > .agent-time { grid-area: time; justify-self: end; min-width: 0; }
-  .agent-row > .agent-row-desc { grid-area: desc; }
-  .agent-row > .agent-row-model { grid-area: model; justify-self: end; }
 }
 
 /* shared base for plain cards outside the map (Workers view) */
@@ -981,10 +952,13 @@ button {
   .node-activity.is-live {
     animation: none;
   }
-  .map-toggle-chevron,
   .agent-card,
-  .agent-row {
+  .canvas-tool-text,
+  .fold-chip {
     transition: none;
+  }
+  .canvas-nodes > .node {
+    animation: none;
   }
   .node-activity.is-live {
     background: none;

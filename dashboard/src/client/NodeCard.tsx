@@ -1,8 +1,8 @@
-// Map entries for one agent: a full card (running / needs attention / root) and a compact
-// one-line row (done). Pure display + permission panel slot; layout lives in Tree.
+// Canvas entries: a compact card per agent and the folded "Done (n)" node. Pure display plus
+// the permission panel slot; position and pan/zoom live in Tree.
 // A matching WorkerTask (tree-linked worker) overlays its live data.
 import type { AgentNode, PermissionRequest, Status, WorkerTask } from '../shared/types';
-import { agentDescription, agentLabel, agentState } from './chat';
+import { agentDescription, agentLabel, agentState, doneNames, type DoneGroup } from './chat';
 import { elapsedMs, fmtDuration, modelLabel, workerElapsedS } from './format';
 import { PermissionPanel } from './Permission';
 
@@ -16,8 +16,6 @@ interface Props {
   onOpen: () => void;
   onDecide: (permission: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>) => void;
 }
-
-type RowProps = Omit<Props, 'permission' | 'onDecide'>;
 
 const STATE_LABEL: Record<Status, string> = {
   running: 'Running',
@@ -41,13 +39,18 @@ interface NodeView {
   ariaLabel: string;
 }
 
+/** Elapsed ms for a node; a matching worker task knows better than the tree node. */
+export function nodeElapsedMs(node: AgentNode, now: number, task: WorkerTask | undefined, workersAt: number): number {
+  return task ? workerElapsedS(task, now, workersAt) * 1000 : elapsedMs(node, now);
+}
+
 function nodeView(node: AgentNode, now: number, task: WorkerTask | undefined, workersAt: number, hasPermission: boolean): NodeView {
   const state = agentState(node, task, hasPermission);
   const isWorker = node.kind === 'worker' && node.worker != null;
   const name = isWorker ? node.worker!.slug : agentLabel(node);
   const description = agentDescription(node, task);
   const activity = task?.lastTool ?? node.lastActivity ?? '';
-  const elapsed = task ? workerElapsedS(task, now, workersAt) * 1000 : elapsedMs(node, now);
+  const elapsed = nodeElapsedMs(node, now, task, workersAt);
   // Tool calls the user refused in the dashboard (workers report their own count via the task).
   const denied = task
     ? task.denied
@@ -135,19 +138,9 @@ function LaneBadge({ lane }: { lane: 'agy' | 'opencode' }) {
 export function NodeCard({ node, now, permission, open, task, workersAt, onOpen, onDecide, root = false }: Props & { root?: boolean }) {
   const v = nodeView(node, now, task, workersAt, permission != null);
   const live = v.state === 'running' || v.state === 'waiting';
-  const showActivity = v.activity !== '' && (live || v.state === 'error' || v.state === 'stopped');
-
-  const meta = (
-    <div className="agent-meta">
-      {v.model && <span className="chip">{v.model}</span>}
-      {v.agent && <span className="chip chip-agent">{v.agent}</span>}
-      {v.denied > 0 && <span className="agent-denied" title={`${v.denied} tool calls denied`}>⚠ {v.denied} denied</span>}
-      {(v.state === 'error' || v.state === 'stopped' || v.state === 'waiting') && (
-        <span className="agent-state-label">{STATE_LABEL[v.state]}</span>
-      )}
-    </div>
-  );
-
+  // Live work shows what it is doing; finished and failed agents keep just the description.
+  const showActivity = v.activity !== '' && live;
+  const showState = v.state === 'error' || v.state === 'stopped' || v.state === 'waiting';
   const full = [v.description, v.activity].filter(Boolean).join('\n');
 
   return (
@@ -169,11 +162,15 @@ export function NodeCard({ node, now, permission, open, task, workersAt, onOpen,
           {v.lane && <LaneBadge lane={v.lane} />}
           <span className="agent-name-text">{v.name}</span>
         </button>
-        {root && meta}
         <span className="agent-time">{fmtDuration(v.elapsed)}</span>
       </div>
 
-      {!root && meta}
+      <div className="agent-meta">
+        {v.model && <span className="chip">{v.model}</span>}
+        {v.agent && <span className="chip chip-agent">{v.agent}</span>}
+        {v.denied > 0 && <span className="agent-denied" title={`${v.denied} tool calls denied`}>⚠ {v.denied} denied</span>}
+        {showState && <span className="agent-state-label">{STATE_LABEL[v.state]}</span>}
+      </div>
       {v.description && <p className="agent-desc">{v.description}</p>}
       {showActivity && <p className="agent-activity">{v.activity}</p>}
 
@@ -188,30 +185,34 @@ export function NodeCard({ node, now, permission, open, task, workersAt, onOpen,
   );
 }
 
-/** One-line row for a finished agent: status dot, name, description, model, duration. */
-export function NodeRow({ node, now, open, task, workersAt, onOpen }: RowProps) {
-  const v = nodeView(node, now, task, workersAt, false);
+const NAMES_SHOWN = 3;
+
+/** The folded "Done (n)" node: one button that shows the finished children of a parent in place. */
+export function DoneCard({ group, elapsed, onExpand }: { group: DoneGroup; elapsed: number; onExpand: () => void }) {
+  const names = doneNames(group.members);
+  const n = group.members.length;
+  const shown = names.slice(0, NAMES_SHOWN).join(', ');
+  const more = names.length > NAMES_SHOWN ? ` +${names.length - NAMES_SHOWN}` : '';
+  const time = fmtDuration(elapsed);
   return (
-    <button
-      type="button"
-      className={`agent-row st-${v.state}${open ? ' is-open' : ''}`}
-      aria-haspopup="dialog"
-      aria-expanded={open}
-      aria-label={v.ariaLabel}
-      onClick={onOpen}
-    >
-      <span className="agent-state" aria-hidden="true">
-        <StateIcon state={v.state} />
-      </span>
-      <span className="agent-name">
-        {v.lane && <LaneBadge lane={v.lane} />}
-        <span className="agent-name-text">{v.name}</span>
-      </span>
-      <span className="agent-row-desc" title={v.description}>
-        {v.description}
-      </span>
-      <span className="agent-row-model">{v.model}</span>
-      <span className="agent-time">{fmtDuration(v.elapsed)}</span>
-    </button>
+    <div className="agent-card st-done is-group">
+      <div className="agent-top">
+        <span className="agent-state" aria-hidden="true">
+          <StateIcon state="done" />
+        </span>
+        <button
+          type="button"
+          className="agent-name agent-open"
+          aria-expanded="false"
+          aria-label={`Done, ${n} agents, ${time}. Show them`}
+          title={names.join(', ')}
+          onClick={onExpand}
+        >
+          <span className="agent-name-text">Done ({n})</span>
+        </button>
+        <span className="agent-time">{time}</span>
+      </div>
+      <p className="agent-desc">{shown + more}</p>
+    </div>
   );
 }

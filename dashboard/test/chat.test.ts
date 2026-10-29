@@ -1,6 +1,6 @@
 // Tests for the chat transcript helpers.
 import { describe, expect, it } from 'vitest';
-import { agentDescription, agentState, agentTabs, buildChat, groupMapNodes, isSafeImageUrl, matchWorkerTask, orbColor, orbLabel, orbState, stripImageMarkers } from '../src/client/chat.ts';
+import { agentDescription, agentState, agentTabs, buildChat, doneNames, foldDone, isSafeImageUrl, matchWorkerTask, orbColor, orbLabel, orbState, stripImageMarkers } from '../src/client/chat.ts';
 import type { ActivityEvent, AgentNode, PermissionRequest, WorkerTask } from '../src/shared/types.ts';
 import type { OrbState } from 'thinking-orbs';
 
@@ -520,7 +520,7 @@ describe('agentDescription', () => {
   });
 });
 
-describe('agentState and groupMapNodes', () => {
+describe('agentState', () => {
   const task = (state: WorkerTask['state']) => ({ state }) as WorkerTask;
 
   it('lets a worker task override the node status', () => {
@@ -530,45 +530,121 @@ describe('agentState and groupMapNodes', () => {
     expect(agentState(node({ status: 'stopped' }), task('unfinished'))).toBe('stopped');
   });
 
-  it('sends an unfinished worker to Needs attention, not Done', () => {
-    const a = node({ id: 'u', status: 'running' });
-    const out = groupMapNodes([mainNode(), a], () => task('unfinished'), new Set());
-    expect(out.attention.map((n) => n.id)).toEqual(['u']);
-    expect(out.done).toEqual([]);
-  });
-
   it('turns a live node with a pending permission into waiting', () => {
     expect(agentState(node({ status: 'running' }), undefined, true)).toBe('waiting');
     expect(agentState(node({ status: 'done' }), undefined, true)).toBe('done');
   });
+})
 
-  it('splits into root, running, attention and done, newest first', () => {
-    const root = mainNode();
-    const a = node({ id: 'a', status: 'running', startedAt: 10 });
-    const b = node({ id: 'b', status: 'running', startedAt: 30 });
-    const c = node({ id: 'c', status: 'error', startedAt: 20 });
-    const d = node({ id: 'd', status: 'stopped', startedAt: 40 });
-    const e = node({ id: 'e', status: 'done', startedAt: 5 });
-    const f = node({ id: 'f', status: 'done', startedAt: 50 });
-    const g = node({ id: 'g', status: 'idle', startedAt: 1 });
-    const h = node({ id: 'h', status: 'done', startedAt: 2 });
-    const g1 = groupMapNodes([e, root, a, c, b, d, f, g, h], (n) => (n.id === 'h' ? task('not-ok') : undefined), new Set(['e']));
-    expect(g1.root).toBe(root);
-    expect(g1.running.map((n) => n.id)).toEqual(['b', 'a']);
-    expect(g1.attention.map((n) => n.id)).toEqual(['d', 'c', 'h']);
-    expect(g1.done.map((n) => n.id)).toEqual(['f', 'e', 'g']);
+describe('foldDone', () => {
+  const kid = (id: string, status: AgentNode['status'], parentId = 'root', startedAt = 10) =>
+    node({ id, status, parentId, startedAt });
+  const ids = (nodes: AgentNode[]) => nodes.map((n) => n.id).sort();
+  const none = new Set<string>();
+
+  it('folds finished siblings into one done:<parent> node and counts them', () => {
+    const r = foldDone([mainNode(), kid('a', 'done'), kid('b', 'idle'), kid('c', 'done')], none);
+    expect(ids(r.nodes)).toEqual(['done:root', 'root']);
+    expect(r.nodes.find((n) => n.id === 'done:root')).toMatchObject({ parentId: 'root', status: 'done' });
+    const g = r.groups.get('done:root')!;
+    expect(g.members.map((m) => m.id).sort()).toEqual(['a', 'b', 'c']);
+    expect(r.foldable.get('root')).toBe(3);
   });
 
-  it('puts a node with a pending permission into running', () => {
-    const waiting = node({ id: 'w', status: 'idle' });
-    const live = node({ id: 'l', status: 'running' });
-    const out = groupMapNodes([mainNode(), waiting, live], () => undefined, new Set(['l']));
-    expect(out.running.map((n) => n.id)).toEqual(['l']);
-    expect(out.done.map((n) => n.id)).toEqual(['w']);
+  it('never folds running, waiting, failed or stopped agents', () => {
+    const nodes = [
+      mainNode(),
+      kid('run', 'running'),
+      kid('wait', 'waiting'),
+      kid('bad', 'error'),
+      kid('stop', 'stopped'),
+      kid('d1', 'done'),
+      kid('d2', 'done'),
+    ];
+    const r = foldDone(nodes, none);
+    expect(ids(r.nodes)).toEqual(['bad', 'done:root', 'root', 'run', 'stop', 'wait']);
+    expect(r.groups.get('done:root')!.members.map((m) => m.id).sort()).toEqual(['d1', 'd2']);
   });
 
-  it('copes with no nodes and no root', () => {
-    const out = groupMapNodes([], () => undefined, new Set());
-    expect(out).toEqual({ root: undefined, running: [], attention: [], done: [] });
+  it('leaves a lone finished child as a card', () => {
+    const r = foldDone([mainNode(), kid('a', 'done'), kid('b', 'running')], none);
+    expect(ids(r.nodes)).toEqual(['a', 'b', 'root']);
+    expect(r.groups.size).toBe(0);
+    expect(r.foldable.size).toBe(0);
+  });
+
+  it('keeps a done parent that has a running child, and its finished siblings fold around it', () => {
+    const nodes = [
+      mainNode(),
+      kid('mid', 'done'),
+      kid('live', 'running', 'mid'),
+      kid('x', 'done'),
+      kid('y', 'done'),
+    ];
+    const r = foldDone(nodes, none);
+    expect(ids(r.nodes)).toEqual(['done:root', 'live', 'mid', 'root']);
+    expect(r.groups.get('done:root')!.members.map((m) => m.id).sort()).toEqual(['x', 'y']);
+  });
+
+  it('folds a finished subtree whole, counting its descendants', () => {
+    const nodes = [mainNode(), kid('p', 'done'), kid('c1', 'done', 'p'), kid('c2', 'done', 'p')];
+    const r = foldDone(nodes, none);
+    expect(ids(r.nodes)).toEqual(['done:root', 'root']);
+    expect(r.groups.get('done:root')!.members).toHaveLength(3);
+  });
+
+  it('shows the children of an expanded parent in place and keeps the rest folded', () => {
+    const nodes = [mainNode(), kid('p', 'done'), kid('c1', 'done', 'p'), kid('c2', 'done', 'p'), kid('q', 'done')];
+    const open = foldDone(nodes, new Set(['root']));
+    // root expanded: p and q are cards, p's own children stay folded under done:p.
+    expect(ids(open.nodes)).toEqual(['done:p', 'p', 'q', 'root']);
+    expect(open.groups.get('done:p')!.members.map((m) => m.id).sort()).toEqual(['c1', 'c2']);
+    const all = foldDone(nodes, new Set(['root', 'p']));
+    expect(ids(all.nodes)).toEqual(['c1', 'c2', 'p', 'q', 'root']);
+    expect(all.groups.size).toBe(0);
+    expect(all.foldable.size).toBe(2);
+  });
+
+  it('expands per parent', () => {
+    const nodes = [
+      mainNode(),
+      kid('a', 'running'),
+      kid('b', 'running'),
+      kid('a1', 'done', 'a'),
+      kid('a2', 'done', 'a'),
+      kid('b1', 'done', 'b'),
+      kid('b2', 'done', 'b'),
+    ];
+    const r = foldDone(nodes, new Set(['a']));
+    expect(ids(r.nodes)).toEqual(['a', 'a1', 'a2', 'b', 'done:b', 'root']);
+  });
+
+  it('lets a worker task decide the state', () => {
+    const nodes = [mainNode(), kid('a', 'done'), kid('b', 'done'), kid('c', 'done')];
+    const r = foldDone(nodes, none, (n) => (n.id === 'b' ? 'error' : n.status));
+    expect(ids(r.nodes)).toEqual(['b', 'done:root', 'root']);
+  });
+
+  it('copes with no nodes, a lone root and parent cycles', () => {
+    expect(foldDone([], none).nodes).toEqual([]);
+    expect(foldDone([mainNode()], none).nodes.map((n) => n.id)).toEqual(['root']);
+    const cyc = foldDone([mainNode(), kid('a', 'done', 'b'), kid('b', 'done', 'a')], none);
+    expect(ids(cyc.nodes)).toContain('root');
+    // every agent is either drawn or inside a folded group
+    const accounted = new Set([...cyc.nodes.map((n) => n.id), ...[...cyc.groups.values()].flatMap((g) => g.members.map((m) => m.id))]);
+    expect([...accounted]).toEqual(expect.arrayContaining(['a', 'b', 'root']));
+  });
+});
+
+describe('doneNames', () => {
+  it('lists distinct names with repeat counts in first-seen order', () => {
+    const w = node({ kind: 'worker', agentType: 'agy-task', worker: { lane: 'agy', slug: 'docs' } });
+    const names = doneNames([
+      node({ agentType: 'explore' }),
+      w,
+      node({ agentType: 'explore' }),
+      node({ agentType: 'tester' }),
+    ]);
+    expect(names).toEqual(['explore ×2', 'docs', 'tester']);
   });
 });
