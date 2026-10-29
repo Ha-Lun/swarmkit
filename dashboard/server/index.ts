@@ -287,6 +287,32 @@ async function main(): Promise<void> {
     }
   }
 
+  /** POST /api/sessions/:id/restart: restart a page-owned Claude session's process on the same id. */
+  async function restartSession(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
+    const raw = requireObject(await readJson(req, MAX_IMAGE_BODY));
+    let body: { text?: string };
+    try {
+      const text = raw.text;
+      if (text === undefined || text === null || (typeof text === 'string' && text.trim().length === 0)) {
+        body = {};
+      } else {
+        body = { text: validMessageText(text, undefined) };
+      }
+    } catch (err) {
+      if (err instanceof ValidationError) return sendJson(res, 400, { error: err.message });
+      throw err;
+    }
+    try {
+      const sessionId = await sdk.restart(id, body);
+      return sendJson(res, 200, { sessionId });
+    } catch (err) {
+      if (err instanceof SessionError) {
+        return sendJson(res, err.status, { error: err.message });
+      }
+      throw err;
+    }
+  }
+
   /** GET /api/sessions/:id/images/:name: a stored pasted image of a known session. */
   async function serveImage(req: IncomingMessage, res: ServerResponse, id: string, name: string): Promise<void> {
     let sessionId: string;
@@ -597,6 +623,9 @@ async function main(): Promise<void> {
       }
       if (parts.length === 4 && parts[3] === 'resume' && method === 'POST') {
         return resumeSession(req, res, id);
+      }
+      if (parts.length === 4 && parts[3] === 'restart' && method === 'POST') {
+        return restartSession(req, res, id);
       }
       if (parts.length === 4 && parts[3] === 'commands') {
         if (method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
