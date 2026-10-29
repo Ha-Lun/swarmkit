@@ -2,8 +2,11 @@
 import type {
   AgentsResponse,
   CommandsResponse,
+  DecideOptions,
   DirListing,
   ImageAttachment,
+  PermissionDecisionBody,
+  PresenceBody,
   RuntimesResponse,
   ServerEvent,
   SessionDetail,
@@ -69,7 +72,13 @@ export interface FleetBackend {
   resume(sessionId: string, body: ResumeSessionBody): Promise<StartSessionResponse>;
   /** Stop the session and resume it; `text` is sent as the first message when given. */
   restart(sessionId: string, text?: string): Promise<{ sessionId: string }>;
-  decide(permissionId: string, allow: boolean, message?: string, answers?: Record<string, string>): Promise<unknown>;
+  decide(
+    permissionId: string,
+    allow: boolean,
+    message?: string,
+    answers?: Record<string, string>,
+    opts?: DecideOptions,
+  ): Promise<unknown>;
   agents(cwd: string): Promise<AgentsResponse>;
   cwds(): Promise<string[]>;
   dirs(path?: string, hidden?: boolean): Promise<DirListing>;
@@ -80,6 +89,8 @@ export interface FleetBackend {
   usage(refresh?: boolean): Promise<UsageReport>;
   runtimes(): Promise<RuntimesResponse>;
   commands(sessionId: string): Promise<CommandsResponse>;
+  /** Tab heartbeat; `keepalive` lets the final hidden report survive page unload. */
+  presence(body: PresenceBody, keepalive?: boolean): Promise<unknown>;
   connect(
     onEvent: (ev: ServerEvent) => void,
     onStatus: (connected: boolean) => void,
@@ -111,15 +122,19 @@ export const apiBackend: FleetBackend = {
       method: 'POST',
       body: JSON.stringify(text === undefined ? {} : { text }),
     }),
-  decide: (permissionId, allow, message, answers) => {
-    const body: { allow: boolean; message?: string; answers?: Record<string, string> } = { allow };
+  decide: (permissionId, allow, message, answers, opts) => {
+    const body: PermissionDecisionBody = { allow };
     if (message !== undefined) body.message = message;
     if (answers !== undefined) body.answers = answers;
+    if (opts?.mode !== undefined) body.mode = opts.mode;
+    if (opts?.terminal) body.terminal = true;
     return request(`/api/permissions/${encodeURIComponent(permissionId)}`, {
       method: 'POST',
       body: JSON.stringify(body),
     });
   },
+  presence: (body, keepalive) =>
+    request('/api/presence', { method: 'POST', body: JSON.stringify(body), ...(keepalive ? { keepalive: true } : {}) }),
   agents: (cwd) => request(`/api/agents?cwd=${encodeURIComponent(cwd)}`),
   cwds: () => request('/api/cwds'),
   dirs: (path, hidden) => {

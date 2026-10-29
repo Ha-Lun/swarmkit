@@ -1,6 +1,6 @@
 // Inline permission decision panel inside a node card.
 import { lazy, Suspense, useMemo, useRef, useState } from 'react';
-import type { PermissionRequest } from '../shared/types';
+import type { DecideOptions, PermissionRequest } from '../shared/types';
 import { permissionSummary } from './format';
 import { WarnIcon } from './icons';
 import './permission.css';
@@ -9,7 +9,9 @@ const Markdown = lazy(() => import('./Markdown').then((m) => ({ default: m.Markd
 
 interface Props {
   request: PermissionRequest;
-  onDecide: (allow: boolean, message?: string, answers?: Record<string, string>) => void;
+  /** The session's project is untrusted: plan approval offers manual mode only. */
+  untrusted?: boolean;
+  onDecide: (allow: boolean, message?: string, answers?: Record<string, string>, opts?: DecideOptions) => void;
 }
 
 interface AskOption {
@@ -33,12 +35,40 @@ interface QuestionState {
 
 const OTHER_KEY = '__other__';
 const SKIP_MESSAGE = 'The user skipped the question';
+const MAX_OPTIONS = 10;
 const PLAN_REJECT_MESSAGE = 'The user rejected the plan; keep planning.';
 
 /** Deny message sent to the model when the user rejects a plan, with optional feedback. */
 export function planRejectMessage(feedback: string): string {
   const text = feedback.trim();
   return text ? `Keep planning. Feedback from the user: ${text}` : PLAN_REJECT_MESSAGE;
+}
+
+export interface PlanChoice {
+  label: string;
+  title: string;
+  primary: boolean;
+  mode?: DecideOptions['mode'];
+}
+
+export const PLAN_MODE_HINT = 'Manual: every tool asks. Accept edits: file edits go through, other tools ask. Auto: no prompts.';
+export const UNTRUSTED_PLAN_NOTE = 'Untrusted project: mode stays manual.';
+
+/** Approve buttons for a plan, in display order; manual is primary, and untrusted projects get manual only. */
+export function planChoices(untrusted: boolean): PlanChoice[] {
+  if (untrusted) {
+    return [{ label: 'Approve', title: 'Approve and continue in manual mode: every tool asks', primary: true }];
+  }
+  return [
+    { label: 'Approve · manual', title: 'Approve and continue in manual mode: every tool asks', primary: true },
+    {
+      label: 'Approve · accept edits',
+      title: 'Approve and continue in accept-edits mode: file edits go through, other tools still ask',
+      primary: false,
+      mode: 'acceptEdits',
+    },
+    { label: 'Approve · auto mode', title: 'Approve and continue in auto mode: no per-tool prompts', primary: false, mode: 'auto' },
+  ];
 }
 
 export function parseAskQuestions(input: unknown): AskQuestion[] {
@@ -52,7 +82,7 @@ export function parseAskQuestions(input: unknown): AskQuestion[] {
     if (typeof r.question !== 'string' || !r.question.trim()) continue;
     if (!Array.isArray(r.options)) continue;
     const options: AskOption[] = [];
-    for (const o of r.options.slice(0, 4)) {
+    for (const o of r.options.slice(0, MAX_OPTIONS)) {
       if (!o || typeof o !== 'object') continue;
       const or = o as Record<string, unknown>;
       if (typeof or.label !== 'string' || !or.label.trim()) continue;
@@ -61,7 +91,8 @@ export function parseAskQuestions(input: unknown): AskQuestion[] {
       if (typeof or.preview === 'string' && or.preview) opt.preview = or.preview;
       options.push(opt);
     }
-    if (options.length === 0) continue;
+    // A question with no options at all is a text-only question; one whose options all failed to parse is dropped.
+    if (options.length === 0 && r.options.length > 0) continue;
     const q: AskQuestion = {
       question: r.question,
       multiSelect: r.multiSelect === true,
@@ -83,6 +114,11 @@ export function answerFor(s: QuestionState): string {
   return parts.join(', ');
 }
 
+/** A text-only question (no options) is answered by its textarea alone; others by picks plus "Other". */
+export function answerForQuestion(q: AskQuestion, s: QuestionState): string {
+  return q.options.length === 0 ? s.otherText.trim() : answerFor(s);
+}
+
 /** Raw question texts for the free-text fallback (skips missing/empty strings). */
 export function fallbackQuestionTexts(input: unknown): string[] {
   if (!input || typeof input !== 'object') return [];
@@ -97,7 +133,7 @@ export function fallbackQuestionTexts(input: unknown): string[] {
   return out;
 }
 
-export function PermissionPanel({ request, onDecide }: Props) {
+export function PermissionPanel({ request, untrusted = false, onDecide }: Props) {
   const [answer, setAnswer] = useState('');
   const [busy, setBusy] = useState(false);
   // Synchronous double-submit guard: set before setBusy so a second click in
@@ -143,19 +179,22 @@ export function PermissionPanel({ request, onDecide }: Props) {
     if (!usePicker) return null;
     const out: Record<string, string> = {};
     for (let i = 0; i < askQuestions.length; i++) {
-      const text = answerFor(effective[i] ?? { picked: [], otherOn: false, otherText: '' });
+      const text = answerForQuestion(askQuestions[i]!, effective[i] ?? { picked: [], otherOn: false, otherText: '' });
       if (!text.trim()) return null;
       out[askQuestions[i]!.question] = text.trim();
     }
     return out;
   }, [usePicker, askQuestions, effective]);
 
-  const go = (allow: boolean, message?: string, ans?: Record<string, string>) => {
+  const go = (allow: boolean, message?: string, ans?: Record<string, string>, opts?: DecideOptions) => {
     if (submittedRef.current) return;
     submittedRef.current = true;
     setBusy(true);
-    onDecide(allow, message, ans);
+    onDecide(allow, message, ans, opts);
   };
+
+  const isTerminal = request.terminal === true;
+  const answerInTerminal = () => go(false, undefined, undefined, { terminal: true });
 
   const submitPicker = () => {
     if (!answers) return;
@@ -256,6 +295,22 @@ export function PermissionPanel({ request, onDecide }: Props) {
                   {q.header ? <span className="perm-ask-chip">{q.header}</span> : null}
                   <span className="perm-ask-text">{q.question}</span>
                 </legend>
+                {q.options.length === 0 ? (
+                  <textarea
+                    className="perm-answer"
+                    aria-label={`Answer for: ${q.question}`}
+                    placeholder="Type your answer…"
+                    rows={2}
+                    value={st.otherText}
+                    onChange={(e) => setOtherText(qi, e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey && !(e.nativeEvent as KeyboardEvent).isComposing) {
+                        e.preventDefault();
+                        submitPicker();
+                      }
+                    }}
+                  />
+                ) : (
                 <div
                   className="perm-ask-opts"
                   role={q.multiSelect ? 'group' : 'radiogroup'}
@@ -309,6 +364,7 @@ export function PermissionPanel({ request, onDecide }: Props) {
                     ) : null}
                   </div>
                 </div>
+                )}
                 {selectedPreview ? (
                   <pre className="perm-ask-preview">{selectedPreview}</pre>
                 ) : null}
@@ -344,6 +400,10 @@ export function PermissionPanel({ request, onDecide }: Props) {
         <p className="perm-summary" title={permissionSummary(request)}>
           {permissionSummary(request)}
         </p>
+      )}
+
+      {isTerminal && (
+        <p className="perm-note">The terminal session is waiting for this answer.</p>
       )}
 
       {isPlan && rejecting ? (
@@ -408,17 +468,26 @@ export function PermissionPanel({ request, onDecide }: Props) {
           >
             Answer
           </button>
-        ) : (
+        ) : isPlan ? (
           <>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={busy}
-              onClick={() => go(true)}
-            >
-              {isPlan ? 'Approve' : 'Allow'}
-            </button>
-            {isPlan ? (
+            <p className="perm-hint" id={`perm-modes-${request.id}`}>
+              {untrusted ? UNTRUSTED_PLAN_NOTE : PLAN_MODE_HINT}
+            </p>
+            <div className="perm-choices" role="group" aria-label="Approve and continue in" aria-describedby={`perm-modes-${request.id}`}>
+              {planChoices(untrusted).map((c) => (
+                <button
+                  key={c.label}
+                  type="button"
+                  className={`btn ${c.primary ? 'btn-primary' : 'btn-ghost'} btn-sm`}
+                  disabled={busy}
+                  title={c.title}
+                  onClick={() => (c.mode ? go(true, undefined, undefined, { mode: c.mode }) : go(true))}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+            <div className="perm-choices">
               <button
                 ref={rejectBtnRef}
                 type="button"
@@ -428,17 +497,37 @@ export function PermissionPanel({ request, onDecide }: Props) {
               >
                 Reject with feedback
               </button>
-            ) : (
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                disabled={busy}
-                onClick={() => go(false, 'Denied from the dashboard')}
-              >
-                Deny
-              </button>
-            )}
+              {isTerminal && (
+                <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={answerInTerminal}>
+                  Answer in terminal
+                </button>
+              )}
+            </div>
           </>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={busy}
+              onClick={() => go(true)}
+            >
+              Allow
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={busy}
+              onClick={() => go(false, 'Denied from the dashboard')}
+            >
+              Deny
+            </button>
+          </>
+        )}
+        {isTerminal && !isPlan && (
+          <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={answerInTerminal}>
+            Answer in terminal
+          </button>
         )}
       </div>
       )}

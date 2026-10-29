@@ -1,6 +1,6 @@
 // Chat transcript for one agent: bubbles, tool rows, handoff cards, thinking indicator.
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
+import type { AgentNode, DecideOptions, PermissionRequest, WorkerTask } from '../shared/types';
 import { MAX_EVENTS } from '../shared/types';
 import { agentLabel, buildChat, isSafeImageUrl, matchWorkerTask, orbColor, orbLabel, orbState, stripImageMarkers } from './chat';
 import type { ChatItem } from './chat';
@@ -19,7 +19,9 @@ interface Props {
   workersAt: number;
   now: number;
   onOpenAgent: (nodeId: string) => void;
-  onDecide: (p: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>) => void;
+  onDecide: (p: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>, opts?: DecideOptions) => void;
+  /** The session's project is untrusted: plan approval offers manual mode only. */
+  untrusted?: boolean;
   onOpenWorkerLog?: (task: WorkerTask) => void;
 }
 
@@ -184,6 +186,7 @@ function HandoffCard({
   workersAt,
   onOpenAgent,
   onDecide,
+  untrusted,
 }: {
   child: AgentNode;
   task?: WorkerTask;
@@ -191,7 +194,8 @@ function HandoffCard({
   now: number;
   workersAt: number;
   onOpenAgent: (nodeId: string) => void;
-  onDecide: (p: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>) => void;
+  onDecide: (p: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>, opts?: DecideOptions) => void;
+  untrusted?: boolean;
 }) {
   const [showFull, setShowFull] = useState(false);
   const name = agentLabel(child);
@@ -257,13 +261,13 @@ function HandoffCard({
         </div>
       </div>
       {permission && (
-        <PermissionPanel key={permission.id} request={permission} onDecide={(allow, message, answers) => onDecide(permission, allow, message, answers)} />
+        <PermissionPanel key={permission.id} request={permission} untrusted={untrusted} onDecide={(allow, message, answers, opts) => onDecide(permission, allow, message, answers, opts)} />
       )}
     </div>
   );
 }
 
-export function ChatView({ node, nodes, permissions, workers, workersAt, now, onOpenAgent, onDecide, onOpenWorkerLog }: Props) {
+export function ChatView({ node, nodes, permissions, workers, workersAt, now, onOpenAgent, onDecide, untrusted, onOpenWorkerLog }: Props) {
   const children = nodes.filter((n) => n.parentId === node.id);
   const items = buildChat(node, children);
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -364,6 +368,7 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
                   workersAt={workersAt}
                   onOpenAgent={onOpenAgent}
                   onDecide={onDecide}
+                  untrusted={untrusted}
                 />
               );
             }
@@ -381,7 +386,7 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
             );
           })}
           {pendingForNode.map((p) => (
-            <PermissionPanel key={p.id} request={p} onDecide={(allow, message, answers) => onDecide(p, allow, message, answers)} />
+            <PermissionPanel key={p.id} request={p} untrusted={untrusted} onDecide={(allow, message, answers, opts) => onDecide(p, allow, message, answers, opts)} />
           ))}
           {thinking && (
             <div className="chat-thinking">

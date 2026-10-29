@@ -14,7 +14,7 @@ export interface TokenResult {
 
 function configBase(): string {
   const xdg = process.env.XDG_CONFIG_HOME?.trim();
-  return xdg ? path.resolve(xdg) : path.join(os.homedir(), '.config');
+  return xdg && path.isAbsolute(xdg) ? path.resolve(xdg) : path.join(os.homedir(), '.config');
 }
 
 /** Token file location: $XDG_CONFIG_HOME/swarmkit/token, default ~/.config/swarmkit/token. */

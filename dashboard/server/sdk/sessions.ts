@@ -130,6 +130,8 @@ interface PageSession {
   consumePromise: Promise<void> | null;
   /** True when the cwd's project settings are untrusted (only user settings are read). */
   untrustedProject: boolean;
+  /** The SDK session's current permission mode (seeded at startQuery, kept up to date from system messages). */
+  permissionMode?: NonNullable<Options['permissionMode']>;
   /** Terminal slash commands from the init message (filtered out of commands()). */
   terminalCommands?: Set<string>;
   upsertThrottle: { lastSent: number; timer: NodeJS.Timeout | null };
@@ -338,7 +340,7 @@ export class SdkSessions {
         forwardSubagentText: true,
         // The SDK defaults to 'default' when permissionMode is omitted (unlike the interactive CLI), so pass it explicitly.
         // Trusted: the terminal's mode (permissions.defaultMode, else auto); untrusted: always ask.
-        permissionMode: session.untrustedProject ? 'default' : terminalPermissionMode(),
+        permissionMode: (session.permissionMode = session.untrustedProject ? 'default' : terminalPermissionMode()),
         canUseTool: this.makeCanUseTool(session, generation),
         // A resumed session keeps its id and drops the fixed sessionId (the SDK continues the old one).
         ...(resume ? { resume: session.id } : { sessionId: session.id }),
@@ -471,7 +473,10 @@ export class SdkSessions {
           // Feed the latest-known plan limits to /api/usage.
           noteRateLimit((message as SDKRateLimitEvent).rate_limit_info);
         }
-        const init = message as unknown as { type?: unknown; subtype?: unknown; terminal_slash_commands?: unknown };
+        const init = message as unknown as { type?: unknown; subtype?: unknown; terminal_slash_commands?: unknown; permissionMode?: unknown };
+        if (init.type === 'system' && (init.subtype === 'init' || init.subtype === 'status') && typeof init.permissionMode === 'string') {
+          session.permissionMode = init.permissionMode as NonNullable<Options['permissionMode']>;
+        }
         if (init.type === 'system' && init.subtype === 'init' && Array.isArray(init.terminal_slash_commands)) {
           session.terminalCommands = new Set(
             init.terminal_slash_commands.filter((v): v is string => typeof v === 'string'),
@@ -559,8 +564,18 @@ export class SdkSessions {
       body.allow && body.answers && entry.request.tool === 'AskUserQuestion'
         ? { behavior: 'allow', updatedInput: { ...entry.request.input, answers: body.answers } }
         : body.allow
-          ? { behavior: 'allow', updatedInput: entry.request.input }
+          ? {
+              behavior: 'allow',
+              updatedInput: entry.request.input,
+              // A plan approval can pick the mode to continue in (applies to this session only);
+              // an untrusted project stays on 'default' (its settings files are attacker-controlled),
+              // and only a session actually in plan mode takes one.
+              ...(body.mode && entry.request.kind === 'plan' && !target.untrustedProject && target.permissionMode === 'plan'
+                ? { updatedPermissions: [{ type: 'setMode' as const, mode: body.mode, destination: 'session' as const }] }
+                : {}),
+            }
           : { behavior: 'deny', message: body.message || 'Denied in SwarmKit' };
+    if (result.behavior === 'allow' && result.updatedPermissions && body.mode) target.permissionMode = body.mode;
     this.emit({ type: 'permission.resolved', sessionId: target.id, id: permissionId, allow: body.allow });
     for (const event of setStatus(target.tree, entry.request.nodeId, 'running')) this.emit(event);
     this.scheduleUpsert(target);

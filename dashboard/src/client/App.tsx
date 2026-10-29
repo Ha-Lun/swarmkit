@@ -1,7 +1,7 @@
 // Top-level app: routing state and chrome (the backend is resolved in main.tsx).
 import { Component, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
-import type { PermissionRequest, SessionSummary, WorkerTask } from '../shared/types';
+import type { DecideOptions, PermissionRequest, SessionSummary, WorkerTask } from '../shared/types';
 import { ApiError, authenticate } from './api';
 import type { FleetBackend, Guard } from './api';
 import { Archive } from './Archive';
@@ -18,6 +18,7 @@ import { Landing } from './Landing';
 import { NewSession } from './NewSession';
 import { packInstallDone, RestartBanner } from './RestartBanner';
 import { TopBar } from './TopBar';
+import { startPresence } from './presence';
 import { initialState, nodeById, reducer } from './state';
 import { Tree } from './Tree';
 import { useUsage } from './Usage';
@@ -426,6 +427,9 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
     });
   }, [backend, guardSilent]);
 
+  // Tell the server this tab is visible (gates terminal prompts); the mock backend's presence() is a no-op.
+  useEffect(() => (authNeeded ? undefined : startPresence(backend)), [backend, authNeeded]);
+
   // Load (or retry) the selected session's detail.
   const detail = state.selectedId ? state.details[state.selectedId] : undefined;
   const selected = useMemo(
@@ -521,8 +525,8 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   );
 
   const decide = useCallback(
-    (p: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>) => {
-      void guardSilent(backend.decide(p.id, allow, message, answers));
+    (p: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>, opts?: DecideOptions) => {
+      void guardSilent(backend.decide(p.id, allow, message, answers, opts));
     },
     [backend, guardSilent],
   );
@@ -730,6 +734,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
               now={now}
               onOpenAgent={setActiveAgentId}
               onDecide={decide}
+              untrusted={selected?.untrustedProject === true}
               onOpenWorkerLog={(task) => setWorkerDrawerKey(workerKey(task))}
             />
           </>
@@ -744,6 +749,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
             openNodeId={drawerNodeId}
             onOpen={openNode}
             onDecide={decide}
+            untrusted={selected?.untrustedProject === true}
           />
         )}
 

@@ -1,7 +1,7 @@
 // Canvas entries: a compact card per agent and the folded "Done (n)" node. Pure display plus
 // the permission panel slot; position and pan/zoom live in Tree.
 // A matching WorkerTask (tree-linked worker) overlays its live data.
-import type { AgentNode, PermissionRequest, Status, WorkerTask } from '../shared/types';
+import type { AgentNode, DecideOptions, PermissionRequest, Status, WorkerTask } from '../shared/types';
 import { agentDescription, agentLabel, agentState, doneNames, orbColor, orbState, type DoneGroup } from './chat';
 import { elapsedMs, fmtDuration, modelLabel, workerElapsedS } from './format';
 import { Orb } from './Orb';
@@ -15,7 +15,8 @@ interface Props {
   task?: WorkerTask;
   workersAt: number;
   onOpen: () => void;
-  onDecide: (permission: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>) => void;
+  onDecide: (permission: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>, opts?: DecideOptions) => void;
+  untrusted?: boolean;
 }
 
 const STATE_LABEL: Record<Status, string> = {
@@ -129,7 +130,7 @@ function LaneBadge({ lane }: { lane: 'agy' | 'opencode' }) {
   return <span className={`badge lane-${lane}`}>{lane}</span>;
 }
 
-export function NodeCard({ node, now, permission, open, task, workersAt, onOpen, onDecide, root = false }: Props & { root?: boolean }) {
+export function NodeCard({ node, now, permission, open, task, workersAt, onOpen, onDecide, untrusted, root = false }: Props & { root?: boolean }) {
   const v = nodeView(node, now, task, workersAt, permission != null);
   const live = v.state === 'running' || v.state === 'waiting';
   // Live work shows what it is doing; finished and failed agents keep just the description.
@@ -176,7 +177,8 @@ export function NodeCard({ node, now, permission, open, task, workersAt, onOpen,
         <PermissionPanel
           key={permission.id}
           request={permission}
-          onDecide={(allow, message, answers) => onDecide(permission, allow, message, answers)}
+          untrusted={untrusted}
+          onDecide={(allow, message, answers, opts) => onDecide(permission, allow, message, answers, opts)}
         />
       )}
     </div>

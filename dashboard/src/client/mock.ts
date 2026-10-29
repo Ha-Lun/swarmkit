@@ -378,6 +378,64 @@ export function createMockBackend(): FleetBackend {
     ],
   });
 
+  // t5: a terminal session blocked on a plan and a text-only question relayed through the hook.
+  const t5: SessionSummary = {
+    id: 'mock-term-5',
+    source: 'terminal',
+    project: 'docs-site',
+    cwd: '/home/demo/work/docs-site',
+    title: 'claude "plan the changelog redesign"',
+    status: 'waiting',
+    startedAt: base - 600_000,
+    updatedAt: base - 5_000,
+    costUsd: 0.09,
+    nodeCount: 1,
+    pendingPermissions: 2,
+    resumable: false,
+  };
+  sessions.set(t5.id, t5);
+  nodeMaps.set(t5.id, new Map());
+  nodeMaps.get(t5.id)!.set('root', {
+    id: 'root',
+    sessionId: t5.id,
+    parentId: null,
+    kind: 'main',
+    agentType: 'main',
+    description: 'Plan the changelog redesign',
+    prompt: 'Plan the changelog redesign.',
+    status: 'waiting',
+    startedAt: t5.startedAt,
+    costUsd: t5.costUsd,
+    tokens: tu(6200, 1800),
+    toolCounts: {},
+    lastActivity: 'Waiting for your decision.',
+    events: [{ id: 't5-e1', ts: t5.startedAt, kind: 'user', summary: 'Plan the changelog redesign.' }],
+  });
+  permLists.set(t5.id, [
+    {
+      id: uid('perm'),
+      sessionId: t5.id,
+      nodeId: 'root',
+      tool: 'ExitPlanMode',
+      kind: 'plan',
+      terminal: true,
+      input: { plan: '## Plan: changelog redesign\n\n1. Group entries by release\n2. Add a filter for breaking changes\n3. Cover the new layout with screenshots' },
+      title: 'Claude wants to exit plan mode',
+      createdAt: base - 20_000,
+    },
+    {
+      id: uid('perm'),
+      sessionId: t5.id,
+      nodeId: 'root',
+      tool: 'AskUserQuestion',
+      kind: 'question',
+      terminal: true,
+      input: { questions: [{ question: 'What should the changelog page be called?', header: 'Name', multiSelect: false, options: [] }] },
+      title: 'Claude wants to ask a question',
+      createdAt: base - 10_000,
+    },
+  ]);
+
   // --- the scripted page session ---
   const root: AgentNode = {
     id: 'root',
@@ -1209,6 +1267,16 @@ A claim with a footnote.[^1]
       return Promise.resolve({ ok: true });
     },
     decide: (permissionId, allow, message, answers) => {
+      const termList = permLists.get(t5.id)!;
+      const termIdx = termList.findIndex((r) => r.id === permissionId);
+      if (termIdx >= 0) {
+        termList.splice(termIdx, 1);
+        emit?.({ type: 'permission.resolved', sessionId: t5.id, id: permissionId, allow });
+        t5.pendingPermissions = termList.length;
+        t5.status = termList.length > 0 ? 'waiting' : 'running';
+        bumpSession(t5.id);
+        return Promise.resolve({ ok: true });
+      }
       if (pendingPerm?.id === permissionId) resolvePermission(allow, message, answers);
       else if (askPerm?.id === permissionId) resolveAsk(allow, message, answers);
       else if (planPerm?.id === permissionId) resolvePlan(allow, message);
@@ -1258,6 +1326,7 @@ A claim with a footnote.[^1]
     },
     usage: () => Promise.resolve<UsageReport>(mockUsage),
     runtimes: () => Promise.resolve({ claude: true, opencode: true, agy: true }),
+    presence: () => Promise.resolve({ ok: true }),
     commands: () =>
       Promise.resolve<CommandsResponse>({
         commands: [

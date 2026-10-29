@@ -96,6 +96,12 @@ export interface PermissionRequest {
   input: Record<string, unknown>;
   /** The SDK's prompt sentence, e.g. "Claude wants to read foo.txt", when present. */
   title?: string;
+  /**
+   * True for a terminal Claude Code session's question or plan, relayed through the
+   * PermissionRequest hook: deciding it answers the terminal prompt, and
+   * PermissionDecisionBody.terminal hands it back to the terminal dialog.
+   */
+  terminal?: boolean;
   createdAt: number;
 }
 
@@ -182,6 +188,7 @@ export interface WorkerTask {
 // GET  /api/sessions/:id/images/:name   -> the stored image bytes (name like 1.png; 404 when unknown)
 // DELETE /api/sessions/:id              -> { ok: true }   (stops a page session)
 // POST /api/permissions/:id             PermissionDecisionBody -> { ok: true }
+// POST /api/presence                  PresenceBody -> { ok: true }   (is this tab visible? gates terminal-prompt relay)
 // GET  /api/agents?cwd=<abs path>       -> AgentsResponse
 // GET  /api/cwds                        -> string[]       (recent cwds, most recent first)
 // GET  /api/workers                     -> WorkerTask[]
@@ -241,13 +248,28 @@ export interface StartSessionBody {
 export interface StartSessionResponse {
   sessionId: string;
 }
+/**
+ * Heartbeat of a dashboard tab. Send on visibilitychange and every 45 s while visible; the server
+ * holds a terminal prompt only while some tab reported visible:true within the last 90 s.
+ */
+export interface PresenceBody {
+  visible: boolean;
+  /** Per-tab key (random string, at most 64 chars) so tabs do not overwrite each other. */
+  id: string;
+}
 export interface PermissionDecisionBody {
   allow: boolean;
   /** Required by the SDK on deny (free-text reason). Answers carry AskUserQuestion choices instead. */
   message?: string;
   /** AskUserQuestion answers keyed by the exact question text. */
   answers?: Record<string, string>;
+  /** Plan approvals only: the permission mode to continue in (ignored on other requests). */
+  mode?: 'auto' | 'acceptEdits';
+  /** Terminal requests only ("Answer in terminal"): hand the prompt back to the terminal dialog. */
+  terminal?: true;
 }
+/** Extra decision fields beyond allow/message/answers: plan mode choice, hand back to the terminal. */
+export type DecideOptions = Pick<PermissionDecisionBody, 'mode' | 'terminal'>;
 export interface AgentInfo {
   name: string;
   description?: string;

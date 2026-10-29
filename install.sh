@@ -5,7 +5,9 @@
 #   --opencode    Install OpenCode config
 #   --agy         Install Antigravity (agy) Swarm config
 #   --claude      Install Claude Code Swarm config (also installs the swarm pack
-#                 orchestrators + coordination agents globally)
+#                 orchestrators + coordination agents globally, the guard.py and
+#                 dashboard-ask.py hooks, and a PermissionRequest entry for the latter
+#                 in ~/.claude/settings.json)
 #   --n8n         Configure local self-hosted n8n credentials (optional add-on, not in --all)
 #   --cloudflare  Install Cloudflare skills and configure auth (optional add-on, not in --all)
 #   --all         Install all agent configs (opencode, agy, claude)
@@ -116,7 +118,7 @@ remove_repo_links() {
 }
 
 backup_if_exists() {
-  local path="$1"
+  local path="$1" strict="${2:-}"
   if [ -e "$path" ] || [ -L "$path" ]; then
     if [ "$CREATED_BACKUP" = false ]; then
       mkdir -p "$BACKUP_DIR"
@@ -125,8 +127,35 @@ backup_if_exists() {
     fi
     # Name backups by their path under $HOME so same-named files can't collide.
     local rel="${path#$HOME/}"
-    cp -R "$path" "$BACKUP_DIR/${rel//\//__}" 2>/dev/null || true
+    # strict: copy the resolved content (a symlink would only back up the link) and report failure.
+    if [ "$strict" = strict ]; then
+      cp -L "$path" "$BACKUP_DIR/${rel//\//__}" 2>/dev/null
+    else
+      cp -R "$path" "$BACKUP_DIR/${rel//\//__}" 2>/dev/null || true
+    fi
   fi
+}
+
+# Replace settings file $1 with the contents of $2: back up the old content first (no backup, no
+# edit), then write a temp file beside the real target (a symlinked file stays a link), keep its
+# mode and mv it into place so an interrupted run never leaves a half-written file.
+write_settings() {
+  local settings="$1" src="$2" target dir new
+  target="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$settings")" || return 1
+  if ! backup_if_exists "$settings" strict; then
+    echo "  ! could not back up $settings; left unchanged" >&2
+    return 1
+  fi
+  dir="$(dirname "$target")"
+  mkdir -p "$dir" && new="$(mktemp "$dir/.settings.json.XXXXXX")" || return 1
+  if cat "$src" > "$new" \
+     && python3 -c 'import os,sys; os.chmod(sys.argv[2], os.stat(sys.argv[1]).st_mode & 0o7777 if os.path.exists(sys.argv[1]) else 0o600)' "$target" "$new" \
+     && mv -f "$new" "$target"; then
+    return 0
+  fi
+  rm -f "$new"
+  echo "  ! could not write $settings; left unchanged" >&2
+  return 1
 }
 
 # Put the marked alias block $2 (empty = remove it) into rc file $1: an existing block is replaced in
@@ -308,9 +337,58 @@ with open(out, 'w') as f:
     f.write('\n')
 PY
   then
-    backup_if_exists "$settings"
-    cat "$tmp" > "$settings"
-    echo "  settings.json: plan-gate hook ($1)"
+    write_settings "$settings" "$tmp" && echo "  settings.json: plan-gate hook ($1)"
+  fi
+  rm -f "$tmp"
+}
+
+# Add (or with "remove", drop) the dashboard-ask PermissionRequest hook in ~/.claude/settings.json.
+# An existing entry is replaced in place, never duplicated. Backs up and writes only when something
+# changes, so re-runs are no-ops. Invalid JSON is left untouched with the manual entry printed.
+dashboard_ask_settings() {
+  local settings="$CLAUDE_DIR/settings.json" tmp
+  tmp="$(mktemp)"
+  if python3 - "$settings" "$tmp" "$1" <<'PY'
+import json, os, sys
+path, out, mode = sys.argv[1:]
+entry = {'matcher': 'AskUserQuestion|ExitPlanMode', 'hooks': [
+    {'type': 'command', 'command': 'python3 -I ~/.claude/hooks/dashboard-ask.py', 'timeout': 900}]}
+try:
+    s = json.load(open(path)) if os.path.exists(path) else {}
+except ValueError as e:
+    sys.exit(f'  ! {path} is not valid JSON ({e}); dashboard-ask hook not changed.\n'
+             f'    Add it by hand under hooks.PermissionRequest: {json.dumps(entry)}')
+hooks = s.get('hooks', {})
+old = hooks.get('PermissionRequest', [])
+mine = lambda e: any('dashboard-ask.py' in h.get('command', '') for h in e.get('hooks', []))
+if mode == 'remove':
+    new = [e for e in old if not mine(e)]
+else:
+    new, done = [], False
+    for e in old:
+        if not mine(e):
+            new.append(e)
+        elif not done:
+            new.append(entry)
+            done = True
+    if not done:
+        new.append(entry)
+if new == old:
+    sys.exit(1)
+if new:
+    hooks['PermissionRequest'] = new
+else:
+    del hooks['PermissionRequest']
+if hooks:
+    s['hooks'] = hooks
+else:
+    s.pop('hooks', None)
+with open(out, 'w') as f:
+    json.dump(s, f, indent=2, ensure_ascii=False)
+    f.write('\n')
+PY
+  then
+    write_settings "$settings" "$tmp" && echo "  settings.json: dashboard-ask hook ($1)"
   fi
   rm -f "$tmp"
 }
@@ -331,6 +409,7 @@ if [ "$UNINSTALL_MODE" = true ]; then
     remove_repo_links "$d"
   done
   plan_gate_settings remove
+  dashboard_ask_settings remove
   # only links into this repo (our shims): ~/.local/bin also holds other tools' links
   remove_repo_links "$HOME/.local/bin"
   rm -f "$GEMINI_DIR/mcp_config.json"
@@ -440,9 +519,11 @@ install_claude() {
     done
   fi
   link "$REPO_DIR/claude/hooks/guard.py" "$CLAUDE_DIR/hooks/guard.py"
+  link "$REPO_DIR/claude/hooks/dashboard-ask.py" "$CLAUDE_DIR/hooks/dashboard-ask.py"
   # plan-gate.py was dropped; clean up its link and settings entry from old installs.
   prune_dead_repo_links "$CLAUDE_DIR/hooks"
   plan_gate_settings remove
+  dashboard_ask_settings add
   local skills="$CLAUDE_SKILLS"
   command -v opencode &>/dev/null && skills+=" opencode-delegate"  # only for CLIs that are installed
   if [ "$PROFILE" != hybrid ]; then  # the orchestration skills only matter with lead-dev-hybrid
@@ -623,6 +704,7 @@ echo "========================================"
 echo "CLIs found:  ${FOUND:-none}"
 echo "Profile:     $profile_note"
 echo "Run:         $run"
+[ "$INSTALL_CLAUDE" != true ] || echo "Hooks:       guard.py, dashboard-ask.py (PermissionRequest in ~/.claude/settings.json)"
 [ -z "$workers" ] || echo "Workers:     $workers"
 if [ "$MCP" = true ]; then
   echo "MCP servers: installed ($MCP_NAMES)"

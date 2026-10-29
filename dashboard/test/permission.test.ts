@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { answerFor, fallbackQuestionTexts, parseAskQuestions, planRejectMessage } from '../src/client/Permission';
+import { answerFor, answerForQuestion, fallbackQuestionTexts, parseAskQuestions, planRejectMessage } from '../src/client/Permission';
 
 const opt = (label: string, description = 'd') => ({ label, description });
 
@@ -24,14 +24,27 @@ describe('parseAskQuestions', () => {
     expect(parseAskQuestions({ questions: 'nope' })).toEqual([]);
   });
 
-  it('skips malformed entries (blank question, no options)', () => {
+  it('skips malformed entries (blank question, missing or unparseable options)', () => {
     const out = parseAskQuestions(askInput([
       { question: 'Good?', options: [opt('Yes')] },
       { question: '   ', options: [opt('Yes')] },
       { question: 'No options?' },
+      { question: 'Bad options?', options: [{ description: 'no label' }] },
       { options: [opt('Yes')] },
     ]));
     expect(out.map(q => q.question)).toEqual(['Good?']);
+  });
+
+  it('keeps up to 10 options per question', () => {
+    const many = Array.from({ length: 12 }, (_, i) => opt(`O${i}`));
+    const out = parseAskQuestions(askInput([{ question: 'Pick?', options: many }]));
+    expect(out[0]!.options).toHaveLength(10);
+  });
+
+  it('parses a question with options: [] as text-only', () => {
+    const out = parseAskQuestions(askInput([{ question: 'Name?', options: [] }]));
+    expect(out).toHaveLength(1);
+    expect(out[0]!.options).toEqual([]);
   });
 
   it('caps at 4 parsed questions', () => {
@@ -86,5 +99,19 @@ describe('planRejectMessage', () => {
   it('falls back to a plain rejection when feedback is blank', () => {
     expect(planRejectMessage('')).toBe('The user rejected the plan; keep planning.');
     expect(planRejectMessage('   \n ')).toBe('The user rejected the plan; keep planning.');
+  });
+});
+
+describe('answerForQuestion', () => {
+  const textOnly = { question: 'Name?', multiSelect: false, options: [] };
+  const picker = { question: 'Pick?', multiSelect: false, options: [{ label: 'A', description: '' }] };
+
+  it('uses the trimmed textarea for a text-only question', () => {
+    expect(answerForQuestion(textOnly, { picked: [], otherOn: false, otherText: '  Changelog  ' })).toBe('Changelog');
+    expect(answerForQuestion(textOnly, { picked: [], otherOn: false, otherText: '   ' })).toBe('');
+  });
+
+  it('falls back to picks and Other for a question with options', () => {
+    expect(answerForQuestion(picker, { picked: ['A'], otherOn: false, otherText: '' })).toBe('A');
   });
 });

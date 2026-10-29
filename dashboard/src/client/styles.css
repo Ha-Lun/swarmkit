@@ -1030,6 +1030,24 @@ button {
   flex-wrap: wrap;
   gap: 8px;
 }
+.perm-choices {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+/* Map cards are narrow: stack the choices as full-width rows. */
+.agent-card .perm-choices .btn { flex: 1 1 100%; }
+.perm-hint,
+.perm-note {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-2);
+  overflow-wrap: break-word;
+}
 
 /* ---------- drawer ---------- */
 

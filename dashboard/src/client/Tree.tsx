@@ -2,7 +2,7 @@
 // Finished children fold into one "Done (n)" node per parent so live work and failures stay in focus.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { FocusEvent as ReactFocusEvent, PointerEvent as ReactPointerEvent } from 'react';
-import type { AgentNode, PermissionRequest, Status, WorkerTask } from '../shared/types';
+import type { AgentNode, DecideOptions, PermissionRequest, Status, WorkerTask } from '../shared/types';
 import { DoneCard, NodeCard, nodeElapsedMs } from './NodeCard';
 import { agentState, foldDone, matchWorkerTask } from './chat';
 import { ChevronIcon, FitIcon, ZoomInIcon, ZoomOutIcon } from './icons';
@@ -200,7 +200,9 @@ interface Props {
   now: number;
   openNodeId: string | null;
   onOpen: (nodeId: string) => void;
-  onDecide: (permission: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>) => void;
+  onDecide: (permission: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>, opts?: DecideOptions) => void;
+  /** The session's project is untrusted: plan approval offers manual mode only. */
+  untrusted?: boolean;
 }
 
 interface View {
@@ -211,7 +213,7 @@ interface View {
 
 const isLive = (state: Status) => state === 'running' || state === 'waiting';
 
-export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, onOpen, onDecide }: Props) {
+export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, onOpen, onDecide, untrusted }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const layerRef = useRef<HTMLUListElement>(null);
   const [view, setView] = useState<View>({ x: FIT_PAD, y: FIT_PAD, z: 1 });
@@ -651,6 +653,7 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
                     open={openNodeId === node.id}
                     onOpen={guarded(() => onOpen(node.id))}
                     onDecide={onDecide}
+                    untrusted={untrusted}
                   />
                 )}
                 {!group && expanded.has(node.id) && fold.foldable.has(node.id) && (
@@ -672,7 +675,7 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
       </div>
 
       {empty && <p className="canvas-note">No agents yet. They appear here as soon as the session starts one.</p>}
-      {lonely && <p className="canvas-note">No subagents or workers yet. They show up here when the lead delegates.</p>}
+      {lonely && permByNode.size === 0 && <p className="canvas-note">No subagents or workers yet. They show up here when the lead delegates.</p>}
 
       <div className="canvas-tools">
         {fold.foldable.size > 0 && (

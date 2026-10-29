@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { readFile, stat } from 'node:fs/promises';
 import { accessSync, constants as fsConstants, statSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ViteDevServer } from 'vite';
@@ -34,8 +35,10 @@ import { staticPolicy } from './static.ts';
 import { abortUsageProbe, getUsage } from './usage.ts';
 import { freshTranscriptMtimeMs, holderMessage, liveHolder } from './livesessions.ts';
 import { TranscriptWatcher } from './watch/transcripts.ts';
+import { ClaudeHookBridge, Presence, removeClaudeHookFile, startClaudeHookServer, writeClaudeHookFile } from './claudehook.ts';
+import type { HookSocketServer } from './claudehook.ts';
 import { isLoopback } from './hookauth.ts';
-import type { AgentNode, ResumeSessionBody, RuntimesResponse, SendMessageBody, ServerEvent, SessionSummary, StartSessionBody } from '../src/shared/types.ts';
+import type { AgentNode, PermissionDecisionBody, ResumeSessionBody, RuntimesResponse, SendMessageBody, ServerEvent, SessionSummary, StartSessionBody } from '../src/shared/types.ts';
 
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4317;
@@ -139,10 +142,18 @@ function validateMessageBody(body: unknown): SendMessageBody {
   return images ? { text, images } : { text };
 }
 
-function validateDecisionBody(body: unknown): { allow: boolean; message?: string; answers?: Record<string, string> } {
+function validateDecisionBody(body: unknown): PermissionDecisionBody {
   const raw = requireObject(body);
   if (typeof raw.allow !== 'boolean') throw new HttpError(400, 'allow must be a boolean');
-  const out: { allow: boolean; message?: string; answers?: Record<string, string> } = { allow: raw.allow };
+  const out: PermissionDecisionBody = { allow: raw.allow };
+  if (raw.mode !== undefined) {
+    if (raw.mode !== 'auto' && raw.mode !== 'acceptEdits') throw new HttpError(400, "mode must be 'auto' or 'acceptEdits'");
+    out.mode = raw.mode;
+  }
+  if (raw.terminal !== undefined) {
+    if (raw.terminal !== true) throw new HttpError(400, 'terminal must be true');
+    out.terminal = true;
+  }
   if (raw.message !== undefined) {
     if (typeof raw.message !== 'string') throw new HttpError(400, 'message must be a string');
     out.message = raw.message;
@@ -222,6 +233,17 @@ async function main(): Promise<void> {
   const sdk = new SdkSessions(broadcast, undefined, { hookBase: () => `http://${hookHost}:${PORT}` });
   const watcher = new TranscriptWatcher({ emit: broadcast, skip: id => sdk.owns(id) });
   watcher.start();
+
+  // Terminal Claude Code sessions relay AskUserQuestion / ExitPlanMode here through their
+  // PermissionRequest hook; the secret is new on every start and lives only in the hook file.
+  const claudeHookSecret = randomBytes(32).toString('hex');
+  const presence = new Presence();
+  const claudeHook = new ClaudeHookBridge({
+    watcher,
+    owns: id => sdk.owns(id),
+    // Held only while a tab reported itself visible recently (POST /api/presence).
+    dashboardOpen: () => presence.anyVisible(),
+  });
 
   const registry = new WorkerRegistry({
     emit: broadcast,
@@ -626,13 +648,23 @@ async function main(): Promise<void> {
       return sendJson(res, 404, { error: 'not found' });
     }
 
+    if (url.pathname === '/api/presence') {
+      if (method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+      const body = requireObject(await readJson(req, 1024));
+      const { id } = body;
+      if (typeof body.visible !== 'boolean') throw new HttpError(400, 'visible must be a boolean');
+      if (typeof id !== 'string' || id.length === 0 || id.length > 64) throw new HttpError(400, 'id must be a short string');
+      presence.set(id, body.visible);
+      return sendJson(res, 200, { ok: true });
+    }
+
     if (parts[1] === 'permissions') {
       const permId = parts[2] ?? '';
       if (method !== 'POST' || parts.length !== 3) {
         return sendJson(res, 404, { error: 'not found' });
       }
       const decision = validateDecisionBody(await readJson(req));
-      return sdk.decide(permId, decision)
+      return sdk.decide(permId, decision) || claudeHook.decide(permId, decision)
         ? sendJson(res, 200, { ok: true })
         : sendJson(res, 404, { error: 'permission not found' });
     }
@@ -728,12 +760,16 @@ async function main(): Promise<void> {
     });
   });
 
+  let hookSocket: HookSocketServer | undefined;
   let shuttingDown = false;
   const shutdown = (): void => {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log('Shutting down SwarmKit…');
     for (const s of sdk.list()) sdk.stop(s.id);
+    claudeHook.releaseAll();
+    removeClaudeHookFile(claudeHookSecret);
+    void hookSocket?.close();
     watcher.stop();
     registry.stop();
     abortUsageProbe();
@@ -761,6 +797,16 @@ async function main(): Promise<void> {
     const shown = HOST === '0.0.0.0' ? 'localhost' : HOST;
     console.log(`SwarmKit: http://${shown}:${PORT}`);
     console.log(`SwarmKit: token: ${tokenFile}`);
+    // The terminal-Claude hook listens on a private Unix socket, not on this port.
+    startClaudeHookServer({ bridge: claudeHook, secret: claudeHookSecret })
+      .then(started => {
+        hookSocket = started;
+        if (shuttingDown) return started.close();
+        writeClaudeHookFile(started.socketPath, claudeHookSecret);
+      })
+      .catch(err => {
+        console.error('Could not start the Claude hook socket:', err instanceof Error ? err.message : 'unknown error');
+      });
     // The token-in-URL link leaks through logs; print it only on an interactive terminal.
     if (process.stdout.isTTY) {
       console.log(`SwarmKit: http://${shown}:${PORT}/?token=${token}`);
