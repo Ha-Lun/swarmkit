@@ -394,33 +394,25 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
     });
   };
 
-  if (typeof content === 'string') {
-    if (m.isMeta !== true && (page || !content.startsWith('<'))) addUser(content, urls.length);
-    if (!page && content.includes('<task-notification>')) {
-      for (const n of parseTaskNotifications(content)) {
-        const target = resolveNotificationNode(tree, n.toolUseId, n.taskId);
-        if (!target) continue;
-        if (applyNotificationToNode(tree, target, n.rawStatus, n.summary, ts)) {
-          dirty = true;
-          out.touch(target);
-        }
+  const scan = (text: string): void => {
+    for (const n of parseTaskNotifications(text)) {
+      const t = resolveNotificationNode(tree, n.toolUseId, n.taskId);
+      if (t && applyNotificationToNode(t, n.rawStatus, n.summary, ts)) {
+        dirty = true;
+        out.touch(t);
       }
     }
+  };
+
+  if (typeof content === 'string') {
+    if (m.isMeta !== true && (page || !content.startsWith('<'))) addUser(content, urls.length);
+    if (!page) scan(content);
   } else if (Array.isArray(content)) {
     const blocks = content.map(asRaw);
     const hasToolResult = blocks.some(b => b?.type === 'tool_result');
     if (!page) {
       for (const b of blocks) {
-        if (b?.type === 'text' && typeof b.text === 'string' && b.text.includes('<task-notification>')) {
-          for (const n of parseTaskNotifications(b.text)) {
-            const target = resolveNotificationNode(tree, n.toolUseId, n.taskId);
-            if (!target) continue;
-            if (applyNotificationToNode(tree, target, n.rawStatus, n.summary, ts)) {
-              dirty = true;
-              out.touch(target);
-            }
-          }
-        }
+        if (b?.type === 'text' && typeof b.text === 'string') scan(b.text);
       }
     }
     if (!hasToolResult && m.isMeta !== true) {
@@ -454,12 +446,11 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
       // can still finish the worker.
       const bgMatch = /Command running in background with ID:\s*([A-Za-z0-9._-]+)/.exec(text);
       if (bgMatch) {
-        tree.backgroundTasks ??= new Map<string, string>();
         const bgId = bgMatch[1].replace(/\.+$/, '');
-        if (tree.nodes.has(toolUseId)) tree.backgroundTasks.set(bgId, toolUseId);
+        if (tree.nodes.has(toolUseId)) tree.backgroundTasks!.set(bgId, toolUseId);
         else {
           const aliasId = tree.toolOwner.get(toolUseId);
-          if (aliasId && tree.nodes.has(aliasId)) tree.backgroundTasks.set(bgId, aliasId);
+          if (aliasId && tree.nodes.has(aliasId)) tree.backgroundTasks!.set(bgId, aliasId);
         }
       }
       if (!ownerSeen.has(key)) {
@@ -511,25 +502,22 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
       }
       // Async-launched subagents (SDK toolUseResult or transcript "Async agent launched
       // successfully" text) stay running until their <task-notification> arrives.
-      if (operation?.status === 'async_launched' || /async agent launched successfully/i.test(text)) {
-        continue;
-      } else {
-        const status: AgentNode['status'] = isError ? 'error' : 'done';
-        if (sub.status !== status) {
-          sub.status = status;
-          dirty = true;
-          out.touch(sub);
-        }
-        if (!sub.endedAt) {
-          sub.endedAt = ts;
-          dirty = true;
-          out.touch(sub);
-        }
-        if (text && !noise && sub.result !== text) {
-          sub.result = cap(text);
-          dirty = true;
-          out.touch(sub);
-        }
+      if (operation?.status === 'async_launched' || /async agent launched successfully/i.test(text)) continue;
+      const status: AgentNode['status'] = isError ? 'error' : 'done';
+      if (sub.status !== status) {
+        sub.status = status;
+        dirty = true;
+        out.touch(sub);
+      }
+      if (!sub.endedAt) {
+        sub.endedAt = ts;
+        dirty = true;
+        out.touch(sub);
+      }
+      if (text && !noise && sub.result !== text) {
+        sub.result = cap(text);
+        dirty = true;
+        out.touch(sub);
       }
     }
   }
@@ -683,17 +671,9 @@ function applyQueueOperation(tree: SessionTree, m: Raw): ServerEvent[] {
   const out: ServerEvent[] = [];
   const ts = tsOf(m.timestamp);
   for (const n of parsed) {
-    if (!n.rawStatus || (!n.toolUseId && !n.taskId)) continue;
     const node = resolveNotificationNode(tree, n.toolUseId, n.taskId);
     if (!node) continue;
-    const before = node.status;
-    const beforeEnded = node.endedAt;
-    const beforeResult = node.result;
-    const beforeActivity = node.lastActivity;
-    if (!applyNotificationToNode(tree, node, n.rawStatus, n.summary, ts)) continue;
-    if (node.status !== before || node.endedAt !== beforeEnded || node.result !== beforeResult || node.lastActivity !== beforeActivity) {
-      out.push(upsertEvent(node));
-    }
+    if (applyNotificationToNode(node, n.rawStatus, n.summary, ts)) out.push(upsertEvent(node));
   }
   return out;
 }
@@ -1015,7 +995,6 @@ function resolveNotificationNode(
  * Only running/waiting nodes change; a worker's ok flag from result.json wins.
  */
 function applyNotificationToNode(
-  tree: SessionTree,
   node: AgentNode,
   rawStatus: string | undefined,
   summary: string | undefined,
@@ -1039,7 +1018,6 @@ function applyNotificationToNode(
     if (!node.lastActivity) node.lastActivity = firstLine(summary, 200);
     changed = true;
   }
-  void tree;
   return changed;
 }
 

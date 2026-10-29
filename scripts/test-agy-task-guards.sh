@@ -108,6 +108,26 @@ D=opencode-go/muse-spark-1.3-contributor
 "$TASK" resume e2 --effort max "again" >/dev/null 2>&1 || true
 [ "$(last_model)" = "opencode-go/mimo-v2.6-flash" ] || fail "resume must keep start's (empty) effort, got $(last_model)"
 for s in e1 e2 e3 e4; do "$TASK" clean $s --force; done
+# build.py's OPENCODE_EFFORT and agy-task's EFFORT_DEFAULTS must name the same models at the same effort; agy-task is
+# only ast-parsed (never run), build.py is loaded for its tables (its main() sits behind __main__)
+python3 -I - "${TASK%/*}/build.py" "${TASK%/*}/agy-task" <<'PY' || fail "build.py OPENCODE_EFFORT and agy-task EFFORT_DEFAULTS differ (see above)"
+import ast, importlib.util, sys
+build_path, task_path = sys.argv[1], sys.argv[2]
+spec = importlib.util.spec_from_file_location("build", build_path)
+build = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(build)
+with open(task_path, encoding="utf-8") as f:
+    tree = ast.parse(f.read(), task_path)
+defaults = next((ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
+                 and any(isinstance(t, ast.Name) and t.id == "EFFORT_DEFAULTS" for t in n.targets)), None)
+if defaults is None:
+    sys.exit(f"no EFFORT_DEFAULTS dict literal in {task_path}")
+a = build.OPENCODE_EFFORT
+if sorted(a) != sorted(defaults):
+    sys.exit(f"model keys differ: build.py only {sorted(set(a) - set(defaults))}, agy-task only {sorted(set(defaults) - set(a))}")
+if sorted(a.items()) != sorted(defaults.items()):
+    sys.exit(f"effort values differ: build.py {sorted(a.items())}, agy-task {sorted(defaults.items())}")
+PY
 
 # --- worker shell: test files in a subdirectory are allowed, node -e is not (only the default deny covers it)
 "$TASK" start rg1 "p" >/dev/null 2>&1 || true
