@@ -2,8 +2,9 @@
 // the permission panel slot; position and pan/zoom live in Tree.
 // A matching WorkerTask (tree-linked worker) overlays its live data.
 import type { AgentNode, PermissionRequest, Status, WorkerTask } from '../shared/types';
-import { agentDescription, agentLabel, agentState, doneNames, type DoneGroup } from './chat';
+import { agentDescription, agentLabel, agentState, doneNames, orbColor, orbState, type DoneGroup } from './chat';
 import { elapsedMs, fmtDuration, modelLabel, workerElapsedS } from './format';
+import { Orb } from './Orb';
 import { PermissionPanel } from './Permission';
 
 interface Props {
@@ -82,9 +83,8 @@ function nodeView(node: AgentNode, now: number, task: WorkerTask | undefined, wo
   };
 }
 
-/** Small status glyph: spinner while live, otherwise a distinct shape per state (never colour alone). */
+/** Small status glyph for settled states: a distinct shape per state (never colour alone). Live cards show the orb. */
 function StateIcon({ state }: { state: Status }) {
-  if (state === 'running') return <span className="agent-spinner" aria-hidden="true" />;
   const common = {
     width: 14,
     height: 14,
@@ -116,12 +116,6 @@ function StateIcon({ state }: { state: Status }) {
           <rect x="7" y="7" width="10" height="10" rx="1.5" />
         </svg>
       );
-    case 'waiting':
-      return (
-        <svg {...common}>
-          <path d="M9.5 6v12M14.5 6v12" />
-        </svg>
-      );
     default:
       return (
         <svg {...common}>
@@ -147,7 +141,11 @@ export function NodeCard({ node, now, permission, open, task, workersAt, onOpen,
     <div className={`agent-card st-${v.state}${root ? ' is-root' : ''}${open ? ' is-open' : ''}`}>
       <div className="agent-top">
         <span className="agent-state" aria-hidden="true">
-          <StateIcon state={v.state} />
+          {live ? (
+            <Orb size={20} state={orbState(node, v.state === 'waiting')} color={orbColor(node, task)} />
+          ) : (
+            <StateIcon state={v.state} />
+          )}
         </span>
         {/* The one open control; its ::after stretches over the card so a click anywhere opens the drawer. */}
         <button

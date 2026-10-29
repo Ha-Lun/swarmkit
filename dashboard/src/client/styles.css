@@ -739,18 +739,6 @@ button {
 .st-done > .agent-top > .agent-state,
 .st-done > .agent-state { color: var(--teal); }
 
-.agent-spinner {
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--teal-soft);
-  border-top-color: var(--teal);
-  border-radius: 999px;
-  animation: agent-spin 0.9s linear infinite;
-}
-@keyframes agent-spin {
-  to { transform: rotate(360deg); }
-}
-
 .agent-name {
   flex: 1;
   min-width: 0;
@@ -948,7 +936,6 @@ button {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agent-spinner,
   .node-activity.is-live {
     animation: none;
   }
