@@ -17,7 +17,7 @@ denied, but agy-task does not count it as a denied action.
 """
 import fnmatch, json, os, re, stat, sys
 
-# tool -> (its path keys, all required; every other key it may have), from live probes of agy 1.4.2 and 1.4.7 (hook
+# tool -> (its path keys, all required; every other key it may have), from live probes of agy 1.4.2, 1.4.7 and 1.4.10 (hook
 # input and transcripts; 1.4.7 offers read_file/write_file and a Cwd-less run_command by default, the old names under
 # --agent). A key outside both is denied: an unknown one could name a path (run_command's BypassSandbox).
 COMMON = ("toolAction", "toolSummary")

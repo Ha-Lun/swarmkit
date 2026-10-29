@@ -31,7 +31,7 @@ the host. An OS-level sandbox (bubblewrap/landlock) is the real long-term contro
 agy gate: agy itself lets a plain accept-edits run write anywhere by absolute path, so every agy run
 (plain and --agent; not --yolo) gets a PreToolUse hook in <wt>/.agents/hooks.json (never committed):
 scripts/agy-gate.py allows view_file, read_file, list_dir, grep_search, find_by_name and (not under --review)
-write_to_file, write_file, edit_file, replace_file_content on absolute or file:/// paths that resolve inside the
+write_to_file, write_file, edit_file, replace_file_content on absolute paths that resolve inside the
 worktree, outside any .git or .agents-style component (.gemini too), never the root AGENTS.md or GEMINI.md; no agy run gets a shell
 (agy 1.4.7 headless ignores the gate's permission grants, so a gated run_command could not run anyway): workers
 search with grep_search / find_by_name, and you run tests yourself. Everything else is denied (MCP, browser, web),
@@ -42,7 +42,7 @@ the gate log (a call agy rejected as INVALID before the hook, the next step's st
 resume that answered for another conversation is NOT ok and not committed. A base that tracks anything under
 .agents/.agent/_agents/_agent/.gemini is refused, and so is a launch (start after --setup, resume) while the worktree
 has any such entry besides the wrapper's own overlay, or a symlink among them.
-The gate's schema (tool names, argument keys, transcript format) was probed on agy 1.4.2 and 1.4.7 (AGY_PROBED): another
+The gate's schema (tool names, argument keys, transcript format) was probed on agy 1.4.2, 1.4.7 and 1.4.10 (AGY_PROBED): another
 agy version is refused unless AGY_TASK_ALLOW_UNPROBED=1. Re-probe before bumping it: in a scratch repo, run one
 plain and one --agent task that reads, edits and searches; compare the tool names and argument keys in
 ~/.gemini/antigravity-cli/brain/<conversation>/.system_generated/logs/transcript_full.jsonl and the gate log
@@ -303,7 +303,7 @@ def agy_agent_problem(agent):
     return agy_agent_parts(agent)[0]
 
 
-AGY_PROBED = "1.4.7"  # the agy version the gate schema and transcript check were probed on
+AGY_PROBED = "1.4.10"  # the agy version the gate schema and transcript check were probed on
 
 
 def refuse(task, msg):

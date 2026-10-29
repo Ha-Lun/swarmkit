@@ -61,10 +61,10 @@ chmod +x "$T/bin/opencode"
 # agy did not run). Its transcript (in the --conversation, else a new one; STUB_CONV overrides) records that call
 # (named STUB_TNAME if set, plus a STUB_EXTRA call), then a STUB_INVALID call whose next step has status
 # $STUB_INVALID_STATUS (INVALID: agy rejected its arguments before the hook); STUB_NOTRANSCRIPT writes none; STUB_ONLYINVALID drops the first call.
-# --version prints $STUB_VERSION (1.4.7).
+# --version prints $STUB_VERSION (1.4.10).
 cat > "$T/bin/agy" <<'S'
 #!/bin/sh
-[ "$1" = --version ] && { echo "agy ${STUB_VERSION:-1.4.7}"; exit 0; }
+[ "$1" = --version ] && { echo "agy ${STUB_VERSION:-1.4.10}"; exit 0; }
 printf '%s\n' "$*" >> "$STUB_ARGS.agy"
 hook=$(jq -r '.[].PreToolUse[0].hooks[0].command' .agents/hooks.json 2>/dev/null)
 call=${STUB_CALL:-"{\"toolCall\":{\"name\":\"write_to_file\",\"args\":{\"TargetFile\":\"$PWD/stub.txt\",\"CodeContent\":\"x\"}}}"}
@@ -545,7 +545,7 @@ ares gp1 '.warnings[]' | grep -q "^gate check failed: agy answered for conversat
 [ "$(git -C "$(adir gp1)/worktree" rev-parse HEAD)" = "$h" ] || fail "resume in another conversation was committed"
 # an agy version other than the probed one is refused unless overridden
 rc=0; out=$(STUB_VERSION=1.5.0 "$AGY_TASK" start gv1 "p" 2>&1) || rc=$?
-[ "$rc" = 2 ] && echo "$out" | grep -q "agy 1.5.0 is not the version the gate was probed on (1.4.7)" || fail "unprobed agy ($rc): $out"
+[ "$rc" = 2 ] && echo "$out" | grep -q "agy 1.5.0 is not the version the gate was probed on (1.4.10)" || fail "unprobed agy ($rc): $out"
 [ ! -e "$AGY_TASK_DIR"/*/gv1 ] || fail "unprobed agy left a task dir"
 STUB_VERSION=1.5.0 AGY_TASK_ALLOW_UNPROBED=1 "$AGY_TASK" start gv1 "p" >/dev/null 2>&1 || fail "override not honoured: $(ares gv1 .warnings)"
 # a launch is refused while the worktree has agy customization entries besides the overlay, or symlinks among them
