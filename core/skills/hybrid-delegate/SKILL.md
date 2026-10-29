@@ -27,9 +27,9 @@ Everything else in the approved plan goes to a worker.
 
    | Task | Backend |
    |---|---|
-   | Implementation where the worker should run its own tests | `opencode-task` (free `opencode-go/` model) |
-| The same, needing a specialty (UI, animation, backend, devops...) | `opencode-task --agent <specialist>` (lane model, never `lead-dev-hybrid`); on agy, `agy-task --agent <specialist>` when you run the tests (file tools only) |
-   | Bulk edits / boilerplate where you run the tests | `agy-task` (default `gemini-3.8-flash-high`) |
+   | Well-specified implementation (default lane; you run the verify) | `agy-task` (default `gemini-3.8-flash-high`), `--agent <specialist>` when a specialty applies (file tools only) |
+   | Implementation where the worker must iterate on a test run itself (failing test, TDD, debugging) | `opencode-task` (free `opencode-go/` model), `--agent <specialist>` when a specialty applies (lane model, never `lead-dev-hybrid`) |
+   | UI, styling, motion, 3D | never a worker: the Claude `frontend-specialist` / `animation-specialist` subagent (Sonnet) |
    | Second opinion on your own diff | `agy-task --review --model gemini-3.8-flash-high` |
    | Context-dependent work that cannot be handed off cold | Your own `Agent` subagents (Claude lane) |
 
@@ -42,7 +42,7 @@ Everything else in the approved plan goes to a worker.
    The wrapper prints a start banner (slug, model, effort, base, log) on stderr, and `list` shows each task's model, elapsed time and live denied count.
 
    Prompt additions that avoid wasted resumes: tell opencode workers "you are already in the worktree; do not `cd`", give them the exact verify command (`node test/x.test.js`, `npm test -- src/x`), and tell agy workers "file tools (grep_search / find_by_name to search), no shell".
-5. **Keep slots full.** Start workers with a background Bash call. The running-task limit is **shared across all backends**; the wrapper reads it from the invoked backend's `*_TASK_MAX` (default 3). Do not treat it as 3 per backend. When a task lands and is merged or discarded, immediately start the next queued task so both quotas stay busy.
+5. **Keep slots full.** Start workers with a background Bash call. The running-task limit is **shared across all backends**; the wrapper reads it from the invoked backend's `*_TASK_MAX` (default 3). Do not treat it as 3 per backend. When a task lands and is merged or discarded, immediately start the next queued task so both quotas stay busy. Balance the lanes: alternate when a task fits both, roughly even across a batch, agy when in doubt.
 6. **Review and merge as results land.** For each finished task:
    - Trust only `ok` in `result.json`; `agy` reports `SUCCESS` even when blocked.
    - Read `git diff <base>..<cli>/<slug>`; the diff is the truth. An agy task that is `NOT ok` only because it tried a shell command (a denied `run_command`) but produced a diff is not a failure: review the diff and run the verify command yourself instead of resuming.

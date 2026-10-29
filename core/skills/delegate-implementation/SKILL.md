@@ -26,11 +26,12 @@ Everything else in the plan goes to a worker.
 
 | Task | Worker |
 |---|---|
-| Implementation where the worker should run the tests itself | `opencode-task` (free `opencode-go/` model), see `opencode-delegate` |
-| The same, needing a specialty (UI, animation, backend, devops...) | `opencode-task --agent <specialist>` (lane model, never `lead-dev-hybrid`); on agy, `agy-task --agent <specialist>` when you run the tests (file tools only) |
-| Edits and boilerplate where you run the tests | `agy-task` (default `gemini-3.8-flash-high`), see `agy-delegate` |
+| Well-specified implementation (default lane; you run the verify) | `agy-task` (default `gemini-3.8-flash-high`), `--agent <specialist>` when a specialty applies, see `agy-delegate` |
+| Implementation where the worker must iterate on a test run itself (failing test, TDD, debugging) | `opencode-task` (free `opencode-go/` model), `--agent <specialist>` when a specialty applies (lane model, never `lead-dev-hybrid`), see `opencode-delegate` |
 | Second opinion on your own diff | `agy-task --review --model gemini-3.8-flash-high` |
 | Cross-review of a worker's branch | the other family's worker, see below |
+
+In Claude Code, UI, styling, motion and 3D work never goes to a worker: it goes to the Claude `frontend-specialist` / `animation-specialist` subagent (Sonnet). When a task fits both lanes, alternate, aiming for roughly even use across a batch; agy when in doubt.
 
 Claude Code runs both lanes. From OpenCode use only `agy-task` (`opencode-task` refuses under OpenCode). Antigravity runs no workers.
 
