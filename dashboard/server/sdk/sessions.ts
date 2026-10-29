@@ -313,9 +313,10 @@ export class SdkSessions {
   }
 
   /** Runs the SDK query for a session (fresh start or resumed continuation) and consumes it in the background. */
-  private startQuery(session: PageSession, prompt: string, model: string | undefined, effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined, resume: boolean, images?: ImageAttachment[]): void {
+  private startQuery(session: PageSession, prompt: string | undefined, model: string | undefined, effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined, resume: boolean, images?: ImageAttachment[]): void {
     // Store the images first: a disk error must not leave a half-started query behind.
-    const turn = this.prepareTurn(session, prompt, images);
+    // A restart without text prepares no turn: the fresh process just waits for input.
+    const turn = prompt !== undefined ? this.prepareTurn(session, prompt, images) : undefined;
     session.generation += 1;
     const generation = session.generation;
     session.abort = new AbortController();
@@ -341,15 +342,16 @@ export class SdkSessions {
     } else {
       session.query = this.startRuntimeQuery(session, generation, model, effort, resume);
     }
-    session.queue.push(turn.message);
+    if (turn) session.queue.push(turn.message);
     session.consumePromise = this.consume(session, generation).catch(err => {
       console.error(`Session ${session.id} consume crashed:`, err);
     });
     if (resume) {
-      for (const event of setStatus(session.tree, 'root', 'running')) this.emit(event);
+      // A text-less restart leaves the root idle (the post-turn state), exactly as if no turn runs yet.
+      for (const event of setStatus(session.tree, 'root', turn ? 'running' : 'idle')) this.emit(event);
     }
     this.scheduleUpsert(session);
-    for (const event of turn.events) this.emit(event);
+    if (turn) for (const event of turn.events) this.emit(event);
   }
 
   /**
@@ -671,16 +673,7 @@ export class SdkSessions {
         throw new SessionError(409, holderMessage(leftover.pid));
       }
       // The old process is gone (or stopping): unwind it before starting the new query.
-      existing.abort.abort();
-      await Promise.race([
-        existing.consumePromise ?? Promise.resolve(),
-        new Promise<void>(resolve => setTimeout(resolve, RESUME_UNWIND_MS).unref()),
-      ]);
-      existing.stopped = false;
-      existing.pending.clear();
-      existing.queue = new InputQueue();
-      existing.upsertThrottle = { lastSent: 0, timer: null };
-      existing.updatedAt = Date.now();
+      await this.unwind(existing);
       if (effort !== undefined) existing.effort = effort;
       this.startQuery(existing, text, model, effort ?? existing.effort, true, images);
       return id;
@@ -755,6 +748,15 @@ export class SdkSessions {
       throw new SessionError(409, holderMessage(leftover.pid));
     }
     // The old process is gone (or stopping): unwind it before starting the new query.
+    await this.unwind(session);
+    if (model !== undefined) session.model = model;
+    if (effort !== undefined) session.effort = effort;
+    this.startQuery(session, text, model ?? session.model, effort, true, images);
+    return session.id;
+  }
+
+  /** Unwinds a stopped/stopping query before a resumed/restarted one starts. */
+  private async unwind(session: PageSession): Promise<void> {
     session.abort.abort();
     await Promise.race([
       session.consumePromise ?? Promise.resolve(),
@@ -765,10 +767,40 @@ export class SdkSessions {
     session.queue = new InputQueue();
     session.upsertThrottle = { lastSent: 0, timer: null };
     session.updatedAt = Date.now();
-    if (model !== undefined) session.model = model;
-    if (effort !== undefined) session.effort = effort;
-    this.startQuery(session, text, model ?? session.model, effort, true, images);
-    return session.id;
+  }
+
+  /**
+   * Restarts the SDK process of a page-owned Claude session on the same id
+   * (picks up newly installed agents): a live process is stopped first, the old
+   * query is unwound, and a resumed query starts with the session's stored
+   * cwd/agent/effort/model. Without text no user turn is prepared and the root
+   * stays idle; with text it behaves like a resume.
+   */
+  async restart(id: string, body: { text?: string }): Promise<string> {
+    const session = this.sessions.get(id);
+    if (!session) throw new SessionError(404, 'session not found');
+    if (session.runtime !== 'claude') throw new SessionError(400, 'Restart is only for Claude sessions');
+    // Empty/absent text means "no text"; given text must read like a resume message.
+    let text: string | undefined;
+    const raw = body?.text;
+    if (typeof raw === 'string' && raw.trim().length === 0) {
+      text = undefined;
+    } else if (raw !== undefined && raw !== null) {
+      try {
+        text = validMessageText(raw, undefined);
+      } catch (err) {
+        throw new SessionError(400, (err as Error).message);
+      }
+    }
+    // Same fork-protection as resume: a live non-dashboard holder refuses the restart.
+    const leftover = await liveHolder(id);
+    if (leftover && !DASHBOARD_ENTRYPOINTS.has(leftover.entrypoint ?? '')) {
+      throw new SessionError(409, holderMessage(leftover.pid));
+    }
+    if (!session.stopped) this.stop(id);
+    await this.unwind(session);
+    this.startQuery(session, text, session.model, session.effort, true);
+    return id;
   }
 
   /** Rebuilds a SessionTree from transcript nodes: statuses become terminal states, the root restarts. */

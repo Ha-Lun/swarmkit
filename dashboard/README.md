@@ -95,6 +95,7 @@ not the cookie.
 
 `GET /api/sessions`, `GET /api/sessions/:id`, `POST /api/sessions`,
 `POST /api/sessions/:id/message`, `POST /api/sessions/:id/interrupt`,
+`POST /api/sessions/:id/restart`,
 `DELETE /api/sessions/:id`, `POST /api/permissions/:id`, `GET /api/agents?cwd=…`,
 `GET /api/cwds`, `GET /api/stars`, `POST /api/stars`, `POST /api/auth`, `GET /api/usage`,
 `GET /api/sessions/:id/images/:name`, `GET /api/runtimes`, and `GET /events`
@@ -200,6 +201,10 @@ or the transcript file modified within the last minute), `400` for bad input
 (including a resume `cwd` that fails the same validation as the start path:
 existing directory under `$HOME`), `404` for unknown ids. Sending/interrupting a
 session whose process has ended answers `409 "Session has ended; use Continue"`.
+
+`POST /api/sessions/:id/restart` restarts the session's process on the same id
+(picks up newly installed agents); an optional `text` is sent as the next turn,
+while a text-less restart just leaves the session idle, ready for the next message.
 
 ## Project settings trust (untrusted projects)
 
