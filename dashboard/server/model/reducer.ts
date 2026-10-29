@@ -28,6 +28,8 @@ export interface SessionTree {
   placeholders?: Set<string>;
   /** tool_use_id of the Bash call that started a worker -> its command line. */
   workerCommands?: Map<string, string>;
+  /** Background task id ("Command running in background with ID: X") -> worker node id. */
+  backgroundTasks?: Map<string, string>;
   /** Worker node id -> task-dir repo key (git root derived), or undefined while unknown. */
   workerRepos?: Map<string, string | undefined>;
 }
@@ -93,6 +95,7 @@ export function createTree(sessionId: string, init: TreeInit): SessionTree {
     seenBlocks: new Map<string, Set<string>>(),
     placeholders: new Set<string>(),
     workerCommands: new Map<string, string>(),
+    backgroundTasks: new Map<string, string>(),
   };
 }
 
@@ -110,6 +113,7 @@ export function applyMessage(tree: SessionTree, msg: unknown, opts?: ApplyOption
   tree.placeholders ??= new Set<string>();
   tree.toolNames ??= new Map<string, string>();
   tree.workerCommands ??= new Map<string, string>();
+  tree.backgroundTasks ??= new Map<string, string>();
   const m = msg as Raw;
   try {
     switch (m.type) {
@@ -392,9 +396,33 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
 
   if (typeof content === 'string') {
     if (m.isMeta !== true && (page || !content.startsWith('<'))) addUser(content, urls.length);
+    if (!page && content.includes('<task-notification>')) {
+      for (const n of parseTaskNotifications(content)) {
+        const target = resolveNotificationNode(tree, n.toolUseId, n.taskId);
+        if (!target) continue;
+        if (applyNotificationToNode(tree, target, n.rawStatus, n.summary, ts)) {
+          dirty = true;
+          out.touch(target);
+        }
+      }
+    }
   } else if (Array.isArray(content)) {
     const blocks = content.map(asRaw);
     const hasToolResult = blocks.some(b => b?.type === 'tool_result');
+    if (!page) {
+      for (const b of blocks) {
+        if (b?.type === 'text' && typeof b.text === 'string' && b.text.includes('<task-notification>')) {
+          for (const n of parseTaskNotifications(b.text)) {
+            const target = resolveNotificationNode(tree, n.toolUseId, n.taskId);
+            if (!target) continue;
+            if (applyNotificationToNode(tree, target, n.rawStatus, n.summary, ts)) {
+              dirty = true;
+              out.touch(target);
+            }
+          }
+        }
+      }
+    }
     if (!hasToolResult && m.isMeta !== true) {
       const text = blocks
         .map(b => (b?.type === 'text' && typeof b.text === 'string' ? b.text : ''))
@@ -421,6 +449,19 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
       // activity or the node's result: keep the previous text.
       const noise = isHandbackNoise(tree.toolNames?.get(toolUseId), text);
       const isError = block.is_error === true;
+      // Background Bash ("Command running in background with ID: <taskid>"): remember the
+      // task id -> node mapping so a later <task-notification> without <tool-use-id>
+      // can still finish the worker.
+      const bgMatch = /Command running in background with ID:\s*([A-Za-z0-9._-]+)/.exec(text);
+      if (bgMatch) {
+        tree.backgroundTasks ??= new Map<string, string>();
+        const bgId = bgMatch[1].replace(/\.+$/, '');
+        if (tree.nodes.has(toolUseId)) tree.backgroundTasks.set(bgId, toolUseId);
+        else {
+          const aliasId = tree.toolOwner.get(toolUseId);
+          if (aliasId && tree.nodes.has(aliasId)) tree.backgroundTasks.set(bgId, aliasId);
+        }
+      }
       if (!ownerSeen.has(key)) {
         addCapped(ownerSeen, key);
         let summary = text ? firstLine(text, 200) : 'tool result';
@@ -462,13 +503,16 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
       }
       if (sub.kind !== 'subagent') continue;
       const operation = asRaw(m.toolUseResult);
-      if (operation?.status === 'async_launched') {
-        const agentId = str(operation.agentId);
-        if (agentId && !tree.agentIds!.has(agentId)) {
-          tree.agentIds!.set(agentId, sub.id);
-          dirty = true;
-          out.touch(sub);
-        }
+      const agentId = str(operation?.agentId);
+      if (agentId && !tree.agentIds!.has(agentId)) {
+        tree.agentIds!.set(agentId, sub.id);
+        dirty = true;
+        out.touch(sub);
+      }
+      // Async-launched subagents (SDK toolUseResult or transcript "Async agent launched
+      // successfully" text) stay running until their <task-notification> arrives.
+      if (operation?.status === 'async_launched' || /async agent launched successfully/i.test(text)) {
+        continue;
       } else {
         const status: AgentNode['status'] = isError ? 'error' : 'done';
         if (sub.status !== status) {
@@ -627,42 +671,31 @@ function applyAgentSetting(tree: SessionTree, m: Raw): ServerEvent[] {
  * (background Bash / worker / async agent finished): completed -> done, failed -> error,
  * killed/stopped -> stopped. Only nodes that are still running change; a worker's ok flag
  * from result.json (already known through pollWorkers) wins over the notification status.
+ * The node is found by <tool-use-id> first, then by <task-id> (background Bash id recorded
+ * from the "running in background" tool_result, or an async-launched agent id).
  */
 function applyQueueOperation(tree: SessionTree, m: Raw): ServerEvent[] {
   if (str(m.operation) !== 'enqueue') return []; // 'remove' and unknown operations are ignored
   const content = str(m.content);
   if (!content || !content.includes('<task-notification>')) return [];
-  const toolUseId = /<tool-use-id>([^<]+)<\/tool-use-id>/.exec(content)?.[1];
-  const rawStatus = /<status>([^<]+)<\/status>/.exec(content)?.[1]?.trim();
-  const summary = /<summary>([\s\S]*?)<\/summary>/.exec(content)?.[1]?.trim();
-  if (!toolUseId || !rawStatus) return [];
-  let node = tree.nodes.get(toolUseId);
-  if (!node) {
-    // A resume's task notification carries the resume tool-use id, not a node id: use its alias.
-    const alias = tree.nodes.get(tree.toolOwner.get(toolUseId) ?? '');
-    if (alias?.kind === 'worker') node = alias;
+  const parsed = parseTaskNotifications(content);
+  if (parsed.length === 0) return [];
+  const out: ServerEvent[] = [];
+  const ts = tsOf(m.timestamp);
+  for (const n of parsed) {
+    if (!n.rawStatus || (!n.toolUseId && !n.taskId)) continue;
+    const node = resolveNotificationNode(tree, n.toolUseId, n.taskId);
+    if (!node) continue;
+    const before = node.status;
+    const beforeEnded = node.endedAt;
+    const beforeResult = node.result;
+    const beforeActivity = node.lastActivity;
+    if (!applyNotificationToNode(tree, node, n.rawStatus, n.summary, ts)) continue;
+    if (node.status !== before || node.endedAt !== beforeEnded || node.result !== beforeResult || node.lastActivity !== beforeActivity) {
+      out.push(upsertEvent(node));
+    }
   }
-  if (!node) return [];
-  if (node.status !== 'running' && node.status !== 'waiting') return [];
-  let status = mapStatus(rawStatus);
-  if (rawStatus === 'killed') status = 'stopped';
-  if (!status || status === 'running') return [];
-  // A worker whose result.json was already read keeps the verdict from there.
-  if (node.kind === 'worker' && node.worker?.ok !== undefined) {
-    status = node.worker.ok ? 'done' : 'error';
-  }
-  let changed = node.status !== status;
-  node.status = status;
-  if (isEnding(status) && !node.endedAt) {
-    node.endedAt = tsOf(m.timestamp);
-    changed = true;
-  }
-  if (summary && !node.result) {
-    node.result = cap(summary);
-    if (!node.lastActivity) node.lastActivity = firstLine(summary, 200);
-    changed = true;
-  }
-  return changed ? [upsertEvent(node)] : [];
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -917,6 +950,97 @@ function mapStatus(status: string | undefined): AgentNode['status'] | undefined 
   if (status === 'stopped') return 'stopped';
   if (status === 'running') return 'running';
   return undefined;
+}
+
+interface ParsedTaskNotification {
+  toolUseId?: string;
+  taskId?: string;
+  rawStatus?: string;
+  summary?: string;
+}
+
+/** All <task-notification> blocks in text (system-reminder-wrapped or bare). */
+function parseTaskNotifications(text: string): ParsedTaskNotification[] {
+  const out: ParsedTaskNotification[] = [];
+  const re = /<task-notification>([\s\S]*?)<\/task-notification>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const body = m[1];
+    const toolUseId = /<tool-use-id>([^<]*)<\/tool-use-id>/.exec(body)?.[1]?.trim() || undefined;
+    const taskId = /<task-id>([^<]*)<\/task-id>/.exec(body)?.[1]?.trim() || undefined;
+    const rawStatus = /<status>([^<]*)<\/status>/.exec(body)?.[1]?.trim() || undefined;
+    const summary = /<summary>([\s\S]*?)<\/summary>/.exec(body)?.[1]?.trim() || undefined;
+    out.push({ toolUseId, taskId, rawStatus, summary });
+  }
+  return out;
+}
+
+/**
+ * Finds the node a <task-notification> belongs to: by <tool-use-id> first (direct node id
+ * or the resume alias recorded on toolOwner), then by <task-id> (background Bash id from
+ * the "running in background" tool_result, or an async-launched agent id).
+ */
+function resolveNotificationNode(
+  tree: SessionTree,
+  toolUseId: string | undefined,
+  taskId: string | undefined,
+): AgentNode | undefined {
+  if (toolUseId) {
+    const direct = tree.nodes.get(toolUseId);
+    if (direct) return direct;
+    // A resume's task notification carries the resume tool-use id, not a node id.
+    const alias = tree.nodes.get(tree.toolOwner.get(toolUseId) ?? '');
+    if (alias?.kind === 'worker') return alias;
+  }
+  if (taskId) {
+    const bg = tree.backgroundTasks?.get(taskId);
+    if (bg) {
+      const node = tree.nodes.get(bg);
+      if (node) return node;
+    }
+    const agentNodeId = tree.agentIds?.get(taskId);
+    if (agentNodeId) {
+      const node = tree.nodes.get(agentNodeId);
+      if (node) return node;
+    }
+    // Last resort: the task id itself is a node id.
+    const direct = tree.nodes.get(taskId);
+    if (direct) return direct;
+  }
+  return undefined;
+}
+
+/**
+ * Applies one notification verdict to a node. Returns true when anything changed.
+ * Only running/waiting nodes change; a worker's ok flag from result.json wins.
+ */
+function applyNotificationToNode(
+  tree: SessionTree,
+  node: AgentNode,
+  rawStatus: string | undefined,
+  summary: string | undefined,
+  ts: number,
+): boolean {
+  if (node.status !== 'running' && node.status !== 'waiting') return false;
+  let status = mapStatus(rawStatus);
+  if (rawStatus === 'killed') status = 'stopped';
+  if (!status || status === 'running') return false;
+  if (node.kind === 'worker' && node.worker?.ok !== undefined) {
+    status = node.worker.ok ? 'done' : 'error';
+  }
+  let changed = node.status !== status;
+  node.status = status;
+  if (isEnding(status) && !node.endedAt) {
+    node.endedAt = ts;
+    changed = true;
+  }
+  if (summary && !node.result) {
+    node.result = cap(summary);
+    if (!node.lastActivity) node.lastActivity = firstLine(summary, 200);
+    changed = true;
+  }
+  void tree;
+  return changed;
 }
 
 function cap(text: string, max = MAX_DETAIL): string {

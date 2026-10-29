@@ -796,3 +796,139 @@ describe('reducer: array user content', () => {
     expect(events.filter((e) => e.type === 'node.event')).toHaveLength(0);
   });
 });
+
+describe('reducer: background task-notifications in user text', () => {
+  const workerUse = {
+    type: 'assistant' as const,
+    uuid: 'w-use',
+    timestamp: 1_700_000_001_000,
+    message: {
+      id: 'msg_w',
+      model: 'claude-opus-4-5',
+      content: [{
+        type: 'tool_use',
+        id: 'toolu_w1',
+        name: 'Bash',
+        input: {
+          command: "agy-task start swarm-routing <<'EOF'\nwork\nEOF",
+          description: 'agy worker swarm-routing',
+          run_in_background: true,
+        },
+      }],
+    },
+  };
+  const bgResult = (taskId: string) => ({
+    type: 'user' as const,
+    uuid: `u_bg_${taskId}`,
+    timestamp: 1_700_000_002_000,
+    message: {
+      role: 'user' as const,
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'toolu_w1',
+        content: `Command running in background with ID: ${taskId}. Output is being written to: /tmp/out.txt`,
+        is_error: false,
+      }],
+    },
+  });
+  const userNotif = (inner: string, uuid: string) => ({
+    type: 'user' as const,
+    uuid,
+    timestamp: 1_700_000_003_000,
+    message: { role: 'user' as const, content: inner },
+  });
+  const notifBody = (o: { toolUseId?: string; taskId: string; status: string; summary: string }) =>
+    `<task-notification>\n<task-id>${o.taskId}</task-id>\n` +
+    (o.toolUseId ? `<tool-use-id>${o.toolUseId}</tool-use-id>\n` : '') +
+    `<output-file>/tmp/out.txt</output-file>\n<status>${o.status}</status>\n<summary>${o.summary}</summary>\n</task-notification>`;
+
+  function treeWithBackgroundWorker(taskId = 'bbhfxtghm') {
+    const tree = createTree('bg1', { startedAt: 1_700_000_000_000 });
+    applyMessage(tree, workerUse);
+    applyMessage(tree, bgResult(taskId));
+    expect(tree.nodes.get('toolu_w1')!.status).toBe('running');
+    return tree;
+  }
+
+  it('marks the worker error from a user-text notification carrying its own tool-use-id', () => {
+    const tree = treeWithBackgroundWorker();
+    applyMessage(tree, userNotif(
+      notifBody({
+        toolUseId: 'toolu_w1',
+        taskId: 'bbhfxtghm',
+        status: 'failed',
+        summary: 'Background command "agy worker swarm-routing" failed with exit code 2',
+      }),
+      'u_notif2',
+    ));
+    const worker = tree.nodes.get('toolu_w1')!;
+    expect(worker.status).toBe('error');
+    expect(worker.endedAt).toBe(1_700_000_003_000);
+    expect(worker.result).toContain('failed with exit code 2');
+  });
+
+  it('marks the worker error from a system-reminder-wrapped notification', () => {
+    const tree = treeWithBackgroundWorker();
+    applyMessage(tree, userNotif(
+      `<system-reminder>\n${notifBody({
+        toolUseId: 'toolu_w1',
+        taskId: 'bbhfxtghm',
+        status: 'failed',
+        summary: 'Background command "agy worker swarm-routing" failed with exit code 2',
+      })}\n</system-reminder>`,
+      'u_notif3',
+    ));
+    expect(tree.nodes.get('toolu_w1')!.status).toBe('error');
+  });
+
+  it('falls back to task-id when tool-use-id is absent', () => {
+    const tree = treeWithBackgroundWorker('mytask123');
+    applyMessage(tree, userNotif(
+      notifBody({
+        taskId: 'mytask123',
+        status: 'completed',
+        summary: 'Background command completed',
+      }),
+      'u_notif4',
+    ));
+    const worker = tree.nodes.get('toolu_w1')!;
+    expect(worker.status).toBe('done');
+    expect(worker.endedAt).toBe(1_700_000_003_000);
+  });
+
+  it('keeps a background subagent running on async-launch text and stops it via task-id', () => {
+    const tree = createTree('bg-agent', { startedAt: 1_700_000_000_000 });
+    applyMessage(tree, {
+      type: 'assistant',
+      uuid: 'a-agent',
+      timestamp: 1_700_000_001_000,
+      message: {
+        id: 'msg_a',
+        model: 'claude-opus-4-5',
+        content: [{ type: 'tool_use', id: 'toolu_s1', name: 'Agent', input: { subagent_type: 'tester', description: 'bg check' } }],
+      },
+    });
+    // Background launch: no toolUseResult, just the async-launched text.
+    applyMessage(tree, {
+      type: 'user',
+      uuid: 'u-agent-bg',
+      timestamp: 1_700_000_002_000,
+      toolUseResult: { status: 'async_launched', agentId: 'agent-bg-1' },
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_s1', content: 'Async agent launched successfully', is_error: false }] },
+    });
+    expect(tree.nodes.get('toolu_s1')!.status).toBe('running');
+    expect(tree.agentIds!.get('agent-bg-1')).toBe('toolu_s1');
+    // End arrives as user text with only the agent id, stopped after a session restart.
+    applyMessage(tree, userNotif(
+      notifBody({
+        taskId: 'agent-bg-1',
+        status: 'stopped',
+        summary: "Agent didn't finish before the previous session ended",
+      }),
+      'u_notif5',
+    ));
+    const sub = tree.nodes.get('toolu_s1')!;
+    expect(sub.status).toBe('stopped');
+    expect(sub.endedAt).toBe(1_700_000_003_000);
+  });
+});
