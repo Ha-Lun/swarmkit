@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fmtResetIn, fmtTokens, parseIso, sessionHint, sessionSubline, usageTone } from '../src/client/format.ts';
+import { fmtResetIn, fmtTokens, goPillModel, parseIso, sessionHint, sessionSubline, usageTone } from '../src/client/format.ts';
 
 describe('fmtTokens', () => {
   it('picks the unit after rounding', () => {
@@ -64,5 +64,27 @@ describe('session labels', () => {
   });
   it('hint carries title, cwd, agent, model and short id', () => {
     expect(sessionHint(s)).toBe('Fix it · /x/proj · agent lead-dev · model Opus 5.5 · id abcdef12');
+  });
+});
+
+describe('goPillModel', () => {
+  const now = Date.parse('2026-01-01T00:00:00Z');
+  const lim = (window: 'rolling' | 'weekly' | 'monthly', utilization: number | null, limited = false) => ({
+    window, utilization, resetsAt: '2026-01-01T02:00:00Z', limited,
+  });
+  it('is null without limits', () => {
+    expect(goPillModel(undefined)).toBeNull();
+    expect(goPillModel([])).toBeNull();
+  });
+  it('uses the rolling percent and tone', () => {
+    const m = goPillModel([lim('rolling', 34), lim('weekly', 61)], now);
+    expect(m?.pct).toBe(34);
+    expect(m?.tone).toBe('teal');
+    expect(m?.label).toContain('rolling 34% (resets in 2h 0m)');
+  });
+  it('forces danger when any window is limited', () => {
+    const m = goPillModel([lim('rolling', 10), lim('weekly', 100, true)], now);
+    expect(m?.tone).toBe('fail');
+    expect(m?.label).toContain('rate-limited');
   });
 });

@@ -5,14 +5,14 @@
 // answers available:false (or omits limits) with a short error (no paths, no secrets).
 import { execFile as execFileCb } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
-import { lstat, open, readdir } from 'node:fs/promises';
+import { lstat, open, readdir, readFile } from 'node:fs/promises';
 import os from 'node:os';
-import { join } from 'node:path';
+import path, { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { Options, Query, SDKRateLimitInfo, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { parseObject } from './fsutil.ts';
-import type { UsageLimit, UsageReport, UsageSource, UsageWindow } from '../src/shared/types.ts';
+import type { GoLimit, UsageLimit, UsageReport, UsageSource, UsageWindow } from '../src/shared/types.ts';
 
 type ClaudeUsage = UsageReport['claude'];
 type OpencodeUsage = UsageReport['opencode'];
@@ -31,6 +31,8 @@ export type UsageQueryFactory = (params: {
 type UsageClock = () => number;
 
 export interface UsageOptions {
+  /** Injectable fetch for the OpenCode Go usage call; default globalThis.fetch (tests never hit the network). */
+  fetch?: typeof globalThis.fetch;
   execFile?: UsageExec;
   now?: UsageClock;
   queryFactory?: UsageQueryFactory;
@@ -67,6 +69,15 @@ const defaultState = createUsageState();
 
 const CLAUDE_TTL_MS = 5 * 60_000;
 const OPENCODE_TTL_MS = 60_000;
+const GO_LIMITS_TTL_MS = 120_000;
+const GO_LIMITS_FAILURE_TTL_MS = 60_000;
+const GO_LIMITS_TIMEOUT_MS = 10_000;
+const GO_LIMITS_MAX_BODY = 64 * 1024;
+const GO_USAGE_URL = 'https://opencode.ai/zen/go/v1/usage';
+/** Fixed short errors for the Go limits call (never response bodies, keys or paths). */
+const GO_UNAVAILABLE_MSG = 'go limits unavailable';
+const GO_NOT_SIGNED_IN_MSG = 'opencode not signed in';
+const GO_NO_PLAN_MSG = 'no OpenCode Go plan';
 const AGY_TTL_MS = 60_000;
 const AGY_LIMITS_TTL_MS = 120_000;
 const AGY_LIMITS_FAILURE_TTL_MS = 60_000;
@@ -430,6 +441,167 @@ async function collectOpencode(o: UsageOptions): Promise<OpencodeUsage> {
   }
 }
 
+// --- opencode Go plan limits ---------------------------------------------
+
+class GoUnavailableError extends Error {}
+class GoNotSignedInError extends Error {}
+class GoNoPlanError extends Error {}
+
+const GO_AUTH_MAX_BYTES = 64 * 1024;
+
+interface GoCredential { token: string; orgId?: string }
+
+/**
+ * Legacy opencode auth.json: an object keyed by provider id; `{type:'api', key, metadata?}` or
+ * `{type:'oauth', access, ...}`. The Go key is the `opencode-go` entry, else the Zen `opencode` one.
+ * The workspace id (`metadata.orgID`) is sent as `x-opencode-org-id` only when the entry carries one.
+ * The returned token lives only in the caller's local variable for one request.
+ */
+async function readGoCredential(): Promise<GoCredential> {
+  const x = process.env.XDG_DATA_HOME;
+  const dataHome = x && path.isAbsolute(x) ? x : join(os.homedir(), '.local', 'share');
+  let raw: string;
+  let fh;
+  try {
+    // O_NONBLOCK so a FIFO at the path cannot hang the open; only a small regular file is read.
+    fh = await open(join(dataHome, 'opencode', 'auth.json'), fsConstants.O_RDONLY | fsConstants.O_NONBLOCK);
+    const st = await fh.stat();
+    if (!st.isFile() || st.size > GO_AUTH_MAX_BYTES) throw new Error('not a small file');
+    raw = await fh.readFile('utf8');
+  } catch {
+    throw new GoNotSignedInError();
+  } finally {
+    await fh?.close().catch(() => {});
+  }
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw new GoNotSignedInError();
+  }
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) throw new GoNotSignedInError();
+  for (const id of ['opencode-go', 'opencode']) {
+    const entry = (data as Record<string, unknown>)[id];
+    if (typeof entry !== 'object' || entry === null) continue;
+    const e = entry as Record<string, unknown>;
+    const token = e.type === 'api' ? e.key : e.type === 'oauth' ? e.access : undefined;
+    if (typeof token !== 'string' || token === '') continue;
+    const meta = e.metadata;
+    const orgId = typeof meta === 'object' && meta !== null ? (meta as Record<string, unknown>).orgID : undefined;
+    return { token, ...(typeof orgId === 'string' && orgId !== '' ? { orgId } : {}) };
+  }
+  throw new GoNotSignedInError();
+}
+
+/** Reads at most `max` bytes of the body; larger (by header or stream) is a malfunction. */
+async function readLimitedBody(res: Response, max: number): Promise<string> {
+  const len = Number(res.headers.get('content-length'));
+  if (Number.isFinite(len) && len > max) throw new GoUnavailableError();
+  if (!res.body) return '';
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > max) throw new GoUnavailableError();
+      chunks.push(value);
+    }
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function goMeter(window: GoLimit['window'], raw: unknown, now: number): GoLimit {
+  if (typeof raw !== 'object' || raw === null) throw new GoUnavailableError();
+  const m = raw as Record<string, unknown>;
+  const pct = typeof m.percent === 'number' ? m.percent : m.usagePercent;
+  if (typeof pct !== 'number' || !Number.isFinite(pct)) throw new GoUnavailableError();
+  let resetsAt: string | null = null;
+  if (typeof m.resetsAt === 'string' && Number.isFinite(Date.parse(m.resetsAt))) resetsAt = new Date(m.resetsAt).toISOString();
+  else if (typeof m.resetInSec === 'number' && Number.isFinite(m.resetInSec) && m.resetInSec >= 0 && m.resetInSec <= 400 * 86_400) {
+    resetsAt = new Date(now + m.resetInSec * 1000).toISOString();
+  }
+  return { window, utilization: Math.max(0, Math.min(100, pct)), resetsAt, limited: m.status === 'rate-limited' };
+}
+
+/** Both known shapes: `{usage:{rolling,weekly,monthly}}` and the original `{rollingUsage,weeklyUsage,monthlyUsage}`. */
+function parseGoLimits(text: string, now: number): GoLimit[] {
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new GoUnavailableError();
+  }
+  if (typeof data !== 'object' || data === null) throw new GoUnavailableError();
+  const d = data as Record<string, unknown>;
+  const u = typeof d.usage === 'object' && d.usage !== null ? (d.usage as Record<string, unknown>) : undefined;
+  const pick = (a: string, b: string): unknown => (u ? u[a] : d[b]);
+  const out: GoLimit[] = [];
+  for (const [window, a, b] of [['rolling', 'rolling', 'rollingUsage'], ['weekly', 'weekly', 'weeklyUsage'], ['monthly', 'monthly', 'monthlyUsage']] as const) {
+    const raw = pick(a, b);
+    if (raw !== undefined && raw !== null) out.push(goMeter(window, raw, now));
+  }
+  if (out.length === 0) throw new GoUnavailableError();
+  return out;
+}
+
+type GoLimitsCacheValue = UsageSource & { limits?: GoLimit[] };
+
+async function fetchGoLimits(o: UsageOptions): Promise<GoLimit[]> {
+  const cred = await readGoCredential();
+  const doFetch = o.fetch ?? globalThis.fetch;
+  let res: Response;
+  try {
+    res = await doFetch(GO_USAGE_URL, {
+      method: 'GET',
+      redirect: 'error',
+      signal: AbortSignal.timeout(GO_LIMITS_TIMEOUT_MS),
+      headers: {
+        accept: 'application/json',
+        authorization: `Bearer ${cred.token}`,
+        ...(cred.orgId ? { 'x-opencode-org-id': cred.orgId } : {}),
+      },
+    });
+  } catch {
+    throw new GoUnavailableError();
+  }
+  try {
+    if (res.status === 401) throw new GoNotSignedInError();
+    if (res.status === 403) throw new GoNoPlanError();
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      throw new GoUnavailableError();
+    }
+    return parseGoLimits(await readLimitedBody(res, GO_LIMITS_MAX_BODY), nowMs(o));
+  } catch (err) {
+    if (err instanceof GoNotSignedInError || err instanceof GoNoPlanError) throw err;
+    throw new GoUnavailableError();
+  }
+}
+
+async function collectGoLimits(o: UsageOptions): Promise<{ limits?: GoLimit[]; error?: string }> {
+  const state = o.state ?? defaultState;
+  const failed = state.caches.get('go-limits:failed');
+  if (!o.refresh && failed && nowMs(o) - failed.atMs < GO_LIMITS_FAILURE_TTL_MS) return failed.value as { error: string };
+  try {
+    const cached = await withCache<GoLimitsCacheValue>('go-limits', GO_LIMITS_TTL_MS, o, async () => {
+      const limits = await fetchGoLimits(o);
+      state.caches.delete('go-limits:failed');
+      return { available: true, asOf: new Date(nowMs(o)).toISOString(), limits };
+    });
+    return { limits: cached.limits };
+  } catch (err) {
+    const error = err instanceof GoNotSignedInError ? GO_NOT_SIGNED_IN_MSG : err instanceof GoNoPlanError ? GO_NO_PLAN_MSG : GO_UNAVAILABLE_MSG;
+    const value = { error };
+    state.caches.set('go-limits:failed', { atMs: nowMs(o), value });
+    return value;
+  }
+}
+
 // --- agy ----------------------------------------------------------------
 
 class AgyScanTimeoutError extends Error {}
@@ -681,6 +853,12 @@ export async function getUsage(opts: UsageOptions = {}): Promise<UsageReport> {
     queryFactory: opts.queryFactory ?? query,
   };
   // Each collector catches everything itself (its try/catch returns a fallback), so none rejects.
-  const [claude, opencode, agy] = await Promise.all([collectClaude(o), collectOpencode(o), collectAgy(o)]);
+  const [claude, opencodeStats, agy, go] = await Promise.all([collectClaude(o), collectOpencode(o), collectAgy(o), collectGoLimits(o)]);
+  // Go plan limits are independent of the stats windows: a failure here only sets limitsError.
+  const opencode: OpencodeUsage = {
+    ...opencodeStats,
+    ...(go.limits ? { limits: go.limits } : {}),
+    ...(go.error ? { limitsError: go.error } : {}),
+  };
   return { claude, opencode, agy };
 }

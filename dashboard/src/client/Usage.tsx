@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { FleetBackend, Guard } from './api';
 import type { UsageLimit, UsageReport } from '../shared/types';
-import { fmtClockShort, fmtCost, fmtResetIn, fmtTokens, usageTone } from './format';
+import { fmtClockShort, fmtCost, fmtResetIn, fmtTokens, GO_WINDOW_LABELS, usageTone } from './format';
 import { RefreshIcon } from './icons';
 
 /** Fetch on mount, then every 60s while `active` and visible; refetch when the tab becomes visible. */
@@ -200,7 +200,21 @@ function OpenCodeCard({
           <span className="usage-cost muted"> ≈ {fmtCost(win.costUsd)} est.</span>
         )}
       </p>
-      <p className="usage-note muted">Consumption only — opencode-go exposes no plan limit.</p>
+      <div className="usage-go-limits">
+        <p className="usage-label">Plan limits</p>
+        {oc.limits && oc.limits.length > 0 ? (
+          <div className="usage-limits">
+            {oc.limits.map((l) => (
+              <div key={l.window}>
+                <UsageBar label={GO_WINDOW_LABELS[l.window]} limit={l} />
+                {l.limited && <p className="usage-note tone-fail">rate-limited</p>}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="usage-note muted">{oc.limitsError ?? 'Plan limits unavailable.'}</p>
+        )}
+      </div>
     </UsageCard>
   );
 }

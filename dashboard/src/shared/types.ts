@@ -268,6 +268,8 @@ export interface UsageLimit { utilization: number | null; resetsAt: string | nul
 export interface UsageWindow { days: number; tokens: number; costUsd?: number; runs?: number; stopped?: number }
 /** Whether a collector answered at all. */
 export interface UsageSource { available: boolean; asOf: string | null; error?: string }
+/** One OpenCode Go plan window (plan-wide, not per model): utilization 0-100, resetsAt ISO 8601. */
+export interface GoLimit { window: 'rolling' | 'weekly' | 'monthly'; utilization: number | null; resetsAt: string | null; limited: boolean }
 export interface UsageReport {
   claude: UsageSource & {
     subscription?: string;
@@ -277,6 +279,6 @@ export interface UsageReport {
     sevenDaySonnet?: UsageLimit;
     source?: 'probe' | 'session';
   };
-  opencode: UsageSource & { windows: UsageWindow[] };   // days 1, 7, 30: tokens + costUsd (estimated)
+  opencode: UsageSource & { windows: UsageWindow[]; limits?: GoLimit[]; limitsError?: string };   // days 1, 7, 30: tokens + costUsd (estimated); Go plan limits from opencode.ai (server-side key)
   agy: UsageSource & { windows: UsageWindow[]; limits?: { group: string; window: '5h' | 'weekly'; utilization: number | null; resetsAt: string | null }[] };        // days 1, 7: tokens, runs, stopped + plan limits from `agy -p /usage`
 }

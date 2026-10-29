@@ -2207,6 +2207,8 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
 
 .usage-limit { display: flex; flex-direction: column; gap: 3px; }
 .usage-limit-top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
+.usage-go-limits { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); }
+.usage-note.tone-fail { color: var(--fail); }
 .usage-label { font-size: 12px; color: var(--text-2); }
 .usage-pct { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; }
 .usage-pct.tone-teal { color: var(--teal); }

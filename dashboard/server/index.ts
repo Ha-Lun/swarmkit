@@ -660,9 +660,9 @@ async function main(): Promise<void> {
       // Refresh bypasses the collector caches, but at most once per the guard window.
       let refresh = url.searchParams.get('refresh') === '1';
       if (refresh && now - lastUsageBypassMs < USAGE_REFRESH_GUARD_MS) refresh = false;
-      const report = await getUsage({ refresh });
-      // Stamp only after the report resolved, so a failed/aborted request does not burn the window.
+      // Stamp before awaiting, so concurrent refreshes during a slow probe cannot bypass again.
       if (refresh) lastUsageBypassMs = now;
+      const report = await getUsage({ refresh });
       res.setHeader('X-Usage-Refreshed', refresh ? '1' : '0');
       return sendJson(res, 200, report);
     }

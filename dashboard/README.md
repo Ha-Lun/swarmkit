@@ -143,7 +143,14 @@ timeout and never fails the others — a failing one answers
   This relies on an unstable SDK API (`usage_EXPERIMENTAL_…`) that may change
   or disappear in any release.
 - **OpenCode**: consumption only (tokens spent and estimated USD cost),
-  derived from `opencode stats`. No plan limit is exposed for it.
+  derived from `opencode stats`. Plan-wide OpenCode Go limits (`limits`:
+  rolling, weekly, monthly utilisation 0-100 with ISO reset times, `limited`
+  flag) come from opencode's undocumented `GET https://opencode.ai/zen/go/v1/usage`,
+  cached 2 minutes. The server reads the key (or OAuth access token) from
+  opencode's `auth.json` (`$XDG_DATA_HOME` or `~/.local/share/opencode`) at
+  request time and never caches, logs or sends it to the browser. Failures
+  only set `limitsError` (`opencode not signed in`, `no OpenCode Go plan`,
+  `go limits unavailable`); the consumption windows are unaffected.
 - **agy**: consumption (tokens, runs, stopped from the worker task
   directories) plus real plan limits via `agy -p /usage --output-format json`
   (no agent turn, no quota spent): per-group `5h`/`weekly` utilisation 0-100

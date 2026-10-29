@@ -1,5 +1,5 @@
 // Small pure formatting helpers. No side effects, no React.
-import type { AgentNode, PermissionRequest, SessionSummary, WorkerTask } from '../shared/types';
+import type { AgentNode, GoLimit, PermissionRequest, SessionSummary, WorkerTask } from '../shared/types';
 
 /** 'claude-opus-5-5' -> 'Opus 5.5'; 'opencode-go/glm-5.3-flash' -> 'glm-5.3-flash'; missing -> ''. */
 export function modelLabel(model?: string): string {
@@ -165,6 +165,30 @@ export function usageTone(u: number | null): 'teal' | 'amber' | 'fail' | 'idle' 
   if (u >= 90) return 'fail';
   if (u >= 75) return 'amber';
   return 'teal';
+}
+
+export const GO_WINDOW_LABELS = { rolling: 'Rolling', weekly: 'Weekly', monthly: 'Monthly' } as const;
+
+/** TopBar Go pill model: rolling percent, tone (danger when any window is limited) and an accessible description. */
+export function goPillModel(
+  limits: readonly GoLimit[] | undefined,
+  now = Date.now(),
+): { pct: number | null; tone: ReturnType<typeof usageTone>; label: string } | null {
+  if (!limits || limits.length === 0) return null;
+  const rolling = limits.find((l) => l.window === 'rolling');
+  const u = rolling?.utilization ?? null;
+  const pct = u == null || !Number.isFinite(u) ? null : Math.min(100, Math.max(0, Math.round(u)));
+  const limited = limits.some((l) => l.limited);
+  const parts = limits.map((l) => {
+    const v = l.utilization == null || !Number.isFinite(l.utilization) ? 'n/a' : `${Math.min(100, Math.max(0, Math.round(l.utilization)))}%`;
+    const reset = l.resetsAt ? fmtResetIn(l.resetsAt, now) : '';
+    return `${l.window} ${v}${reset ? ` (resets ${reset})` : ''}`;
+  });
+  return {
+    pct,
+    tone: limited ? 'fail' : usageTone(u),
+    label: `OpenCode Go — ${parts.join(', ')}${limited ? ', rate-limited' : ''}`,
+  };
 }
 
 export const UNTRUSTED_NOTICE =

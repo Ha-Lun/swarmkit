@@ -1,12 +1,12 @@
 // TopBar: the single slim sticky strip that replaces the sidebar. Left: the Logo
 // with wordmark as the Home button. Center: a horizontally scrollable row of ACTIVE
 // (running/waiting) session chips (omitted entirely when there are none). Right:
-// Workers link, Archive link, the Claude 5h usage pill, a connection dot and the
+// Workers link, Archive link, the Claude 5h and OpenCode Go usage pills, a connection dot and the
 // New session button — pinned to the right edge via margin-left: auto. No hamburger/sheet.
 // On ≤768px the links collapse to 44×44 icon buttons with count badges, the usage
 // pill and connection dot hide, and New session becomes a "+" icon button.
 import type { SessionSummary, UsageReport, WorkerTask } from '../shared/types';
-import { fmtResetIn, sessionHint, usageTone } from './format';
+import { fmtResetIn, goPillModel, sessionHint, usageTone } from './format';
 import { ArchiveIcon, Logo, PlusIcon, WorkerIcon } from './icons';
 
 interface Props {
@@ -48,6 +48,8 @@ export function TopBar({
           resetLabel ? `, resets ${resetLabel}` : ''
         }`
       : undefined;
+
+  const go = goPillModel(usage?.opencode.limits);
 
   return (
     <header className="topstrip">
@@ -115,6 +117,11 @@ export function TopBar({
             title={resetLabel ? `resets ${resetLabel}` : undefined}
           >
             Claude 5h <b>{Math.min(100, Math.max(0, Math.round(utilization)))}%</b>
+          </span>
+        )}
+        {go && (
+          <span className={`usage-pill tone-${go.tone}`} aria-label={go.label} title={go.label}>
+            Go <b>{go.pct == null ? '—' : `${go.pct}%`}</b>
           </span>
         )}
         <span

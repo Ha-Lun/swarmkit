@@ -947,6 +947,11 @@ A claim with a footnote.[^1]
         { days: 7, tokens: 1_120_000, costUsd: 2.11 },
         { days: 30, tokens: 3_450_000, costUsd: 6.4 },
       ],
+      limits: [
+        { window: 'rolling', utilization: 34, resetsAt: new Date(base + 2 * 3_600_000).toISOString(), limited: false },
+        { window: 'weekly', utilization: 61, resetsAt: new Date(base + 3 * 86_400_000).toISOString(), limited: false },
+        { window: 'monthly', utilization: 12, resetsAt: new Date(base + 20 * 86_400_000).toISOString(), limited: false },
+      ],
     },
     agy: {
       available: true,
