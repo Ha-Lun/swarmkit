@@ -451,20 +451,107 @@ const GO_AUTH_MAX_BYTES = 64 * 1024;
 
 interface GoCredential { token: string; orgId?: string }
 
+function goDataDir(): string {
+  const x = process.env.XDG_DATA_HOME;
+  return join(x && path.isAbsolute(x) ? x : join(os.homedir(), '.local', 'share'), 'opencode');
+}
+
+/** Picks the token and optional workspace id out of one `{type:'api'|'oauth', key|access, metadata?}` value. */
+function goCredentialFrom(e: Record<string, unknown>): GoCredential | undefined {
+  const token = e.type === 'api' || e.type === 'key' ? e.key : e.type === 'oauth' ? e.access : undefined;
+  if (typeof token !== 'string' || token === '') return undefined;
+  const meta = e.metadata;
+  const orgId = typeof meta === 'object' && meta !== null ? (meta as Record<string, unknown>).orgID : undefined;
+  return { token, ...(typeof orgId === 'string' && orgId !== '' ? { orgId } : {}) };
+}
+
+const GO_DB_MIN_NODE = [22, 13];
+
+/** `readOnly` is only honoured from Node 22.13: an older runtime must never open the db read-write. */
+function nodeSupportsReadOnlySqlite(): boolean {
+  const [maj = 0, min = 0] = process.versions.node.split('.').map(Number);
+  return maj > GO_DB_MIN_NODE[0]! || (maj === GO_DB_MIN_NODE[0]! && min >= GO_DB_MIN_NODE[1]!);
+}
+
 /**
- * Legacy opencode auth.json: an object keyed by provider id; `{type:'api', key, metadata?}` or
- * `{type:'oauth', access, ...}`. The Go key is the `opencode-go` entry, else the Zen `opencode` one.
- * The workspace id (`metadata.orgID`) is sent as `x-opencode-org-id` only when the entry carries one.
+ * opencode 2.x keeps credentials in its SQLite db (`credential` table, `value` = JSON of the same
+ * shape as an auth.json entry, `active` = the connection in use) and only imports the legacy
+ * auth.json once, so the file goes stale after a re-login. Read-only and bounded: the first usable
+ * active row, `opencode-go` before the Zen `opencode` one, newest first. Undefined (caller falls
+ * back to auth.json) only when there is no db file, it is not a regular file / not a database, or it
+ * has no `credential` table. Once the table exists the db is the source of truth: no usable row is
+ * "not signed in", never a stale file; a locked or otherwise unreadable db is "unavailable".
+ */
+async function readGoCredentialDb(): Promise<GoCredential | undefined> {
+  if (!nodeSupportsReadOnlySqlite()) return undefined;
+  const dbPath = join(goDataDir(), 'opencode.db');
+  let st;
+  try {
+    st = await lstat(dbPath);
+  } catch {
+    return undefined;
+  }
+  if (!st.isFile()) return undefined;
+  let sqlite: typeof import('node:sqlite');
+  try {
+    sqlite = await import('node:sqlite');
+  } catch {
+    return undefined;
+  }
+  let db: InstanceType<typeof sqlite.DatabaseSync> | undefined;
+  let rows: Array<{ value?: unknown }>;
+  try {
+    db = new sqlite.DatabaseSync(dbPath, { readOnly: true, timeout: 1000 });
+    rows = db
+      .prepare(
+        `SELECT value FROM credential WHERE integration_id IN ('opencode-go', 'opencode') AND active = 1 AND length(CAST(value AS BLOB)) <= ?
+         ORDER BY (integration_id = 'opencode-go') DESC, time_updated DESC LIMIT 5`,
+      )
+      .all(GO_AUTH_MAX_BYTES) as Array<{ value?: unknown }>;
+  } catch (err) {
+    const ec = (err as { errcode?: unknown } | null)?.errcode;
+    const es = String((err as { errstr?: unknown } | null)?.errstr ?? '');
+    // A busy/locked db says nothing about the credential: do not fall back to a possibly stale file.
+    if ((typeof ec === 'number' && ((ec & 0xff) === 5 || (ec & 0xff) === 6)) || /locked|busy/i.test(es)) throw new GoUnavailableError();
+    // Not a database, or no credential table: nothing newer than auth.json to prefer.
+    if ((typeof ec === 'number' && (ec & 0xff) === 26) || /no such table/i.test(String((err as { message?: unknown } | null)?.message ?? es))) return undefined;
+    throw new GoUnavailableError();
+  } finally {
+    try {
+      db?.close();
+    } catch {
+      // ignore
+    }
+  }
+  for (const row of rows) {
+    if (typeof row.value !== 'string') continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.value);
+    } catch {
+      continue;
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) continue;
+    const cred = goCredentialFrom(parsed as Record<string, unknown>);
+    if (cred) return cred;
+  }
+  throw new GoNotSignedInError();
+}
+
+/**
+ * Credential for the Go call: the opencode 2.x db first, else the legacy auth.json (an object keyed
+ * by provider id; the `opencode-go` entry, else the Zen `opencode` one). The workspace id
+ * (`metadata.orgID`) is sent as `x-opencode-org-id` only when the entry carries one.
  * The returned token lives only in the caller's local variable for one request.
  */
 async function readGoCredential(): Promise<GoCredential> {
-  const x = process.env.XDG_DATA_HOME;
-  const dataHome = x && path.isAbsolute(x) ? x : join(os.homedir(), '.local', 'share');
+  const fromDb = await readGoCredentialDb();
+  if (fromDb) return fromDb;
   let raw: string;
   let fh;
   try {
     // O_NONBLOCK so a FIFO at the path cannot hang the open; only a small regular file is read.
-    fh = await open(join(dataHome, 'opencode', 'auth.json'), fsConstants.O_RDONLY | fsConstants.O_NONBLOCK);
+    fh = await open(join(goDataDir(), 'auth.json'), fsConstants.O_RDONLY | fsConstants.O_NONBLOCK);
     const st = await fh.stat();
     if (!st.isFile() || st.size > GO_AUTH_MAX_BYTES) throw new Error('not a small file');
     raw = await fh.readFile('utf8');
@@ -483,12 +570,8 @@ async function readGoCredential(): Promise<GoCredential> {
   for (const id of ['opencode-go', 'opencode']) {
     const entry = (data as Record<string, unknown>)[id];
     if (typeof entry !== 'object' || entry === null) continue;
-    const e = entry as Record<string, unknown>;
-    const token = e.type === 'api' ? e.key : e.type === 'oauth' ? e.access : undefined;
-    if (typeof token !== 'string' || token === '') continue;
-    const meta = e.metadata;
-    const orgId = typeof meta === 'object' && meta !== null ? (meta as Record<string, unknown>).orgID : undefined;
-    return { token, ...(typeof orgId === 'string' && orgId !== '' ? { orgId } : {}) };
+    const cred = goCredentialFrom(entry as Record<string, unknown>);
+    if (cred) return cred;
   }
   throw new GoNotSignedInError();
 }

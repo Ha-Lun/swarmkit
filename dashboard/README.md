@@ -146,9 +146,12 @@ timeout and never fails the others — a failing one answers
   derived from `opencode stats`. Plan-wide OpenCode Go limits (`limits`:
   rolling, weekly, monthly utilisation 0-100 with ISO reset times, `limited`
   flag) come from opencode's undocumented `GET https://opencode.ai/zen/go/v1/usage`,
-  cached 2 minutes. The server reads the key (or OAuth access token) from
-  opencode's `auth.json` (`$XDG_DATA_HOME` or `~/.local/share/opencode`) at
-  request time and never caches, logs or sends it to the browser. Failures
+  cached 2 minutes. The server reads the key (or OAuth access token) at
+  request time from opencode's data dir (`$XDG_DATA_HOME` or
+  `~/.local/share/opencode`): the active `opencode-go` (else `opencode`) row of
+  the `credential` table in `opencode.db` (opencode 2.x, opened read-only,
+  needs `node:sqlite`), else the legacy `auth.json`, which 2.x leaves stale
+  after a re-login. The key is never cached, logged or sent to the browser. Failures
   only set `limitsError` (`opencode not signed in`, `no OpenCode Go plan`,
   `go limits unavailable`); the consumption windows are unaffected.
 - **agy**: consumption (tokens, runs, stopped from the worker task

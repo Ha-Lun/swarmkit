@@ -1,7 +1,8 @@
 // Usage collectors: opencode stats parsing, fallback paths, agy result.json windows,
 // cache TTLs with a fake clock, the claude probe mapping (including its finally) and the
-// OpenCode Go plan-limits fetch (fake auth.json + mocked fetch, never the network).
+// OpenCode Go plan-limits fetch (fake auth.json / opencode.db + mocked fetch, never the network).
 import { mkdir, mkdtemp, rm, symlink, utimes, writeFile } from 'node:fs/promises';
+import { DatabaseSync } from 'node:sqlite';
 import os from 'node:os';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -958,5 +959,138 @@ describe('opencode Go limits', () => {
     const report = await run({ fetch: m.fetch, now: () => 1_000_000_000_000 });
     expect(report.opencode.limitsError).toBeUndefined();
     expect(report.opencode.limits?.map((l) => l.resetsAt)).toEqual([null, new Date(1_000_000_000_000 + 3_600_000).toISOString(), null]);
+  });
+
+  // opencode 2.x: credentials live in opencode.db (`credential` table); auth.json is only a stale import.
+  async function writeDb(rows: Array<{ integration: string; value: unknown; active: number; updated?: number }>): Promise<DatabaseSync> {
+    await mkdir(join(xdg, 'opencode'), { recursive: true });
+    const db = new DatabaseSync(join(xdg, 'opencode', 'opencode.db'));
+    db.exec('CREATE TABLE credential (id TEXT PRIMARY KEY, integration_id TEXT NOT NULL, label TEXT, value TEXT NOT NULL, active INTEGER, time_updated INTEGER)');
+    const ins = db.prepare('INSERT INTO credential (id, integration_id, label, value, active, time_updated) VALUES (?, ?, ?, ?, ?, ?)');
+    rows.forEach((r, i) => ins.run(`c${i}`, r.integration, 'l', typeof r.value === 'string' ? r.value : JSON.stringify(r.value), r.active, r.updated ?? i));
+    return db;
+  }
+  const authOf = (m: { calls: Call[] }) => (m.calls[0]!.init.headers as Record<string, string>).authorization;
+
+  it('prefers the active opencode.db credential over a stale auth.json', async () => {
+    await writeAuth({ 'opencode-go': { type: 'api', key: 'sk-stale-file' } });
+    (await writeDb([
+      { integration: 'opencode-go', value: { type: 'key', key: 'sk-old-inactive' }, active: 0, updated: 9 },
+      { integration: 'opencode-go', value: { type: 'key', key: KEY, metadata: { orgID: 'wrk_db' } }, active: 1, updated: 5 },
+    ])).close();
+    const m = mockFetch(() => json(NEW_SHAPE));
+    const report = await run({ fetch: m.fetch });
+    expect(report.opencode.limits).toHaveLength(3);
+    expect(authOf(m)).toBe(`Bearer ${KEY}`);
+    expect((m.calls[0]!.init.headers as Record<string, string>)['x-opencode-org-id']).toBe('wrk_db');
+    expect(JSON.stringify(report)).not.toContain(KEY);
+  });
+
+  it('uses the active Zen opencode db credential when there is no opencode-go one', async () => {
+    (await writeDb([{ integration: 'opencode', value: { type: 'oauth', access: KEY }, active: 1 }])).close();
+    const m = mockFetch(() => json(NEW_SHAPE));
+    await run({ fetch: m.fetch });
+    expect(authOf(m)).toBe(`Bearer ${KEY}`);
+  });
+
+  it('an existing credential table is the source of truth: no active credential is "not signed in", never auth.json', async () => {
+    await writeAuth({ 'opencode-go': { type: 'api', key: KEY } });
+    (await writeDb([{ integration: 'opencode-go', value: { type: 'key', key: 'sk-inactive' }, active: 0 }])).close();
+    const m = mockFetch(() => json(NEW_SHAPE));
+    const report = await run({ fetch: m.fetch });
+    expect(report.opencode.limitsError).toBe('opencode not signed in');
+    expect(m.calls).toHaveLength(0);
+  });
+
+  it('falls back to auth.json when the db has no credential table or is not a database', async () => {
+    await writeAuth({ 'opencode-go': { type: 'api', key: KEY } });
+    await mkdir(join(xdg, 'opencode'), { recursive: true });
+    const empty = new DatabaseSync(join(xdg, 'opencode', 'opencode.db'));
+    empty.exec('CREATE TABLE other (x TEXT)');
+    empty.close();
+    let m = mockFetch(() => json(NEW_SHAPE));
+    await run({ fetch: m.fetch });
+    expect(authOf(m)).toBe(`Bearer ${KEY}`);
+
+    await writeFile(join(xdg, 'opencode', 'opencode.db'), 'not a database');
+    m = mockFetch(() => json(NEW_SHAPE));
+    await run({ fetch: m.fetch });
+    expect(authOf(m)).toBe(`Bearer ${KEY}`);
+  });
+
+  it('a malformed active db row is skipped for the next usable one; none usable is "not signed in" (not auth.json)', async () => {
+    await writeAuth({ 'opencode-go': { type: 'api', key: 'sk-stale-file' } });
+    (await writeDb([
+      { integration: 'opencode-go', value: 'not json', active: 1, updated: 9 },
+      { integration: 'opencode', value: { type: 'oauth', access: KEY }, active: 1, updated: 1 },
+    ])).close();
+    let m = mockFetch(() => json(NEW_SHAPE));
+    await run({ fetch: m.fetch });
+    expect(authOf(m)).toBe(`Bearer ${KEY}`);
+
+    await rm(join(xdg, 'opencode', 'opencode.db'));
+    (await writeDb([{ integration: 'opencode-go', value: 'not json', active: 1 }])).close();
+    m = mockFetch(() => json(NEW_SHAPE));
+    const report = await run({ fetch: m.fetch });
+    expect(report.opencode.limitsError).toBe('opencode not signed in');
+    expect(m.calls).toHaveLength(0);
+  });
+
+  it('an oversize db value (counted in bytes) is not used', async () => {
+    (await writeDb([{ integration: 'opencode-go', value: { type: 'key', key: KEY, pad: 'é'.repeat(40 * 1024) }, active: 1 }])).close();
+    const m = mockFetch(() => json(NEW_SHAPE));
+    const report = await run({ fetch: m.fetch });
+    expect(report.opencode.limitsError).toBe('opencode not signed in');
+    expect(m.calls).toHaveLength(0);
+  });
+
+  it('skips the db (falls back to auth.json) on a Node below 22.13, where readOnly is not honoured', async () => {
+    await writeAuth({ 'opencode-go': { type: 'api', key: 'sk-file' } });
+    (await writeDb([{ integration: 'opencode-go', value: { type: 'key', key: KEY }, active: 1 }])).close();
+    const desc = Object.getOwnPropertyDescriptor(process.versions, 'node')!;
+    Object.defineProperty(process.versions, 'node', { ...desc, value: '22.12.0' });
+    try {
+      const m = mockFetch(() => json(NEW_SHAPE));
+      await run({ fetch: m.fetch });
+      expect(authOf(m)).toBe('Bearer sk-file');
+    } finally {
+      Object.defineProperty(process.versions, 'node', desc);
+    }
+    const m2 = mockFetch(() => json(NEW_SHAPE));
+    await run({ fetch: m2.fetch });
+    expect(authOf(m2)).toBe(`Bearer ${KEY}`);
+  });
+
+  it('a numeric busy/locked errcode alone (no errstr) is "go limits unavailable"', async () => {
+    await writeAuth({ 'opencode-go': { type: 'api', key: 'sk-stale-file' } });
+    (await writeDb([{ integration: 'opencode-go', value: { type: 'key', key: KEY }, active: 1 }])).close();
+    const spy = vi.spyOn(DatabaseSync.prototype, 'prepare').mockImplementation(() => {
+      throw Object.assign(new Error('x'), { errcode: 5 | (2 << 8) });
+    });
+    try {
+      const m = mockFetch(() => json(NEW_SHAPE));
+      const report = await run({ fetch: m.fetch });
+      expect(report.opencode.limitsError).toBe('go limits unavailable');
+      expect(m.calls).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('a locked db is "go limits unavailable" (no stale-file fallback, no request)', async () => {
+    await writeAuth({ 'opencode-go': { type: 'api', key: 'sk-stale-file' } });
+    const db = await writeDb([{ integration: 'opencode-go', value: { type: 'key', key: KEY }, active: 1 }]);
+    db.exec('PRAGMA journal_mode = DELETE');
+    db.exec('BEGIN EXCLUSIVE');
+    try {
+      const m = mockFetch(() => json(NEW_SHAPE));
+      const report = await run({ fetch: m.fetch });
+      expect(report.opencode.limitsError).toBe('go limits unavailable');
+      expect(m.calls).toHaveLength(0);
+      expect(JSON.stringify(report)).not.toContain(KEY);
+    } finally {
+      db.exec('ROLLBACK');
+      db.close();
+    }
   });
 });
