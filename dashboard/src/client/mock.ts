@@ -211,7 +211,7 @@ export function createMockBackend(): FleetBackend {
       repo: 'swarmkit',
       slug: 'docs-refresh',
       state: 'ok',
-      model: 'claude-sonnet-5-5',
+      model: 'gemini-3.8-flash-high',
       agent: 'release-tester',
       startedAt: base - 1_500_000,
       endedAt: base - 688_000,
@@ -226,7 +226,7 @@ export function createMockBackend(): FleetBackend {
       repo: 'api-gateway',
       slug: 'flaky-migrate',
       state: 'not-ok',
-      model: 'claude-opus-5-5',
+      model: 'gemini-3.8-flash',
       startedAt: base - 7_200_000,
       endedAt: base - 6_900_000,
       elapsedS: 300,
@@ -241,7 +241,7 @@ export function createMockBackend(): FleetBackend {
       repo: 'swarmkit',
       slug: 'lint-sweep',
       state: 'unfinished',
-      model: 'opencode-go/glm-4.5-air',
+      model: 'opencode-go/muse-spark-1.3-contributor',
       startedAt: base - 86_400_000,
       elapsedS: 3600,
       denied: 0,
@@ -886,6 +886,50 @@ A claim with a footnote.[^1]
         }
       });
     });
+  });
+
+  // Workers on both lanes plus a failed and a stopped subagent, so the map shows every section.
+  // The worker nodes link to the mock worker tasks above by lane + slug.
+  const endNode = (n: AgentNode, status: 'error' | 'stopped', text: string) => {
+    n.status = status;
+    n.endedAt = Date.now();
+    n.result = text;
+    pushEvent(n, 'system', text);
+    upsertHead(n);
+  };
+  at(6200, () => {
+    const w = spawn(root, 'task-w-docs', 'worker', 'agy-task', 'gemini-3.8-flash-high', 'agy worker docs-refresh (gemini-3.8-flash-high)', 'Refresh the README against the current build.\nKeep the diff small.', {
+      worker: { lane: 'agy', slug: 'docs-refresh' },
+    });
+    at(1500, () => finishNode(w, 'Docs refreshed; no regressions found.', 0.004, tu(2600, 520)));
+  });
+  at(6600, () => {
+    const w = spawn(root, 'task-w-migrate', 'worker', 'agy-task', 'gemini-3.8-flash', 'agy worker flaky-migrate (gemini-3.8-flash)', '', {
+      worker: { lane: 'agy', slug: 'flaky-migrate' },
+    });
+    at(1600, () => endNode(w, 'error', 'Migration aborted: the user denied a run of shell commands.'));
+  });
+  at(7000, () => {
+    const w = spawn(root, 'task-w-lint', 'worker', 'opencode-task', 'opencode-go/muse-spark-1.3-contributor', 'opencode worker lint-sweep (opencode-go/muse-spark-1.3-contributor)', 'Sweep the client for unused exports and fix lint warnings.', {
+      worker: { lane: 'opencode', slug: 'lint-sweep' },
+    });
+    at(1200, () => finishNode(w, 'Removed 6 unused exports.', 0.003, tu(1800, 400)));
+  });
+  at(7400, () => {
+    const w = spawn(root, 'task-w-probe', 'worker', 'agy-task', 'gemini-3.8-flash-high', 'agy worker probe-agent (gemini-3.8-flash-high)', 'Probe the agent gate: ask for a file outside the repo and report how it answers.', {
+      worker: { lane: 'agy', slug: 'probe-agent' },
+    });
+    at(900, () => toolCall(w, 'Read', 'gate/schema.json'));
+  });
+  at(7800, () => {
+    const a = spawn(root, 'task-sc-secaudit', 'subagent', 'security-auditor', 'claude-opus-5-5', 'Audit the pricing webhook handler', 'Review signature checks and replay protection on the billing webhook.');
+    at(900, () => toolCall(a, 'Read', 'server/routes/billing-webhook.ts'));
+    at(1700, () => endNode(a, 'error', 'Review failed: the webhook secret is not configured in this environment.'));
+  });
+  at(8200, () => {
+    const t = spawn(root, 'task-sc-i18n', 'subagent', 'general-purpose', 'claude-haiku-4-5-20251001', 'Translate the plan copy to Swedish', 'Translate every plan headline and footnote to Swedish.');
+    at(900, () => toolCall(t, 'Edit', 'pricing/copy.sv.json'));
+    at(1600, () => endNode(t, 'stopped', 'Stopped by the user.'));
   });
 
   // ---- demo keep-alive: the landing page's "Running now" must never go empty ----

@@ -1,10 +1,11 @@
-// One agent pill. Pure display + permission panel slot; positioning handled by Tree.
+// Map entries for one agent: a full card (running / needs attention / root) and a compact
+// one-line row (done). Pure display + permission panel slot; layout lives in Tree.
 // A matching WorkerTask (tree-linked worker) overlays its live data.
 import type { KeyboardEvent } from 'react';
 import type { AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
-import { agentHint, agentLabel, agentSubtitle } from './chat';
-import { elapsedMs, fmtDuration, modelLabel, workerElapsedS, workerStateClass } from './format';
-import { kindIcon } from './icons';
+import { agentDescription, agentLabel, agentState } from './chat';
+import type { AgentState } from './chat';
+import { elapsedMs, fmtDuration, modelLabel, workerElapsedS } from './format';
 import { PermissionPanel } from './Permission';
 
 interface Props {
@@ -16,8 +17,18 @@ interface Props {
   workersAt: number;
   onOpen: () => void;
   onDecide: (permission: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>) => void;
-  clickGuard: () => boolean;
 }
+
+type RowProps = Omit<Props, 'permission' | 'onDecide'>;
+
+const STATE_LABEL: Record<AgentState, string> = {
+  running: 'Running',
+  waiting: 'Needs you',
+  done: 'Done',
+  idle: 'Idle',
+  error: 'Failed',
+  stopped: 'Stopped',
+};
 
 function isFormTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -25,37 +36,114 @@ function isFormTarget(target: EventTarget | null): boolean {
   return ['BUTTON', 'TEXTAREA', 'INPUT', 'SELECT', 'A', 'SUMMARY'].includes(el.tagName);
 }
 
-export function NodeCard({ node, now, permission, open, task, workersAt, onOpen, onDecide, clickGuard }: Props) {
-  const name = agentLabel(node);
+interface NodeView {
+  name: string;
+  lane?: 'agy' | 'opencode';
+  state: AgentState;
+  model: string;
+  agent: string;
+  description: string;
+  activity: string;
+  elapsed: number;
+  denied: number;
+  ariaLabel: string;
+}
+
+function nodeView(node: AgentNode, now: number, task: WorkerTask | undefined, workersAt: number, hasPermission: boolean): NodeView {
+  const state = agentState(node, task, hasPermission);
+  const isWorker = node.kind === 'worker' && node.worker != null;
+  const name = isWorker ? node.worker!.slug : agentLabel(node);
+  const description = agentDescription(node, task);
+  const activity = task?.lastTool ?? node.lastActivity ?? '';
+  const elapsed = task ? workerElapsedS(task, now, workersAt) * 1000 : elapsedMs(node, now);
   // Tool calls the user refused in the dashboard (workers report their own count via the task).
-  const deniedCalls = task
+  const denied = task
     ? task.denied
     : node.events.filter((e) => e.kind === 'tool_result' && e.isError && /denied/i.test(e.summary)).length;
+  const model = modelLabel(task?.model ?? node.model);
+  const agent = node.kind === 'worker' ? (task?.agent ?? node.worker?.agent ?? '') : '';
+  const lane = isWorker ? node.worker!.lane : undefined;
+  const ariaLabel = [
+    lane ? `${lane} ${name}` : name,
+    model || 'no model',
+    STATE_LABEL[state],
+    fmtDuration(elapsed),
+    denied > 0 ? `${denied} denied` : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+  return {
+    name,
+    lane,
+    state,
+    model,
+    agent,
+    description,
+    // The live line only adds information when it says something the description does not.
+    activity: activity === description ? '' : activity,
+    elapsed,
+    denied,
+    ariaLabel,
+  };
+}
 
-  // Live worker overlay when a WorkerTask matches this node.
-  const model = task?.model ?? node.model;
-  const activity = task?.lastTool ?? node.lastActivity;
-  const elapsed = task ? workerElapsedS(task, now, workersAt) * 1000 : elapsedMs(node, now);
-  const statusClass = task ? workerStateClass(task.state) : `st-${node.status}`;
-  const statusLabel = task ? task.state : node.status;
-  const isRunning = statusClass === 'st-running';
-  const isWaiting = permission != null || statusClass === 'st-waiting';
+/** Small status glyph: spinner while live, otherwise a distinct shape per state (never colour alone). */
+function StateIcon({ state }: { state: AgentState }) {
+  if (state === 'running') return <span className="agent-spinner" aria-hidden="true" />;
+  const common = {
+    width: 14,
+    height: 14,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 2.4,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    'aria-hidden': true,
+    focusable: false,
+  };
+  switch (state) {
+    case 'done':
+      return (
+        <svg {...common}>
+          <path d="M5 12.5l4.5 4.5L19 7.5" />
+        </svg>
+      );
+    case 'error':
+      return (
+        <svg {...common}>
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      );
+    case 'stopped':
+      return (
+        <svg {...common}>
+          <rect x="7" y="7" width="10" height="10" rx="1.5" />
+        </svg>
+      );
+    case 'waiting':
+      return (
+        <svg {...common}>
+          <path d="M9.5 6v12M14.5 6v12" />
+        </svg>
+      );
+    default:
+      return (
+        <svg {...common}>
+          <path d="M6 12h12" />
+        </svg>
+      );
+  }
+}
 
-  const ringClass = isRunning && !permission
-    ? 'is-running'
-    : isWaiting
-      ? 'is-waiting'
-      : statusClass === 'st-done'
-        ? 'is-done'
-        : statusClass === 'st-error'
-          ? 'is-error'
-          : 'is-idle';
+function LaneBadge({ lane }: { lane: 'agy' | 'opencode' }) {
+  return <span className={`badge lane-${lane}`}>{lane}</span>;
+}
 
-  const subtitle = agentSubtitle(node, task);
-  // Description/agent lives on the name line; line 2 is the live activity (idle: last activity).
-  const line2 = activity ?? '';
-  const label = modelLabel(model);
-  const ariaLabel = `${name}, ${label || 'no model'}, ${statusLabel}, ${fmtDuration(elapsed)}${deniedCalls > 0 ? `, ${deniedCalls} denied` : ''}`;
+export function NodeCard({ node, now, permission, open, task, workersAt, onOpen, onDecide, root = false }: Props & { root?: boolean }) {
+  const v = nodeView(node, now, task, workersAt, permission != null);
+  const live = v.state === 'running' || v.state === 'waiting';
+  const showActivity = v.activity !== '' && (live || v.state === 'error' || v.state === 'stopped');
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     if ((e.key === 'Enter' || e.key === ' ') && !isFormTarget(e.target)) {
@@ -64,46 +152,47 @@ export function NodeCard({ node, now, permission, open, task, workersAt, onOpen,
     }
   };
 
+  const meta = (
+    <div className="agent-meta">
+      {v.model && <span className="chip">{v.model}</span>}
+      {v.agent && <span className="chip chip-agent">{v.agent}</span>}
+      {v.denied > 0 && <span className="agent-denied" title={`${v.denied} tool calls denied`}>⚠ {v.denied} denied</span>}
+      {(v.state === 'error' || v.state === 'stopped' || v.state === 'waiting') && (
+        <span className="agent-state-label">{STATE_LABEL[v.state]}</span>
+      )}
+    </div>
+  );
+
   return (
     <div
-      className={`node-card${permission ? ' is-waiting' : ''}${open ? ' is-open' : ''}`}
+      className={`agent-card st-${v.state}${root ? ' is-root' : ''}${open ? ' is-open' : ''}`}
       role="button"
       tabIndex={0}
       aria-haspopup="dialog"
       aria-expanded={open}
-      aria-label={ariaLabel}
-      onClick={() => {
-        if (clickGuard()) return;
-        onOpen();
-      }}
+      aria-label={v.ariaLabel}
+      onClick={onOpen}
       onKeyDown={onKeyDown}
     >
-      <div className="node-line1">
-        <span className={`node-ring ${ringClass}`} aria-hidden="true">
-          <span className="node-ring-core">{kindIcon(node.kind, 13)}</span>
+      <div className="agent-top">
+        <span className="agent-state" aria-hidden="true">
+          <StateIcon state={v.state} />
         </span>
-        <span className="node-name" title={agentHint(node, task)}>
-          {name}
-          {subtitle && <span className="node-sub">{subtitle}</span>}
+        <span className="agent-name">
+          {v.lane && <LaneBadge lane={v.lane} />}
+          <span className="agent-name-text">{v.name}</span>
         </span>
-        {label && <span className="node-model">{label}</span>}
+        {root && meta}
+        <span className="agent-time">{fmtDuration(v.elapsed)}</span>
       </div>
 
-      <div className="node-line2">
-        {line2 && (
-          <span className={`node-activity${isRunning ? ' is-live' : ''}`} title={line2}>
-            {line2}
-          </span>
-        )}
-        <span className="node-meta">
-          {deniedCalls > 0 && (
-            <span className="node-denied" title={`${deniedCalls} tool calls denied`}>
-              ⚠ {deniedCalls}
-            </span>
-          )}
-          <span className="node-time">{fmtDuration(elapsed)}</span>
-        </span>
-      </div>
+      {!root && meta}
+      {v.description && <p className="agent-desc" title={v.description}>{v.description}</p>}
+      {showActivity && (
+        <p className="agent-activity" title={v.activity}>
+          {v.activity}
+        </p>
+      )}
 
       {permission && (
         <PermissionPanel
@@ -113,5 +202,33 @@ export function NodeCard({ node, now, permission, open, task, workersAt, onOpen,
         />
       )}
     </div>
+  );
+}
+
+/** One-line row for a finished agent: status dot, name, description, model, duration. */
+export function NodeRow({ node, now, open, task, workersAt, onOpen }: RowProps) {
+  const v = nodeView(node, now, task, workersAt, false);
+  return (
+    <button
+      type="button"
+      className={`agent-row st-${v.state}${open ? ' is-open' : ''}`}
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      aria-label={v.ariaLabel}
+      onClick={onOpen}
+    >
+      <span className="agent-state" aria-hidden="true">
+        <StateIcon state={v.state} />
+      </span>
+      <span className="agent-name">
+        {v.lane && <LaneBadge lane={v.lane} />}
+        <span className="agent-name-text">{v.name}</span>
+      </span>
+      <span className="agent-row-desc" title={v.description}>
+        {v.description}
+      </span>
+      <span className="agent-row-model">{v.model}</span>
+      <span className="agent-time">{fmtDuration(v.elapsed)}</span>
+    </button>
   );
 }

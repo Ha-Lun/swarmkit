@@ -1,13 +1,42 @@
 // Small pure formatting helpers. No side effects, no React.
 import type { AgentNode, GoLimit, PermissionRequest, SessionSummary, WorkerTask } from '../shared/types';
 
-/** 'claude-opus-5-5' -> 'Opus 5.5'; 'opencode-go/glm-5.3-flash' -> 'glm-5.3-flash'; missing -> ''. */
+/**
+ * 'claude-opus-5-5' -> 'Opus 5.5'; 'opencode-go/glm-5.3-flash' -> 'GLM 5.3 Flash';
+ * 'gemini-3.8-flash-high' -> 'Gemini 3.8 Flash · high'; missing -> ''.
+ */
 export function modelLabel(model?: string): string {
   if (!model) return '';
   const m = /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)/.exec(model);
   if (m) return `${cap(m[1])} ${m[2]}.${m[3]}`;
   if (/^(opus|sonnet|haiku)$/.test(model)) return cap(model);
-  return shortModel(model);
+  return workerModelLabel(model);
+}
+
+const BRANDS: Record<string, string> = {
+  glm: 'GLM',
+  gemini: 'Gemini',
+  deepseek: 'DeepSeek',
+  mimo: 'MiMo',
+  minimax: 'MiniMax',
+};
+/** Effort suffixes that follow the model name, shown after a middle dot. */
+const EFFORTS = new Set(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+/** Trailing words that only name a release channel, not the model. */
+const NOISE = new Set(['contributor', 'preview', 'latest', 'exp']);
+
+/** Short display name for a worker/provider model id; unknown shapes fall back to title case. */
+function workerModelLabel(model: string): string {
+  const tokens = shortModel(model)
+    .split('-')
+    .filter((t) => t !== '' && !NOISE.has(t.toLowerCase()) && !/^\d{8}$/.test(t));
+  let effort = '';
+  if (tokens.length > 1 && EFFORTS.has(tokens[tokens.length - 1].toLowerCase())) effort = tokens.pop()!.toLowerCase();
+  const name = tokens
+    .map((t) => BRANDS[t.toLowerCase()] ?? (/^v?\d/.test(t) ? t.toUpperCase() : cap(t)))
+    .join(' ');
+  if (!name) return shortModel(model);
+  return effort ? `${name} · ${effort}` : name;
 }
 
 function cap(s: string): string {

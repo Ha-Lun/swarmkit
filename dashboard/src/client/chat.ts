@@ -1,7 +1,7 @@
 // Chat transcript helpers: pure event-to-item mapping, no React.
 import type { OrbState } from 'thinking-orbs';
 import { modelLabel } from './format';
-import type { ActivityEvent, AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
+import type { ActivityEvent, AgentNode, PermissionRequest, Status, WorkerTask } from '../shared/types';
 
 export type ChatItem =
   | { type: 'user'; id: string; ts: number; text: string; images?: string[] }
@@ -149,6 +149,68 @@ export function agentSubtitle(node: AgentNode, task?: WorkerTask): string {
 /** Tooltip text for an agent: name, subtitle and model in full. */
 export function agentHint(node: AgentNode, task?: WorkerTask): string {
   return [agentLabel(node), agentSubtitle(node, task), modelLabel(task?.model ?? node.model)].filter(Boolean).join(' · ');
+}
+
+/** Shell label a worker node gets when nothing better is known: "agy worker probe-plain (gemini-3.8-flash)". */
+const SHELL_LABEL = /^(agy|opencode) worker \S+( \(.*\))?$/;
+/** A prompt line that is just the delegation command, not a task description. */
+const SHELL_COMMAND = /^\$?\s*(agy|opencode)-task\b/;
+
+/** Text for a card's description line. Worker descriptions that only repeat the shell label are replaced by the task's first prompt line or last tool, else ''. */
+export function agentDescription(node: AgentNode, task?: WorkerTask): string {
+  const desc = node.description?.trim() ?? '';
+  if (node.kind !== 'worker' || !SHELL_LABEL.test(desc)) return desc;
+  const line = node.prompt?.split('\n').map((l) => l.trim()).find((l) => l !== '');
+  if (line && !SHELL_COMMAND.test(line) && !SHELL_LABEL.test(line)) return line.slice(0, 200);
+  return task?.lastTool ?? '';
+}
+
+export type AgentState = Status;
+export type MapSection = 'running' | 'attention' | 'done';
+
+/** Effective state of a node: a matching worker task overrides it; a pending permission turns a live node into 'waiting'. */
+export function agentState(node: AgentNode, task?: WorkerTask, hasPermission = false): AgentState {
+  let state: AgentState = node.status;
+  if (task) {
+    if (task.state === 'running') state = 'running';
+    else if (task.state === 'ok') state = 'done';
+    else if (task.state === 'not-ok') state = 'error';
+    else if (state === 'running' || state === 'waiting') state = 'idle';
+  }
+  if (hasPermission && (state === 'running' || state === 'waiting')) return 'waiting';
+  return state;
+}
+
+export function mapSection(state: AgentState): MapSection {
+  if (state === 'running' || state === 'waiting') return 'running';
+  if (state === 'error' || state === 'stopped') return 'attention';
+  return 'done';
+}
+
+export interface MapGroups {
+  root: AgentNode | undefined;
+  running: AgentNode[];
+  attention: AgentNode[];
+  done: AgentNode[];
+}
+
+/** Splits a session's nodes into the root plus Running / Needs attention / Done sections, newest first. */
+export function groupMapNodes(
+  nodes: AgentNode[],
+  taskOf: (node: AgentNode) => WorkerTask | undefined,
+  permissionNodeIds: ReadonlySet<string>,
+): MapGroups {
+  const root = nodes.find((n) => n.parentId === null && n.kind === 'main') ?? nodes.find((n) => n.parentId === null);
+  const groups: MapGroups = { root, running: [], attention: [], done: [] };
+  for (const n of nodes) {
+    if (n === root) continue;
+    groups[mapSection(agentState(n, taskOf(n), permissionNodeIds.has(n.id)))].push(n);
+  }
+  const newest = (a: AgentNode, b: AgentNode) => b.startedAt - a.startedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  groups.running.sort(newest);
+  groups.attention.sort(newest);
+  groups.done.sort(newest);
+  return groups;
 }
 
 export function orbColor(node: AgentNode, task?: WorkerTask): string {

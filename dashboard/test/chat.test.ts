@@ -1,6 +1,6 @@
 // Tests for the chat transcript helpers.
 import { describe, expect, it } from 'vitest';
-import { agentTabs, buildChat, isSafeImageUrl, matchWorkerTask, orbColor, orbLabel, orbState, stripImageMarkers } from '../src/client/chat.ts';
+import { agentDescription, agentState, agentTabs, buildChat, groupMapNodes, isSafeImageUrl, matchWorkerTask, orbColor, orbLabel, orbState, stripImageMarkers } from '../src/client/chat.ts';
 import type { ActivityEvent, AgentNode, PermissionRequest, WorkerTask } from '../src/shared/types.ts';
 import type { OrbState } from 'thinking-orbs';
 
@@ -488,5 +488,80 @@ describe('buildChat tools-only-results', () => {
     const items = buildChat(n, []);
     expect(items.length).toBe(1);
     expect(items[0].type).toBe('tools');
+  });
+});
+
+describe('agentDescription', () => {
+  const worker = (over: Partial<AgentNode> = {}) =>
+    node({ kind: 'worker', agentType: 'agy-task', worker: { lane: 'agy', slug: 'probe-plain' }, ...over });
+
+  it('keeps a real description', () => {
+    expect(agentDescription(node({ description: 'Map the data flow' }))).toBe('Map the data flow');
+    expect(agentDescription(worker({ description: 'Rename session fields' }))).toBe('Rename session fields');
+  });
+
+  it('replaces a worker description that repeats the shell label with the first prompt line', () => {
+    const w = worker({ description: 'agy worker probe-plain (gemini-3.8-flash)', prompt: '\n  Probe the plain gate.\nSecond line' });
+    expect(agentDescription(w)).toBe('Probe the plain gate.');
+    expect(agentDescription(worker({ description: 'opencode worker dash-restart-api' , prompt: 'Add the restart API' }))).toBe('Add the restart API');
+  });
+
+  it('falls back to the task last tool, then to nothing', () => {
+    const w = worker({ description: 'agy worker probe-plain (gemini-3.8-flash)' });
+    const task = { lastTool: 'edit src/app.ts' } as WorkerTask;
+    expect(agentDescription(w, task)).toBe('edit src/app.ts');
+    expect(agentDescription(w)).toBe('');
+    // A prompt that is only the delegation command is not a task description.
+    expect(agentDescription({ ...w, prompt: 'agy-task start probe-plain -' })).toBe('');
+  });
+
+  it('never rewrites non-worker nodes that happen to match the label', () => {
+    expect(agentDescription(node({ description: 'agy worker probe-plain' }))).toBe('agy worker probe-plain');
+  });
+});
+
+describe('agentState and groupMapNodes', () => {
+  const task = (state: WorkerTask['state']) => ({ state }) as WorkerTask;
+
+  it('lets a worker task override the node status', () => {
+    expect(agentState(node({ status: 'running' }), task('ok'))).toBe('done');
+    expect(agentState(node({ status: 'done' }), task('not-ok'))).toBe('error');
+    expect(agentState(node({ status: 'running' }), task('unfinished'))).toBe('idle');
+    expect(agentState(node({ status: 'stopped' }), task('unfinished'))).toBe('stopped');
+  });
+
+  it('turns a live node with a pending permission into waiting', () => {
+    expect(agentState(node({ status: 'running' }), undefined, true)).toBe('waiting');
+    expect(agentState(node({ status: 'done' }), undefined, true)).toBe('done');
+  });
+
+  it('splits into root, running, attention and done, newest first', () => {
+    const root = mainNode();
+    const a = node({ id: 'a', status: 'running', startedAt: 10 });
+    const b = node({ id: 'b', status: 'running', startedAt: 30 });
+    const c = node({ id: 'c', status: 'error', startedAt: 20 });
+    const d = node({ id: 'd', status: 'stopped', startedAt: 40 });
+    const e = node({ id: 'e', status: 'done', startedAt: 5 });
+    const f = node({ id: 'f', status: 'done', startedAt: 50 });
+    const g = node({ id: 'g', status: 'idle', startedAt: 1 });
+    const h = node({ id: 'h', status: 'done', startedAt: 2 });
+    const g1 = groupMapNodes([e, root, a, c, b, d, f, g, h], (n) => (n.id === 'h' ? task('not-ok') : undefined), new Set(['e']));
+    expect(g1.root).toBe(root);
+    expect(g1.running.map((n) => n.id)).toEqual(['b', 'a']);
+    expect(g1.attention.map((n) => n.id)).toEqual(['d', 'c', 'h']);
+    expect(g1.done.map((n) => n.id)).toEqual(['f', 'e', 'g']);
+  });
+
+  it('puts a node with a pending permission into running', () => {
+    const waiting = node({ id: 'w', status: 'idle' });
+    const live = node({ id: 'l', status: 'running' });
+    const out = groupMapNodes([mainNode(), waiting, live], () => undefined, new Set(['l']));
+    expect(out.running.map((n) => n.id)).toEqual(['l']);
+    expect(out.done.map((n) => n.id)).toEqual(['w']);
+  });
+
+  it('copes with no nodes and no root', () => {
+    const out = groupMapNodes([], () => undefined, new Set());
+    expect(out).toEqual({ root: undefined, running: [], attention: [], done: [] });
   });
 });

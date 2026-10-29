@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fmtResetIn, fmtTokens, goPillModel, parseIso, sessionHint, sessionSubline, usageTone } from '../src/client/format.ts';
+import { fmtResetIn, fmtTokens, goPillModel, modelLabel, parseIso, sessionHint, sessionSubline, usageTone } from '../src/client/format.ts';
 
 describe('fmtTokens', () => {
   it('picks the unit after rounding', () => {
@@ -86,5 +86,28 @@ describe('goPillModel', () => {
     const m = goPillModel([lim('rolling', 10), lim('weekly', 100, true)], now);
     expect(m?.tone).toBe('fail');
     expect(m?.label).toContain('rate-limited');
+  });
+});
+
+describe('modelLabel', () => {
+  it('keeps the Claude short names', () => {
+    expect(modelLabel('claude-opus-5-5')).toBe('Opus 5.5');
+    expect(modelLabel('claude-haiku-4-5-20251001')).toBe('Haiku 4.5');
+    expect(modelLabel('sonnet')).toBe('Sonnet');
+  });
+
+  it('shortens worker model ids', () => {
+    expect(modelLabel('gemini-3.8-flash-high')).toBe('Gemini 3.8 Flash · high');
+    expect(modelLabel('opencode-go/muse-spark-1.3-contributor')).toBe('Muse Spark 1.3');
+    expect(modelLabel('opencode-go/glm-5.3-flash')).toBe('GLM 5.3 Flash');
+    expect(modelLabel('opencode-go/deepseek-v4.1-flash')).toBe('DeepSeek V4.1 Flash');
+    expect(modelLabel('opencode-go/mimo-v2.6-flash')).toBe('MiMo V2.6 Flash');
+  });
+
+  it('is empty for a missing model and never throws on odd ids', () => {
+    expect(modelLabel(undefined)).toBe('');
+    expect(modelLabel('')).toBe('');
+    expect(modelLabel('provider/')).toBe('');
+    expect(modelLabel('high')).toBe('High');
   });
 });
