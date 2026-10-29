@@ -655,7 +655,7 @@ button {
   transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 .agent-card:hover { border-color: var(--border-2); background: var(--surface-2); }
-.agent-card:focus-visible { outline: 2px solid var(--violet-ring); outline-offset: 2px; }
+.agent-card:has(.agent-open:focus-visible) { outline: 2px solid var(--violet-ring); outline-offset: 2px; }
 .agent-card.is-open { border-color: var(--violet); }
 /* status rail */
 .agent-card::before {
@@ -730,6 +730,32 @@ button {
   color: var(--ink);
 }
 .agent-name-text { overflow-wrap: anywhere; }
+/* Stretched-title pattern: the name is the card's only open control; ::after covers the card. */
+.agent-open {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.agent-open:focus-visible { outline: none; }
+.agent-open::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+/* Permission controls sit above the stretched layer so they stay clickable. */
+.agent-card .perm {
+  position: relative;
+  z-index: 1;
+  cursor: auto;
+}
 .agent-name .badge { flex: none; }
 .agent-time {
   flex: none;
@@ -901,7 +927,7 @@ button {
   to { background-position: -100% 0; }
 }
 
-/* shared with the workers view (Workers.tsx): card rows outside the tree pills */
+/* shared with the workers view (Workers.tsx): card rows */
 .node-head {
   display: flex;
   align-items: center;

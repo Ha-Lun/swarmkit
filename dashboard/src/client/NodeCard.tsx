@@ -1,10 +1,8 @@
 // Map entries for one agent: a full card (running / needs attention / root) and a compact
 // one-line row (done). Pure display + permission panel slot; layout lives in Tree.
 // A matching WorkerTask (tree-linked worker) overlays its live data.
-import type { KeyboardEvent } from 'react';
-import type { AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
+import type { AgentNode, PermissionRequest, Status, WorkerTask } from '../shared/types';
 import { agentDescription, agentLabel, agentState } from './chat';
-import type { AgentState } from './chat';
 import { elapsedMs, fmtDuration, modelLabel, workerElapsedS } from './format';
 import { PermissionPanel } from './Permission';
 
@@ -21,7 +19,7 @@ interface Props {
 
 type RowProps = Omit<Props, 'permission' | 'onDecide'>;
 
-const STATE_LABEL: Record<AgentState, string> = {
+const STATE_LABEL: Record<Status, string> = {
   running: 'Running',
   waiting: 'Needs you',
   done: 'Done',
@@ -30,16 +28,10 @@ const STATE_LABEL: Record<AgentState, string> = {
   stopped: 'Stopped',
 };
 
-function isFormTarget(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null;
-  if (!el || typeof el.tagName !== 'string') return false;
-  return ['BUTTON', 'TEXTAREA', 'INPUT', 'SELECT', 'A', 'SUMMARY'].includes(el.tagName);
-}
-
 interface NodeView {
   name: string;
   lane?: 'agy' | 'opencode';
-  state: AgentState;
+  state: Status;
   model: string;
   agent: string;
   description: string;
@@ -88,7 +80,7 @@ function nodeView(node: AgentNode, now: number, task: WorkerTask | undefined, wo
 }
 
 /** Small status glyph: spinner while live, otherwise a distinct shape per state (never colour alone). */
-function StateIcon({ state }: { state: AgentState }) {
+function StateIcon({ state }: { state: Status }) {
   if (state === 'running') return <span className="agent-spinner" aria-hidden="true" />;
   const common = {
     width: 14,
@@ -145,13 +137,6 @@ export function NodeCard({ node, now, permission, open, task, workersAt, onOpen,
   const live = v.state === 'running' || v.state === 'waiting';
   const showActivity = v.activity !== '' && (live || v.state === 'error' || v.state === 'stopped');
 
-  const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
-    if ((e.key === 'Enter' || e.key === ' ') && !isFormTarget(e.target)) {
-      e.preventDefault();
-      onOpen();
-    }
-  };
-
   const meta = (
     <div className="agent-meta">
       {v.model && <span className="chip">{v.model}</span>}
@@ -163,36 +148,34 @@ export function NodeCard({ node, now, permission, open, task, workersAt, onOpen,
     </div>
   );
 
+  const full = [v.description, v.activity].filter(Boolean).join('\n');
+
   return (
-    <div
-      className={`agent-card st-${v.state}${root ? ' is-root' : ''}${open ? ' is-open' : ''}`}
-      role="button"
-      tabIndex={0}
-      aria-haspopup="dialog"
-      aria-expanded={open}
-      aria-label={v.ariaLabel}
-      onClick={onOpen}
-      onKeyDown={onKeyDown}
-    >
+    <div className={`agent-card st-${v.state}${root ? ' is-root' : ''}${open ? ' is-open' : ''}`}>
       <div className="agent-top">
         <span className="agent-state" aria-hidden="true">
           <StateIcon state={v.state} />
         </span>
-        <span className="agent-name">
+        {/* The one open control; its ::after stretches over the card so a click anywhere opens the drawer. */}
+        <button
+          type="button"
+          className="agent-name agent-open"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-label={v.ariaLabel}
+          title={full || undefined}
+          onClick={onOpen}
+        >
           {v.lane && <LaneBadge lane={v.lane} />}
           <span className="agent-name-text">{v.name}</span>
-        </span>
+        </button>
         {root && meta}
         <span className="agent-time">{fmtDuration(v.elapsed)}</span>
       </div>
 
       {!root && meta}
-      {v.description && <p className="agent-desc" title={v.description}>{v.description}</p>}
-      {showActivity && (
-        <p className="agent-activity" title={v.activity}>
-          {v.activity}
-        </p>
-      )}
+      {v.description && <p className="agent-desc">{v.description}</p>}
+      {showActivity && <p className="agent-activity">{v.activity}</p>}
 
       {permission && (
         <PermissionPanel

@@ -165,26 +165,17 @@ export function agentDescription(node: AgentNode, task?: WorkerTask): string {
   return task?.lastTool ?? '';
 }
 
-export type AgentState = Status;
-export type MapSection = 'running' | 'attention' | 'done';
-
 /** Effective state of a node: a matching worker task overrides it; a pending permission turns a live node into 'waiting'. */
-export function agentState(node: AgentNode, task?: WorkerTask, hasPermission = false): AgentState {
-  let state: AgentState = node.status;
+export function agentState(node: AgentNode, task?: WorkerTask, hasPermission = false): Status {
+  let state: Status = node.status;
   if (task) {
     if (task.state === 'running') state = 'running';
     else if (task.state === 'ok') state = 'done';
     else if (task.state === 'not-ok') state = 'error';
-    else if (state === 'running' || state === 'waiting') state = 'idle';
+    else if (task.state === 'unfinished') state = 'stopped';
   }
   if (hasPermission && (state === 'running' || state === 'waiting')) return 'waiting';
   return state;
-}
-
-export function mapSection(state: AgentState): MapSection {
-  if (state === 'running' || state === 'waiting') return 'running';
-  if (state === 'error' || state === 'stopped') return 'attention';
-  return 'done';
 }
 
 export interface MapGroups {
@@ -202,14 +193,14 @@ export function groupMapNodes(
 ): MapGroups {
   const root = nodes.find((n) => n.parentId === null && n.kind === 'main') ?? nodes.find((n) => n.parentId === null);
   const groups: MapGroups = { root, running: [], attention: [], done: [] };
-  for (const n of nodes) {
-    if (n === root) continue;
-    groups[mapSection(agentState(n, taskOf(n), permissionNodeIds.has(n.id)))].push(n);
-  }
   const newest = (a: AgentNode, b: AgentNode) => b.startedAt - a.startedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-  groups.running.sort(newest);
-  groups.attention.sort(newest);
-  groups.done.sort(newest);
+  for (const n of [...nodes].sort(newest)) {
+    if (n === root) continue;
+    const state = agentState(n, taskOf(n), permissionNodeIds.has(n.id));
+    if (state === 'running' || state === 'waiting') groups.running.push(n);
+    else if (state === 'error' || state === 'stopped') groups.attention.push(n);
+    else groups.done.push(n);
+  }
   return groups;
 }
 

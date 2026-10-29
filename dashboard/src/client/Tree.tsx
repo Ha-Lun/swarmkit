@@ -1,6 +1,6 @@
 // The swarm map: the root agent on top, then Running / Needs attention / Done sections.
 // Done agents collapse into one-line rows so live work and failures stay in focus.
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import type { AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
 import { NodeCard, NodeRow } from './NodeCard';
 import { groupMapNodes, matchWorkerTask } from './chat';
@@ -33,7 +33,6 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
   // Live WorkerTask per worker node: same sessionId+nodeId, else same lane+slug.
   const taskByNode = useMemo(() => {
     const m = new Map<string, WorkerTask>();
-    if (workers.length === 0) return m;
     for (const n of nodes) {
       if (n.kind !== 'worker') continue;
       const t = matchWorkerTask(n, workers);
@@ -53,6 +52,12 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
     [nodes, taskByNode, permByNode],
   );
   const { root, running, attention, done } = groups;
+
+  // Keep the open agent's row visible: expand Done when the drawer is on one of its rows.
+  const openInDone = openNodeId != null && done.some((n) => n.id === openNodeId);
+  useEffect(() => {
+    if (openInDone) setDoneOpen(true);
+  }, [openInDone, openNodeId]);
 
   const card = (node: AgentNode) => (
     <li key={node.id}>

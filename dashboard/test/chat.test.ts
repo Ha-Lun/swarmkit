@@ -526,8 +526,15 @@ describe('agentState and groupMapNodes', () => {
   it('lets a worker task override the node status', () => {
     expect(agentState(node({ status: 'running' }), task('ok'))).toBe('done');
     expect(agentState(node({ status: 'done' }), task('not-ok'))).toBe('error');
-    expect(agentState(node({ status: 'running' }), task('unfinished'))).toBe('idle');
+    expect(agentState(node({ status: 'running' }), task('unfinished'))).toBe('stopped');
     expect(agentState(node({ status: 'stopped' }), task('unfinished'))).toBe('stopped');
+  });
+
+  it('sends an unfinished worker to Needs attention, not Done', () => {
+    const a = node({ id: 'u', status: 'running' });
+    const out = groupMapNodes([mainNode(), a], () => task('unfinished'), new Set());
+    expect(out.attention.map((n) => n.id)).toEqual(['u']);
+    expect(out.done).toEqual([]);
   });
 
   it('turns a live node with a pending permission into waiting', () => {
