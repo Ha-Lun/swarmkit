@@ -40,6 +40,9 @@ TIER_MODELS = {
         'deep': 'opencode-go/mimo-v2.6-pro',
     },
 }
+# Reasoning effort for every Claude agent; `claude.effort` in an agent overrides it. The main-thread
+# orchestrator (claude.model: inherit) keeps the session's effort.
+CLAUDE_EFFORT = 'high'
 
 PACKS = ('core', 'web', 'ops', 'mobile', 'n8n', 'backend', 'creative', 'swarm')
 
@@ -93,8 +96,12 @@ def model_for(cli, a):
 def build_claude(a, body):
     c = a.get('claude', {})
     tools = c.get('tools') or [t for cap in a['capabilities'] for t in CLAUDE_TOOLS[cap]]
+    model = model_for('claude', a)
     fm = {'name': a['name'], 'description': c.get('description') or a['description'],
-          'model': model_for('claude', a), 'tools': tools + c.get('extra_tools', [])}
+          'model': model}
+    if model != 'inherit':
+        fm['effort'] = c.get('effort', CLAUDE_EFFORT)
+    fm['tools'] = tools + c.get('extra_tools', [])
     if c.get('hooks'):
         fm['hooks'] = c['hooks']
     pack = a['pack']
