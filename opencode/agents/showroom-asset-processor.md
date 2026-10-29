@@ -13,7 +13,7 @@ permission:
     showroom: allow
   task: deny
   question: allow
-model: opencode-go/muse-spark-1.3-contributor  # tier fast
+model: opencode-go/muse-spark-1.3-contributor#high  # tier fast
 ---
 
 # Mission

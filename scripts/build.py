@@ -40,6 +40,11 @@ TIER_MODELS = {
         'deep': 'opencode-go/mimo-v2.6-pro',
     },
 }
+# OpenCode models that accept a `#high` variant; others (both mimo models) reject every variant.
+# probed 2026-10-29 on opencode 2.1.3; keep in sync with EFFORT_DEFAULTS in scripts/agy-task
+OPENCODE_EFFORT = {m: 'high' for m in (
+    'opencode-go/glm-5.3-flash', 'opencode-go/deepseek-v4.1-flash',
+    'opencode-go/muse-spark-1.3-contributor', 'opencode-go/beam-free')}
 # Reasoning effort for every Claude agent; `claude.effort` in an agent overrides it. The main-thread
 # orchestrator (claude.model: inherit) keeps the session's effort.
 CLAUDE_EFFORT = 'high'
@@ -111,7 +116,10 @@ def build_claude(a, body):
 
 def build_opencode(a, body):
     fm = {'description': a['description'], **a['opencode']}
-    fm['model'] = model_for('opencode', a)
+    effort = fm.pop('effort', None)  # '' = none; absent = the table
+    if effort is None:
+        effort = OPENCODE_EFFORT.get(model_for('opencode', a), '')
+    fm['model'] = model_for('opencode', a) + (f'#{effort}' if effort else '')
     # A tier-derived model is marked with a YAML comment: agy-task gives opencode workers the lane default
     # unless the model is pinned (no comment). A comment, not a key, so OpenCode's schema never sees it.
     note = '' if a['opencode'].get('model') else f"tier {a['tier']}"

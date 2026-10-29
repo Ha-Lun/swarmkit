@@ -96,17 +96,17 @@ mkrepo r1; cd "$T/r1"
 # --- effort per model
 D=opencode-go/muse-spark-1.3-contributor
 "$TASK" start e1 "p" >/dev/null 2>&1 || true
-[ "$(last_model)" = "$D" ] || fail "default model should get no effort suffix, got $(last_model)"
-"$TASK" start e2 --model opencode-go/glm-5.3-flash "p" >/dev/null 2>&1 || true
-[ "$(last_model)" = "opencode-go/glm-5.3-flash" ] || fail "unknown model should get no effort, got $(last_model)"
+[ "$(last_model)" = "$D#high" ] || fail "default model should get its table effort, got $(last_model)"
+"$TASK" start e2 --model opencode-go/mimo-v2.6-flash "p" >/dev/null 2>&1 || true
+[ "$(last_model)" = "opencode-go/mimo-v2.6-flash" ] || fail "model outside the table should get no effort, got $(last_model)"
 "$TASK" start e3 --model "$D" --effort "" "p" >/dev/null 2>&1 || true
 [ "$(last_model)" = "$D" ] || fail "empty --effort should mean none, got $(last_model)"
 "$TASK" start e4 --model opencode-go/glm-5.3-flash --effort high "p" >/dev/null 2>&1 || true
 [ "$(last_model)" = "opencode-go/glm-5.3-flash#high" ] || fail "explicit effort ignored, got $(last_model)"
 "$TASK" resume e1 --effort high "again" >/dev/null 2>&1 || true
-[ "$(last_model)" = "$D" ] || fail "resume must keep start's (empty) effort, got $(last_model)"
+[ "$(last_model)" = "$D#high" ] || fail "resume must keep start's effort, got $(last_model)"
 "$TASK" resume e2 --effort max "again" >/dev/null 2>&1 || true
-[ "$(last_model)" = "opencode-go/glm-5.3-flash" ] || fail "resume must keep start's (empty) effort, got $(last_model)"
+[ "$(last_model)" = "opencode-go/mimo-v2.6-flash" ] || fail "resume must keep start's (empty) effort, got $(last_model)"
 for s in e1 e2 e3 e4; do "$TASK" clean $s --force; done
 
 # --- worker shell: test files in a subdirectory are allowed, node -e is not (only the default deny covers it)
@@ -153,9 +153,9 @@ echo "$err" | grep -q "^opencode-task ▶ bn1 · model $D · effort high · base
   || fail "start banner: $err"
 echo "$err" | grep -q PROMPT-SECRET && fail "banner leaks the prompt"
 err=$("$TASK" start bn2 "p" 2>&1 >/dev/null) || true
-echo "$err" | grep -q "· effort none ·" || fail "empty effort should print none: $err"
+echo "$err" | grep -q "· effort high ·" || fail "table effort should print high: $err"
 err=$("$TASK" resume bn2 "again" 2>&1 >/dev/null) || true
-echo "$err" | grep -q "▶ bn2 · model $D · effort none .* · resume" || fail "resume banner: $err"
+echo "$err" | grep -q "▶ bn2 · model $D · effort high .* · resume" || fail "resume banner: $err"
 "$TASK" list | grep -q "^bn1 .*muse-spark-1.3-contributor .*[0-9]s " || fail "list lacks model/wall: $("$TASK" list)"
 [ "$("$TASK" list | wc -l)" = 2 ] || fail "list is not one line per task"
 STUB_MODE=slow STUB_SLEEP=6 "$TASK" start bn3 --max-denied 0 "p" >/dev/null 2>&1 &
@@ -742,7 +742,7 @@ jq -es '[.[] | select(.event == "start")] | length == 2 and all(.[]; keys == ["a
   || fail "start lines not the allowlist"
 jq -es '[.[] | select(.event == "finish")] | length == 2 and all(.[]; keys == ["agent","cli","denied","event","model","ok","slug","stopped_by","tokens","ts","wall_s"])' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
   || fail "finish lines not the allowlist"
-jq -es '.[0] | .event == "start" and .cli == "opencode" and .slug == "dl1" and .model == "'"$D"'" and .effort == null' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
+jq -es '.[0] | .event == "start" and .cli == "opencode" and .slug == "dl1" and .model == "'"$D"'" and .effort == "high"' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
   || fail "start log line: $(head -1 "$SWARMKIT_DISPATCH_LOG")"
 jq -es '[.[] | select(.event == "finish")] | .[0] | .cli == "opencode" and .slug == "dl1" and .model == "'"$D"'" and .denied == 0 and .tokens == 116 and .stopped_by == null
         and (.ts | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$")) and (.wall_s | type == "number")' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
@@ -796,10 +796,18 @@ mkagent mres-bad "model: anthropic/claude-x
 [ "$("$TASK" model --agent mres-other)" = "opencode-go/mimo-v2.6-flash none" ] || fail "model --agent: agent model not used"
 mkagent mres-tier "model: opencode-go/glm-5.3-flash  # tier standard
 "
-[ "$("$TASK" model --agent mres-tier)" = "$oc_def none" ] || fail "model --agent: tier-derived model not replaced by lane default"
-[ "$("$TASK" model --agent mres-bad 2>/dev/null)" = "$oc_def none" ] || fail "model --agent: non-allowlisted agent model not replaced by lane default"
+[ "$("$TASK" model --agent mres-tier)" = "$oc_def high" ] || fail "model --agent: tier-derived model not replaced by lane default"
+[ "$("$TASK" model --agent mres-bad 2>/dev/null)" = "$oc_def high" ] || fail "model --agent: non-allowlisted agent model not replaced by lane default"
 "$TASK" model --agent mres-bad 2>&1 >/dev/null | grep -q "not on the worker allowlist" || fail "model: no notice for non-allowlisted agent model"
-[ "$("$TASK" model --model opencode-go/glm-5.3-flash)" = "opencode-go/glm-5.3-flash none" ] || fail "model --model"
+[ "$("$TASK" model --model opencode-go/glm-5.3-flash)" = "opencode-go/glm-5.3-flash high" ] || fail "model --model"
+[ "$("$TASK" model --model opencode-go/mimo-v2.6-flash)" = "opencode-go/mimo-v2.6-flash none" ] || fail "model --model outside the table"
+[ "$("$TASK" model --model opencode-go/glm-5.3-flash --effort "")" = "opencode-go/glm-5.3-flash none" ] || fail "model --effort empty"
+mkagent mres-var "model: opencode-go/glm-5.3-flash#high  # tier standard
+"
+[ "$("$TASK" model --agent mres-var)" = "$oc_def high" ] || fail "model --agent: tier note after #variant counted as a pin"
+mkagent mres-pinvar "model: opencode-go/glm-5.3-flash#high
+"
+[ "$("$TASK" model --agent mres-pinvar)" = "opencode-go/glm-5.3-flash high" ] || fail "model --agent: pinned model with #variant: $("$TASK" model --agent mres-pinvar)"
 "$TASK" model --model nope/x >/dev/null 2>&1 && fail "model accepted a model off the allowlist"
 "$TASK" model --agent no-such-agent >/dev/null 2>&1 && fail "model accepted an unknown agent"
 [ "$("$AGY_TASK" model)" = "gemini-3.8-flash-high none" ] || fail "agy model default"

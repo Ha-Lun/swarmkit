@@ -35,8 +35,9 @@ FIXTURES = {
     'hard': (['ini', 'merge3', 'ratelimit', 'glob'], '12m'),
 }
 MODULES = FIXTURES['scaffold'][0]
-# label -> (model id, effort or None). Effort None = wrapper default ("max"); '' = the model's own default
-# (passed explicitly, which switches the wrapper default off). muse rejects "max" ("Variant unavailable").
+# label -> (model id, effort or None). Effort None = the wrapper's per-model default (EFFORT_DEFAULTS in
+# scripts/agy-task; high where supported); '' = the model's own default (passed explicitly, which switches
+# the wrapper default off). muse rejects "max" ("Variant unavailable").
 ARMS = {
     'muse': ('opencode-go/muse-spark-1.3-contributor', ''),
     'beam': ('opencode-go/beam-free', ''),

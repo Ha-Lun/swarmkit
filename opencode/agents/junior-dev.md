@@ -13,7 +13,7 @@ permission:
   question: allow
   webfetch: deny
   websearch: deny
-model: opencode-go/muse-spark-1.3-contributor  # tier fast
+model: opencode-go/muse-spark-1.3-contributor#high  # tier fast
 ---
 
 ## What you handle
