@@ -1,10 +1,10 @@
-// Usage panel: Claude plan limits + opencode / agy consumption. Polled every 60s
+// Usage panel: Claude and OpenCode Go plan limits + agy consumption. Polled every 60s
 // while the tab is visible; keeps the last good report through failures.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { FleetBackend, Guard } from './api';
 import type { UsageLimit, UsageReport } from '../shared/types';
-import { fmtClockShort, fmtCost, fmtResetIn, fmtTokens, GO_WINDOW_LABELS, usageTone } from './format';
+import { fmtClockShort, fmtResetIn, fmtTokens, GO_WINDOW_LABELS, usageTone } from './format';
 import { RefreshIcon } from './icons';
 
 /** Fetch on mount, then every 60s while `active` and visible; refetch when the tab becomes visible. */
@@ -174,32 +174,9 @@ function ClaudeCard({ claude }: { claude: UsageReport['claude'] }) {
   );
 }
 
-function OpenCodeCard({
-  oc,
-  days,
-  onDays,
-}: {
-  oc: UsageReport['opencode'];
-  days: number;
-  onDays: (d: number) => void;
-}) {
-  if (!oc.available) {
-    return (
-      <UsageCard source="opencode" title="OpenCode">
-        <p className="usage-none muted">Unavailable{oc.error ? ` — ${oc.error}` : ''}</p>
-      </UsageCard>
-    );
-  }
-  const win = oc.windows.find((w) => w.days === days);
+function OpenCodeCard({ oc }: { oc: UsageReport['opencode'] }) {
   return (
     <UsageCard source="opencode" title="OpenCode">
-      <Segmented options={SEG_OPTIONS} value={days} onChange={onDays} label="OpenCode window" />
-      <p className="usage-big">
-        {win ? fmtTokens(win.tokens) : '—'}
-        {win && typeof win.costUsd === 'number' && (
-          <span className="usage-cost muted"> ≈ {fmtCost(win.costUsd)} est.</span>
-        )}
-      </p>
       <div className="usage-go-limits">
         <p className="usage-label">Plan limits</p>
         {oc.limits && oc.limits.length > 0 ? (
@@ -298,11 +275,8 @@ export function UsagePanel({
   loading: boolean;
   onRefresh: () => void;
 }) {
-  // Selected windows per source live here (not in the cards) so they survive card remounts.
-  const [daysBySource, setDaysBySource] = useState<Record<'opencode' | 'agy', number>>({
-    opencode: 1,
-    agy: 1,
-  });
+  // The agy window lives here (not in the card) so it survives card remounts.
+  const [agyDays, setAgyDays] = useState(1);
   if (!report) {
     return (
       <div className="usage">
@@ -322,16 +296,8 @@ export function UsagePanel({
       </p>
       <div className="usage-grid">
         <ClaudeCard claude={report.claude} />
-        <OpenCodeCard
-          oc={report.opencode}
-          days={daysBySource.opencode}
-          onDays={(d) => setDaysBySource((p) => ({ ...p, opencode: d }))}
-        />
-        <AgyCard
-          a={report.agy}
-          days={daysBySource.agy}
-          onDays={(d) => setDaysBySource((p) => ({ ...p, agy: d }))}
-        />
+        <OpenCodeCard oc={report.opencode} />
+        <AgyCard a={report.agy} days={agyDays} onDays={setAgyDays} />
       </div>
       <div className="usage-foot">
         {asOfLabel ? <span className="usage-asof muted">as of {asOfLabel}</span> : null}
