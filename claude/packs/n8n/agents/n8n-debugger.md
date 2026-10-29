@@ -2,6 +2,7 @@
 name: n8n-debugger
 description: Root-causes failed n8n executions from logs and workflow JSON, especially Telegram issues. Use proactively whenever an n8n workflow or execution is failing.
 model: sonnet
+effort: high
 tools:
 - Read
 - Glob

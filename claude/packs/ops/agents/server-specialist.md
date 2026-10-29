@@ -2,6 +2,7 @@
 name: server-specialist
 description: 'Ubuntu/Linux server administration: systemd, Nginx/TLS, firewall, hardening, packages. Use proactively for server configuration and maintenance tasks.'
 model: sonnet
+effort: high
 tools:
 - Read
 - Glob

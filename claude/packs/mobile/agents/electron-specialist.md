@@ -2,6 +2,7 @@
 name: electron-specialist
 description: 'Electron specialist for wrapping React + Vite apps as desktop apps: main/preload, packaging, auto-update. Use proactively whenever the project has Electron markers (electron-builder, electron/main.ts, electron.vite.config).'
 model: sonnet
+effort: high
 tools:
 - Read
 - Glob

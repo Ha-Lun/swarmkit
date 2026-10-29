@@ -2,6 +2,7 @@
 name: android-capacitor-specialist
 description: 'Capacitor Android specialist: Gradle, Kotlin/Java plugins, native features, Play Store. Use proactively whenever a task touches a Capacitor android/ project or Play Store deployment.'
 model: sonnet
+effort: high
 tools:
 - Read
 - Glob

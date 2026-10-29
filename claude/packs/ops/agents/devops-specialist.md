@@ -2,6 +2,7 @@
 name: devops-specialist
 description: CI/CD pipelines, infrastructure as code, deployment automation and secrets management. Use proactively for pipeline, IaC or deployment work.
 model: sonnet
+effort: high
 tools:
 - Read
 - Glob

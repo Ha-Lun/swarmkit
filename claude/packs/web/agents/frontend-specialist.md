@@ -2,6 +2,7 @@
 name: frontend-specialist
 description: 'Production UI specialist: components, layouts, design systems, WCAG 2.2 AA, responsive token-driven styles. Use proactively for any non-trivial UI or styling work once the plan is approved, except in Lovable projects (use lovable-specialist).'
 model: sonnet
+effort: high
 tools:
 - Read
 - Glob

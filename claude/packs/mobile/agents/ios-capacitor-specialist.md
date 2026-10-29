@@ -2,6 +2,7 @@
 name: ios-capacitor-specialist
 description: 'Capacitor iOS specialist: Xcode, Swift/Obj-C plugins, signing, App Store. Use proactively whenever a task touches a Capacitor ios/ project or App Store deployment.'
 model: sonnet
+effort: high
 tools:
 - Read
 - Glob

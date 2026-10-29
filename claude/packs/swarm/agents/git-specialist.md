@@ -2,6 +2,7 @@
 name: git-specialist
 description: Git worktree setup/teardown, commit hygiene and branch-state review; edits only .gitignore. Use proactively to set up a worktree for heavy multi-file work and for commit hygiene on diffs over 100 lines.
 model: haiku
+effort: high
 tools:
 - Read
 - Glob

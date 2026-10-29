@@ -2,6 +2,7 @@
 name: showroom-intake
 description: 'Showroom intake: checks brief completeness, asks one batched question set, writes BRIEF.md and halts at G1. Use when the main agent dispatches it from a showroom coordinator handoff to turn the initial brief into BRIEF.md.'
 model: sonnet
+effort: high
 tools:
 - Read
 - Glob

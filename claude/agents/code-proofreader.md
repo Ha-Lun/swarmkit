@@ -2,6 +2,7 @@
 name: code-proofreader
 description: Read-only review of a large diff for dead code, redundancy and over-engineering.
 model: sonnet
+effort: high
 tools:
 - Read
 - Glob
