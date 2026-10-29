@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fmtResetIn, fmtTokens, parseIso, usageTone } from '../src/client/format.ts';
+import { fmtResetIn, fmtTokens, parseIso, sessionHint, sessionSubline, usageTone } from '../src/client/format.ts';
 
 describe('fmtTokens', () => {
   it('picks the unit after rounding', () => {
@@ -45,5 +45,24 @@ describe('usageTone', () => {
     expect(usageTone(89)).toBe('amber');
     expect(usageTone(90)).toBe('fail');
     expect(usageTone(NaN)).toBe('idle');
+  });
+});
+
+describe('session labels', () => {
+  const s = {
+    id: 'abcdef123456',
+    title: 'Fix it',
+    project: 'proj',
+    cwd: '/x/proj',
+    agent: 'lead-dev',
+    model: 'claude-opus-5-5',
+    updatedAt: 0,
+  } as unknown as import('../src/shared/types').SessionSummary;
+  it('joins present parts and omits missing ones', () => {
+    expect(sessionSubline(s, undefined, true)).toBe('proj · lead-dev · Opus 5.5');
+    expect(sessionSubline({ ...s, agent: undefined, model: undefined }, undefined, false)).toBe('');
+  });
+  it('hint carries title, cwd, agent, model and short id', () => {
+    expect(sessionHint(s)).toBe('Fix it · /x/proj · agent lead-dev · model Opus 5.5 · id abcdef12');
   });
 });

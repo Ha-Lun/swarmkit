@@ -1208,6 +1208,29 @@ A claim with a footnote.[^1]
       bumpSession(sessionId);
       return Promise.resolve({ sessionId } satisfies StartSessionResponse);
     },
+    restart: (sessionId, text) => {
+      const s = sessions.get(sessionId);
+      const map = nodeMaps.get(sessionId);
+      if (!s || !map) return Promise.reject(new ApiError(404, 'session not found'));
+      if (s.source !== 'page') return Promise.reject(new ApiError(400, 'Only page-owned sessions can be restarted'));
+      const root = map.get('root');
+      s.status = text ? 'running' : 'idle';
+      s.resumable = false;
+      if (root) {
+        root.status = text ? 'running' : 'idle';
+        root.endedAt = undefined;
+        root.result = undefined;
+        if (text) {
+          pushEvent(root, 'user', text.split('\n')[0], { detail: text });
+          at(2400, () => {
+            if (root.status === 'running') finishNode(root, 'Restarted and finished (mock).', 0.012, tu(2400, 700));
+          });
+        }
+        upsertHead(root);
+      }
+      bumpSession(sessionId);
+      return Promise.resolve({ sessionId });
+    },
     connect(onEvent, onStatus) {
       emit = onEvent;
       onStatus(true);

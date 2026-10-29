@@ -1,7 +1,7 @@
 // Agent tabs above the chat: Main + one tab per live/waiting/lingering agent.
 import type { WorkerTask } from '../shared/types';
 import { elapsedMs, fmtDuration, modelLabel, workerElapsedS } from './format';
-import { agentLabel, matchWorkerTask, orbColor, orbState } from './chat';
+import { agentHint, agentLabel, agentSubtitle, matchWorkerTask, orbColor, orbState } from './chat';
 import type { AgentTab } from './chat';
 import { Orb } from './Orb';
 
@@ -24,6 +24,8 @@ export function AgentTabs({ tabs, activeId, now, workers, workersAt, onSelect }:
     waiting: boolean,
     elapsed: string,
     dot: React.ReactNode,
+    subtitle = '',
+    hint = '',
   ) => (
     <button
       key={id}
@@ -31,12 +33,14 @@ export function AgentTabs({ tabs, activeId, now, workers, workersAt, onSelect }:
       role="tab"
       aria-selected={active}
       className={`agent-tab is-${phase}${waiting ? ' is-waiting' : ''}${phase === 'done' || phase === 'error' ? ' is-leaving' : ''}${active ? ' is-active' : ''}`}
+      title={hint || undefined}
       onClick={() => onSelect(id)}
     >
       <span className="agent-tab-dot" aria-hidden="true">
         {dot}
       </span>
       <span className="agent-tab-name">{name}</span>
+      {subtitle && <span className="agent-tab-sub">{subtitle}</span>}
       {label && <span className="agent-tab-model">{label}</span>}
       {waiting && <span className="agent-tab-needs">needs you</span>}
       <span className="agent-tab-time">{elapsed}</span>
@@ -78,12 +82,14 @@ export function AgentTabs({ tabs, activeId, now, workers, workersAt, onSelect }:
         return renderTab(
           node.id,
           agentLabel(node),
-          modelLabel(task?.model ?? node.model).split(' ')[0],
+          modelLabel(task?.model ?? node.model),
           phase,
           activeId === node.id,
           waiting,
           elapsed,
           dot,
+          agentSubtitle(node, task),
+          agentHint(node, task),
         );
       })}
     </div>

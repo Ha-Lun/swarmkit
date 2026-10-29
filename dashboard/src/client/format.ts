@@ -1,5 +1,5 @@
 // Small pure formatting helpers. No side effects, no React.
-import type { AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
+import type { AgentNode, PermissionRequest, SessionSummary, WorkerTask } from '../shared/types';
 
 /** 'claude-opus-5-5' -> 'Opus 5.5'; 'opencode-go/glm-5.3-flash' -> 'glm-5.3-flash'; missing -> ''. */
 export function modelLabel(model?: string): string {
@@ -169,3 +169,21 @@ export function usageTone(u: number | null): 'teal' | 'amber' | 'fail' | 'idle' 
 
 export const UNTRUSTED_NOTICE =
   'Untrusted folder: project settings and hooks are ignored. Open it once in Claude Code in a terminal to trust it.';
+
+/** Secondary line for a session: `project · agent · model · relTime`, missing parts omitted (no time without `now`). */
+export function sessionSubline(s: SessionSummary, now?: number, withProject = true): string {
+  return [withProject ? s.project : '', s.agent, modelLabel(s.model), now === undefined ? '' : relTime(s.updatedAt, now)].filter(Boolean).join(' · ');
+}
+
+/** Full session description for tooltips and aria-labels: title, cwd, agent, model, short id. */
+export function sessionHint(s: SessionSummary): string {
+  return [
+    s.title || s.project,
+    s.cwd,
+    s.agent ? `agent ${s.agent}` : '',
+    s.model ? `model ${modelLabel(s.model)}` : '',
+    `id ${s.id.slice(0, 8)}`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}

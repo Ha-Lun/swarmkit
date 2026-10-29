@@ -3,7 +3,7 @@
 // shown anywhere in the UI — only hidden, never deleted from disk.
 import { useMemo, useState } from 'react';
 import type { SessionSummary } from '../shared/types';
-import { fmtCost, relTime } from './format';
+import { fmtCost, relTime, sessionHint, sessionSubline } from './format';
 import { TerminalIcon } from './icons';
 
 interface Props {
@@ -74,7 +74,7 @@ export function Archive({ sessions, now, onSelect }: Props) {
                     type="button"
                     className="arch-row"
                     onClick={() => onSelect(s.id)}
-                    title={s.cwd}
+                    title={sessionHint(s)}
                   >
                     <span className="arch-top">
                       <span className={`badge src-${s.source}`}>
@@ -85,7 +85,7 @@ export function Archive({ sessions, now, onSelect }: Props) {
                       <span className="arch-cost">{fmtCost(s.costUsd)}</span>
                     </span>
                     <span className="arch-foot">
-                      <span className="arch-cwd">{s.cwd}</span>
+                      <span className="arch-cwd">{sessionSubline(s)}</span>
                       <span className="arch-when">ended {relTime(s.updatedAt, now)}</span>
                     </span>
                   </button>

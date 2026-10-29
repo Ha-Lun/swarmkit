@@ -2,6 +2,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { ActivityEvent, AgentNode } from '../shared/types';
+import { agentLabel, agentSubtitle } from './chat';
 import { fmtClock, fmtCost, fmtTokens, modelLabel, toolGroups } from './format';
 import { ChevronIcon, CloseIcon, toolIcon } from './icons';
 
@@ -119,7 +120,7 @@ export function Drawer({ node, onClose }: Props) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const worker = node.kind === 'worker' ? node.worker : undefined;
+  const subtitle = agentSubtitle(node);
   const groups = toolGroups(node.toolCounts);
 
   return (
@@ -127,8 +128,13 @@ export function Drawer({ node, onClose }: Props) {
       <header className="drawer-head">
         <div style={{ minWidth: 0 }}>
           <p className="drawer-title">
-            {worker ? `${worker.lane} · ${worker.slug}` : node.agentType}
+            {agentLabel(node)}
           </p>
+          {subtitle && (
+            <p className="drawer-agent" title={subtitle}>
+              {subtitle}
+            </p>
+          )}
           <p className="drawer-sub">
             <span className={`node-status st-${node.status}`}>
               <i className="dot" aria-hidden="true" />

@@ -290,20 +290,8 @@ async function main(): Promise<void> {
   /** POST /api/sessions/:id/restart: restart a page-owned Claude session's process on the same id. */
   async function restartSession(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
     const raw = requireObject(await readJson(req, MAX_IMAGE_BODY));
-    let body: { text?: string };
     try {
-      const text = raw.text;
-      if (text === undefined || text === null || (typeof text === 'string' && text.trim().length === 0)) {
-        body = {};
-      } else {
-        body = { text: validMessageText(text, undefined) };
-      }
-    } catch (err) {
-      if (err instanceof ValidationError) return sendJson(res, 400, { error: err.message });
-      throw err;
-    }
-    try {
-      const sessionId = await sdk.restart(id, body);
+      const sessionId = await sdk.restart(id, { text: raw.text as string | undefined });
       return sendJson(res, 200, { sessionId });
     } catch (err) {
       if (err instanceof SessionError) {

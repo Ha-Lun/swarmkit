@@ -1,5 +1,6 @@
 // Chat transcript helpers: pure event-to-item mapping, no React.
 import type { OrbState } from 'thinking-orbs';
+import { modelLabel } from './format';
 import type { ActivityEvent, AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
 
 export type ChatItem =
@@ -137,6 +138,17 @@ export function orbLabel(state: OrbState): string {
 /** Display name for an agent: `lane · slug` for tree-linked workers, else its agent type. */
 export function agentLabel(node: AgentNode): string {
   return node.kind === 'worker' && node.worker ? `${node.worker.lane} · ${node.worker.slug}` : node.agentType;
+}
+
+/** Subtitle under an agent name: the task description, or for workers the --agent specialist. Full text, CSS truncates. */
+export function agentSubtitle(node: AgentNode, task?: WorkerTask): string {
+  if (node.kind === 'worker') return task?.agent ?? node.worker?.agent ?? node.description ?? '';
+  return node.description ?? '';
+}
+
+/** Tooltip text for an agent: name, subtitle and model in full. */
+export function agentHint(node: AgentNode, task?: WorkerTask): string {
+  return [agentLabel(node), agentSubtitle(node, task), modelLabel(task?.model ?? node.model)].filter(Boolean).join(' · ');
 }
 
 export function orbColor(node: AgentNode, task?: WorkerTask): string {

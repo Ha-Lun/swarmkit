@@ -67,6 +67,8 @@ export interface FleetBackend {
   interrupt(sessionId: string): Promise<unknown>;
   stop(sessionId: string): Promise<unknown>;
   resume(sessionId: string, body: ResumeSessionBody): Promise<StartSessionResponse>;
+  /** Stop the session and resume it; `text` is sent as the first message when given. */
+  restart(sessionId: string, text?: string): Promise<{ sessionId: string }>;
   decide(permissionId: string, allow: boolean, message?: string, answers?: Record<string, string>): Promise<unknown>;
   agents(cwd: string): Promise<AgentsResponse>;
   cwds(): Promise<string[]>;
@@ -103,6 +105,11 @@ export const apiBackend: FleetBackend = {
     request(`/api/sessions/${encodeURIComponent(sessionId)}/resume`, {
       method: 'POST',
       body: JSON.stringify(body),
+    }),
+  restart: (sessionId, text) =>
+    request(`/api/sessions/${encodeURIComponent(sessionId)}/restart`, {
+      method: 'POST',
+      body: JSON.stringify(text === undefined ? {} : { text }),
     }),
   decide: (permissionId, allow, message, answers) => {
     const body: { allow: boolean; message?: string; answers?: Record<string, string> } = { allow };

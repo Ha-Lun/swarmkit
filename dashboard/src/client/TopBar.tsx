@@ -6,7 +6,7 @@
 // On ≤768px the links collapse to 44×44 icon buttons with count badges, the usage
 // pill and connection dot hide, and New session becomes a "+" icon button.
 import type { SessionSummary, UsageReport, WorkerTask } from '../shared/types';
-import { fmtResetIn, usageTone } from './format';
+import { fmtResetIn, sessionHint, usageTone } from './format';
 import { ArchiveIcon, Logo, PlusIcon, WorkerIcon } from './icons';
 
 interface Props {
@@ -68,10 +68,10 @@ export function TopBar({
               type="button"
               className={`tchip${s.id === selectedId ? ' is-selected' : ''}`}
               aria-current={s.id === selectedId || undefined}
-              aria-label={`${s.title || s.project}, status ${s.status}${
+              aria-label={`${sessionHint(s)}, status ${s.status}${
                 s.pendingPermissions > 0 ? `, ${s.pendingPermissions} pending` : ''
               }`}
-              title={s.title || s.project}
+              title={sessionHint(s)}
               onClick={() => onSelect(s.id)}
             >
               <i className={`dot st-${s.status}`} aria-hidden="true" />

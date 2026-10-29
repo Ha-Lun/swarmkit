@@ -9,10 +9,10 @@ import { Composer } from './Composer';
 import { Continue } from './Continue';
 import { AgentTabs } from './AgentTabs';
 import { ChatView } from './ChatView';
-import { agentTabs } from './chat';
+import { agentLabel, agentSubtitle, agentTabs } from './chat';
 import { Drawer } from './Drawer';
 import { Orb } from './Orb';
-import { fmtCost, UNTRUSTED_NOTICE } from './format';
+import { fmtCost, modelLabel, sessionHint, UNTRUSTED_NOTICE } from './format';
 import { Logo } from './icons';
 import { Landing } from './Landing';
 import { NewSession } from './NewSession';
@@ -193,21 +193,101 @@ function readSessionView(): 'chat' | 'map' {
   }
 }
 
+const RESTART_TEXT =
+  'The new agents are installed and the session was restarted. Continue the task where you left off.';
+
+/** Restart control: asks first while a turn is running, since restart stops it. */
+function RestartControl({
+  active,
+  busy,
+  error,
+  onRestart,
+}: {
+  active: boolean;
+  busy: boolean;
+  error: string | null;
+  onRestart: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const askRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!active) setConfirming(false);
+  }, [active]);
+  const cancel = () => {
+    setConfirming(false);
+    askRef.current?.focus();
+  };
+  return (
+    <div className="restart-ctl">
+      {error && !confirming && (
+        <span className="restart-ctl-error" role="alert" title={error}>
+          Restart failed: {error}
+        </span>
+      )}
+      {confirming ? (
+        <span
+          className="restart-ctl-confirm"
+          role="group"
+          aria-label="Confirm restart"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') cancel();
+          }}
+        >
+          <span>Restart stops the current turn.</span>
+          <button
+            type="button"
+            className="btn btn-sm"
+            autoFocus
+            onClick={() => {
+              setConfirming(false);
+              onRestart();
+            }}
+          >
+            Restart
+          </button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={cancel}>
+            Cancel
+          </button>
+        </span>
+      ) : (
+        <button
+          ref={askRef}
+          type="button"
+          className="btn btn-ghost btn-sm"
+          disabled={busy}
+          aria-label={busy ? 'Restarting session' : 'Restart session'}
+          onClick={() => (active ? setConfirming(true) : onRestart())}
+        >
+          {busy ? 'Restarting…' : 'Restart'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Topbar({
   session,
   sessionView,
   onView,
+  canRestart,
+  restartBusy,
+  restartError,
+  onRestart,
 }: {
   session: SessionSummary;
   sessionView: 'chat' | 'map';
   onView: (v: 'chat' | 'map') => void;
+  canRestart: boolean;
+  restartBusy: boolean;
+  restartError: string | null;
+  onRestart: () => void;
 }) {
   return (
     <header className="topbar">
       <div className="topbar-title">
-        <h1>{session.title || session.project}</h1>
-        <p className="topbar-cwd" title={session.cwd}>
-          {session.cwd}
+        <h1 title={sessionHint(session)}>{session.title || session.project}</h1>
+        <p className="topbar-cwd">
+          {[session.agent, modelLabel(session.model), session.id.slice(0, 8)].filter(Boolean).join(' · ')} · {session.cwd}
         </p>
       </div>
       {session.runtime === 'opencode' && <span className="badge rt-opencode">OpenCode</span>}
@@ -230,6 +310,14 @@ function Topbar({
           Map
         </button>
       </div>
+      {canRestart && (
+        <RestartControl
+          active={session.status === 'running' || session.status === 'waiting'}
+          busy={restartBusy}
+          error={restartError}
+          onRestart={onRestart}
+        />
+      )}
       <div className="topbar-meta">
         {session.pendingPermissions > 0 && (
           <span className="pending-chip" title="Waiting on your decision">
@@ -259,6 +347,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   const [workerDrawerKey, setWorkerDrawerKey] = useState<string | null>(null);
   const [endedDraft, setEndedDraft] = useState<{ id: string; text: string } | null>(null);
   const [restartBusy, setRestartBusy] = useState(false);
+  const [restartError, setRestartError] = useState<string | null>(null);
   const [dismissedRestart, setDismissedRestart] = useState<string[]>(readDismissed);
   const [sessionView, setSessionView] = useState<'chat' | 'map'>(readSessionView);
   const [activeAgentId, setActiveAgentId] = useState('root');
@@ -457,25 +546,27 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
     });
   }, []);
 
-  const restartSession = useCallback(async () => {
-    const id = stateRef.current.selectedId;
-    if (!id || restartBusy) return;
-    setRestartBusy(true);
-    try {
-      await guard(backend.stop(id));
-      await guard(
-        backend.resume(id, {
-          text: 'The new agents are installed and the session was restarted. Continue the task where you left off.',
-        }),
-      );
-      const d = await guard(backend.detail(id));
-      if (d) dispatch({ type: 'detail', detail: d });
-      dismissRestart();
-    } catch {
-      // keep the banner up so the user can retry
-    }
-    setRestartBusy(false);
-  }, [backend, guard, restartBusy, dismissRestart]);
+  useEffect(() => setRestartError(null), [state.selectedId]);
+
+  const restartSession = useCallback(
+    async (text?: string) => {
+      const id = stateRef.current.selectedId;
+      if (!id || restartBusy) return;
+      setRestartBusy(true);
+      setRestartError(null);
+      try {
+        await guard(backend.restart(id, text));
+        const d = await guard(backend.detail(id));
+        if (d) dispatch({ type: 'detail', detail: d });
+        dismissRestart();
+      } catch (e) {
+        // errors go to restartError, shown by the Topbar RestartControl so the user can retry
+        setRestartError(e instanceof Error ? e.message : 'Restart failed');
+      }
+      setRestartBusy(false);
+    },
+    [backend, guard, restartBusy, dismissRestart],
+  );
 
   /** A 409 from message/interrupt means the query is gone: switch the composer to Continue, keeping the text. */
   const callSession = useCallback(
@@ -508,9 +599,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   );
 
   const returnName = activeNode
-    ? activeNode.kind === 'worker' && activeNode.worker
-      ? `${activeNode.worker.lane} · ${activeNode.worker.slug}`
-      : activeNode.agentType
+    ? [agentLabel(activeNode), agentSubtitle(activeNode)].filter(Boolean).join(' — ').slice(0, 80)
     : '';
   // Auto-return only when the viewed agent finishes while we watch it; opening an
   // already finished agent stays put.
@@ -560,7 +649,16 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
           onNew={() => setNewOpen(true)}
         />
         {view === 'session' && selected && (
-          <Topbar session={selected} sessionView={sessionView} onView={setSessionView} />
+          <Topbar
+            key={selected.id}
+            session={selected}
+            sessionView={sessionView}
+            onView={setSessionView}
+            canRestart={selected.source === 'page' && (selected.runtime ?? 'claude') === 'claude'}
+            restartBusy={restartBusy}
+            restartError={restartError}
+            onRestart={() => void restartSession()}
+          />
         )}
         {view === 'session' && selected?.untrustedProject && (
           <p className="notice" role="note">
@@ -653,7 +751,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
           <RestartBanner
             source={detail.source}
             busy={restartBusy}
-            onRestart={() => void restartSession()}
+            onRestart={() => void restartSession(RESTART_TEXT)}
             onDismiss={dismissRestart}
           />
         )}

@@ -6,7 +6,7 @@ import type { FleetBackend, Guard } from './api';
 import { AttachButton, AttachDropzone, AttachmentTray } from './AttachmentTray';
 import { filesFromPaste } from './attachments';
 import { useEnterToSend } from './enterToSend';
-import { fmtCost, fmtDuration, shortModel, UNTRUSTED_NOTICE } from './format';
+import { fmtCost, fmtDuration, sessionHint, sessionSubline, shortModel, UNTRUSTED_NOTICE } from './format';
 import { FolderPicker } from './FolderPicker';
 import { Logo, StarIcon } from './icons';
 import { AgentModelFields, useStartForm } from './StartForm';
@@ -131,7 +131,7 @@ export function Landing({
                       type="button"
                       className="land-run"
                       onClick={() => onSelect(s.id)}
-                      title={s.cwd}
+                      title={sessionHint(s)}
                     >
                       <span className="land-run-top">
                         <span className="land-run-name">{s.title || s.project}</span>
@@ -145,7 +145,7 @@ export function Landing({
                           {s.status}
                         </span>
                       </span>
-                      <span className="land-run-cwd">{s.cwd}</span>
+                      <span className="land-run-cwd">{sessionSubline(s, now)}</span>
                       <span className="land-run-foot">
                         <span>elapsed {fmtDuration(now - s.startedAt)}</span>
                         <i className="sep" aria-hidden="true">·</i>

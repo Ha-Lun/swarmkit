@@ -2,7 +2,7 @@
 // A matching WorkerTask (tree-linked worker) overlays its live data.
 import type { KeyboardEvent } from 'react';
 import type { AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
-import { agentLabel } from './chat';
+import { agentHint, agentLabel, agentSubtitle } from './chat';
 import { elapsedMs, fmtDuration, modelLabel, workerElapsedS, workerStateClass } from './format';
 import { kindIcon } from './icons';
 import { PermissionPanel } from './Permission';
@@ -51,8 +51,9 @@ export function NodeCard({ node, now, permission, open, task, workersAt, onOpen,
           ? 'is-error'
           : 'is-idle';
 
-  // Running shows the live activity with shimmer; otherwise the description (fall back to activity).
-  const line2 = isRunning ? (activity ?? '') : (node.description ?? activity ?? '');
+  const subtitle = agentSubtitle(node, task);
+  // Description/agent lives on the name line; line 2 is the live activity (idle: last activity).
+  const line2 = activity ?? '';
   const label = modelLabel(model);
   const ariaLabel = `${name}, ${label || 'no model'}, ${statusLabel}, ${fmtDuration(elapsed)}${deniedCalls > 0 ? `, ${deniedCalls} denied` : ''}`;
 
@@ -81,8 +82,9 @@ export function NodeCard({ node, now, permission, open, task, workersAt, onOpen,
         <span className={`node-ring ${ringClass}`} aria-hidden="true">
           <span className="node-ring-core">{kindIcon(node.kind, 13)}</span>
         </span>
-        <span className="node-name" title={name}>
+        <span className="node-name" title={agentHint(node, task)}>
           {name}
+          {subtitle && <span className="node-sub">{subtitle}</span>}
         </span>
         {label && <span className="node-model">{label}</span>}
       </div>
