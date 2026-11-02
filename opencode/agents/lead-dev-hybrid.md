@@ -1,6 +1,6 @@
 ---
 description: The swarm orchestrator. Plans, asks for approval, then spreads file-disjoint implementation in parallel across headless agy-task workers (OpenCode only) and specialist subagents (OpenCode and Antigravity); Antigravity starts no workers. Synthesizes the results.
-model: opencode-go/mimo-v2.6-pro
+model: opencode-go/deepseek-v4.1-flash#max
 mode: primary
 temperature: 0.3
 permission:
