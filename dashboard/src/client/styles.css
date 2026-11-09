@@ -99,6 +99,8 @@ body {
 }
 
 #root { height: 100dvh; }
+/* mermaid renders into a scratch div on <body> (id "d" + our "mdmm-" id); keep it out of the layout */
+body > [id^='dmdmm-'] { position: fixed; top: 0; left: -10000px; width: 100vw; pointer-events: none; }
 
 /* static demo build: an in-flow strip above the app, never over its buttons */
 body.has-demo { display: flex; flex-direction: column; height: 100dvh; }
@@ -2523,6 +2525,23 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
   .status-usage { gap: var(--space-2); }
   .status-btn { padding: 0 5px; }
   .statusbar { gap: 4px; }
+
+  /* session header: title + info on row 1, view toggle, status and restart on row 2.
+     Runtime and cost move to the info panel. */
+  .topbar { column-gap: var(--space-2); }
+  .topbar-title { flex: 1 1 0; flex-basis: calc(100% - 48px - var(--space-2)); order: 0; }
+  .info-toggle { order: 1; margin-left: 0; flex: 0 0 48px; min-width: 0; padding: 0; }
+  .topbar-runtime, .topbar-cost { display: none; }
+  .topbar .view-toggle, .topbar-meta, .restart-ctl { order: 2; }
+  .topbar .view-toggle button { min-height: 36px; }
+  .restart-ctl { margin-left: auto; }
+  .topbar .restart-ctl .btn { min-height: 32px; }
+
+  /* restart banner: text on its own row, buttons under it on the right */
+  .restart-banner { flex-wrap: wrap; row-gap: 4px; }
+  .restart-text { flex-basis: calc(100% - 30px); }
+  .restart-actions { margin-left: auto; }
+  .restart-banner .btn { min-height: 36px; }
 }
 
 /* Bigger tap targets on touch devices. */
