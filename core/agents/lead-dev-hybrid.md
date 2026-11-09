@@ -44,7 +44,7 @@ claude:
   - Write
   hooks:
     PreToolUse:
-    - matcher: Write
+    - matcher: Write|Bash
       hooks:
       - type: command
         command: python3 ~/.claude/hooks/guard.py lead-dev-hybrid

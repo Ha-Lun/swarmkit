@@ -534,7 +534,9 @@ BACKENDS = {
                       "allowed": ("opencode-go/glm-5.3-flash", "opencode-go/mimo-v2.6-flash",
                                   "opencode-go/mimo-v2.6-pro", "opencode-go/deepseek-v4.1-flash", "opencode-go/muse-spark-1.3-contributor",
                                   # TODO: remove beam-free when its free period ends
-                                  "opencode-go/beam-free")},
+                                  "opencode-go/beam-free"),
+                      # benchmark candidates: accepted only under SWARMKIT_BENCH=1 (bench/worker_models.py), never for real work
+                      "bench_only": ("opencode-go/iceman-contributor-free",)},
 }
 BACKEND = BACKENDS[PROG]
 CLI = BACKEND["cli"]
@@ -957,7 +959,8 @@ def resolve(a):
     from_agent = a.model is None and a.agent and CLI == "opencode"
     if a.model is None:
         a.model = BACKEND["model"]
-    if a.model not in BACKEND["allowed"]:
+    bench = os.environ.get("SWARMKIT_BENCH") == "1" and a.model in BACKEND.get("bench_only", ())
+    if a.model not in BACKEND["allowed"] and not bench:
         print(f"{PROG}: model not on the worker allowlist: {a.model} (allowed: {', '.join(BACKEND['allowed'])})", file=sys.stderr)
         sys.exit(2)
     if a.agent and CLI == "agy":

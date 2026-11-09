@@ -41,6 +41,7 @@ MODULES = FIXTURES['scaffold'][0]
 ARMS = {
     'muse': ('opencode-go/muse-spark-1.3-contributor', ''),
     'beam': ('opencode-go/beam-free', ''),
+    'iceman': ('opencode-go/iceman-contributor-free', ''),  # bench-only (SWARMKIT_BENCH=1 in agy-task)
 }
 PROMPT = ("You are in a git worktree of a small Node project. Implement `src/{m}.js` so that "
           "`node test/{m}.test.js` passes. Read the test first. Edit only `src/{m}.js`; do not touch "

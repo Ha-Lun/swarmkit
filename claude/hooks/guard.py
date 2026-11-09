@@ -247,6 +247,72 @@ def check_path(agent_name, path, cwd):
     return None
 
 
+# lead-dev-hybrid keeps a broad shell (wrappers, git, tests, read-only probes) but must not change files through it:
+# that is how an Opus lead ends up doing all the work itself. Writes under /tmp stay allowed (logs, scratch files).
+LEAD_FILE_CMDS = {'cp', 'mv', 'rm', 'touch', 'mkdir', 'rmdir', 'ln', 'install', 'truncate', 'dd', 'patch', 'tee'}
+LEAD_INTERPRETERS = {'python', 'python3', 'node', 'perl', 'ruby', 'bash', 'sh', 'zsh'}
+WRITE_CODE = re.compile(
+    r"""open\([^)]*['"][wax]\+?b?['"]|\.write_(?:text|bytes)\(|(?:write|append)FileSync|fs\.(?:promises\.)?"""
+    r"""(?:writeFile|appendFile|rm|unlink|rename|mkdir|cp)\b|shutil\.(?:copy|move|rmtree)|os\.(?:remove|unlink|rename|"""
+    r"""replace|makedirs|mkdir|rmdir)\(|\.unlink\(|\.(?:rename|touch|mkdir)\(|\bsed\s+(?:-\w*i|--in-place)""")
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][\w-]*)\1[^\n]*\n(.*?)(?:\n[\t ]*\2[\t ]*(?:\n|$)|\Z)", re.S)
+
+
+def scratch(path, cwd):
+    target = os.path.realpath(os.path.join(cwd or '.', os.path.expanduser(path)))
+    return target == '/dev/null' or target == '/tmp' or target.startswith('/tmp/')
+
+
+def lead_bash_problem(cmd, cwd=None):
+    """Why a lead-dev-hybrid Bash command changes files, or None. A speed bump: it reads the command, not its effects."""
+    bodies = [m.group(3) for m in HEREDOC.finditer(cmd)]
+    # Keep the heredoc header line (it may hold `> file`), drop the body: it is data, not shell words.
+    shell = HEREDOC.sub(lambda m: m.group(0).split('\n', 1)[0] + '\n', cmd)
+    lex = shlex.shlex(shell.replace('\n', ' ; '), posix=True, punctuation_chars=True)
+    lex.whitespace_split = True
+    lex.commenters = ''
+    tokens = list(lex)
+    segs, cur, i = [], [], 0
+    while i < len(tokens):
+        t = tokens[i]
+        if t and set(t) <= set('();<>|&'):
+            if '>' in t:
+                target = tokens[i + 1] if i + 1 < len(tokens) else ''
+                if not (t.endswith('&') and target.isdigit()) and not scratch(target, cwd):
+                    return f'redirect into {target}'
+                i += 2
+                continue
+            if '<' in t:
+                i += 2 if t in ('<', '<<<') else 1
+                continue
+            segs.append(cur)
+            cur = []
+        else:
+            cur.append(t)
+        i += 1
+    segs.append(cur)
+    for words in (s for s in segs if s):
+        name = os.path.basename(words[0])
+        args = [w for w in words[1:] if not w.startswith('-')]
+        targets = args[-1:] if name in ('cp', 'ln', 'install') else args  # their sources are only read
+        if name in LEAD_FILE_CMDS and targets and not all(scratch(a, cwd) for a in targets):
+            return f'`{name}` changes files'
+        if name == 'sed' and any(w == '--in-place' or re.fullmatch(r'-[a-zA-Z]*i\S*', w) for w in words[1:]):
+            return '`sed -i` edits files'
+        if name == 'perl' and any(re.fullmatch(r'-[a-z]*i\S*', w) for w in words[1:]):
+            return '`perl -i` edits files'
+        if name in LEAD_INTERPRETERS:
+            code = [words[j + 1] for j, w in enumerate(words[:-1]) if w in ('-c', '-e', '--eval')]
+            if name in ('bash', 'sh', 'zsh'):
+                for c in code:
+                    problem = lead_bash_problem(c, cwd)
+                    if problem:
+                        return problem
+            elif any(WRITE_CODE.search(c) for c in code + bodies):
+                return f'inline {name} code writes files'
+    return None
+
+
 def decide(agent_name, data):
     # A main-thread agent's frontmatter hooks also fire for its subagents' calls. Those carry their own
     # `agent_type`; a guard only applies to its own agent (main thread has no agent_type).
@@ -257,6 +323,10 @@ def decide(agent_name, data):
     params = data.get('tool_input') or data.get('params') or {}
     cmd = params.get('command') or params.get('cmd') or ''
     path = params.get('file_path') or params.get('path') or params.get('file') or ''
+    if tool_name == 'Bash' and agent_name == 'lead-dev-hybrid':
+        problem = lead_bash_problem(cmd, data.get('cwd'))
+        return (f"lead-dev-hybrid does not change files through Bash ({problem}). Dispatch the edit: a worker "
+                "(agy-task / opencode-task) or a subagent (junior-dev for small edits).") if problem else None
     if tool_name == 'Bash' and agent_name in ALLOWED:
         return check_command(agent_name, cmd, data.get('cwd'))
     if tool_name in ('Edit', 'Write') and agent_name in PATH_RULES:
