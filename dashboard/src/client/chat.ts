@@ -313,7 +313,7 @@ export function orbColor(node: AgentNode, task?: WorkerTask): string {
     if (model.startsWith('opencode-go/')) return ORB.opencode;
     if (model.includes('gemini')) return ORB.agy;
   }
-  if (model.includes('opus')) return ORB.claude;
+  if (model.includes('opus') || model.includes('fable')) return ORB.claude;
   if (model.includes('sonnet')) return ORB.cream;
   if (node.kind === 'main') return ORB.claude;
   return ORB.dim;

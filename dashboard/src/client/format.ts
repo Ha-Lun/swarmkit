@@ -7,7 +7,7 @@ import type { AgentNode, GoLimit, PermissionRequest, SessionSummary, WorkerTask 
  */
 export function modelLabel(model?: string): string {
   if (!model) return '';
-  const m = /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)/.exec(model);
+  const m = /^claude-(fable|opus|sonnet|haiku)-(\d+)-(\d+)/.exec(model);
   if (m) return `${cap(m[1])} ${m[2]}.${m[3]}`;
   if (/^(opus|sonnet|haiku)$/.test(model)) return cap(model);
   return workerModelLabel(model);

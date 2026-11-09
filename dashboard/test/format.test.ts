@@ -93,6 +93,7 @@ describe('modelLabel', () => {
   it('keeps the Claude short names', () => {
     expect(modelLabel('claude-opus-5-5')).toBe('Opus 5.5');
     expect(modelLabel('claude-haiku-4-5-20251001')).toBe('Haiku 4.5');
+    expect(modelLabel('claude-fable-5-1')).toBe('Fable 5.1');
     expect(modelLabel('sonnet')).toBe('Sonnet');
   });
 
@@ -109,5 +110,13 @@ describe('modelLabel', () => {
     expect(modelLabel('')).toBe('');
     expect(modelLabel('provider/')).toBe('');
     expect(modelLabel('high')).toBe('High');
+  });
+});
+
+describe('fable pricing', () => {
+  it('prices claude-fable-5-1 at the Fable tier', async () => {
+    const { estimateCost, modelTier } = await import('../server/model/pricing.ts');
+    expect(modelTier('claude-fable-5-1')).toBe('fable');
+    expect(estimateCost('claude-fable-5-1', { input: 1_000_000, output: 1_000_000, cacheRead: 0, cacheWrite: 0 })).toBe(60);
   });
 });

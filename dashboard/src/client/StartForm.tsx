@@ -155,6 +155,7 @@ interface FieldsProps {
 }
 
 function modelLabel(model: string): string {
+  if (model === 'claude-fable-5-1') return 'Fable';
   if (model === 'opus') return 'Opus';
   if (model === 'sonnet') return 'Sonnet';
   if (model === 'haiku') return 'Haiku';
@@ -219,6 +220,7 @@ export function AgentModelFields({
         <label htmlFor={modelId}>Model</label>
         <select id={modelId} value={model} onChange={(e) => onModel(e.target.value)}>
           <option value="">Default</option>
+          <option value="claude-fable-5-1">Fable</option>
           <option value="opus">Opus</option>
           <option value="sonnet">Sonnet</option>
           <option value="haiku">Haiku</option>
@@ -381,6 +383,7 @@ export function SetupPopover({ runtime, availability, model, effort, onRuntime, 
           {runtime === 'claude' ? (
             <select id="land-model" value={model} onChange={(e) => onModel(e.target.value)}>
               <option value="">Default</option>
+              <option value="claude-fable-5-1">Fable</option>
               <option value="opus">Opus</option>
               <option value="sonnet">Sonnet</option>
               <option value="haiku">Haiku</option>
