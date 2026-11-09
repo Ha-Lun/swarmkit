@@ -67,12 +67,16 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
   private items: SDKUserMessage[] = [];
   private waiters: Array<(result: IteratorResult<SDKUserMessage>) => void> = [];
   private closed = false;
+  /** Called when the reader takes a message (the turn that answers it starts). */
+  onTake?: (message: SDKUserMessage) => void;
 
   push(message: SDKUserMessage): void {
     if (this.closed) return;
     const waiter = this.waiters.shift();
-    if (waiter) waiter({ value: message, done: false });
-    else this.items.push(message);
+    if (waiter) {
+      this.onTake?.(message);
+      waiter({ value: message, done: false });
+    } else this.items.push(message);
   }
 
   close(): void {
@@ -85,7 +89,10 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
     return {
       next: () => {
         const item = this.items.shift();
-        if (item) return Promise.resolve({ value: item, done: false });
+        if (item) {
+          this.onTake?.(item);
+          return Promise.resolve({ value: item, done: false });
+        }
         if (this.closed) return Promise.resolve({ value: undefined as never, done: true });
         return new Promise<IteratorResult<SDKUserMessage>>(resolve => this.waiters.push(resolve));
       },
@@ -119,6 +126,8 @@ interface PageSession {
   updatedAt: number;
   tree: SessionTree;
   queue: InputQueue;
+  /** Page messages waiting for the current opencode/agy turn to end (see markQueued). */
+  queuedUuids?: Set<string>;
   abort: AbortController;
   query: AsyncIterable<SDKMessage> | null;
   pending: Map<string, PendingPermission>;
@@ -589,12 +598,33 @@ export class SdkSessions {
     if (session.stopped || !session.consuming || !session.query) {
       throw new SessionError(409, 'Session has ended; use Continue');
     }
+    const busy = ['running', 'waiting'].includes(session.tree.nodes.get('root')?.status ?? '');
     const turn = this.prepareTurn(session, text, images);
-    session.queue.push(turn.message);
+    // opencode (ACP refuses a second prompt mid-turn) and agy (one process per turn) answer after the turn:
+    // the user event shows Queued until the adapter takes the message (onTake).
+    if (busy && session.runtime !== 'claude') this.markQueued(session, turn);
+    // Claude: 'next' steers a running turn at its next tool boundary instead of waiting for the turn to end
+    // (never interrupt: that would kill background agents and workers).
+    session.queue.push(session.runtime === 'claude' ? { ...turn.message, priority: 'next' } : turn.message);
     for (const event of turn.events) this.emit(event);
     for (const event of setStatus(session.tree, 'root', 'running')) this.emit(event);
     this.scheduleUpsert(session);
     return true;
+  }
+
+  /** Flags the turn's user event as queued (the stored event and the one about to be emitted are the same object). */
+  private markQueued(session: PageSession, turn: { message: SDKUserMessage; events: ServerEvent[] }): void {
+    for (const ev of turn.events) if (ev.type === 'node.event' && ev.event.kind === 'user') ev.event.queued = true;
+    const queued = (session.queuedUuids ??= new Set());
+    if (turn.message.uuid) queued.add(turn.message.uuid);
+    // The queue is replaced on resume/restart, so (re)install the handler on the current one.
+    session.queue.onTake = (m) => {
+      if (!m.uuid || !queued.delete(m.uuid)) return;
+      const event = session.tree.nodes.get('root')?.events.find(e => e.id === `${m.uuid}:user`);
+      if (!event?.queued) return;
+      delete event.queued;
+      this.emit({ type: 'node.event', sessionId: session.id, nodeId: 'root', event: { ...event } });
+    };
   }
 
   interrupt(id: string): boolean {

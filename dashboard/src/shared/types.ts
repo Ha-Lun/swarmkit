@@ -26,6 +26,8 @@ export interface ActivityEvent {
   isError?: boolean;
   /** User events only: URLs of the stored images sent with the message (GET /api/sessions/:id/images/:name). */
   images?: string[];
+  /** Page user events only: waiting for the running opencode/agy turn to end before the lead reads it. */
+  queued?: boolean;
 }
 
 export interface TokenUsage {
@@ -135,9 +137,25 @@ export interface SessionSummary {
   untrustedProject?: boolean;
 }
 
+/** Git state of a session's cwd (server/git.ts), shown in the session header and composer footer. */
+export interface GitInfo {
+  /** Branch name; the short commit sha when detached. */
+  branch: string;
+  detached: boolean;
+  /** Changed + untracked paths (`git status --porcelain` lines). */
+  dirty: number;
+  /** Commits ahead of / behind the upstream; 0 without an upstream. */
+  ahead: number;
+  behind: number;
+  /** Set when cwd is a linked worktree: the main checkout's path. */
+  worktreeOf?: string;
+}
+
 export interface SessionDetail extends SessionSummary {
   nodes: AgentNode[];
   permissions: PermissionRequest[];
+  /** Absent when cwd is not inside a git repository (or git failed). */
+  git?: GitInfo;
 }
 
 /** Sent over GET /events as `data: <json>` lines. */

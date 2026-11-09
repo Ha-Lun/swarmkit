@@ -48,11 +48,12 @@ function appendEvent(detail: SessionDetail, nodeId: string, event: ActivityEvent
   if (i < 0) return detail;
   return {
     ...detail,
-    nodes: detail.nodes.map((n) =>
-      n.id === nodeId && !n.events.some((e) => e.id === event.id)
-        ? { ...n, events: [...n.events, event], lastActivity: event.summary }
-        : n,
-    ),
+    nodes: detail.nodes.map((n) => {
+      if (n.id !== nodeId) return n;
+      // A known id replaces the event in place (e.g. a user message leaving the Queued state).
+      if (n.events.some((e) => e.id === event.id)) return { ...n, events: n.events.map((e) => (e.id === event.id ? event : e)) };
+      return { ...n, events: [...n.events, event], lastActivity: event.summary };
+    }),
   };
 }
 
