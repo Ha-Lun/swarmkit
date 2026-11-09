@@ -929,6 +929,8 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
         workers={state.workers}
         connected={state.connected || mock}
         usage={usage.report ?? undefined}
+        usageLoading={usage.loading}
+        onRefreshUsage={usage.refresh}
         onOpenWorkers={() => setView('workers')}
         onOpenArchive={() => setView('archive')}
       />

@@ -76,9 +76,9 @@
   --space-10: 64px;
 
   --drawer-w: 420px;
-  --chat-col-w: 760px;
+  --chat-col-w: 1040px;
   --info-w: 300px;
-  --status-h: 26px;
+  --status-h: 30px;
 }
 
 * { box-sizing: border-box; }
@@ -2334,9 +2334,8 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
   background: var(--bg);
   border-top: 1px solid var(--border);
   color: var(--text-3);
-  font-size: 11.5px;
+  font-size: 13px;
   white-space: nowrap;
-  overflow: hidden;
 }
 .kb-open .statusbar { display: none; }
 .status-conn { display: inline-flex; align-items: center; gap: 6px; }
@@ -2356,9 +2355,33 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
 .status-btn b, .status-usage b { font-weight: 400; color: var(--text); font-variant-numeric: tabular-nums; }
 .status-btn:focus-visible { outline-offset: -2px; border-radius: 0; }
 .status-spacer { flex: 1; }
-.status-usage.tone-teal b { color: var(--green); }
-.status-usage.tone-amber b { color: var(--amber); }
-.status-usage.tone-fail b { color: var(--fail); }
+.status-usage-wrap { position: relative; align-self: stretch; display: flex; min-width: 0; }
+.status-usage { display: inline-flex; align-items: center; gap: var(--space-4); color: var(--text-2); min-width: 0; overflow: hidden; }
+.meter { display: inline-flex; align-items: center; gap: 6px; }
+.meter-label { color: var(--text-2); }
+.meter-bar { width: 56px; height: 7px; background: rgba(255, 245, 230, 0.16); border-radius: 1px; overflow: hidden; }
+.meter-fill { display: block; height: 100%; background: var(--green); }
+.meter b { font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.meter-reset { color: var(--text-3); }
+.meter.tone-amber .meter-fill { background: var(--amber); }
+.meter.tone-amber b { color: var(--amber); }
+.meter.tone-fail .meter-fill { background: var(--fail); }
+.meter.tone-fail b { color: var(--fail); }
+.usage-pop {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: 50;
+  width: min(680px, calc(100vw - 2 * var(--space-3)));
+  max-height: min(70vh, 560px);
+  overflow: auto;
+  padding: var(--space-3);
+  background: var(--panel, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  white-space: normal;
+}
 .status-ver { color: var(--text-3); }
 
 /* ---------- info panel (right column) ---------- */
@@ -2495,7 +2518,9 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
 
 /* Phones: the status bar keeps dots and numbers, drops the long words. */
 @media (max-width: 600px) {
-  .status-ver, .status-conn-label { display: none; }
+  .status-ver, .status-conn-label, .meter-reset, .meter-bar, .meter-week { display: none; }
+  .statusbar { font-size: 12px; }
+  .status-usage { gap: var(--space-3); }
   .statusbar { gap: var(--space-2); }
 }
 
