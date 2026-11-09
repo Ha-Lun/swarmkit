@@ -32,6 +32,9 @@ class LeadBash(unittest.TestCase):
             "perl -Ilib -ne 'print if /x/' file",
             "sed -n '1,20p' src/a.js",
             "cd site && npm test",
+            "rm -f /tmp/x 2>/dev/null; mkdir -p /tmp/a 2>&1",
+            "git commit -q -m \"$(cat <<'EOF'\nfix: a > b\n\nCo-Authored-By: X\nEOF\n)\"",
+            "timeout 5 npm test",
         ]:
             self.assertIsNone(lead(cmd), cmd)
 
@@ -51,6 +54,12 @@ class LeadBash(unittest.TestCase):
             "rm -rf src/old",
             "git diff | tee patch.diff",
             "cd src && mv a.js b.js",
+            "patch -p1 < fix.diff",
+            "FOO=1 rm x",
+            "env rm -rf src",
+            "git ls-files | xargs rm",
+            "timeout 5 cp a.js src/b.js",
+            "cat <<<foo; rm src/x",
         ]:
             self.assertIsNotNone(lead(cmd), cmd)
 

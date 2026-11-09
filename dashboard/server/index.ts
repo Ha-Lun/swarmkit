@@ -610,11 +610,15 @@ async function main(): Promise<void> {
       const id = parts[2] ?? '';
       if (parts.length === 3 && method === 'GET') {
         const detail = sdk.get(id) ?? (await watcher.get(id));
-        if (detail) {
-          const git = await gitInfo(detail.cwd);
-          return sendJson(res, 200, git === undefined ? detail : { ...detail, git });
-        }
+        if (detail) return sendJson(res, 200, detail);
         return sendJson(res, 404, { error: 'session not found' });
+      }
+      if (parts.length === 4 && parts[3] === 'git' && method === 'GET') {
+        // Separate from the detail so a slow git never delays it; the client polls this while a session is open.
+        const cwd = mergedSessions().find(s => s.id === id)?.cwd;
+        if (!cwd) return sendJson(res, 404, { error: 'session not found' });
+        const git = await gitInfo(cwd);
+        return sendJson(res, 200, git ? { git } : {});
       }
       if (parts.length === 4 && (parts[3] === 'message' || parts[3] === 'interrupt') && method === 'POST') {
         if (!sdk.owns(id)) return sendJson(res, 404, { error: 'session not found' });

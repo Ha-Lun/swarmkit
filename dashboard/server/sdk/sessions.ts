@@ -336,6 +336,7 @@ export class SdkSessions {
     // Store the images first: a disk error must not leave a half-started query behind.
     // A restart without text prepares no turn: the fresh process just waits for input.
     const turn = prompt !== undefined ? this.prepareTurn(session, prompt, images) : undefined;
+    session.queue.onTake = m => this.unqueue(session, m.uuid ?? '');
     session.generation += 1;
     const generation = session.generation;
     session.abort = new AbortController();
@@ -615,16 +616,21 @@ export class SdkSessions {
   /** Flags the turn's user event as queued (the stored event and the one about to be emitted are the same object). */
   private markQueued(session: PageSession, turn: { message: SDKUserMessage; events: ServerEvent[] }): void {
     for (const ev of turn.events) if (ev.type === 'node.event' && ev.event.kind === 'user') ev.event.queued = true;
-    const queued = (session.queuedUuids ??= new Set());
-    if (turn.message.uuid) queued.add(turn.message.uuid);
-    // The queue is replaced on resume/restart, so (re)install the handler on the current one.
-    session.queue.onTake = (m) => {
-      if (!m.uuid || !queued.delete(m.uuid)) return;
-      const event = session.tree.nodes.get('root')?.events.find(e => e.id === `${m.uuid}:user`);
-      if (!event?.queued) return;
+    if (turn.message.uuid) (session.queuedUuids ??= new Set()).add(turn.message.uuid);
+  }
+
+  /** Clears the Queued flag of one queued message (the lead took it) or, without a uuid, of all (stop/unwind). */
+  private unqueue(session: PageSession, uuid?: string): void {
+    const queued = session.queuedUuids;
+    if (!queued || queued.size === 0) return;
+    const ids = uuid === undefined ? [...queued] : queued.has(uuid) ? [uuid] : [];
+    for (const u of ids) {
+      queued.delete(u);
+      const event = session.tree.nodes.get('root')?.events.find(e => e.id === `${u}:user`);
+      if (!event?.queued) continue;
       delete event.queued;
       this.emit({ type: 'node.event', sessionId: session.id, nodeId: 'root', event: { ...event } });
-    };
+    }
   }
 
   interrupt(id: string): boolean {
@@ -651,6 +657,7 @@ export class SdkSessions {
       void interrupt?.call(session.query)?.catch(() => {});
     }
     session.queue.close();
+    this.unqueue(session);  // messages still waiting are dropped with the queue
     session.abort.abort();
     // Anything still pending is denied here (the abort listener handles results
     // flowing through canUseTool's own signal; this is the fallback path).
@@ -822,6 +829,7 @@ export class SdkSessions {
     ]);
     session.stopped = false;
     session.pending.clear();
+    this.unqueue(session);
     session.queue = new InputQueue();
     session.upsertThrottle = { lastSent: 0, timer: null };
     session.updatedAt = Date.now();

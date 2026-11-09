@@ -249,13 +249,14 @@ def check_path(agent_name, path, cwd):
 
 # lead-dev-hybrid keeps a broad shell (wrappers, git, tests, read-only probes) but must not change files through it:
 # that is how an Opus lead ends up doing all the work itself. Writes under /tmp stay allowed (logs, scratch files).
+LEAD_WRAPPERS = {'env', 'time', 'nohup', 'command', 'sudo', 'xargs', 'nice', 'timeout', 'exec'}
 LEAD_FILE_CMDS = {'cp', 'mv', 'rm', 'touch', 'mkdir', 'rmdir', 'ln', 'install', 'truncate', 'dd', 'patch', 'tee'}
 LEAD_INTERPRETERS = {'python', 'python3', 'node', 'perl', 'ruby', 'bash', 'sh', 'zsh'}
 WRITE_CODE = re.compile(
     r"""open\([^)]*['"][wax]\+?b?['"]|\.write_(?:text|bytes)\(|(?:write|append)FileSync|fs\.(?:promises\.)?"""
     r"""(?:writeFile|appendFile|rm|unlink|rename|mkdir|cp)\b|shutil\.(?:copy|move|rmtree)|os\.(?:remove|unlink|rename|"""
     r"""replace|makedirs|mkdir|rmdir)\(|\.unlink\(|\.(?:rename|touch|mkdir)\(|\bsed\s+(?:-\w*i|--in-place)""")
-HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][\w-]*)\1[^\n]*\n(.*?)(?:\n[\t ]*\2[\t ]*(?:\n|$)|\Z)", re.S)
+HEREDOC = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)([A-Za-z_][\w-]*)\1[^\n]*\n(.*?)(?:\n[\t ]*\2[\t ]*(?:\n|$)|\Z)", re.S)
 
 
 def scratch(path, cwd):
@@ -277,6 +278,8 @@ def lead_bash_problem(cmd, cwd=None):
         t = tokens[i]
         if t and set(t) <= set('();<>|&'):
             if '>' in t:
+                if cur and cur[-1].isdigit():
+                    cur.pop()  # the fd in 2>/dev/null or 2>&1
                 target = tokens[i + 1] if i + 1 < len(tokens) else ''
                 if not (t.endswith('&') and target.isdigit()) and not scratch(target, cwd):
                     return f'redirect into {target}'
@@ -292,10 +295,21 @@ def lead_bash_problem(cmd, cwd=None):
         i += 1
     segs.append(cur)
     for words in (s for s in segs if s):
+        # look through VAR=value prefixes and wrappers (env, xargs, sudo, timeout 5, ...) to the real command
+        xargs = False  # its arguments come from stdin, so they cannot be checked
+        while words and (re.fullmatch(r'[A-Za-z_]\w*=.*', words[0]) or os.path.basename(words[0]) in LEAD_WRAPPERS):
+            xargs = xargs or os.path.basename(words[0]) == 'xargs'
+            words = words[1:]
+            while words and (words[0].startswith('-') or re.fullmatch(r'[\d.]+[smhd]?', words[0])):
+                words = words[1:]  # wrapper flags and timeout's duration
+        if not words:
+            continue
         name = os.path.basename(words[0])
+        if name == 'patch':
+            return '`patch` edits files'
         args = [w for w in words[1:] if not w.startswith('-')]
         targets = args[-1:] if name in ('cp', 'ln', 'install') else args  # their sources are only read
-        if name in LEAD_FILE_CMDS and targets and not all(scratch(a, cwd) for a in targets):
+        if name in LEAD_FILE_CMDS and (xargs or (targets and not all(scratch(a, cwd) for a in targets))):
             return f'`{name}` changes files'
         if name == 'sed' and any(w == '--in-place' or re.fullmatch(r'-[a-zA-Z]*i\S*', w) for w in words[1:]):
             return '`sed -i` edits files'

@@ -461,6 +461,30 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
     }
   }, [state.selectedId, state.details, backend, guard, retryNonce]);
 
+  // Git state of the open session's cwd: refetched on open, on status changes and every 10 s while visible,
+  // since the lead and its workers change files and branches as it runs.
+  const [git, setGit] = useState<{ id: string; info?: GitInfo } | null>(null);
+  const gitId = view === 'session' ? state.selectedId : null;
+  const gitStatus = selected?.status;
+  useEffect(() => {
+    if (!gitId) return;
+    let live = true;
+    const load = () => {
+      if (document.visibilityState === 'hidden') return;
+      backend.git(gitId).then(
+        (r) => live && setGit({ id: gitId, info: r.git }),
+        () => {},
+      );
+    };
+    load();
+    const t = window.setInterval(load, 10_000);
+    return () => {
+      live = false;
+      window.clearInterval(t);
+    };
+  }, [backend, gitId, gitStatus]);
+  const gitInfo = git && git.id === gitId ? git.info : undefined;
+
   const baseActive =
     detail?.nodes.some((n) => n.status === 'running' || n.status === 'waiting') ||
     state.workers.some((w) => w.state === 'running') ||
@@ -661,7 +685,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
           <Topbar
             key={selected.id}
             session={selected}
-            git={detail?.git}
+            git={gitInfo}
             sessionView={sessionView}
             onView={setSessionView}
             canRestart={selected.source === 'page' && (selected.runtime ?? 'claude') === 'claude'}
@@ -782,7 +806,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
             <Composer
               key={`composer:${selected.id}`}
               session={selected}
-              git={detail?.git}
+              git={gitInfo}
               onSend={(text, images) => callSession((id) => backend.send(id, text, images), text)}
               onInterrupt={() => callSession((id) => backend.interrupt(id))}
               onStop={() => {
@@ -802,7 +826,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
               backend={backend}
               guard={guard}
               session={selected}
-              git={detail?.git}
+              git={gitInfo}
               sessionId={selected.id}
               source={selected.source}
               onResumed={handleResumed}

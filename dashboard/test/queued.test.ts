@@ -57,6 +57,20 @@ describe('mid-turn messages', () => {
     sdk.stop(id);
   });
 
+  it('opencode: stopping drops queued messages and clears their Queued flag', async () => {
+    const events: ServerEvent[] = [];
+    const lead = gatedLead();
+    const sdk = new SdkSessions(e => events.push(e), lead.fn, { acp: () => lead.fn });
+    const id = sdk.start({ prompt: 'first', cwd: homeDir, runtime: 'opencode' });
+    await vi.waitFor(() => expect(lead.read).toHaveLength(1));
+    sdk.send(id, 'never read');
+    expect(userEvents(events, 'never read')[0]?.queued).toBe(true);
+    sdk.stop(id);
+    const after = userEvents(events, 'never read');
+    expect(after.at(-1)?.queued).toBeUndefined();
+    expect(sdk.get(id)?.nodes.find(n => n.id === 'root')?.events.find(e => e.id === after[0]?.id)?.queued).toBeUndefined();
+  });
+
   it('claude: a mid-turn message carries priority next and is never shown as queued', async () => {
     const events: ServerEvent[] = [];
     const lead = gatedLead();

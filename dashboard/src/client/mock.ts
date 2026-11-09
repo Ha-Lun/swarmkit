@@ -1171,10 +1171,8 @@ A claim with a footnote.[^1]
     const s = sessions.get(id);
     const map = nodeMaps.get(id);
     if (!s || !map) throw new Error(`mock: unknown session ${id}`);
-    const git = gitInfo.get(id);
     return {
       ...s,
-      ...(git ? { git: { ...git } } : {}),
       nodes: Array.from(map.values()).map((n) => ({
         ...n,
         events: n.events.slice(-500).map((e) => ({ ...e })),
@@ -1191,6 +1189,10 @@ A claim with a footnote.[^1]
   return {
     sessions: () => Promise.resolve(Array.from(sessions.values()).map((s) => ({ ...s })).sort((a, b) => b.updatedAt - a.updatedAt)),
     detail: (id) => Promise.resolve(detail(id)),
+    git: (id) => {
+      const git = gitInfo.get(id);
+      return Promise.resolve(git ? { git: { ...git } } : {});
+    },
     start: (body: StartSessionBody) => {
       const now = Date.now();
       const id = uid('page');

@@ -2,6 +2,7 @@
 import type {
   AgentsResponse,
   CommandsResponse,
+  GitResponse,
   DecideOptions,
   DirListing,
   ImageAttachment,
@@ -89,6 +90,7 @@ export interface FleetBackend {
   usage(refresh?: boolean): Promise<UsageReport>;
   runtimes(): Promise<RuntimesResponse>;
   commands(sessionId: string): Promise<CommandsResponse>;
+  git(sessionId: string): Promise<GitResponse>;
   /** Tab heartbeat; `keepalive` lets the final hidden report survive page unload. */
   presence(body: PresenceBody, keepalive?: boolean): Promise<unknown>;
   connect(
@@ -155,6 +157,7 @@ export const apiBackend: FleetBackend = {
   usage: (refresh) => request(refresh ? '/api/usage?refresh=1' : '/api/usage'),
   runtimes: () => request('/api/runtimes'),
   commands: (sessionId) => request(`/api/sessions/${encodeURIComponent(sessionId)}/commands`),
+  git: (sessionId) => request(`/api/sessions/${encodeURIComponent(sessionId)}/git`),
   connect(onEvent, onStatus) {
     // EventSource reconnects on its own with backoff; we surface the state and
     // let App refetch the selected detail when the stream reopens.

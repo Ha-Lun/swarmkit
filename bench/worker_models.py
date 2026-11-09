@@ -3,6 +3,7 @@
 
   python3 bench/worker_models.py --repeats 3                    scaffold fixture, default arms muse,beam (spends model quota)
   python3 bench/worker_models.py --arms muse                    only the named arms
+  SWARMKIT_BENCH=1 python3 bench/worker_models.py --arms iceman  bench-only candidates (agy-task `bench_only`) need the env
   python3 bench/worker_models.py --fixture hard                 harder fixture (4 modules, 12m per worker)
   python3 bench/worker_models.py --summarize F1 [F2 ...]        one combined table; an arm is taken from the
                                                                 first file (in the order given) that has it

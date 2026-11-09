@@ -4,23 +4,20 @@ import { promisify } from 'node:util';
 import type { GitInfo } from '../src/shared/types.ts';
 
 const run = promisify(execFile);
-// Polling must never take the index lock from the lead's or a worker's own git commands, and the repo's own
-// config must not make a status poll run a program (core.fsmonitor).
-const execFileAsync = (cmd: string, args: string[], opts: { timeout: number }) =>
-  run(cmd, [args[0] as string, args[1] as string, '-c', 'core.fsmonitor=false', ...args.slice(2)], {
-    ...opts,
-    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
-  });
 /** Cache TTL for gitInfo results (and failures) per cwd. */
 const CACHE_MS = 5000;
 
-interface CacheEntry {
-  at: number;
-  value: GitInfo | undefined;
-  promise: Promise<GitInfo | undefined> | null;
-}
+// Polling must never take the index lock from the lead's or a worker's own git commands, and the repo's own
+// config must not make a status poll run a program (core.fsmonitor).
+const git = (cwd: string, ...args: string[]) =>
+  run('git', ['-C', cwd, '-c', 'core.fsmonitor=false', ...args], {
+    timeout: 2000,
+    killSignal: 'SIGKILL',
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+  });
 
-const cache = new Map<string, CacheEntry>();
+/** One entry per cwd; the promise is shared by concurrent callers and never rejects. */
+const cache = new Map<string, { at: number; promise: Promise<GitInfo | undefined> }>();
 
 export function clearGitCache(): void {
   cache.clear();
@@ -28,9 +25,7 @@ export function clearGitCache(): void {
 
 async function fetchGitInfo(cwd: string): Promise<GitInfo | undefined> {
   try {
-    const { stdout } = await execFileAsync('git', ['-C', cwd, 'status', '--porcelain=v2', '--branch'], {
-      timeout: 2000,
-    });
+    const { stdout } = await git(cwd, 'status', '--porcelain=v2', '--branch');
     let head = '';
     let oid = '';
     let ahead = 0;
@@ -56,9 +51,7 @@ async function fetchGitInfo(cwd: string): Promise<GitInfo | undefined> {
     if (!branch) return undefined;
     const info: GitInfo = { branch, detached, dirty, ahead, behind };
     try {
-      const { stdout: rp } = await execFileAsync('git', ['-C', cwd, 'rev-parse', '--git-dir', '--git-common-dir'], {
-        timeout: 2000,
-      });
+      const { stdout: rp } = await git(cwd, 'rev-parse', '--git-dir', '--git-common-dir');
       const lines = rp
         .split('\n')
         .map(s => s.trim())
@@ -81,20 +74,10 @@ async function fetchGitInfo(cwd: string): Promise<GitInfo | undefined> {
   }
 }
 
-export async function gitInfo(cwd: string): Promise<GitInfo | undefined> {
+export function gitInfo(cwd: string): Promise<GitInfo | undefined> {
   const hit = cache.get(cwd);
-  if (hit) {
-    // In-flight call: share it instead of spawning a second git.
-    if (hit.promise) return hit.promise;
-    if (Date.now() - hit.at < CACHE_MS) return hit.value;
-  }
-  const entry: CacheEntry = { at: Date.now(), value: undefined, promise: null };
-  entry.promise = fetchGitInfo(cwd).then(value => {
-    entry.at = Date.now();
-    entry.value = value;
-    entry.promise = null;
-    return value;
-  });
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.promise;
+  const entry = { at: Date.now(), promise: fetchGitInfo(cwd) };
   cache.set(cwd, entry);
   return entry.promise;
 }

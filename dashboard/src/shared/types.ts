@@ -154,7 +154,10 @@ export interface GitInfo {
 export interface SessionDetail extends SessionSummary {
   nodes: AgentNode[];
   permissions: PermissionRequest[];
-  /** Absent when cwd is not inside a git repository (or git failed). */
+}
+
+/** GET /api/sessions/:id/git; `git` is absent when cwd is not inside a git repository (or git failed). */
+export interface GitResponse {
   git?: GitInfo;
 }
 
