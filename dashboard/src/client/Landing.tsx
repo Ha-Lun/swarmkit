@@ -1,27 +1,26 @@
-// Landing: hero, what's running, start form, usage slot and recent sessions.
-// Shown whenever no session is selected; on phones it is the first screen.
+// Landing: the empty page. A pixel wordmark over the big composer; setup, model and folder
+// are chosen from the meta line and the row under the box. Shown whenever no session is selected.
 import { useEffect, useRef, useState } from 'react';
 import type { SessionSummary, UsageReport, WorkerTask } from '../shared/types';
 import type { FleetBackend, Guard } from './api';
-import { AttachButton, AttachDropzone, AttachmentTray } from './AttachmentTray';
+import { AttachButton, AttachmentTray } from './AttachmentTray';
 import { filesFromPaste } from './attachments';
+import { PromptShell } from './Composer';
 import { useEnterToSend } from './enterToSend';
-import { fmtCost, fmtDuration, sessionHint, sessionSubline, shortModel, UNTRUSTED_NOTICE } from './format';
+import { UNTRUSTED_NOTICE } from './format';
 import { FolderPicker } from './FolderPicker';
-import { Logo, StarIcon } from './icons';
-import { AgentModelFields, useStartForm } from './StartForm';
-import { SessionRow } from './SessionRow';
-import { useStars } from './stars';
-import { UsagePanel } from './Usage';
+import { Wordmark } from './icons';
+import { nextSetup, SetupPopover, useStartForm } from './StartForm';
 
 interface Props {
   backend: FleetBackend;
   guard: Guard;
   sessions: SessionSummary[];
+  onStarted: (id: string) => void;
+  // App still passes these; the empty landing shows none of them (tabs, status bar and archive cover them).
   workers: WorkerTask[];
   now: number;
   connected: boolean;
-  /** Owned by App so the sidebar pill shares the same report. */
   usage: UsageReport | null;
   usageLoading: boolean;
   onRefreshUsage: () => void;
@@ -29,30 +28,21 @@ interface Props {
   onOpenWorker: (task: WorkerTask) => void;
   onOpenWorkers: () => void;
   onOpenArchive: () => void;
-  onStarted: (id: string) => void;
 }
 
-function splitPath(path: string): { name: string; parent: string } {
-  const parts = path.split('/').filter(Boolean);
-  return { name: parts.pop() ?? path, parent: parts.join('/') };
+/** `~/…/parent/name`: the home folder as `~`, long paths cut to their last two segments. */
+export function shortFolder(cwd: string, home: string): string {
+  const path = cwd.trim();
+  if (!path) return '~';
+  const underHome = home !== '' && (path === home || path.startsWith(`${home}/`));
+  const parts = (underHome ? path.slice(home.length) : path).split('/').filter(Boolean);
+  const root = underHome ? '~' : '';
+  if (parts.length === 0) return underHome ? '~' : '/';
+  if (parts.length > 2) return `${root}/…/${parts.slice(-2).join('/')}`;
+  return `${root}/${parts.join('/')}`;
 }
 
-export function Landing({
-  backend,
-  guard,
-  sessions,
-  workers,
-  now,
-  connected,
-  usage,
-  usageLoading,
-  onRefreshUsage,
-  onSelect,
-  onOpenWorker,
-  onOpenWorkers,
-  onOpenArchive,
-  onStarted,
-}: Props) {
+export function Landing({ backend, guard, sessions, onStarted }: Props) {
   const {
     cwd,
     setCwd,
@@ -71,230 +61,161 @@ export function Landing({
     submit,
   } = useStartForm(backend, guard, onStarted);
 
-  // Recent working dirs for one-tap repo chips (most recent first).
-  const [cwds, setCwds] = useState<string[]>([]);
-  const landPromptRef = useRef<HTMLTextAreaElement>(null);
-  const landPromptEnter = useEnterToSend(landPromptRef, () => {
-    landPromptRef.current?.form?.requestSubmit();
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const enterToSend = useEnterToSend(ref, () => {
+    ref.current?.form?.requestSubmit();
   });
-  const { stars } = useStars(backend);
-  // Starred folders first, then recent cwds not already starred.
-  const repos = [...stars, ...cwds.filter((c) => !stars.includes(c))];
+
+  const [home, setHome] = useState('');
   useEffect(() => {
     let alive = true;
-    guard(backend.cwds())
-      .then((list) => {
-        if (alive && list) setCwds(list.slice(0, 8));
+    backend
+      .dirs()
+      .then((l) => {
+        if (alive) setHome(l.path);
       })
       .catch(() => undefined);
     return () => {
       alive = false;
     };
-  }, [backend, guard]);
+  }, [backend]);
 
-  const running = sessions.filter((s) => s.status === 'running' || s.status === 'waiting');
-  const runningWorkers = workers.filter((w) => w.state === 'running');
-  // Ended sessions that can actually be continued; the rest stay hidden everywhere.
-  const ended = sessions
-    .filter((s) => s.resumable === true)
-    .sort((a, b) => b.updatedAt - a.updatedAt);
-  const recent = ended.slice(0, 5);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const folderRef = useRef<HTMLDivElement>(null);
+  const folderBtnRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (!folderRef.current?.contains(e.target as Node)) setPickerOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [pickerOpen]);
+
+  // Cursor in the box on desktop; phones keep the keyboard down until the user taps.
+  useEffect(() => {
+    if (!window.matchMedia('(pointer: coarse)').matches) ref.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, [prompt]);
+
+  const canStart = (prompt.trim().length > 0 || attachments.items.length > 0) && cwd.trim().length > 0 && !starting;
+  const untrusted = sessions.some((s) => s.cwd === cwd.trim() && s.untrustedProject);
 
   return (
     <div className="landing">
       <div className="landing-inner">
-        <header className="land-hero">
-          <Logo size={48} />
-          <p className="land-kicker">SwarmKit dashboard</p>
-          <h1>One mind plans, a swarm builds.</h1>
-          <p className="land-lede">
-            Give the lead agent a goal and it fans the work out to a swarm — watch every branch live,
-            decide permissions, and pull the results back in.
-          </p>
-          <span className={`conn-chip ${connected ? 'is-live' : 'is-offline'}`}>
-            <i className={`dot ${connected ? 'st-running' : 'st-error'}`} aria-hidden="true" />
-            {connected ? 'Live' : 'Offline'}
-          </span>
-        </header>
-
-        <div className="land-grid">
-          <div className="land-col">
-            <section className="land-running" aria-label="Running now">
-              <h2 className="land-heading">Running now</h2>
-              {running.length === 0 && runningWorkers.length === 0 ? (
-                <p className="muted land-none">Nothing running. Start something below.</p>
-              ) : (
-                <>
-                  {running.map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      className="land-run"
-                      onClick={() => onSelect(s.id)}
-                      title={sessionHint(s)}
-                    >
-                      <span className="land-run-top">
-                        <span className="land-run-name">{s.title || s.project}</span>
-                        {s.pendingPermissions > 0 && (
-                          <span className="pending-chip" title="Waiting on your decision">
-                            {s.pendingPermissions} pending
-                          </span>
-                        )}
-                        <span className={`node-status st-${s.status}`}>
-                          <i className={`dot st-${s.status}`} aria-hidden="true" />
-                          {s.status}
-                        </span>
-                      </span>
-                      <span className="land-run-cwd">{sessionSubline(s, now)}</span>
-                      <span className="land-run-foot">
-                        <span>elapsed {fmtDuration(now - s.startedAt)}</span>
-                        <i className="sep" aria-hidden="true">·</i>
-                        <span>{fmtCost(s.costUsd)}</span>
-                      </span>
-                    </button>
-                  ))}
-                  {runningWorkers.map((w) => (
-                    <button
-                      key={`${w.lane}/${w.repo}/${w.slug}`}
-                      type="button"
-                      className="land-wk-row"
-                      onClick={() => onOpenWorker(w)}
-                      aria-haspopup="dialog"
-                    >
-                      <span className={`badge lane-${w.lane}`}>{w.lane}</span>
-                      <span className="land-wk-slug">{w.slug}</span>
-                      {w.model && <span className="land-wk-model">{shortModel(w.model)}</span>}
-                    </button>
-                  ))}
-                  {workers.length > 0 && (
-                    <button type="button" className="land-all-link" onClick={onOpenWorkers}>
-                      All workers
-                    </button>
-                  )}
-                </>
-              )}
-            </section>
-
-            <form className="land-card" onSubmit={submit}>
-              <h2>Start a session</h2>
-              <p className="muted land-sub">Pick a repo, describe the task, and the swarm fans out.</p>
-
-              {repos.length > 0 && (
-                <div className="land-repos-wrap" aria-label="Recent repos">
-                  <div className="land-repos">
-                    {repos.map((path) => {
-                    const { name, parent } = splitPath(path);
-                    const starred = stars.includes(path);
-                    return (
-                      <button
-                        key={path}
-                        type="button"
-                        className={starred ? 'repo-chip is-starred' : 'repo-chip'}
-                        title={path}
-                        aria-pressed={cwd.trim() === path || undefined}
-                        onClick={() => setCwd(path)}
-                      >
-                        <b>{starred && <StarIcon size={11} filled />}{name}</b>
-                        <span className="repo-chip-path">{parent}</span>
-                      </button>
-                    );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              <details className="land-other">
-                <summary>Other folder…</summary>
-                <FolderPicker backend={backend} guard={guard} cwd={cwd} onCwd={setCwd} />
-              </details>
-
-              {sessions.some((s) => s.cwd === cwd.trim() && s.untrustedProject) && (
-                <p className="notice" role="note">
-                  {UNTRUSTED_NOTICE}
-                </p>
-              )}
-
-              <label htmlFor="land-prompt">Prompt</label>
-              <AttachDropzone onFiles={attachments.addFiles}>
-                <textarea
-                  id="land-prompt"
-                  ref={landPromptRef}
-                  rows={3}
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  onKeyDown={(e) => {
-                    landPromptEnter.onKeyDown(e);
-                  }}
-                  onPaste={(e) => {
-                    const files = filesFromPaste(e);
-                    if (files.length > 0) attachments.addFiles(files);
-                  }}
-                  placeholder="What should the swarm do?"
-                  title="Enter to send, Shift+Enter for a new line"
-                />
-              </AttachDropzone>
-              <AttachmentTray items={attachments.items} onRemove={attachments.remove} />
-              <div className="prompt-attach-row">
-                <AttachButton onFiles={attachments.addFiles} />
-                {attachments.error && (
-                  <p className="attach-error" role="alert">
-                    {attachments.error}
+        <Wordmark />
+        <PromptShell
+          variant="landing"
+          runtime={runtime}
+          onSubmit={submit}
+          onFiles={attachments.addFiles}
+          tray={<AttachmentTray items={attachments.items} onRemove={attachments.remove} />}
+          textarea={
+            <textarea
+              ref={ref}
+              rows={1}
+              aria-label="Prompt"
+              placeholder={'Ask anything… "Fix broken tests"'}
+              title="Enter to start, Shift+Enter for a new line, Shift+Tab to change setup"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onPaste={(e) => {
+                const files = filesFromPaste(e);
+                if (files.length > 0) attachments.addFiles(files);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Tab' && e.shiftKey) {
+                  e.preventDefault();
+                  setRuntime(nextSetup(runtime, availability));
+                  return;
+                }
+                enterToSend.onKeyDown(e);
+              }}
+            />
+          }
+          meta={
+            <SetupPopover
+              runtime={runtime}
+              availability={availability}
+              model={model}
+              effort={effort}
+              onRuntime={setRuntime}
+              onModel={setModel}
+              onEffort={setEffort}
+            />
+          }
+          error={
+            (untrusted || error || attachments.error) && (
+              <>
+                {untrusted && (
+                  <p className="notice" role="note">
+                    {UNTRUSTED_NOTICE}
                   </p>
                 )}
-              </div>
-
-              <AgentModelFields
-                runtime={runtime}
-                availability={availability}
-                model={model}
-                effort={effort}
-                onRuntime={setRuntime}
-                onModel={setModel}
-                onEffort={setEffort}
-                modelId="land-model"
-                effortId="land-effort"
-                layout="row"
-              />
-
-              {error && (
-                <p className="dialog-error" role="alert">
-                  {error}
-                </p>
-              )}
-
+                {(error || attachments.error) && (
+                  <p className="continue-error" role="alert">
+                    {error ?? attachments.error}
+                  </p>
+                )}
+              </>
+            )
+          }
+          left={
+            <div
+              ref={folderRef}
+              className="folder"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' && pickerOpen) {
+                  e.stopPropagation();
+                  setPickerOpen(false);
+                  folderBtnRef.current?.focus();
+                }
+              }}
+            >
               <button
-                type="submit"
-                className="btn btn-primary land-start"
-                disabled={(!prompt.trim() && attachments.items.length === 0) || !cwd.trim() || starting}
+                ref={folderBtnRef}
+                type="button"
+                className="folder-btn"
+                aria-haspopup="dialog"
+                aria-expanded={pickerOpen}
+                title={cwd.trim() || 'Home folder'}
+                onClick={() => setPickerOpen((v) => !v)}
               >
-                {starting ? 'Starting…' : 'Start session'}
+                {shortFolder(cwd, home)}
               </button>
-            </form>
-          </div>
-
-          <div className="land-col">
-            <section className="land-usage land-card" data-slot="usage" aria-label="Usage limits">
-              <h2>Usage</h2>
-              <UsagePanel report={usage} loading={usageLoading} onRefresh={onRefreshUsage} />
-            </section>
-
-            <section className="land-recent" aria-label="Recently ended">
-              <h3>Recently ended</h3>
-              {ended.length === 0 ? (
-                <p className="muted land-none">No ended sessions yet — sessions you can continue will appear here.</p>
-              ) : (
-                <>
-                  {recent.map((s) => (
-                    <SessionRow key={s.id} session={s} now={now} onSelect={onSelect} />
-                  ))}
-                  <button type="button" className="land-show-more" onClick={onOpenArchive}>
-                    Open archive ({ended.length})
+              {pickerOpen && (
+                <div className="folder-pop" role="dialog" aria-label="Working folder">
+                  <FolderPicker backend={backend} guard={guard} cwd={cwd} onCwd={setCwd} />
+                  <button type="button" className="btn btn-ghost btn-sm folder-done" onClick={() => {
+                    setPickerOpen(false);
+                    folderBtnRef.current?.focus();
+                  }}>
+                    Use this folder
                   </button>
-                </>
+                </div>
               )}
-            </section>
-          </div>
-        </div>
+            </div>
+          }
+          right={
+            <>
+              <span className="row-hints" aria-hidden="true">
+                <span><b>shift+tab</b> setup</span>
+                <span><b>enter</b> start</span>
+              </span>
+              <AttachButton onFiles={attachments.addFiles} />
+              <button type="submit" className="btn btn-primary btn-sm" disabled={!canStart}>
+                {starting ? 'starting…' : 'start'}
+              </button>
+            </>
+          }
+        />
       </div>
     </div>
   );

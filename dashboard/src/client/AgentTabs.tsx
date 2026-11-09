@@ -33,7 +33,7 @@ export function AgentTabs({ tabs, activeId, now, workers, workersAt, onSelect }:
       role="tab"
       aria-selected={active}
       className={`agent-tab is-${phase}${waiting ? ' is-waiting' : ''}${phase === 'done' || phase === 'error' ? ' is-leaving' : ''}${active ? ' is-active' : ''}`}
-      title={hint || undefined}
+      title={[hint, label].filter(Boolean).join(' · ') || undefined}
       onClick={() => onSelect(id)}
     >
       <span className="agent-tab-dot" aria-hidden="true">
@@ -41,7 +41,6 @@ export function AgentTabs({ tabs, activeId, now, workers, workersAt, onSelect }:
       </span>
       <span className="agent-tab-name">{name}</span>
       {subtitle && <span className="agent-tab-sub">{subtitle}</span>}
-      {label && <span className="agent-tab-model">{label}</span>}
       {waiting && <span className="agent-tab-needs">needs you</span>}
       <span className="agent-tab-time">{elapsed}</span>
     </button>

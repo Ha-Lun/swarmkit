@@ -1,15 +1,15 @@
 // Chat transcript for one agent: bubbles, tool rows, handoff cards, thinking indicator.
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import type { AgentNode, DecideOptions, PermissionRequest, WorkerTask } from '../shared/types';
 import { MAX_EVENTS } from '../shared/types';
 import { agentLabel, buildChat, isSafeImageUrl, matchWorkerTask, orbColor, orbLabel, orbState, stripImageMarkers } from './chat';
 import type { ChatItem } from './chat';
 import { elapsedMs, fmtDuration, modelLabel, toolGroups, workerElapsedS } from './format';
-import type { ToolKey } from './format';
-import { toolIcon } from './icons';
 const Markdown = lazy(() => import('./Markdown').then((m) => ({ default: m.Markdown })));
 import { Orb } from './Orb';
 import { PermissionPanel } from './Permission';
+import { toolSummary } from './toolSummary';
 
 interface Props {
   node: AgentNode;
@@ -24,16 +24,6 @@ interface Props {
   untrusted?: boolean;
   onOpenWorkerLog?: (task: WorkerTask) => void;
 }
-
-const GROUP_LABEL: Record<ToolKey, string> = {
-  read: 'Read',
-  edit: 'Edit',
-  bash: 'Bash',
-  search: 'Search',
-  web: 'Web',
-  agent: 'Agent',
-  other: 'Other',
-};
 
 function firstLine(s: string): string {
   const line = s.split('\n')[0].trim();
@@ -79,7 +69,7 @@ function UserBubble({ item }: { item: Extract<ChatItem, { type: 'user' }> }) {
 
   const chip = item.queued ? (
     <span className="chat-queued" role="status" aria-label="Queued until the current turn ends">
-      Queued
+      [queued]
     </span>
   ) : null;
   if (images.length === 0) {
@@ -142,20 +132,10 @@ function ToolsRow({ item }: { item: Extract<ChatItem, { type: 'tools' }> }) {
   const counts: Record<string, number> = {};
   for (const c of item.counts) counts[c.tool] = c.count;
   const groups = toolGroups(counts);
-  const text = groups.map((g) => `${GROUP_LABEL[g.key]} ${g.count}`).join(' · ');
   const uses = item.events.filter((e) => e.kind === 'tool_use');
   return (
     <details className="chat-tools">
-      <summary>
-        <span className="chat-tools-icons" aria-hidden="true">
-          {groups.map((g) => (
-            <span key={g.key} className="chat-tools-icon">
-              {toolIcon(g.key, 12)}
-            </span>
-          ))}
-        </span>
-        <span>{text || 'Tools'}</span>
-      </summary>
+      <summary>{toolSummary(groups)}</summary>
       <div className="chat-tools-list">
         {item.events.map((e) => {
           if (e.kind === 'tool_use') {
@@ -330,7 +310,7 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
   return (
     <div className="chat-wrap">
       <div className="chat" role="log" aria-live="polite" ref={scrollRef} onScroll={onScroll}>
-        <div className="chat-col">
+        <div className="chat-col" style={{ '--lane': orbColor(node, task) } as CSSProperties}>
           {trimmed && <p className="chat-trimmed">Earlier activity trimmed</p>}
           {node.prompt && node.kind !== 'main' && (
             <details className="chat-given">
@@ -402,7 +382,7 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
           ))}
           {thinking && (
             <div className="chat-thinking">
-              <Orb size={32} state={state} color={orbColor(node)} />
+              <Orb size={20} state={state} color={orbColor(node, task)} />
               <span className="chat-thinking-label">{orbLabel(state)}</span>
               {node.lastActivity && <span className="chat-thinking-activity">{node.lastActivity}</span>}
             </div>

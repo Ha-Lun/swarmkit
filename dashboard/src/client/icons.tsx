@@ -29,7 +29,7 @@ function Svg({ size = 14, className, children }: IconProps & { children: ReactNo
   );
 }
 
-/** SwarmKit brand mark: hexagon in the violet->teal gradient, optional wordmark. */
+/** SwarmKit brand mark: hexagon in the cream->red gradient, optional wordmark. */
 export function Logo({ size = 22, withWordmark = false }: IconProps & { withWordmark?: boolean }) {
   // Gradient id must be unique per mounted instance.
   const gid = `swk-grad-${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
@@ -38,12 +38,12 @@ export function Logo({ size = 22, withWordmark = false }: IconProps & { withWord
       <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" focusable="false">
         <defs>
           <linearGradient id={gid} x1="4" y1="5" x2="27" y2="28" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stopColor="#d9ccff" />
-            <stop offset="1" stopColor="#2ee6c8" />
+            <stop offset="0" stopColor="#e8e2d6" />
+            <stop offset="1" stopColor="#e5484d" />
           </linearGradient>
         </defs>
         <path d="M16 2l12 7v14l-12 7-12-7V9z" fill={`url(#${gid})`} />
-        <path d="M16 8.5l6.5 3.75v7.5L16 23.5l-6.5-3.75v-7.5L16 8.5z" fill="rgba(5,6,10,0.45)" />
+        <path d="M16 8.5l6.5 3.75v7.5L16 23.5l-6.5-3.75v-7.5L16 8.5z" fill="rgba(38,38,36,0.55)" />
       </svg>
       {withWordmark && (
         <span className="logo-word" style={{ fontSize: Math.max(13, Math.round(size * 0.82)) }}>
@@ -51,6 +51,48 @@ export function Logo({ size = 22, withWordmark = false }: IconProps & { withWord
         </span>
       )}
     </span>
+  );
+}
+
+/* Pixel glyphs, 7 rows tall: x-height letters use rows 2-6, ascenders and dots rows 0-1. */
+const GLYPHS: Record<string, string[]> = {
+  s: ['    ', '    ', ' ###', '#   ', ' ## ', '   #', '### '],
+  w: ['     ', '     ', '#   #', '#   #', '# # #', '# # #', ' # # '],
+  a: ['    ', '    ', ' ## ', '   #', ' ###', '#  #', ' ###'],
+  r: ['    ', '    ', '# ##', '##  ', '#   ', '#   ', '#   '],
+  m: ['     ', '     ', '## # ', '# # #', '# # #', '#   #', '#   #'],
+  k: ['#   ', '#   ', '#  #', '# # ', '##  ', '# # ', '#  #'],
+  i: ['#', ' ', '#', '#', '#', '#', '#'],
+  t: [' #  ', ' #  ', '####', ' #  ', ' #  ', ' #  ', '  ##'],
+};
+const WORD_DIM = 'swarm';
+const WORD_BRIGHT = 'kit';
+
+function wordCells(word: string, startX: number): { cells: Array<[number, number]>; end: number } {
+  const cells: Array<[number, number]> = [];
+  let x = startX;
+  for (const ch of word) {
+    const rows = GLYPHS[ch];
+    rows.forEach((row, y) => {
+      for (let c = 0; c < row.length; c++) if (row[c] === '#') cells.push([x + c, y]);
+    });
+    x += rows[0].length + 1;
+  }
+  return { cells, end: x };
+}
+
+/** Pixel-block "swarmkit" wordmark: "swarm" dim, "kit" bright. Colours come from CSS. */
+export function Wordmark() {
+  const dim = wordCells(WORD_DIM, 0);
+  const bright = wordCells(WORD_BRIGHT, dim.end);
+  const width = bright.end - 1;
+  const rects = (cells: Array<[number, number]>) =>
+    cells.map(([x, y]) => <rect key={`${x}-${y}`} x={x} y={y} width="1" height="1" />);
+  return (
+    <svg className="wordmark" viewBox={`0 0 ${width} 7`} role="img" aria-label="SwarmKit" focusable="false">
+      <g className="wordmark-dim">{rects(dim.cells)}</g>
+      <g className="wordmark-bright">{rects(bright.cells)}</g>
+    </svg>
   );
 }
 

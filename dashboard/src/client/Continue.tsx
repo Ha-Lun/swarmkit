@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from 'react';
 import type { GitInfo, SessionSource, SessionSummary, SlashCommandInfo } from '../shared/types';
 import type { FleetBackend, Guard } from './api';
 import { filesFromPaste, useAttachments } from './attachments';
-import { AttachButton, AttachDropzone, AttachmentTray } from './AttachmentTray';
-import { ComposerFooter } from './Composer';
+import { AttachButton, AttachmentTray } from './AttachmentTray';
+import { ComposerWhere, MetaLine, PromptShell, providerName } from './Composer';
 import { useEnterToSend } from './enterToSend';
+import { modelLabel } from './format';
 import { useSlashMenu } from './SlashMenu';
 
 interface Props {
@@ -66,59 +67,61 @@ export function Continue({ backend, guard, session, git, sessionId, source, onRe
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [text]);
 
+  const runtime = session.runtime ?? 'claude';
+
   return (
-    <form
-      className="composer continue"
-      data-runtime={session.runtime ?? 'claude'}
+    <PromptShell
+      runtime={runtime}
       onSubmit={(e) => {
         e.preventDefault();
         void submit();
       }}
-    >
-      <div className="composer-col">
-        <AttachmentTray items={attachments.items} onRemove={attachments.remove} />
-        {slash.menu}
-        <div className="composer-box">
-          <AttachDropzone onFiles={attachments.addFiles}>
-            <textarea
-              ref={ref}
-              rows={1}
-              aria-label="Continue this session"
-              placeholder="Continue this session…"
-              title="Enter to send, Shift+Enter for a new line"
-              value={text}
-              {...slash.inputProps}
-              onChange={(e) => {
-                setText(e.target.value);
-                slash.onChange();
-              }}
-              onPaste={(e) => {
-                const files = filesFromPaste(e);
-                if (files.length > 0) attachments.addFiles(files);
-              }}
-              onKeyDown={(e) => {
-                if (slash.onKeyDown(e)) return;
-                if (enterToSend.onKeyDown(e)) return;
-              }}
-            />
-          </AttachDropzone>
-          <div className="composer-actions">
-            <AttachButton onFiles={attachments.addFiles} />
-            {ended && <span className="continue-hint muted">Session has ended; use Continue.</span>}
-            {source === 'terminal' && <span className="continue-hint muted">Continuing makes it page-owned.</span>}
-            <span className="composer-hint" aria-hidden="true">Enter to send · Shift+Enter for a new line</span>
-            <button type="submit" className="btn btn-primary btn-sm" disabled={!canSend || busy}>
-              {busy ? 'Continuing…' : 'Continue'}
-            </button>
-          </div>
-        </div>
-        {(attachments.error || error) && (
+      onFiles={attachments.addFiles}
+      tray={<AttachmentTray items={attachments.items} onRemove={attachments.remove} />}
+      menu={slash.menu}
+      textarea={
+        <textarea
+          ref={ref}
+          rows={1}
+          aria-label="Continue this session"
+          placeholder="Continue this session…"
+          title="Enter to send, Shift+Enter for a new line"
+          value={text}
+          {...slash.inputProps}
+          onChange={(e) => {
+            setText(e.target.value);
+            slash.onChange();
+          }}
+          onPaste={(e) => {
+            const files = filesFromPaste(e);
+            if (files.length > 0) attachments.addFiles(files);
+          }}
+          onKeyDown={(e) => {
+            if (slash.onKeyDown(e)) return;
+            if (enterToSend.onKeyDown(e)) return;
+          }}
+        />
+      }
+      meta={<MetaLine agent={session.agent} model={modelLabel(session.model)} provider={providerName(runtime)} />}
+      hint="enter send · shift+enter newline"
+      error={
+        (attachments.error || error) && (
           <p className="continue-error" role="alert">
             {attachments.error ?? error}
           </p>
-        )}
-        <ComposerFooter session={session} git={git} />
-      </div>
-    </form>
+        )
+      }
+      left={<ComposerWhere session={session} git={git} />}
+      right={
+        <>
+          {ended && <span className="continue-hint">Session has ended; use Continue.</span>}
+          {source === 'terminal' && <span className="continue-hint">Continuing makes it page-owned.</span>}
+          <AttachButton onFiles={attachments.addFiles} />
+          <button type="submit" className="btn btn-primary btn-sm" disabled={!canSend || busy}>
+            {busy ? 'continuing…' : 'continue'}
+          </button>
+        </>
+      }
+    />
   );
 }

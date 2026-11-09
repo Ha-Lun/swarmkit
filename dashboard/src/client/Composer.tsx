@@ -1,7 +1,8 @@
 // Message composer for page sessions (terminal sessions get a read-only bar instead).
 // Images ride along: paste, drag-drop or the paperclip; empty text is fine with images.
 import { useEffect, useRef, useState } from 'react';
-import type { GitInfo, ImageAttachment, SessionSummary, SlashCommandInfo } from '../shared/types';
+import type { FormEvent, ReactNode } from 'react';
+import type { GitInfo, ImageAttachment, Runtime, SessionSummary, SlashCommandInfo } from '../shared/types';
 import { filesFromPaste, useAttachments } from './attachments';
 import { AttachButton, AttachDropzone, AttachmentTray } from './AttachmentTray';
 import { useEnterToSend } from './enterToSend';
@@ -51,17 +52,95 @@ export function GitStatus({ git, compact = false }: { git: GitInfo; compact?: bo
   );
 }
 
-/** One muted line under the input: agent and model on the left, project and git on the right. */
-export function ComposerFooter({ session, git }: { session: SessionSummary; git?: GitInfo }) {
-  const left = [session.agent, modelLabel(session.model)].filter(Boolean).join(' · ');
+const PROVIDER: Record<Runtime, string> = { claude: 'Claude', opencode: 'OpenCode Go', agy: 'Antigravity' };
+
+/** Who serves the model: shown dim at the end of the meta line. */
+export function providerName(runtime: Runtime | undefined): string {
+  return PROVIDER[runtime ?? 'claude'];
+}
+
+/** "lead-dev-hybrid" -> "Lead-Dev-Hybrid". */
+function agentTitle(agent: string): string {
+  return agent
+    .split('-')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join('-');
+}
+
+/** `Lead-Dev-Hybrid · Opus 5.5  Claude`: agent in the accent, model in ink, provider dim. */
+export function MetaLine({ agent, model, provider }: { agent?: string; model: string; provider: string }) {
+  return (
+    <span className="meta-line">
+      {agent && (
+        <>
+          <span className="meta-agent">{agentTitle(agent)}</span>
+          <span className="meta-sep" aria-hidden="true">·</span>
+        </>
+      )}
+      <span className="meta-model">{model}</span>
+      <span className="meta-provider">{provider}</span>
+    </span>
+  );
+}
+
+/** Left of the row under the box: working folder and git state. */
+export function ComposerWhere({ session, git }: { session: SessionSummary; git?: GitInfo }) {
   const where = session.project || shortCwd(session.cwd);
   return (
-    <div className="composer-foot">
-      <span className="composer-foot-agent">{left}</span>
-      <span className="composer-foot-where">
-        <span title={session.cwd}>{where}</span>
-        {git && <GitStatus git={git} />}
-      </span>
+    <span className="composer-where">
+      <span className="composer-where-path" title={session.cwd}>{where}</span>
+      {git && <GitStatus git={git} />}
+    </span>
+  );
+}
+
+interface ShellProps {
+  runtime: Runtime;
+  /** `landing` is the big centered box on the empty page; `session` sits under a transcript. */
+  variant?: 'session' | 'landing';
+  onSubmit?: (e: FormEvent) => void;
+  tray: ReactNode;
+  menu?: ReactNode;
+  onFiles: (files: File[]) => void;
+  textarea: ReactNode;
+  /** Inside the box, under the input. */
+  meta: ReactNode;
+  /** Dim text at the end of the meta line (desktop only). */
+  hint?: ReactNode;
+  error?: ReactNode;
+  /** The dim row under the box. */
+  left: ReactNode;
+  right: ReactNode;
+}
+
+/** The OpenCode-style input: left bar in the runtime colour, meta line inside, one dim row below. */
+export function PromptShell({ runtime, variant = 'session', onSubmit, tray, menu, onFiles, textarea, meta, hint, error, left, right }: ShellProps) {
+  const body = (
+    <div className="composer-col">
+      {tray}
+      {menu}
+      <div className="composer-box">
+        <AttachDropzone onFiles={onFiles}>{textarea}</AttachDropzone>
+        <div className="composer-meta">
+          {meta}
+          {hint && <span className="composer-hint" aria-hidden="true">{hint}</span>}
+        </div>
+      </div>
+      {error}
+      <div className="composer-row">
+        <div className="composer-row-left">{left}</div>
+        <div className="composer-row-right">{right}</div>
+      </div>
+    </div>
+  );
+  const className = `composer${variant === 'landing' ? ' is-landing' : ''}`;
+  return onSubmit ? (
+    <form className={className} data-runtime={runtime} onSubmit={onSubmit}>
+      {body}
+    </form>
+  ) : (
+    <div className={className} data-runtime={runtime}>
+      {body}
     </div>
   );
 }
@@ -131,95 +210,95 @@ export function Composer({ session, git, onSend, onInterrupt, onStop, loadComman
   // Slash menu wins over Enter: while it is open, Enter picks the command.
   const enterToSend = useEnterToSend(ref, send, { shouldSend: () => slash.menu == null });
 
+  const runtime = session.runtime ?? 'claude';
+
   return (
-    <div className="composer" data-runtime={session.runtime ?? 'claude'}>
-      <div className="composer-col">
-        <AttachmentTray items={attachments.items} onRemove={attachments.remove} />
-        {slash.menu}
-        <div className="composer-box">
-          <AttachDropzone onFiles={attachments.addFiles}>
-            <textarea
-              ref={ref}
-              rows={1}
-              aria-label="Message the session"
-              placeholder={queues ? 'Queue a message for after this turn…' : 'Ask or steer while it works…'}
-              title="Enter to send, Shift+Enter for a new line"
-              {...slash.inputProps}
-              value={text}
-              onChange={(e) => {
-                setText(e.target.value);
-                slash.onChange();
-              }}
-              onPaste={(e) => {
-                const files = filesFromPaste(e);
-                if (files.length > 0) attachments.addFiles(files);
-              }}
-              onKeyDown={(e) => {
-                if (slash.onKeyDown(e)) return;
-                if (enterToSend.onKeyDown(e)) return;
-              }}
-            />
-          </AttachDropzone>
-          <div className="composer-actions">
-            <AttachButton onFiles={attachments.addFiles} />
-            <span className="composer-hint" aria-hidden="true">Enter to send · Shift+Enter for a new line</span>
-            {confirming ? (
-              <span
-                className="composer-confirm"
-                role="group"
-                aria-label="Confirm stop"
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') cancelStop();
-                }}
-              >
-                <span className="composer-confirm-text">Stop this session? The lead and its running workers end.</span>
-                <button
-                  type="button"
-                  className="btn btn-danger btn-sm"
-                  onClick={() => {
-                    setConfirming(false);
-                    onStop();
-                  }}
-                >
-                  Stop session
-                </button>
-                <button type="button" className="btn btn-ghost btn-sm" autoFocus onClick={cancelStop}>
-                  Cancel
-                </button>
-              </span>
-            ) : (
-              <>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => void run(onInterrupt)}>
-                  Interrupt
-                </button>
-                <button
-                  ref={stopRef}
-                  type="button"
-                  className="btn btn-danger-ghost btn-sm"
-                  onClick={() => setConfirming(true)}
-                >
-                  Stop
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  disabled={!canSend}
-                  title={queues ? 'The lead reads it when its current turn ends' : 'Steers the running turn at its next step'}
-                  onClick={send}
-                >
-                  {queues ? 'Queue' : 'Send'}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-        {(attachments.error || error) && (
+    <PromptShell
+      runtime={runtime}
+      onFiles={attachments.addFiles}
+      tray={<AttachmentTray items={attachments.items} onRemove={attachments.remove} />}
+      menu={slash.menu}
+      textarea={
+        <textarea
+          ref={ref}
+          rows={1}
+          aria-label="Message the session"
+          placeholder={queues ? 'Queue a message for after this turn…' : 'Ask or steer while it works…'}
+          title="Enter to send, Shift+Enter for a new line"
+          {...slash.inputProps}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            slash.onChange();
+          }}
+          onPaste={(e) => {
+            const files = filesFromPaste(e);
+            if (files.length > 0) attachments.addFiles(files);
+          }}
+          onKeyDown={(e) => {
+            if (slash.onKeyDown(e)) return;
+            if (enterToSend.onKeyDown(e)) return;
+          }}
+        />
+      }
+      meta={<MetaLine agent={session.agent} model={modelLabel(session.model)} provider={providerName(runtime)} />}
+      hint="enter send · shift+enter newline"
+      error={
+        (attachments.error || error) && (
           <p className="continue-error" role="alert">
             {attachments.error ?? error}
           </p>
-        )}
-        <ComposerFooter session={session} git={git} />
-      </div>
-    </div>
+        )
+      }
+      left={<ComposerWhere session={session} git={git} />}
+      right={
+        <>
+          <AttachButton onFiles={attachments.addFiles} />
+          {confirming ? (
+            <span
+              className="composer-confirm"
+              role="group"
+              aria-label="Confirm stop"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') cancelStop();
+              }}
+            >
+              <span className="composer-confirm-text">Stop this session? The lead and its running workers end.</span>
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                onClick={() => {
+                  setConfirming(false);
+                  onStop();
+                }}
+              >
+                Stop session
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm" autoFocus onClick={cancelStop}>
+                Cancel
+              </button>
+            </span>
+          ) : (
+            <>
+              <button type="button" className="row-btn" onClick={() => void run(onInterrupt)}>
+                interrupt
+              </button>
+              <button ref={stopRef} type="button" className="row-btn is-danger" onClick={() => setConfirming(true)}>
+                stop
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={!canSend}
+                title={queues ? 'The lead reads it when its current turn ends' : 'Steers the running turn at its next step'}
+                onClick={send}
+              >
+                {queues ? 'queue' : 'send'}
+              </button>
+            </>
+          )}
+        </>
+      }
+    />
   );
 }

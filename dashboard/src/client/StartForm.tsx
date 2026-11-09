@@ -1,12 +1,14 @@
 // Shared start-session form state and model selects (used by Landing and NewSession).
 // Every setup runs the lead-dev-hybrid agent; only the runtime/model/effort vary.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { RUNTIME_MODELS } from '../shared/types';
 import type { Runtime, RuntimesResponse, StartSessionBody } from '../shared/types';
 import type { FleetBackend, Guard } from './api';
 import { useAttachments } from './attachments';
 import type { UseAttachments } from './attachments';
+import { MetaLine, providerName } from './Composer';
+import { modelLabel as shortModelLabel } from './format';
 import { resolveDefaultCwd } from './FolderPicker';
 
 export type EffortValue = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -281,6 +283,131 @@ export function AgentModelFields({
             {runtime !== 'opencode' && effortField}
           </div>
         ))}
+    </div>
+  );
+}
+
+/** The next setup after `current` that is installed; `current` itself when it is the only one. */
+export function nextSetup(current: Runtime, availability: RuntimesResponse | null): Runtime {
+  const at = SETUP_ORDER.indexOf(current);
+  for (let i = 1; i <= SETUP_ORDER.length; i++) {
+    const r = SETUP_ORDER[(at + i) % SETUP_ORDER.length];
+    if (!availability || availability[r] !== false) return r;
+  }
+  return current;
+}
+
+interface PopoverProps {
+  runtime: Runtime;
+  availability: RuntimesResponse | null;
+  model: string;
+  effort: EffortValue;
+  onRuntime: (v: Runtime) => void;
+  onModel: (v: string) => void;
+  onEffort: (v: EffortValue) => void;
+}
+
+/** The landing meta line as a button; opens a small menu for setup, model and effort. */
+export function SetupPopover({ runtime, availability, model, effort, onRuntime, onModel, onEffort }: PopoverProps) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const modelShown = model || SETUP_MODEL[runtime];
+
+  useEffect(() => {
+    if (!open) return;
+    menuRef.current?.querySelector<HTMLElement>('button[aria-pressed="true"]')?.focus();
+    const onDown = (e: PointerEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [open]);
+
+  return (
+    <div
+      ref={wrapRef}
+      className="setup-pop"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && open) {
+          e.stopPropagation();
+          setOpen(false);
+          triggerRef.current?.focus();
+        }
+      }}
+      onBlur={(e) => {
+        const next = e.relatedTarget as Node | null;
+        if (open && next && !wrapRef.current?.contains(next)) setOpen(false);
+      }}
+    >
+      <button
+        ref={triggerRef}
+        type="button"
+        className="meta-trigger"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls="land-setup-menu"
+        title="Change setup, model and effort"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <MetaLine agent={LEAD_AGENT} model={shortModelLabel(modelShown) || 'Default'} provider={providerName(runtime)} />
+        <span className="meta-caret" aria-hidden="true">▾</span>
+      </button>
+      {open && (
+        <div ref={menuRef} id="land-setup-menu" className="setup-menu" role="dialog" aria-label="Setup, model and effort">
+          <p className="setup-menu-h">setup</p>
+          <div className="setup-menu-opts" role="group" aria-label="Setup">
+            {SETUP_ORDER.map((r) => {
+              const ok = !availability || availability[r] !== false;
+              return (
+                <button
+                  key={r}
+                  type="button"
+                  className="setup-opt"
+                  aria-pressed={runtime === r}
+                  disabled={!ok}
+                  title={ok ? SETUP_LABEL[r] : `${r} not found on PATH`}
+                  onClick={() => onRuntime(r)}
+                >
+                  <span className="setup-opt-mark" aria-hidden="true">{runtime === r ? '●' : '○'}</span>
+                  <span className="setup-opt-name">{r}</span>
+                  <span className="setup-opt-desc">{SETUP_DESC[r]}</span>
+                </button>
+              );
+            })}
+          </div>
+          <label className="setup-menu-h" htmlFor="land-model">model</label>
+          {runtime === 'claude' ? (
+            <select id="land-model" value={model} onChange={(e) => onModel(e.target.value)}>
+              <option value="">Default</option>
+              <option value="opus">Opus</option>
+              <option value="sonnet">Sonnet</option>
+              <option value="haiku">Haiku</option>
+            </select>
+          ) : (
+            <select id="land-model" value={modelShown} onChange={(e) => onModel(e.target.value)}>
+              {RUNTIME_MODELS[runtime].map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          )}
+          {runtime !== 'opencode' && (
+            <>
+              <label className="setup-menu-h" htmlFor="land-effort">effort</label>
+              <select id="land-effort" value={effort} onChange={(e) => onEffort(e.target.value as EffortValue)}>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="xhigh">Extra high</option>
+                <option value="max">Max</option>
+              </select>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

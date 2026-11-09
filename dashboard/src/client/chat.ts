@@ -300,21 +300,23 @@ export function foldDone(
   return { nodes: out, groups, foldable };
 }
 
+/** Lane colours, kept in sync with --rt-claude / --rt-opencode / --rt-agy / --ink / --text-3 (the orb takes a literal colour). */
+const ORB = { claude: '#d97757', opencode: '#e5484d', agy: '#4f8cff', cream: '#e8e2d6', dim: '#a8a297' } as const;
+
 export function orbColor(node: AgentNode, task?: WorkerTask): string {
   if (node.kind === 'worker') {
     const lane = task?.lane ?? node.worker?.lane;
-    return lane === 'agy' ? '#ffb547' : '#2ee6c8';
+    return lane === 'agy' ? ORB.agy : ORB.opencode;
   }
   const model = (task?.model ?? node.model ?? '').toLowerCase();
   if (node.kind === 'main') {
-    if (model.startsWith('opencode-go/')) return '#2ee6c8';
-    if (model.includes('gemini')) return '#ffb547';
+    if (model.startsWith('opencode-go/')) return ORB.opencode;
+    if (model.includes('gemini')) return ORB.agy;
   }
-  if (model.includes('opus')) return '#d9ccff';
-  if (model.includes('sonnet')) return '#2ee6c8';
-  if (model.includes('haiku')) return '#b4b1d0';
-  if (node.kind === 'main') return '#d9ccff';
-  return '#b4b1d0';
+  if (model.includes('opus')) return ORB.claude;
+  if (model.includes('sonnet')) return ORB.cream;
+  if (node.kind === 'main') return ORB.claude;
+  return ORB.dim;
 }
 
 export function agentTabs(nodes: AgentNode[], now: number, permissions: PermissionRequest[]): AgentTab[] {
