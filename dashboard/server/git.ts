@@ -3,7 +3,14 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import type { GitInfo } from '../src/shared/types.ts';
 
-const execFileAsync = promisify(execFile);
+const run = promisify(execFile);
+// Polling must never take the index lock from the lead's or a worker's own git commands, and the repo's own
+// config must not make a status poll run a program (core.fsmonitor).
+const execFileAsync = (cmd: string, args: string[], opts: { timeout: number }) =>
+  run(cmd, [args[0] as string, args[1] as string, '-c', 'core.fsmonitor=false', ...args.slice(2)], {
+    ...opts,
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+  });
 /** Cache TTL for gitInfo results (and failures) per cwd. */
 const CACHE_MS = 5000;
 
