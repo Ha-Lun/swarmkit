@@ -5,21 +5,23 @@ import type { DecideOptions, GitInfo, PermissionRequest, SessionSummary, WorkerT
 import { ApiError, authenticate } from './api';
 import type { FleetBackend, Guard } from './api';
 import { Archive } from './Archive';
-import { Composer, GitStatus } from './Composer';
+import { Composer } from './Composer';
 import { Continue } from './Continue';
 import { AgentTabs } from './AgentTabs';
 import { ChatView } from './ChatView';
 import { agentLabel, agentSubtitle, agentTabs } from './chat';
 import { Drawer } from './Drawer';
 import { Orb } from './Orb';
-import { fmtCost, modelLabel, sessionHint, UNTRUSTED_NOTICE } from './format';
+import { fmtCost, sessionHint, UNTRUSTED_NOTICE } from './format';
 import { Logo } from './icons';
+import { InfoPanel } from './InfoPanel';
 import { Landing } from './Landing';
 import { NewSession } from './NewSession';
 import { packInstallDone, RestartBanner } from './RestartBanner';
-import { TopBar } from './TopBar';
 import { startPresence } from './presence';
+import { StatusBar } from './StatusBar';
 import { initialState, nodeById, reducer } from './state';
+import { TopBar } from './TopBar';
 import { Tree } from './Tree';
 import { useUsage } from './Usage';
 import { WorkerDrawer } from './WorkerDrawer';
@@ -54,6 +56,8 @@ function useKeyboardInset(): void {
     const apply = () => {
       const kb = Math.max(0, Math.round(window.innerHeight - vv.height));
       document.documentElement.style.setProperty('--kb', `${kb}px`);
+      // the status bar sits below the composer: hide it while the keyboard is up
+      document.documentElement.classList.toggle('kb-open', kb > 0);
     };
     apply();
     vv.addEventListener('resize', apply);
@@ -194,6 +198,50 @@ function readSessionView(): 'chat' | 'map' {
   }
 }
 
+const INFO_KEY = 'fleet.info';
+const INFO_WIDE = '(min-width: 1200px)';
+
+function readInfoPref(): boolean | null {
+  try {
+    const v = localStorage.getItem(INFO_KEY);
+    return v === '1' ? true : v === '0' ? false : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Info panel: open by default on wide screens (remembered in localStorage); on narrow screens it is an overlay that opens per visit. */
+function useInfoPanel(): { open: boolean; overlay: boolean; toggle: () => void; close: () => void } {
+  const [wide, setWide] = useState(() => window.matchMedia(INFO_WIDE).matches);
+  const [pref, setPref] = useState<boolean | null>(readInfoPref);
+  const [narrowOpen, setNarrowOpen] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(INFO_WIDE);
+    const on = () => setWide(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  const open = wide ? (pref ?? true) : narrowOpen;
+  const set = useCallback(
+    (next: boolean) => {
+      if (!wide) {
+        setNarrowOpen(next);
+        return;
+      }
+      setPref(next);
+      try {
+        localStorage.setItem(INFO_KEY, next ? '1' : '0');
+      } catch {
+        // private mode — per pageload then
+      }
+    },
+    [wide],
+  );
+  const toggle = useCallback(() => set(!open), [set, open]);
+  const close = useCallback(() => set(false), [set]);
+  return { open, overlay: !wide, toggle, close };
+}
+
 const RESTART_TEXT =
   'The new agents are installed and the session was restarted. Continue the task where you left off.';
 
@@ -268,36 +316,35 @@ function RestartControl({
 
 function Topbar({
   session,
-  git,
   sessionView,
   onView,
   canRestart,
   restartBusy,
   restartError,
   onRestart,
+  infoOpen,
+  onToggleInfo,
 }: {
   session: SessionSummary;
-  git?: GitInfo;
   sessionView: 'chat' | 'map';
   onView: (v: 'chat' | 'map') => void;
   canRestart: boolean;
   restartBusy: boolean;
   restartError: string | null;
   onRestart: () => void;
+  infoOpen: boolean;
+  onToggleInfo: () => void;
 }) {
+  const runtime = session.runtime ?? 'claude';
   return (
     <header className="topbar">
-      <div className="topbar-title">
-        <h1 title={sessionHint(session)}>{session.title || session.project}</h1>
-        <div className="topbar-sub">
-          <p className="topbar-cwd">
-            {[session.agent, modelLabel(session.model), session.id.slice(0, 8)].filter(Boolean).join(' · ')} · {session.cwd}
-          </p>
-          {git && <GitStatus git={git} compact />}
-        </div>
-      </div>
-      {session.runtime === 'opencode' && <span className="badge rt-opencode">OpenCode</span>}
-      {session.runtime === 'agy' && <span className="badge rt-agy">Antigravity</span>}
+      <h1 className="topbar-title" title={sessionHint(session)}>
+        {session.title || session.project}
+      </h1>
+      <span className="topbar-runtime">
+        <i className="rt-dot" data-runtime={runtime} aria-hidden="true" />
+        {runtime}
+      </span>
       <div className="view-toggle" role="group" aria-label="Session view">
         <button
           type="button"
@@ -316,6 +363,18 @@ function Topbar({
           Map
         </button>
       </div>
+      <div className="topbar-meta">
+        <span className={`node-status st-${session.status}`}>
+          <i className="dot" aria-hidden="true" />
+          {session.status}
+        </span>
+        <span className="topbar-cost">{fmtCost(session.costUsd)}</span>
+        {session.pendingPermissions > 0 && (
+          <span className="pending-chip" title="Waiting on your decision">
+            {session.pendingPermissions} pending
+          </span>
+        )}
+      </div>
       {canRestart && (
         <RestartControl
           active={session.status === 'running' || session.status === 'waiting'}
@@ -324,18 +383,15 @@ function Topbar({
           onRestart={onRestart}
         />
       )}
-      <div className="topbar-meta">
-        {session.pendingPermissions > 0 && (
-          <span className="pending-chip" title="Waiting on your decision">
-            {session.pendingPermissions} pending
-          </span>
-        )}
-        <span className={`node-status st-${session.status}`}>
-          <i className="dot" aria-hidden="true" />
-          {session.status}
-        </span>
-        <span className="topbar-cost">{fmtCost(session.costUsd)}</span>
-      </div>
+      <button
+        type="button"
+        className={`info-toggle${infoOpen ? ' is-active' : ''}`}
+        aria-pressed={infoOpen}
+        aria-label="Session info panel"
+        onClick={onToggleInfo}
+      >
+        info
+      </button>
     </header>
   );
 }
@@ -535,6 +591,25 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
 
   const openWorker = useCallback((task: WorkerTask) => setWorkerDrawerKey(workerKey(task)), []);
 
+  // Info panel entries: agents open in the chat tab (or the map drawer), workers in the worker drawer.
+  const info = useInfoPanel();
+  const { overlay: infoOverlay, close: closeInfo } = info;
+  const openFromInfo = useCallback(
+    (nodeId: string) => {
+      if (sessionView === 'map') setDrawerNodeId(nodeId);
+      else setActiveAgentId(nodeId);
+      if (infoOverlay) closeInfo();
+    },
+    [sessionView, infoOverlay, closeInfo],
+  );
+  const openWorkerFromInfo = useCallback(
+    (task: WorkerTask) => {
+      openWorker(task);
+      if (infoOverlay) closeInfo();
+    },
+    [openWorker, infoOverlay, closeInfo],
+  );
+
   // Home just clears the selection: the landing page is the home screen, and the
   // reducer never re-selects a session, so later 'detail' events can't pull us
   // back into a session.
@@ -668,173 +743,195 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
 
   return (
     <div className="app">
-      <div className="main">
-        <TopBar
-          sessions={state.sessions}
-          workers={state.workers}
-          selectedId={state.selectedId}
-          connected={state.connected || mock}
-          usage={usage.report ?? undefined}
-          onHome={goHome}
-          onSelect={selectSession}
-          onOpenWorkers={() => setView('workers')}
-          onOpenArchive={() => setView('archive')}
-          onNew={() => setNewOpen(true)}
-        />
-        {view === 'session' && selected && (
-          <Topbar
-            key={selected.id}
-            session={selected}
-            git={gitInfo}
-            sessionView={sessionView}
-            onView={setSessionView}
-            canRestart={selected.source === 'page' && (selected.runtime ?? 'claude') === 'claude'}
-            restartBusy={restartBusy}
-            restartError={restartError}
-            onRestart={() => void restartSession()}
-          />
-        )}
-        {view === 'session' && selected?.untrustedProject && (
-          <p className="notice" role="note">
-            {UNTRUSTED_NOTICE}
-          </p>
-        )}
-        {!state.connected && !mock && (
-          <div className="conn-banner" aria-live="polite">
-            Connection lost — reconnecting…
-          </div>
-        )}
+      <TopBar
+        sessions={state.sessions}
+        selectedId={state.selectedId}
+        onHome={goHome}
+        onSelect={selectSession}
+        onNew={() => setNewOpen(true)}
+      />
+      <div className="app-body">
+        <div className="main">
+          {view === 'session' && selected && (
+            <Topbar
+              key={selected.id}
+              session={selected}
+              sessionView={sessionView}
+              onView={setSessionView}
+              canRestart={selected.source === 'page' && (selected.runtime ?? 'claude') === 'claude'}
+              restartBusy={restartBusy}
+              restartError={restartError}
+              onRestart={() => void restartSession()}
+              infoOpen={info.open}
+              onToggleInfo={info.toggle}
+            />
+          )}
+          {view === 'session' && selected?.untrustedProject && (
+            <p className="notice" role="note">
+              {UNTRUSTED_NOTICE}
+            </p>
+          )}
+          {!state.connected && !mock && (
+            <div className="conn-banner" aria-live="polite">
+              Connection lost — reconnecting…
+            </div>
+          )}
 
-        {view === 'workers' ? (
-          <WorkersView workers={state.workers} now={now} at={workersAtRef.current} onOpen={openWorker} />
-        ) : view === 'archive' ? (
-          <Archive sessions={state.sessions} now={now} onSelect={selectSession} />
-        ) : !selected ? (
-          <Landing
-            backend={backend}
-            guard={guard}
-            sessions={state.sessions}
-            workers={state.workers}
-            now={now}
-            connected={state.connected || mock}
-            usage={usage.report}
-            usageLoading={usage.loading}
-            onRefreshUsage={usage.refresh}
-            onSelect={selectSession}
-            onOpenWorker={openWorker}
-            onOpenWorkers={() => setView('workers')}
-            onOpenArchive={() => setView('archive')}
-            onStarted={onStarted}
-          />
-        ) : !detail ? (
-          loadError ? (
-            <div className="canvas-empty">
-              <div>
-                <p>Couldn’t load this session.</p>
-                <button type="button" className="btn btn-ghost" onClick={() => setRetryNonce((n) => n + 1)}>
-                  Retry
-                </button>
+          {view === 'workers' ? (
+            <WorkersView workers={state.workers} now={now} at={workersAtRef.current} onOpen={openWorker} />
+          ) : view === 'archive' ? (
+            <Archive sessions={state.sessions} now={now} onSelect={selectSession} />
+          ) : !selected ? (
+            <Landing
+              backend={backend}
+              guard={guard}
+              sessions={state.sessions}
+              workers={state.workers}
+              now={now}
+              connected={state.connected || mock}
+              usage={usage.report}
+              usageLoading={usage.loading}
+              onRefreshUsage={usage.refresh}
+              onSelect={selectSession}
+              onOpenWorker={openWorker}
+              onOpenWorkers={() => setView('workers')}
+              onOpenArchive={() => setView('archive')}
+              onStarted={onStarted}
+            />
+          ) : !detail ? (
+            loadError ? (
+              <div className="canvas-empty">
+                <div>
+                  <p>Couldn’t load this session.</p>
+                  <button type="button" className="btn btn-ghost" onClick={() => setRetryNonce((n) => n + 1)}>
+                    Retry
+                  </button>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="canvas-loading" aria-live="polite">
-              <Orb size={32} state="connecting" color="#d9ccff" />
-              Loading session…
-            </div>
-          )
-        ) : sessionView === 'chat' && activeNode ? (
-          <>
-            {(visibleTabs.length > 0 || activeAgentId !== 'root') && (
-              <AgentTabs
-                tabs={visibleTabs}
-                activeId={activeAgentId}
-                now={now}
+            ) : (
+              <div className="canvas-loading" aria-live="polite">
+                <Orb size={32} state="connecting" color="#e8e2d6" />
+                Loading session…
+              </div>
+            )
+          ) : sessionView === 'chat' && activeNode ? (
+            <>
+              {(visibleTabs.length > 0 || activeAgentId !== 'root') && (
+                <AgentTabs
+                  tabs={visibleTabs}
+                  activeId={activeAgentId}
+                  now={now}
+                  workers={state.workers}
+                  workersAt={workersAtRef.current}
+                  onSelect={setActiveAgentId}
+                />
+              )}
+              <ChatView
+                key={`${detail.id}:${activeNode.id}`}
+                node={activeNode}
+                nodes={detail.nodes}
+                permissions={detail.permissions}
                 workers={state.workers}
                 workersAt={workersAtRef.current}
-                onSelect={setActiveAgentId}
+                now={now}
+                onOpenAgent={setActiveAgentId}
+                onDecide={decide}
+                untrusted={selected?.untrustedProject === true}
+                onOpenWorkerLog={(task) => setWorkerDrawerKey(workerKey(task))}
               />
-            )}
-            <ChatView
-              key={`${detail.id}:${activeNode.id}`}
-              node={activeNode}
+            </>
+          ) : (
+            <Tree
+              key={`tree:${detail.id}`}
               nodes={detail.nodes}
               permissions={detail.permissions}
               workers={state.workers}
               workersAt={workersAtRef.current}
               now={now}
-              onOpenAgent={setActiveAgentId}
+              openNodeId={drawerNodeId}
+              onOpen={openNode}
               onDecide={decide}
               untrusted={selected?.untrustedProject === true}
-              onOpenWorkerLog={(task) => setWorkerDrawerKey(workerKey(task))}
             />
-          </>
-        ) : (
-          <Tree
-            key={`tree:${detail.id}`}
-            nodes={detail.nodes}
-            permissions={detail.permissions}
-            workers={state.workers}
-            workersAt={workersAtRef.current}
-            now={now}
-            openNodeId={drawerNodeId}
-            onOpen={openNode}
-            onDecide={decide}
-            untrusted={selected?.untrustedProject === true}
-          />
-        )}
+          )}
 
-        {detail && showRestart && (
-          <RestartBanner
-            source={detail.source}
-            busy={restartBusy}
-            onRestart={() => void restartSession(RESTART_TEXT)}
-            onDismiss={dismissRestart}
-          />
-        )}
-
-        {view === 'session' && selected && showReturn && !returnStay && (
-          <div className="chat-return" role="status">
-            <span>✓ {returnName} finished — returning to Main</span>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setReturnStay(true)}>
-              Stay
-            </button>
-          </div>
-        )}
-
-        {view === 'session' && selected && (
-          selected.source === 'page' && running ? (
-            <Composer
-              key={`composer:${selected.id}`}
-              session={selected}
-              git={gitInfo}
-              onSend={(text, images) => callSession((id) => backend.send(id, text, images), text)}
-              onInterrupt={() => callSession((id) => backend.interrupt(id))}
-              onStop={() => {
-                if (state.selectedId) void guardSilent(backend.stop(state.selectedId));
-              }}
-              loadCommands={() => backend.commands(selected.id).then((r) => r.commands)}
+          {detail && showRestart && (
+            <RestartBanner
+              source={detail.source}
+              busy={restartBusy}
+              onRestart={() => void restartSession(RESTART_TEXT)}
+              onDismiss={dismissRestart}
             />
-          ) : running ? (
-            <div className="readonly-bar">
-              Read-only — this session is running in a terminal. Continue becomes available when it stops.
+          )}
+
+          {view === 'session' && selected && showReturn && !returnStay && (
+            <div className="chat-return" role="status">
+              <span>✓ {returnName} finished — returning to Main</span>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setReturnStay(true)}>
+                Stay
+              </button>
             </div>
-          ) : canContinue ? (
-            <Continue
-              key={`${selected.id}:${ended ? 'ended' : ''}`}
-              initialText={ended ? endedDraft?.text : undefined}
-              ended={ended}
-              backend={backend}
-              guard={guard}
-              session={selected}
-              git={gitInfo}
-              sessionId={selected.id}
-              source={selected.source}
-              onResumed={handleResumed}
-              loadCommands={() => backend.commands(selected.id).then((r) => r.commands)}
-            />
-          ) : null
+          )}
+
+          {view === 'session' && selected && (
+            selected.source === 'page' && running ? (
+              <Composer
+                key={`composer:${selected.id}`}
+                session={selected}
+                git={gitInfo}
+                onSend={(text, images) => callSession((id) => backend.send(id, text, images), text)}
+                onInterrupt={() => callSession((id) => backend.interrupt(id))}
+                onStop={() => {
+                  if (state.selectedId) void guardSilent(backend.stop(state.selectedId));
+                }}
+                loadCommands={() => backend.commands(selected.id).then((r) => r.commands)}
+              />
+            ) : running ? (
+              <div className="readonly-bar">
+                Read-only — this session is running in a terminal. Continue becomes available when it stops.
+              </div>
+            ) : canContinue ? (
+              <Continue
+                key={`${selected.id}:${ended ? 'ended' : ''}`}
+                initialText={ended ? endedDraft?.text : undefined}
+                ended={ended}
+                backend={backend}
+                guard={guard}
+                session={selected}
+                git={gitInfo}
+                sessionId={selected.id}
+                source={selected.source}
+                onResumed={handleResumed}
+                loadCommands={() => backend.commands(selected.id).then((r) => r.commands)}
+              />
+            ) : null
+          )}
+        </div>
+
+        {view === 'session' && selected && info.open && (
+          <InfoPanel
+            key={selected.id}
+            session={selected}
+            detail={detail}
+            git={gitInfo}
+            workers={state.workers}
+            activeAgentId={sessionView === 'map' ? (drawerNodeId ?? '') : activeAgentId}
+            overlay={info.overlay}
+            onOpenAgent={openFromInfo}
+            onOpenWorker={openWorkerFromInfo}
+            onClose={info.close}
+          />
         )}
       </div>
+
+      <StatusBar
+        sessions={state.sessions}
+        workers={state.workers}
+        connected={state.connected || mock}
+        usage={usage.report ?? undefined}
+        onOpenWorkers={() => setView('workers')}
+        onOpenArchive={() => setView('archive')}
+      />
 
       {drawerNode && sessionView === 'map' && view === 'session' && (
         <Drawer node={drawerNode} onClose={() => setDrawerNodeId(null)} />

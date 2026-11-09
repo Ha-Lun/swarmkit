@@ -1,55 +1,22 @@
-// TopBar: the single slim sticky strip that replaces the sidebar. Left: the Logo
-// with wordmark as the Home button. Center: a horizontally scrollable row of ACTIVE
-// (running/waiting) session chips (omitted entirely when there are none). Right:
-// Workers link, Archive link, the Claude 5h and OpenCode Go usage pills, a connection dot and the
-// New session button — pinned to the right edge via margin-left: auto. No hamburger/sheet.
-// On ≤768px the links collapse to 44×44 icon buttons with count badges, the usage
-// pill and connection dot hide, and New session becomes a "+" icon button.
-import type { SessionSummary, UsageReport, WorkerTask } from '../shared/types';
-import { fmtResetIn, goPillModel, sessionHint, usageTone } from './format';
-import { ArchiveIcon, Logo, PlusIcon, WorkerIcon } from './icons';
+// TopBar: flat OpenCode-style session tabs. Left: the "swarmkit" brand as the Home button.
+// Then one mono tab per running/waiting session plus the selected one (status dot, title,
+// pending count) and a final "+ New session" tab. Workers, Archive, usage and the connection
+// state live in the StatusBar. On phones the tab row scrolls horizontally.
+import type { SessionSummary } from '../shared/types';
+import { sessionHint } from './format';
 
 interface Props {
   sessions: SessionSummary[];
-  workers: WorkerTask[];
   selectedId: string | null;
-  connected: boolean;
-  /** Shared with the landing panel; drives the compact Claude pill. */
-  usage?: UsageReport;
   onHome: () => void;
   onSelect: (id: string) => void;
-  onOpenWorkers: () => void;
-  onOpenArchive: () => void;
   onNew: () => void;
 }
 
-export function TopBar({
-  sessions,
-  workers,
-  selectedId,
-  connected,
-  usage,
-  onHome,
-  onSelect,
-  onOpenWorkers,
-  onOpenArchive,
-  onNew,
-}: Props) {
-  const active = sessions.filter((s) => s.status === 'running' || s.status === 'waiting');
-  const runningWorkers = workers.filter((w) => w.state === 'running').length;
-  const archived = sessions.filter((s) => s.resumable === true).length;
-
-  const fiveHour = usage?.claude.available === true ? usage.claude.fiveHour : undefined;
-  const utilization = fiveHour?.utilization ?? null;
-  const resetLabel = fiveHour?.resetsAt ? fmtResetIn(fiveHour.resetsAt) : '';
-  const pill =
-    fiveHour != null && utilization != null
-      ? `Claude 5-hour window ${Math.min(100, Math.max(0, Math.round(utilization)))}%${
-          resetLabel ? `, resets ${resetLabel}` : ''
-        }`
-      : undefined;
-
-  const go = goPillModel(usage?.opencode.limits);
+export function TopBar({ sessions, selectedId, onHome, onSelect, onNew }: Props) {
+  const tabs = sessions.filter(
+    (s) => s.status === 'running' || s.status === 'waiting' || s.id === selectedId,
+  );
 
   return (
     <header className="topstrip">
@@ -59,17 +26,19 @@ export function TopBar({
         aria-label="SwarmKit — go to the dashboard home"
         onClick={onHome}
       >
-        <Logo size={22} withWordmark />
+        <span className="top-brand-mark" aria-hidden="true" />
+        swarmkit
       </button>
 
-      {active.length > 0 && (
-        <div className="top-chips" role="group" aria-label="Active sessions">
-          {active.map((s) => (
+      <nav className="top-tabs" aria-label="Sessions">
+        {tabs.map((s) => {
+          const selected = s.id === selectedId;
+          return (
             <button
               key={s.id}
               type="button"
-              className={`tchip${s.id === selectedId ? ' is-selected' : ''}`}
-              aria-current={s.id === selectedId || undefined}
+              className={`top-tab${selected ? ' is-selected' : ''}`}
+              aria-current={selected ? 'page' : undefined}
               aria-label={`${sessionHint(s)}, status ${s.status}${
                 s.pendingPermissions > 0 ? `, ${s.pendingPermissions} pending` : ''
               }`}
@@ -77,65 +46,17 @@ export function TopBar({
               onClick={() => onSelect(s.id)}
             >
               <i className={`dot st-${s.status}`} aria-hidden="true" />
-              <span className="tchip-title">{s.title || s.project}</span>
+              <span className="top-tab-title">{s.title || s.project}</span>
               {s.pendingPermissions > 0 && (
-                <span
-                  className="tchip-pending"
-                  title={`${s.pendingPermissions} pending permission(s)`}
-                >
+                <span className="top-tab-pending" aria-hidden="true">
                   {s.pendingPermissions}
                 </span>
               )}
             </button>
-          ))}
-        </div>
-      )}
-
-      <nav className="top-actions" aria-label="Dashboard">
-        <button type="button" className="top-link" onClick={onOpenWorkers} aria-label={`Workers, ${runningWorkers} running`}>
-          <span className="top-link-icon" aria-hidden="true">
-            <WorkerIcon size={18} />
-          </span>
-          <span className="top-link-label">Workers</span>
-          <span className="top-count" title={`${runningWorkers} running`} aria-hidden="true">
-            {runningWorkers}
-          </span>
-        </button>
-        <button type="button" className="top-link" onClick={onOpenArchive} aria-label={`Archive, ${archived} resumable`}>
-          <span className="top-link-icon" aria-hidden="true">
-            <ArchiveIcon size={18} />
-          </span>
-          <span className="top-link-label">Archive</span>
-          <span className="top-count" title={`${archived} resumable ended sessions`} aria-hidden="true">
-            {archived}
-          </span>
-        </button>
-        {pill && utilization != null && (
-          <span
-            className={`usage-pill tone-${usageTone(utilization)}`}
-            aria-label={pill}
-            title={resetLabel ? `resets ${resetLabel}` : undefined}
-          >
-            Claude 5h <b>{Math.min(100, Math.max(0, Math.round(utilization)))}%</b>
-          </span>
-        )}
-        {go && (
-          <span className={`usage-pill tone-${go.tone}`} aria-label={go.label} title={go.label}>
-            Go <b>{go.pct == null ? '—' : `${go.pct}%`}</b>
-          </span>
-        )}
-        <span
-          className={`dot top-conn ${connected ? 'st-running' : 'st-error'}`}
-          role="img"
-          aria-label={connected ? 'Live' : 'Reconnecting'}
-          title={connected ? 'Live' : 'Reconnecting…'}
-        />
-        <button type="button" className="btn btn-primary btn-sm top-new" onClick={onNew}>
-          <PlusIcon size={13} />
-          New session
-        </button>
-        <button type="button" className="icon-btn top-new-icon" onClick={onNew} aria-label="New session">
-          <PlusIcon size={18} />
+          );
+        })}
+        <button type="button" className="top-tab top-tab-new" onClick={onNew}>
+          <span aria-hidden="true">+</span> New session
         </button>
       </nav>
     </header>
