@@ -21,8 +21,8 @@ const SETUP_LABEL: Record<Runtime, string> = {
 };
 const SETUP_SHORT: Record<Runtime, string> = { claude: 'Claude', opencode: 'OpenCode', agy: 'Antigravity' };
 const SETUP_DESC: Record<Runtime, string> = {
-  claude: 'Claude lead · OpenCode + Antigravity workers',
-  opencode: 'OpenCode lead · Antigravity worker',
+  claude: 'Claude lead, OpenCode + Antigravity workers',
+  opencode: 'OpenCode lead, Antigravity worker',
   agy: 'Antigravity lead, no workers',
 };
 const SETUP_MODEL: Record<Runtime, string> = {

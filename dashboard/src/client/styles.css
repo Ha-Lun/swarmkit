@@ -2518,10 +2518,11 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
 
 /* Phones: the status bar keeps dots and numbers, drops the long words. */
 @media (max-width: 600px) {
-  .status-ver, .status-conn-label, .meter-reset, .meter-bar, .meter-week { display: none; }
+  .status-ver, .status-conn-label, .meter-reset, .meter-bar, .meter-week, .meter-win { display: none; }
   .statusbar { font-size: 12px; }
-  .status-usage { gap: var(--space-3); }
-  .statusbar { gap: var(--space-2); }
+  .status-usage { gap: var(--space-2); }
+  .status-btn { padding: 0 5px; }
+  .statusbar { gap: 4px; }
 }
 
 /* Bigger tap targets on touch devices. */

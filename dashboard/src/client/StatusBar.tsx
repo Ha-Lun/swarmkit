@@ -2,6 +2,7 @@
 // and Archive buttons. Right: Claude and OpenCode Go usage meters (click for the full usage
 // panel), then the dashboard version.
 import { useEffect, useRef, useState } from 'react';
+import type React from 'react';
 import type { SessionSummary, UsageLimit, UsageReport, WorkerTask } from '../shared/types';
 import { version } from '../../package.json';
 import { fmtResetIn, goPillModel, usageTone } from './format';
@@ -11,7 +12,7 @@ const pctOf = (u: number | null | undefined): number | null =>
   u == null || !Number.isFinite(u) ? null : Math.min(100, Math.max(0, Math.round(u)));
 
 /** `Claude 5h [bar] 42% in 2h 10m`: label, a small bar, the percent and when it resets. */
-function Meter({ label, pct, tone, reset, week }: { label: string; pct: number | null; tone: string; reset?: string; week?: boolean }) {
+function Meter({ label, pct, tone, reset, week }: { label: React.ReactNode; pct: number | null; tone: string; reset?: string; week?: boolean }) {
   return (
     <span className={`meter tone-${tone}${week ? ' meter-week' : ''}`}>
       <span className="meter-label">{label}</span>
@@ -70,7 +71,13 @@ export function StatusBar({ sessions, workers, connected, usage, usageLoading, o
 
   const go = goPillModel(usage?.opencode.limits);
   const goRolling = usage?.opencode.limits?.find((l) => l.window === 'rolling');
-  const hasUsage = claudePct != null || go != null;
+  // Antigravity workers run Gemini, so its 5-hour window is the one that stops them.
+  const agyLimits = usage?.agy.available === true ? usage.agy.limits ?? [] : [];
+  const agyLimit = agyLimits.find((l) => l.group === 'Gemini' && l.window === '5h') ?? agyLimits.find((l) => l.window === '5h');
+  const agyPct = pctOf(agyLimit?.utilization);
+  const agyReset = agyLimit?.resetsAt ? fmtResetIn(agyLimit.resetsAt) : '';
+  const agyLabel = agyLimit ? `Antigravity ${agyLimit.group} 5-hour window ${agyPct ?? 'n/a'}%${agyReset ? `, resets ${agyReset}` : ''}` : undefined;
+  const hasUsage = claudePct != null || go != null || agyLimit != null;
 
   return (
     <footer className="statusbar">
@@ -93,14 +100,15 @@ export function StatusBar({ sessions, workers, connected, usage, usageLoading, o
             type="button"
             className="status-btn status-usage"
             aria-expanded={open}
-            aria-label={[claudeLabel, go?.label, 'Show usage details'].filter(Boolean).join('. ')}
+            aria-label={[claudeLabel, go?.label, agyLabel, 'Show usage details'].filter(Boolean).join('. ')}
             onClick={() => setOpen((o) => !o)}
           >
             {claudePct != null && (
-              <Meter label="Claude 5h" pct={claudePct} tone={usageTone(fiveHour?.utilization ?? null)} reset={resetLabel} />
+              <Meter label={<>Claude<span className="meter-win"> 5h</span></>} pct={claudePct} tone={usageTone(fiveHour?.utilization ?? null)} reset={resetLabel} />
             )}
             {weekPct != null && <Meter week label="7d" pct={weekPct} tone={usageTone(sevenDay?.utilization ?? null)} />}
             {go && <Meter label="Go" pct={go.pct} tone={go.tone} reset={limitReset(goRolling)} />}
+            {agyLimit && <Meter label="agy" pct={agyPct} tone={usageTone(agyLimit.utilization)} reset={agyReset} />}
           </button>
           {open && (
             <div className="usage-pop" role="dialog" aria-label="Usage">
