@@ -77,11 +77,22 @@ function UserBubble({ item }: { item: Extract<ChatItem, { type: 'user' }> }) {
     setOpen(null);
   };
 
+  const chip = item.queued ? (
+    <span className="chat-queued" role="status" aria-label="Queued until the current turn ends">
+      Queued
+    </span>
+  ) : null;
   if (images.length === 0) {
-    return <p className="chat-user">{text}</p>;
+    if (!chip) return <p className="chat-user">{text}</p>;
+    return (
+      <div className="chat-user-block is-queued">
+        <p className="chat-user">{text}</p>
+        {chip}
+      </div>
+    );
   }
   return (
-    <div className="chat-user-block">
+    <div className={item.queued ? 'chat-user-block is-queued' : 'chat-user-block'}>
       <div className="chat-user-images">
         {images.map((src, i) => (
           <button
@@ -99,6 +110,7 @@ function UserBubble({ item }: { item: Extract<ChatItem, { type: 'user' }> }) {
         ))}
       </div>
       {text ? <p className="chat-user">{text}</p> : null}
+      {chip}
       {open !== null && images[open] && (
         <div className="lightbox" onClick={() => close(open)}>
           <div

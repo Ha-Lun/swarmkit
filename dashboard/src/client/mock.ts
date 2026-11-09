@@ -7,6 +7,7 @@ import type {
   CommandsResponse,
   DirEntry,
   DirListing,
+  GitInfo,
   ImageAttachment,
   PermissionRequest,
   ServerEvent,
@@ -434,6 +435,62 @@ export function createMockBackend(): FleetBackend {
       title: 'Claude wants to ask a question',
       createdAt: base - 10_000,
     },
+  ]);
+
+  // m1: an opencode page session whose second message is queued behind the running turn.
+  const m1: SessionSummary = {
+    id: 'mock-oc-1',
+    source: 'page',
+    project: 'swarmkit',
+    cwd: '/home/demo/work/swarmkit',
+    title: 'Rename the worker lanes',
+    status: 'running',
+    startedAt: base - 90_000,
+    updatedAt: base - 2_000,
+    costUsd: 0.01,
+    agent: 'lead-dev-hybrid',
+    model: 'opencode-go/deepseek-v4.1-flash',
+    nodeCount: 1,
+    pendingPermissions: 0,
+    resumable: false,
+    runtime: 'opencode',
+  };
+  sessions.set(m1.id, m1);
+  permLists.set(m1.id, []);
+  nodeMaps.set(m1.id, new Map());
+  nodeMaps.get(m1.id)!.set('root', {
+    id: 'root',
+    sessionId: m1.id,
+    parentId: null,
+    kind: 'main',
+    agentType: 'lead-dev-hybrid',
+    model: m1.model,
+    description: m1.title,
+    prompt: 'Rename the worker lanes to match the new names.',
+    status: 'running',
+    startedAt: m1.startedAt,
+    costUsd: m1.costUsd,
+    tokens: tu(4200, 900),
+    toolCounts: {},
+    lastActivity: 'Renaming lane identifiers.',
+    events: [
+      { id: 'm1-e1', ts: base - 90_000, kind: 'user', summary: 'Rename the worker lanes to match the new names.' },
+      { id: 'm1-e2', ts: base - 60_000, kind: 'text', summary: 'Renaming lane identifiers across the dashboard server and client.' },
+      {
+        id: 'm1-e3',
+        ts: base - 20_000,
+        kind: 'user',
+        summary: 'Also update the docs once that is done.',
+        queued: true,
+      },
+    ],
+  });
+
+  // Mock git state for the composer footer and the topbar chip: dirty and ahead, clean in a worktree, none.
+  const gitInfo = new Map<string, GitInfo>([
+    [s1.id, { branch: 'feat/pricing-page', detached: false, dirty: 3, ahead: 2, behind: 0 }],
+    [m1.id, { branch: 'rename-lanes', detached: false, dirty: 0, ahead: 0, behind: 0, worktreeOf: '/home/demo/work/swarmkit' }],
+    [t1.id, { branch: 'main', detached: false, dirty: 0, ahead: 0, behind: 0 }],
   ]);
 
   // --- the scripted page session ---
@@ -1114,8 +1171,10 @@ A claim with a footnote.[^1]
     const s = sessions.get(id);
     const map = nodeMaps.get(id);
     if (!s || !map) throw new Error(`mock: unknown session ${id}`);
+    const git = gitInfo.get(id);
     return {
       ...s,
+      ...(git ? { git: { ...git } } : {}),
       nodes: Array.from(map.values()).map((n) => ({
         ...n,
         events: n.events.slice(-500).map((e) => ({ ...e })),
@@ -1201,10 +1260,19 @@ A claim with a footnote.[^1]
       if (s.source !== 'page') return Promise.reject(new Error('Terminal sessions are read-only'));
       const n = map.get('root');
       if (!n) return Promise.reject(new Error('mock: no root'));
-      pushEvent(n, 'user', text.split('\n')[0], {
+      // opencode/agy leads read a mid-turn message only after the turn ends: show it queued, then release it.
+      const queued = s.runtime !== undefined && s.runtime !== 'claude' && n.status === 'running';
+      const sent = pushEvent(n, 'user', text.split('\n')[0], {
         detail: text,
+        ...(queued ? { queued: true } : {}),
         ...(toDataUrls(images) ? { images: toDataUrls(images)! } : {}),
       });
+      if (queued) {
+        at(4000, () => {
+          delete sent.queued;
+          emit?.({ type: 'node.event', sessionId, nodeId: n.id, event: { ...sent } });
+        });
+      }
       n.status = 'running';
       n.endedAt = undefined;
       n.result = undefined;

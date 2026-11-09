@@ -4,7 +4,7 @@ import { modelLabel } from './format';
 import type { ActivityEvent, AgentNode, PermissionRequest, Status, WorkerTask } from '../shared/types';
 
 export type ChatItem =
-  | { type: 'user'; id: string; ts: number; text: string; images?: string[] }
+  | { type: 'user'; id: string; ts: number; text: string; images?: string[]; queued?: boolean }
   | { type: 'assistant'; id: string; ts: number; text: string }
   | { type: 'thinking'; id: string; ts: number; text: string; summary: string }
   | { type: 'tools'; id: string; ts: number; events: ActivityEvent[]; counts: Array<{ tool: string; count: number }> }
@@ -72,6 +72,7 @@ export function buildChat(node: AgentNode, children: AgentNode[]): ChatItem[] {
         ts: e.ts,
         text: e.detail ?? e.summary,
         ...(safeImages.length ? { images: [...safeImages] } : {}),
+        ...(e.queued ? { queued: true } : {}),
       });
     } else if (e.kind === 'text') {
       out.push({ type: 'assistant', id: e.id, ts: e.ts, text: e.detail ?? e.summary });

@@ -77,6 +77,7 @@
   --space-10: 64px;
 
   --drawer-w: 420px;
+  --chat-col-w: 760px;
 }
 
 * { box-sizing: border-box; }
@@ -1263,19 +1264,33 @@ details.collapsible > summary:hover { color: var(--ink); }
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 10px calc(12px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom) + var(--kb, 0px)) calc(12px + env(safe-area-inset-left));
+  padding: 10px calc(var(--space-4) + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom) + var(--kb, 0px)) calc(var(--space-4) + env(safe-area-inset-left));
   background: var(--surface);
   border-top: 1px solid var(--border);
+  --composer-accent: var(--text-3);
+}
+.composer[data-runtime='opencode'] { --composer-accent: var(--teal); }
+.composer[data-runtime='agy'] { --composer-accent: var(--amber); }
+/* One column, as wide as the chat transcript, so input and messages line up. */
+.composer-col {
+  position: relative;
+  width: 100%;
+  max-width: calc(var(--chat-col-w) - 2 * var(--space-4));
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .composer-box {
   position: relative;
   background: var(--surface-2);
   border: 1px solid var(--border-2);
-  border-radius: var(--radius);
+  border-left: 3px solid var(--composer-accent);
+  border-radius: var(--radius-sm);
   padding: 8px 10px 6px;
 }
 .composer-box:focus-within {
-  border-color: var(--violet-ring);
+  border-color: var(--violet-ring) var(--violet-ring) var(--violet-ring) var(--composer-accent);
   box-shadow: 0 0 0 3px var(--violet-soft);
 }
 .composer-box textarea {
@@ -1310,6 +1325,59 @@ details.collapsible > summary:hover { color: var(--ink); }
 @media (max-width: 700px) {
   .composer-hint { display: none; }
 }
+.btn-danger { background: var(--fail); color: var(--bg); border-color: transparent; font-weight: 600; }
+.btn-danger:hover:not(:disabled) { background: var(--fail); filter: brightness(1.1); }
+.composer-confirm {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.composer-confirm-text {
+  flex: 1 1 16rem;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--amber);
+}
+.composer-actions:has(.composer-confirm) .composer-hint { display: none; }
+.composer-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: 0 2px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-3);
+}
+.composer-foot-agent,
+.composer-foot-where {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-foot-agent { flex: 1 1 0; min-width: 6ch; }
+.composer-foot-where { flex: 0 1 auto; display: flex; align-items: baseline; gap: var(--space-2); }
+.composer-foot-where > :first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.git-status { flex: none; display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.git-dirty { color: var(--amber); }
+.git-worktree {
+  padding: 0 5px;
+  border: 1px solid var(--border-2);
+  border-radius: 5px;
+  font-size: 10px;
+  line-height: 1.5;
+}
+/* Phones: the branch matters more than the worktree marker, which otherwise runs off the right edge. */
+@media (max-width: 480px) { .git-worktree { display: none; } }
+.topbar-sub { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--space-3); min-width: 0; font-family: var(--mono); font-size: 11.5px; color: var(--text-3); }
+.topbar-sub .topbar-cwd { flex: 0 1 auto; min-width: 16ch; }
 @media (pointer: coarse) {
   .composer-box textarea { font-size: 16px; }
   .composer-hint { display: none; }
@@ -2729,7 +2797,7 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
 }
 .chat-col {
   width: 100%;
-  max-width: 760px;
+  max-width: var(--chat-col-w);
   margin: 0 auto;
   padding: var(--space-4) var(--space-4) var(--space-8);
   display: flex;
@@ -2790,6 +2858,17 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
   min-width: 0;
 }
 .chat-user-block .chat-user { max-width: 100%; }
+.chat-user-block.is-queued .chat-user { opacity: 0.75; }
+.chat-queued {
+  padding: 0 var(--space-2);
+  border: 1px solid rgba(255, 181, 71, 0.3);
+  border-radius: 999px;
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.7;
+}
 .chat-user-images {
   display: flex;
   flex-wrap: wrap;

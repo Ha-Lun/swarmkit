@@ -321,6 +321,12 @@ describe('buildChat user images', () => {
     expect(items[0]).toEqual({ type: 'user', id: 'u1', ts: 1, text: 'hi' });
     expect('images' in (items[0] as object)).toBe(false);
   });
+  it('carries queued onto the user item and drops it once the event updates', () => {
+    const queued = buildChat(node({ events: [ev({ id: 'u1', ts: 1, kind: 'user', summary: 'later', queued: true })] }), []);
+    expect(queued[0]).toEqual({ type: 'user', id: 'u1', ts: 1, text: 'later', queued: true });
+    const read = buildChat(node({ events: [ev({ id: 'u1', ts: 1, kind: 'user', summary: 'later' })] }), []);
+    expect('queued' in (read[0] as object)).toBe(false);
+  });
   it('copies the array so later mutations cannot leak in', () => {
     const urls = ['/api/sessions/s1/images/1.png'];
     const n = node({ events: [ev({ id: 'u1', ts: 1, kind: 'user', summary: 'hi', images: urls })] });

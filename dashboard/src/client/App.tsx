@@ -1,11 +1,11 @@
 // Top-level app: routing state and chrome (the backend is resolved in main.tsx).
 import { Component, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
-import type { DecideOptions, PermissionRequest, SessionSummary, WorkerTask } from '../shared/types';
+import type { DecideOptions, GitInfo, PermissionRequest, SessionSummary, WorkerTask } from '../shared/types';
 import { ApiError, authenticate } from './api';
 import type { FleetBackend, Guard } from './api';
 import { Archive } from './Archive';
-import { Composer } from './Composer';
+import { Composer, GitStatus } from './Composer';
 import { Continue } from './Continue';
 import { AgentTabs } from './AgentTabs';
 import { ChatView } from './ChatView';
@@ -268,6 +268,7 @@ function RestartControl({
 
 function Topbar({
   session,
+  git,
   sessionView,
   onView,
   canRestart,
@@ -276,6 +277,7 @@ function Topbar({
   onRestart,
 }: {
   session: SessionSummary;
+  git?: GitInfo;
   sessionView: 'chat' | 'map';
   onView: (v: 'chat' | 'map') => void;
   canRestart: boolean;
@@ -287,9 +289,12 @@ function Topbar({
     <header className="topbar">
       <div className="topbar-title">
         <h1 title={sessionHint(session)}>{session.title || session.project}</h1>
-        <p className="topbar-cwd">
-          {[session.agent, modelLabel(session.model), session.id.slice(0, 8)].filter(Boolean).join(' · ')} · {session.cwd}
-        </p>
+        <div className="topbar-sub">
+          <p className="topbar-cwd">
+            {[session.agent, modelLabel(session.model), session.id.slice(0, 8)].filter(Boolean).join(' · ')} · {session.cwd}
+          </p>
+          {git && <GitStatus git={git} compact />}
+        </div>
       </div>
       {session.runtime === 'opencode' && <span className="badge rt-opencode">OpenCode</span>}
       {session.runtime === 'agy' && <span className="badge rt-agy">Antigravity</span>}
@@ -656,6 +661,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
           <Topbar
             key={selected.id}
             session={selected}
+            git={detail?.git}
             sessionView={sessionView}
             onView={setSessionView}
             canRestart={selected.source === 'page' && (selected.runtime ?? 'claude') === 'claude'}
@@ -775,6 +781,8 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
           selected.source === 'page' && running ? (
             <Composer
               key={`composer:${selected.id}`}
+              session={selected}
+              git={detail?.git}
               onSend={(text, images) => callSession((id) => backend.send(id, text, images), text)}
               onInterrupt={() => callSession((id) => backend.interrupt(id))}
               onStop={() => {
@@ -793,6 +801,8 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
               ended={ended}
               backend={backend}
               guard={guard}
+              session={selected}
+              git={detail?.git}
               sessionId={selected.id}
               source={selected.source}
               onResumed={handleResumed}
