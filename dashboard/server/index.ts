@@ -25,6 +25,7 @@ import {
 } from './auth.ts';
 import { listAgents } from './agents.ts';
 import { DirError, listDirs } from './dirs.ts';
+import { gitInfo } from './git.ts';
 import { listStars, setStar } from './stars.ts';
 import { WorkerRegistry } from './registry.ts';
 import { SdkSessions, SessionError } from './sdk/sessions.ts';
@@ -609,7 +610,10 @@ async function main(): Promise<void> {
       const id = parts[2] ?? '';
       if (parts.length === 3 && method === 'GET') {
         const detail = sdk.get(id) ?? (await watcher.get(id));
-        if (detail) return sendJson(res, 200, detail);
+        if (detail) {
+          const git = await gitInfo(detail.cwd);
+          return sendJson(res, 200, git === undefined ? detail : { ...detail, git });
+        }
         return sendJson(res, 404, { error: 'session not found' });
       }
       if (parts.length === 4 && (parts[3] === 'message' || parts[3] === 'interrupt') && method === 'POST') {
