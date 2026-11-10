@@ -15,7 +15,7 @@ export type OrbState =
   | 'breathing';
 
 export type ChatItem =
-  | { type: 'user'; id: string; ts: number; text: string; images?: string[]; queued?: boolean }
+  | { type: 'user'; id: string; ts: number; text: string; images?: string[]; files?: string[]; queued?: boolean }
   | { type: 'assistant'; id: string; ts: number; text: string }
   | { type: 'thinking'; id: string; ts: number; text: string; summary: string }
   | { type: 'tools'; id: string; ts: number; events: ActivityEvent[]; counts: Array<{ tool: string; count: number }> }
@@ -83,6 +83,7 @@ export function buildChat(node: AgentNode, children: AgentNode[]): ChatItem[] {
         ts: e.ts,
         text: e.detail ?? e.summary,
         ...(safeImages.length ? { images: [...safeImages] } : {}),
+        ...(e.files?.length ? { files: [...e.files] } : {}),
         ...(e.queued ? { queued: true } : {}),
       });
     } else if (e.kind === 'text') {

@@ -98,7 +98,8 @@ export function useStartForm(
     const p = prompt.trim();
     const c = cwd.trim();
     const images = attachments.toPayload();
-    if ((!p && images.length === 0) || !c || starting) return;
+    const files = attachments.toFiles();
+    if ((!p && images.length === 0 && files.length === 0) || !c || starting) return;
     setStarting(true);
     setError(null);
     try {
@@ -110,6 +111,7 @@ export function useStartForm(
         ...(runtime === 'opencode' ? {} : { effort }),
         runtime,
         ...(images.length > 0 ? { images } : {}),
+        ...(files.length > 0 ? { files } : {}),
       };
       const res = await guard(backend.start(body));
       if (res) {

@@ -5,7 +5,7 @@ import type {
   GitResponse,
   DecideOptions,
   DirListing,
-  ImageAttachment,
+  FileAttachment, ImageAttachment,
   PermissionDecisionBody,
   PresenceBody,
   RuntimesResponse,
@@ -67,7 +67,7 @@ export interface FleetBackend {
   sessions(): Promise<SessionSummary[]>;
   detail(id: string): Promise<SessionDetail>;
   start(body: StartSessionBody): Promise<StartSessionResponse>;
-  send(sessionId: string, text: string, images?: ImageAttachment[]): Promise<unknown>;
+  send(sessionId: string, text: string, images?: ImageAttachment[], files?: FileAttachment[]): Promise<unknown>;
   interrupt(sessionId: string): Promise<unknown>;
   stop(sessionId: string): Promise<unknown>;
   resume(sessionId: string, body: ResumeSessionBody): Promise<StartSessionResponse>;
@@ -104,8 +104,10 @@ export const apiBackend: FleetBackend = {
   detail: (id) => request(`/api/sessions/${encodeURIComponent(id)}`),
   start: (body) =>
     request('/api/sessions', { method: 'POST', body: JSON.stringify(body) }),
-  send: (sessionId, text, images) => {
-    const body: SendMessageBody = images?.length ? { text, images } : { text };
+  send: (sessionId, text, images, files) => {
+    const body: SendMessageBody = { text };
+    if (images?.length) body.images = images;
+    if (files?.length) body.files = files;
     return request(`/api/sessions/${encodeURIComponent(sessionId)}/message`, {
       method: 'POST',
       body: JSON.stringify(body),

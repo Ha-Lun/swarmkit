@@ -1015,7 +1015,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
                 key={`composer:${selected.id}`}
                 session={selected}
                 git={gitInfo}
-                onSend={(text, images) => callSession((id) => backend.send(id, text, images), text)}
+                onSend={(text, images, files) => callSession((id) => backend.send(id, text, images, files), text)}
                 onInterrupt={() => callSession((id) => backend.interrupt(id))}
                 onStop={() => {
                   if (state.selectedId) void guardSilent(backend.stop(state.selectedId));

@@ -36,12 +36,17 @@ export function Continue({ backend, guard, session, git, sessionId, source, onRe
   const submit = async () => {
     const t = text.trim();
     const images = attachments.toPayload();
-    if ((!t && images.length === 0) || busy) return;
+    const files = attachments.toFiles();
+    if ((!t && images.length === 0 && files.length === 0) || busy) return;
     setBusy(true);
     setError(null);
     try {
       const res = await guard(
-        backend.resume(sessionId, { text: t, ...(images.length > 0 ? { images } : {}) }),
+        backend.resume(sessionId, {
+          text: t,
+          ...(images.length > 0 ? { images } : {}),
+          ...(files.length > 0 ? { files } : {}),
+        }),
       );
       if (res) {
         attachments.clear();
@@ -77,7 +82,7 @@ export function Continue({ backend, guard, session, git, sessionId, source, onRe
         void submit();
       }}
       onFiles={attachments.addFiles}
-      tray={<AttachmentTray items={attachments.items} onRemove={attachments.remove} />}
+      tray={<AttachmentTray items={attachments.items} files={attachments.files} onRemove={attachments.remove} onRemoveFile={attachments.removeFile} />}
       menu={slash.menu}
       textarea={
         <textarea

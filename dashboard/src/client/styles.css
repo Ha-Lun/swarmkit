@@ -1780,8 +1780,7 @@ details.collapsible > summary:hover { color: var(--ink); }
   line-height: 1;
 }
 .landing-mark {
-  width: clamp(36px, 9vw, 52px);
-  height: auto;
+  display: inline-flex;
   flex: none;
 }
 .landing-word-kit { color: var(--accent); }
@@ -2997,6 +2996,30 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
   gap: var(--space-2);
   max-width: 100%;
   min-width: 0;
+}
+.chat-user-files {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-width: 100%;
+  min-width: 0;
+}
+.chat-user-file {
+  max-width: 260px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .chat-user-thumb {
   flex: none;

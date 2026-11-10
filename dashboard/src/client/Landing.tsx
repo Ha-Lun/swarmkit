@@ -9,6 +9,7 @@ import { PromptShell } from './Composer';
 import { useEnterToSend } from './enterToSend';
 import { UNTRUSTED_NOTICE } from './format';
 import { FolderPicker } from './FolderPicker';
+import { Logo } from './icons';
 import { nextSetup, SetupPopover, useStartForm } from './StartForm';
 
 interface Props {
@@ -110,7 +111,7 @@ export function Landing({ backend, guard, sessions, onStarted }: Props) {
     <div className="landing">
       <div className="landing-inner">
         <p className="landing-brand">
-          <img className="landing-mark" src="/icon.svg" alt="" aria-hidden="true" />
+          <span className="landing-mark" aria-hidden="true"><Logo size={44} /></span>
           <span aria-label="SwarmKit">
             swarm<span className="landing-word-kit">kit</span>
           </span>
@@ -120,7 +121,7 @@ export function Landing({ backend, guard, sessions, onStarted }: Props) {
           runtime={runtime}
           onSubmit={submit}
           onFiles={attachments.addFiles}
-          tray={<AttachmentTray items={attachments.items} onRemove={attachments.remove} />}
+          tray={<AttachmentTray items={attachments.items} files={attachments.files} onRemove={attachments.remove} onRemoveFile={attachments.removeFile} />}
           textarea={
             <textarea
               ref={ref}

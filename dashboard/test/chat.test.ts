@@ -334,6 +334,10 @@ describe('buildChat user images', () => {
     urls.push('/api/sessions/s1/images/2.png');
     expect((items[0] as { images?: string[] }).images).toEqual(['/api/sessions/s1/images/1.png']);
   });
+  it('carries attached file names onto the user item', () => {
+    const items = buildChat(node({ events: [ev({ id: 'u1', ts: 1, kind: 'user', summary: 'see', files: ['report.pdf'] })] }), []);
+    expect(items[0]).toEqual({ type: 'user', id: 'u1', ts: 1, text: 'see', files: ['report.pdf'] });
+  });
 });
 
 describe('stripImageMarkers', () => {

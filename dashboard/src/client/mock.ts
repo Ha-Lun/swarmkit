@@ -1255,7 +1255,7 @@ A claim with a footnote.[^1]
       });
       return Promise.resolve({ sessionId: id } satisfies StartSessionResponse);
     },
-    send: (sessionId, text, images) => {
+    send: (sessionId, text, images, files) => {
       const map = nodeMaps.get(sessionId);
       const s = sessions.get(sessionId);
       if (!map || !s) return Promise.reject(new Error('mock: unknown session'));
@@ -1268,6 +1268,7 @@ A claim with a footnote.[^1]
         detail: text,
         ...(queued ? { queued: true } : {}),
         ...(toDataUrls(images) ? { images: toDataUrls(images)! } : {}),
+        ...(files?.length ? { files: files.map((f) => f.name) } : {}),
       });
       if (queued) {
         at(4000, () => {

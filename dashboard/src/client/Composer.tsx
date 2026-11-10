@@ -2,7 +2,7 @@
 // Images ride along: paste, drag-drop or the paperclip; empty text is fine with images.
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
-import type { GitInfo, ImageAttachment, Runtime, SessionSummary, SlashCommandInfo } from '../shared/types';
+import type { GitInfo, FileAttachment, ImageAttachment, Runtime, SessionSummary, SlashCommandInfo } from '../shared/types';
 import { filesFromPaste, useAttachments } from './attachments';
 import { AttachButton, AttachDropzone, AttachmentTray } from './AttachmentTray';
 import { useEnterToSend } from './enterToSend';
@@ -143,7 +143,7 @@ export function PromptShell({ runtime, variant = 'session', onSubmit, tray, menu
 interface Props {
   session: SessionSummary;
   git?: GitInfo;
-  onSend: (text: string, images: ImageAttachment[]) => Promise<void>;
+  onSend: (text: string, images: ImageAttachment[], files: FileAttachment[]) => Promise<void>;
   onInterrupt: () => Promise<void>;
   onStop: () => void;
   loadCommands: () => Promise<SlashCommandInfo[]>;
@@ -193,14 +193,15 @@ export function Composer({ session, git, onSend, onInterrupt, onStop, loadComman
   const send = () => {
     const t = text.trim();
     const images = attachments.toPayload();
-    if (!t && images.length === 0) return;
-    void run(() => onSend(t, images), () => {
+    const files = attachments.toFiles();
+    if (!t && images.length === 0 && files.length === 0) return;
+    void run(() => onSend(t, images, files), () => {
       setText('');
       attachments.clear();
     });
   };
 
-  const canSend = text.trim().length > 0 || attachments.items.length > 0;
+  const canSend = text.trim().length > 0 || attachments.items.length > 0 || attachments.files.length > 0;
 
   // Slash menu wins over Enter: while it is open, Enter picks the command.
   const enterToSend = useEnterToSend(ref, send, { shouldSend: () => slash.menu == null });
@@ -211,7 +212,7 @@ export function Composer({ session, git, onSend, onInterrupt, onStop, loadComman
     <PromptShell
       runtime={runtime}
       onFiles={attachments.addFiles}
-      tray={<AttachmentTray items={attachments.items} onRemove={attachments.remove} />}
+      tray={<AttachmentTray items={attachments.items} files={attachments.files} onRemove={attachments.remove} onRemoveFile={attachments.removeFile} />}
       menu={slash.menu}
       textarea={
         <textarea

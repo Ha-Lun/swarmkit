@@ -72,10 +72,21 @@ function UserBubble({ item }: { item: Extract<ChatItem, { type: 'user' }> }) {
       [queued]
     </span>
   ) : null;
+  const files = item.files ?? [];
+  const fileRow = files.length > 0 ? (
+    <ul className="chat-user-files" aria-label="Attached files">
+      {files.map((name, i) => (
+        <li key={`${i}-${name}`} className="chat-user-file" title={name}>
+          <span aria-hidden="true">🗎</span> {name}
+        </li>
+      ))}
+    </ul>
+  ) : null;
   if (images.length === 0) {
-    if (!chip) return <p className="chat-user">{text}</p>;
+    if (!chip && !fileRow) return <p className="chat-user">{text}</p>;
     return (
-      <div className="chat-user-block is-queued">
+      <div className={item.queued ? 'chat-user-block is-queued' : 'chat-user-block'}>
+        {fileRow}
         <p className="chat-user">{text}</p>
         {chip}
       </div>
@@ -99,6 +110,7 @@ function UserBubble({ item }: { item: Extract<ChatItem, { type: 'user' }> }) {
           </button>
         ))}
       </div>
+      {fileRow}
       {text ? <p className="chat-user">{text}</p> : null}
       {chip}
       {open !== null && images[open] && (
@@ -260,8 +272,7 @@ function HandoffCard({
 }
 
 /** Live thinking line: Scanner + shimmering label + elapsed seconds + last activity. */
-function ThinkingStatus({ node, color }: { node: AgentNode; color: string }) {
-  const waiting = node.status === 'waiting';
+function ThinkingStatus({ node, color, waiting }: { node: AgentNode; color: string; waiting: boolean }) {
   const state = orbState(node, waiting);
   const base = orbLabel(state).replace(/…|\.\.\.$/, '').trim() || 'Working';
   const startTs = node.events.length > 0 ? node.events[node.events.length - 1].ts : node.startedAt;
@@ -404,7 +415,7 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
             <PermissionPanel key={p.id} request={p} untrusted={untrusted} onDecide={(allow, message, answers, opts) => onDecide(p, allow, message, answers, opts)} />
           ))}
           {thinking && (
-            <ThinkingStatus node={node} color={orbColor(node, task)} />
+            <ThinkingStatus node={node} color={orbColor(node, task)} waiting={node.status === 'waiting' || permByNode.has(node.id)} />
           )}
         </div>
       </div>
