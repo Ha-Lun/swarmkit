@@ -4,7 +4,7 @@
 import type { AgentNode, DecideOptions, PermissionRequest, Status, WorkerTask } from '../shared/types';
 import { agentDescription, agentLabel, agentState, doneNames, orbColor, orbState, type DoneGroup } from './chat';
 import { elapsedMs, fmtDuration, modelLabel, workerElapsedS } from './format';
-import { Orb } from './Orb';
+import { Scanner } from './Scanner';
 import { PermissionPanel } from './Permission';
 
 interface Props {
@@ -143,7 +143,7 @@ export function NodeCard({ node, now, permission, open, task, workersAt, onOpen,
       <div className="agent-top">
         <span className="agent-state" aria-hidden="true">
           {live ? (
-            <Orb size={20} state={orbState(node, v.state === 'waiting')} color={orbColor(node, task)} />
+            <Scanner size="sm" state={orbState(node, v.state === 'waiting')} color={orbColor(node, task)} />
           ) : (
             <StateIcon state={v.state} />
           )}

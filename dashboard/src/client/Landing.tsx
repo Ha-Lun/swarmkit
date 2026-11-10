@@ -1,4 +1,4 @@
-// Landing: the empty page. A pixel wordmark over the big composer; setup, model and folder
+// Landing: the empty page. The SwarmKit hexagon mark over the big composer; setup, model and folder
 // are chosen from the meta line and the row under the box. Shown whenever no session is selected.
 import { useEffect, useRef, useState } from 'react';
 import type { SessionSummary, UsageReport, WorkerTask } from '../shared/types';
@@ -9,7 +9,6 @@ import { PromptShell } from './Composer';
 import { useEnterToSend } from './enterToSend';
 import { UNTRUSTED_NOTICE } from './format';
 import { FolderPicker } from './FolderPicker';
-import { Wordmark } from './icons';
 import { nextSetup, SetupPopover, useStartForm } from './StartForm';
 
 interface Props {
@@ -110,7 +109,12 @@ export function Landing({ backend, guard, sessions, onStarted }: Props) {
   return (
     <div className="landing">
       <div className="landing-inner">
-        <Wordmark />
+        <p className="landing-brand">
+          <img className="landing-mark" src="/icon.svg" alt="" aria-hidden="true" />
+          <span aria-label="SwarmKit">
+            swarm<span className="landing-word-kit">kit</span>
+          </span>
+        </p>
         <PromptShell
           variant="landing"
           runtime={runtime}

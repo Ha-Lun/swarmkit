@@ -67,18 +67,13 @@ function agentTitle(agent: string): string {
     .join('-');
 }
 
-/** `Lead-Dev-Hybrid · Opus 5.5  Claude`: agent in the accent, model in ink, provider dim. */
-export function MetaLine({ agent, model, provider }: { agent?: string; model: string; provider: string }) {
+/** `Lead-Dev-Hybrid · Opus 5.5 · Claude`: small pills (agent, model, runtime tinted by lane). */
+export function MetaLine({ agent, model, provider, runtime }: { agent?: string; model: string; provider: string; runtime?: Runtime }) {
   return (
-    <span className="meta-line">
-      {agent && (
-        <>
-          <span className="meta-agent">{agentTitle(agent)}</span>
-          <span className="meta-sep" aria-hidden="true">·</span>
-        </>
-      )}
-      <span className="meta-model">{model}</span>
-      <span className="meta-provider">{provider}</span>
+    <span className="meta-pills">
+      {agent && <span className="pill pill-agent">{agentTitle(agent)}</span>}
+      {model && <span className="pill pill-model">{model}</span>}
+      <span className="pill pill-runtime" {...(runtime ? { 'data-runtime': runtime } : {})}>{provider}</span>
     </span>
   );
 }
@@ -113,7 +108,7 @@ interface ShellProps {
   right: ReactNode;
 }
 
-/** The OpenCode-style input: left bar in the runtime colour, meta line inside, one dim row below. */
+/** The prompt input: rounded card on the input fill, meta pills inside, one dim row below. */
 export function PromptShell({ runtime, variant = 'session', onSubmit, tray, menu, onFiles, textarea, meta, hint, error, left, right }: ShellProps) {
   const body = (
     <div className="composer-col">
@@ -241,7 +236,7 @@ export function Composer({ session, git, onSend, onInterrupt, onStop, loadComman
           }}
         />
       }
-      meta={<MetaLine agent={session.agent} model={modelLabel(session.model)} provider={providerName(runtime)} />}
+      meta={<MetaLine agent={session.agent} model={modelLabel(session.model)} provider={providerName(runtime)} runtime={runtime} />}
       hint="enter send · shift+enter newline"
       error={
         (attachments.error || error) && (
@@ -280,20 +275,24 @@ export function Composer({ session, git, onSend, onInterrupt, onStop, loadComman
             </span>
           ) : (
             <>
-              <button type="button" className="row-btn" onClick={() => void run(onInterrupt)}>
-                interrupt
+              <button type="button" className="composer-action" aria-label="Interrupt turn" title="Interrupt turn" onClick={() => void run(onInterrupt)}>
+                <span className="btn-icon" aria-hidden="true">⏸</span>
+                <span className="btn-text">interrupt</span>
               </button>
-              <button ref={stopRef} type="button" className="row-btn is-danger" onClick={() => setConfirming(true)}>
-                stop
+              <button ref={stopRef} type="button" className="composer-action is-danger" aria-label="Stop session" title="Stop session" onClick={() => setConfirming(true)}>
+                <span className="btn-icon" aria-hidden="true">■</span>
+                <span className="btn-text">stop</span>
               </button>
               <button
                 type="button"
-                className="btn btn-primary btn-sm"
+                className="btn btn-primary btn-sm composer-send"
                 disabled={!canSend}
+                aria-label={queues ? 'Queue message' : 'Send message'}
                 title={queues ? 'The lead reads it when its current turn ends' : 'Steers the running turn at its next step'}
                 onClick={send}
               >
-                {queues ? 'queue' : 'send'}
+                <span className="btn-icon" aria-hidden="true">↑</span>
+                <span className="btn-text">{queues ? 'queue' : 'send'}</span>
               </button>
             </>
           )}

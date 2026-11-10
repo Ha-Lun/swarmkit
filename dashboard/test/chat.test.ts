@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { agentDescription, agentState, agentTabs, buildChat, doneNames, foldDone, isSafeImageUrl, matchWorkerTask, orbColor, orbLabel, orbState, stripImageMarkers } from '../src/client/chat.ts';
 import type { ActivityEvent, AgentNode, PermissionRequest, WorkerTask } from '../src/shared/types.ts';
-import type { OrbState } from 'thinking-orbs';
+import type { OrbState } from '../src/client/chat.ts';
 
 let seq = 0;
 
@@ -212,27 +212,27 @@ describe('orbLabel', () => {
 describe('orbColor', () => {
   it('worker lanes', () => {
     expect(orbColor(node({ kind: 'worker', worker: { lane: 'agy', slug: 'a' } }))).toBe('#4f8cff');
-    expect(orbColor(node({ kind: 'worker', worker: { lane: 'opencode', slug: 'a' } }))).toBe('#e5484d');
-    expect(orbColor(node({ kind: 'worker' }))).toBe('#e5484d');
+    expect(orbColor(node({ kind: 'worker', worker: { lane: 'opencode', slug: 'a' } }))).toBe('#f59e0b');
+    expect(orbColor(node({ kind: 'worker' }))).toBe('#f59e0b');
     expect(orbColor(node({ kind: 'worker', worker: { lane: 'opencode', slug: 'a' } }), workerTask({ lane: 'agy' }))).toBe('#4f8cff');
   });
   it('model names case-insensitive with task override', () => {
     expect(orbColor(node({ kind: 'subagent', model: 'claude-opus-5-5' }))).toBe('#d97757');
-    expect(orbColor(node({ kind: 'subagent', model: 'Claude-Sonnet-4' }))).toBe('#e8e2d6');
-    expect(orbColor(node({ kind: 'subagent', model: 'haiku-3' }))).toBe('#a8a297');
+    expect(orbColor(node({ kind: 'subagent', model: 'Claude-Sonnet-4' }))).toBe('#e7e9ee');
+    expect(orbColor(node({ kind: 'subagent', model: 'haiku-3' }))).toBe('#9aa1ae');
     expect(orbColor(node({ kind: 'subagent', model: 'sonnet-x' }), workerTask({ model: 'opus-y' }))).toBe('#d97757');
     expect(orbColor(mainNode({ model: undefined }))).toBe('#d97757');
-    expect(orbColor(node({ kind: 'subagent', model: 'other-model' }))).toBe('#a8a297');
-    expect(orbColor(node({ kind: 'subagent' }))).toBe('#a8a297');
+    expect(orbColor(node({ kind: 'subagent', model: 'other-model' }))).toBe('#9aa1ae');
+    expect(orbColor(node({ kind: 'subagent' }))).toBe('#9aa1ae');
   });
   it('main runtime models before the generic rules', () => {
-    expect(orbColor(mainNode({ model: 'opencode-go/mimo-v2.6-pro' }))).toBe('#e5484d');
-    expect(orbColor(mainNode({ model: 'opencode-go/glm-5.3-flash' }))).toBe('#e5484d');
+    expect(orbColor(mainNode({ model: 'opencode-go/mimo-v2.6-pro' }))).toBe('#f59e0b');
+    expect(orbColor(mainNode({ model: 'opencode-go/glm-5.3-flash' }))).toBe('#f59e0b');
     expect(orbColor(mainNode({ model: 'gemini-3.8-flash-high' }))).toBe('#4f8cff');
     // gemini wins over a generic opus/sonnet match on main nodes.
     expect(orbColor(mainNode({ model: 'gemini-opus-bridge' }))).toBe('#4f8cff');
     // Non-main nodes keep the generic rules for the same models.
-    expect(orbColor(node({ kind: 'subagent', model: 'opencode-go/mimo-v2.6-pro' }))).toBe('#a8a297');
+    expect(orbColor(node({ kind: 'subagent', model: 'opencode-go/mimo-v2.6-pro' }))).toBe('#9aa1ae');
   });
 });
 

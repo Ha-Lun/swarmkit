@@ -5,7 +5,8 @@
   min-width: 0;
   max-width: 100%;
   overflow-wrap: break-word;
-  font-size: 13.5px;
+  font-family: var(--font);
+  font-size: 15px;
   line-height: 1.65;
   color: var(--text);
 }
@@ -17,21 +18,24 @@
 .md p:last-child { margin-bottom: 0; }
 
 .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
-  margin: var(--space-3) 0 var(--space-2);
-  font-weight: 700;
+  margin: var(--space-4) 0 var(--space-2);
+  font-weight: 600;
   line-height: 1.3;
   overflow-wrap: break-word;
 }
-.md h1 { font-size: 17px; }
-.md h2 { font-size: 15.5px; }
-.md h3 { font-size: 14px; }
-.md h4 { font-size: 13.5px; }
-.md h5 { font-size: 13px; }
-.md h6 { font-size: 12.5px; color: var(--text-2); }
+.md h1 { font-size: 1.35em; }
+.md h2 { font-size: 1.2em; }
+.md h3 { font-size: 1.05em; }
+.md h4 { font-size: 1em; }
+.md h5 { font-size: 0.95em; }
+.md h6 { font-size: 0.9em; color: var(--text-2); }
 
-.md ul, .md ol { margin: 0 0 var(--space-2); padding-left: var(--space-5); }
+.md ul { margin: 0 0 var(--space-2); padding-left: var(--space-5); list-style-type: disc; }
+.md ol { margin: 0 0 var(--space-2); padding-left: var(--space-5); list-style-type: decimal; }
+.md ul ul { list-style-type: circle; margin-bottom: 0; }
+.md ol ol, .md ul ol, .md ol ul { margin-bottom: 0; }
 .md li { margin: 2px 0; }
-.md li::marker { color: var(--text-3); }
+.md li::marker { color: var(--text-2); }
 
 .md blockquote {
   margin: 0 0 var(--space-2);
@@ -43,8 +47,8 @@
 
 .md hr { border: 0; border-top: 1px solid var(--border); margin: var(--space-3) 0; }
 
-.md a { color: var(--teal); text-decoration: underline; text-underline-offset: 2px; }
-.md a:hover { color: var(--ink-hover, #fff); }
+.md a { color: var(--accent-text); text-decoration: none; }
+.md a:hover { text-decoration: underline; text-underline-offset: 2px; }
 
 /* Inline code chip (fenced blocks use .md-codeblock below). */
 .md code {
@@ -56,12 +60,12 @@
   overflow-wrap: break-word;
 }
 
-/* Fenced code blocks. */
+/* Fenced code blocks: darker surface, hairline border, horizontal scroll. */
 .md-codeblock {
   margin: 0 0 var(--space-2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-2);
   border-radius: var(--radius-sm);
-  background: var(--surface-2);
+  background: var(--surface);
   overflow: hidden;
   max-width: 100%;
 }

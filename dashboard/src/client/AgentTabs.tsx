@@ -3,7 +3,7 @@ import type { WorkerTask } from '../shared/types';
 import { elapsedMs, fmtDuration, modelLabel, workerElapsedS } from './format';
 import { agentHint, agentLabel, agentSubtitle, matchWorkerTask, orbColor, orbState } from './chat';
 import type { AgentTab } from './chat';
-import { Orb } from './Orb';
+import { Scanner } from './Scanner';
 
 interface Props {
   tabs: AgentTab[];
@@ -68,7 +68,7 @@ export function AgentTabs({ tabs, activeId, now, workers, workersAt, onSelect }:
         const waiting = phase === 'waiting';
         const dot =
           phase === 'live' || waiting ? (
-            <Orb size={20} state={orbState(node, waiting)} color={orbColor(node, task)} />
+            <Scanner size="sm" state={orbState(node, waiting)} color={orbColor(node, task)} />
           ) : phase === 'done' ? (
             <span className="agent-tab-check" aria-hidden="true">
               ✓

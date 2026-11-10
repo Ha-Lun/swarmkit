@@ -11,7 +11,7 @@ import { AgentTabs } from './AgentTabs';
 import { ChatView } from './ChatView';
 import { agentLabel, agentSubtitle, agentTabs } from './chat';
 import { Drawer } from './Drawer';
-import { Orb } from './Orb';
+import { Scanner } from './Scanner';
 import { fmtCost, sessionHint, UNTRUSTED_NOTICE } from './format';
 import { Logo } from './icons';
 import { InfoPanel } from './InfoPanel';
@@ -324,6 +324,9 @@ function Topbar({
   onRestart,
   infoOpen,
   onToggleInfo,
+  isLivePage,
+  onStop,
+  onCloseSession,
 }: {
   session: SessionSummary;
   sessionView: 'chat' | 'map';
@@ -334,17 +337,57 @@ function Topbar({
   onRestart: () => void;
   infoOpen: boolean;
   onToggleInfo: () => void;
+  isLivePage: boolean;
+  onStop: () => void;
+  onCloseSession: () => void;
 }) {
-  const runtime = session.runtime ?? 'claude';
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmStop, setConfirmStop] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      setConfirmStop(false);
+      return;
+    }
+    const onDown = (e: PointerEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setMenuOpen(false);
+        btnRef.current?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
+
+  const closeMenu = () => {
+    setMenuOpen(false);
+    btnRef.current?.focus();
+  };
+
   return (
     <header className="topbar">
       <h1 className="topbar-title" title={sessionHint(session)}>
         {session.title || session.project}
       </h1>
-      <span className="topbar-runtime">
-        <i className="rt-dot" data-runtime={runtime} aria-hidden="true" />
-        {runtime}
+      <span className={`node-status st-${session.status} topbar-status`} title={`Status ${session.status}`}>
+        <i className="dot" aria-hidden="true" />
+        <span className="sr-only">{session.status}</span>
       </span>
+      {session.pendingPermissions > 0 && (
+        <span className="pending-chip" title="Waiting on your decision">
+          {session.pendingPermissions}
+        </span>
+      )}
       <div className="view-toggle" role="group" aria-label="Session view">
         <button
           type="button"
@@ -363,35 +406,103 @@ function Topbar({
           Map
         </button>
       </div>
-      <div className="topbar-meta">
-        <span className={`node-status st-${session.status}`}>
-          <i className="dot" aria-hidden="true" />
-          {session.status}
-        </span>
-        <span className="topbar-cost">{fmtCost(session.costUsd)}</span>
-        {session.pendingPermissions > 0 && (
-          <span className="pending-chip" title="Waiting on your decision">
-            {session.pendingPermissions} pending
-          </span>
+      <div className="topbar-menu-wrap" ref={wrapRef}>
+        <button
+          ref={btnRef}
+          type="button"
+          className="topbar-menu-btn"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          aria-label="Session actions"
+          title="Session actions"
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          <span aria-hidden="true">⋯</span>
+        </button>
+        {menuOpen && (
+          <div className="topbar-menu" role="menu" aria-label="Session actions">
+            <button
+              type="button"
+              role="menuitem"
+              className={`topbar-menu-item${infoOpen ? ' is-active' : ''}`}
+              onClick={() => {
+                onToggleInfo();
+                setMenuOpen(false);
+              }}
+            >
+              {infoOpen ? 'Hide session info' : 'Show session info'}
+            </button>
+            {canRestart && (
+              <>
+                <div className="topbar-menu-sep" aria-hidden="true" />
+                <RestartControl
+                  active={session.status === 'running' || session.status === 'waiting'}
+                  busy={restartBusy}
+                  error={restartError}
+                  onRestart={() => {
+                    onRestart();
+                    setMenuOpen(false);
+                  }}
+                />
+              </>
+            )}
+            <div className="topbar-menu-sep" aria-hidden="true" />
+            {isLivePage ? (
+              confirmStop ? (
+                <span
+                  className="restart-ctl-confirm"
+                  role="group"
+                  aria-label="Confirm stop"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setConfirmStop(false);
+                  }}
+                >
+                  <span>Stop this session?</span>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-danger"
+                    autoFocus
+                    onClick={() => {
+                      setConfirmStop(false);
+                      setMenuOpen(false);
+                      onStop();
+                    }}
+                  >
+                    Stop session
+                  </button>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirmStop(false)}>
+                    Cancel
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="topbar-menu-item is-danger"
+                  onClick={() => setConfirmStop(true)}
+                >
+                  Stop session
+                </button>
+              )
+            ) : (
+              <button
+                type="button"
+                role="menuitem"
+                className="topbar-menu-item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onCloseSession();
+                }}
+              >
+                Close
+              </button>
+            )}
+            <div className="topbar-menu-note">
+              {fmtCost(session.costUsd)} · {session.runtime ?? 'claude'}
+            </div>
+          </div>
         )}
       </div>
-      {canRestart && (
-        <RestartControl
-          active={session.status === 'running' || session.status === 'waiting'}
-          busy={restartBusy}
-          error={restartError}
-          onRestart={onRestart}
-        />
-      )}
-      <button
-        type="button"
-        className={`info-toggle${infoOpen ? ' is-active' : ''}`}
-        aria-pressed={infoOpen}
-        aria-label="Session info panel"
-        onClick={onToggleInfo}
-      >
-        info
-      </button>
     </header>
   );
 }
@@ -741,6 +852,26 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   const running = selected && !ended ? selected.status === 'running' || selected.status === 'waiting' : false;
   const canContinue = !!selected && !running;
 
+  const isLivePageSession = (s: SessionSummary) =>
+    s.source === 'page' && (s.status === 'running' || s.status === 'waiting');
+
+  /** Close a session tab: stop live page sessions (after the tab's inline confirm),
+      then go home when the closed tab was selected. */
+  const closeSession = useCallback(
+    (id: string) => {
+      const s = stateRef.current.sessions.find((x) => x.id === id);
+      if (s && isLivePageSession(s)) {
+        void guardSilent(backend.stop(id));
+      }
+      if (stateRef.current.selectedId === id) goHome();
+    },
+    [backend, guardSilent, goHome],
+  );
+
+  const stopSelected = useCallback(() => {
+    if (state.selectedId) void guardSilent(backend.stop(state.selectedId));
+  }, [backend, guardSilent, state.selectedId]);
+
   return (
     <div className="app">
       <TopBar
@@ -749,6 +880,8 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
         onHome={goHome}
         onSelect={selectSession}
         onNew={() => setNewOpen(true)}
+        onClose={closeSession}
+        isLivePage={isLivePageSession}
       />
       <div className="app-body">
         <div className="main">
@@ -764,6 +897,9 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
               onRestart={() => void restartSession()}
               infoOpen={info.open}
               onToggleInfo={info.toggle}
+              isLivePage={isLivePageSession(selected)}
+              onStop={stopSelected}
+              onCloseSession={goHome}
             />
           )}
           {view === 'session' && selected?.untrustedProject && (
@@ -810,7 +946,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
               </div>
             ) : (
               <div className="canvas-loading" aria-live="polite">
-                <Orb size={32} state="connecting" color="#e8e2d6" />
+                <Scanner size="md" state="connecting" color="#e7e9ee" />
                 Loading session…
               </div>
             )

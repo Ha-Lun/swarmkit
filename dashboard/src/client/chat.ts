@@ -1,7 +1,18 @@
 // Chat transcript helpers: pure event-to-item mapping, no React.
-import type { OrbState } from 'thinking-orbs';
 import { modelLabel } from './format';
 import type { ActivityEvent, AgentNode, PermissionRequest, Status, WorkerTask } from '../shared/types';
+
+/** Thinking-indicator states (drives the Scanner UI; formerly from thinking-orbs). */
+export type OrbState =
+  | 'listening'
+  | 'connecting'
+  | 'solving'
+  | 'composing'
+  | 'searching'
+  | 'shaping'
+  | 'weaving'
+  | 'working'
+  | 'breathing';
 
 export type ChatItem =
   | { type: 'user'; id: string; ts: number; text: string; images?: string[]; queued?: boolean }
@@ -300,8 +311,8 @@ export function foldDone(
   return { nodes: out, groups, foldable };
 }
 
-/** Lane colours, kept in sync with --rt-claude / --rt-opencode / --rt-agy / --ink / --text-3 (the orb takes a literal colour). */
-const ORB = { claude: '#d97757', opencode: '#e5484d', agy: '#4f8cff', cream: '#e8e2d6', dim: '#a8a297' } as const;
+/** Lane colours, kept in sync with --rt-claude / --rt-opencode / --rt-agy / --ink / --text-3 (the scanner takes a literal colour). */
+const ORB = { claude: '#d97757', opencode: '#f59e0b', agy: '#4f8cff', cream: '#e7e9ee', dim: '#9aa1ae' } as const;
 
 export function orbColor(node: AgentNode, task?: WorkerTask): string {
   if (node.kind === 'worker') {

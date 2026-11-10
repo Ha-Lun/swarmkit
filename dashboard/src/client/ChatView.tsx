@@ -7,7 +7,7 @@ import { agentLabel, buildChat, isSafeImageUrl, matchWorkerTask, orbColor, orbLa
 import type { ChatItem } from './chat';
 import { elapsedMs, fmtDuration, modelLabel, toolGroups, workerElapsedS } from './format';
 const Markdown = lazy(() => import('./Markdown').then((m) => ({ default: m.Markdown })));
-import { Orb } from './Orb';
+import { Scanner } from './Scanner';
 import { PermissionPanel } from './Permission';
 import { toolSummary } from './toolSummary';
 
@@ -215,7 +215,7 @@ function HandoffCard({
           ) : child.status === 'error' || child.status === 'stopped' ? (
             <span className="handoff-x">✕</span>
           ) : (
-            <Orb size={20} state={orbState(child, waiting)} color={orbColor(child, task)} />
+            <Scanner size="sm" state={orbState(child, waiting)} color={orbColor(child, task)} />
           )}
         </span>
         <div className="handoff-body">
@@ -255,6 +255,29 @@ function HandoffCard({
       {permission && (
         <PermissionPanel key={permission.id} request={permission} untrusted={untrusted} onDecide={(allow, message, answers, opts) => onDecide(permission, allow, message, answers, opts)} />
       )}
+    </div>
+  );
+}
+
+/** Live thinking line: Scanner + shimmering label + elapsed seconds + last activity. */
+function ThinkingStatus({ node, color }: { node: AgentNode; color: string }) {
+  const waiting = node.status === 'waiting';
+  const state = orbState(node, waiting);
+  const base = orbLabel(state).replace(/…|\.\.\.$/, '').trim() || 'Working';
+  const startTs = node.events.length > 0 ? node.events[node.events.length - 1].ts : node.startedAt;
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = window.setInterval(() => setTick((n) => n + 1), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+  void tick;
+  const secs = Math.max(0, Math.floor((Date.now() - startTs) / 1000));
+  return (
+    <div className="chat-thinking">
+      <Scanner size="sm" state={state} color={color} />
+      <span className="chat-thinking-label">{base}</span>
+      <span className="chat-thinking-elapsed" aria-label={`${secs} seconds`}>· {secs}s</span>
+      {node.lastActivity && <span className="chat-thinking-activity">{node.lastActivity}</span>}
     </div>
   );
 }
@@ -304,8 +327,6 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
   };
 
   const thinking = node.status === 'running' || node.status === 'waiting';
-  const waiting = node.status === 'waiting' || permByNode.has(node.id);
-  const state = orbState(node, waiting);
 
   return (
     <div className="chat-wrap">
@@ -340,7 +361,9 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
                   <summary>
                     <i>Thinking · {firstLine(item.summary)}</i>
                   </summary>
-                  <p>{item.text}</p>
+                  <Suspense fallback={<p className="md-plain">{item.text}</p>}>
+                    <Markdown text={item.text} />
+                  </Suspense>
                 </details>
               );
             }
@@ -381,11 +404,7 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
             <PermissionPanel key={p.id} request={p} untrusted={untrusted} onDecide={(allow, message, answers, opts) => onDecide(p, allow, message, answers, opts)} />
           ))}
           {thinking && (
-            <div className="chat-thinking">
-              <Orb size={20} state={state} color={orbColor(node, task)} />
-              <span className="chat-thinking-label">{orbLabel(state)}</span>
-              {node.lastActivity && <span className="chat-thinking-activity">{node.lastActivity}</span>}
-            </div>
+            <ThinkingStatus node={node} color={orbColor(node, task)} />
           )}
         </div>
       </div>
