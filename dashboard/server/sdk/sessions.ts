@@ -292,7 +292,8 @@ export class SdkSessions {
   }
 
   /** Starts a session in the background and returns its id at once. */
-  start(body: StartSessionBody): string {    const id = randomUUID();
+  start(body: StartSessionBody): string {
+    const id = randomUUID();
     const startedAt = Date.now();
     const runtime = body.runtime ?? 'claude';
     const tree = createTree(id, { startedAt, agentType: 'lead-dev-hybrid', prompt: body.prompt });

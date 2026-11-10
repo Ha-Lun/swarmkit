@@ -13,8 +13,6 @@ import type { FileAttachment, ImageAttachment, ImageMediaType } from '../src/sha
 export const IMAGE_SESSION_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 /** File names the store hands out and the GET route accepts. */
 export const IMAGE_NAME_RE = /^\d{1,4}\.(png|jpg|gif|webp)$/;
-/** File names the store hands out for general attachments (never matched by IMAGE_NAME_RE, never served over HTTP). */
-export const FILE_NAME_RE = /^f\d{1,4}-.{1,80}$/;
 
 const EXT: Record<ImageMediaType, string> = {
   'image/png': 'png',
@@ -154,7 +152,8 @@ export function saveFiles(sessionId: string, files: FileAttachment[]): { names: 
 }
 
 /** Bytes of a stored image, or undefined when the name is invalid, missing, a symlink or too big. */
-export async function readImage(sessionId: string, name: string): Promise<{ data: Buffer; contentType: string } | undefined> {  const file = resolveImagePath(sessionId, name);
+export async function readImage(sessionId: string, name: string): Promise<{ data: Buffer; contentType: string } | undefined> {
+  const file = resolveImagePath(sessionId, name);
   if (!file) return undefined;
   try {
     if ((await lstat(path.dirname(file))).isSymbolicLink()) return undefined;
