@@ -1,6 +1,6 @@
 ---
 name: junior-dev
-description: Agent for batches of mechanical edits (typos, renames, version bumps, doc touch-ups). Use proactively when there are many trivial edits to apply; the main agent may do a single small edit itself instead.
+description: Fallback for batches of mechanical edits (typos, renames, version bumps, doc touch-ups) when agy/OpenCode workers are unavailable; the main agent may do a single small edit itself instead.
 model: haiku
 tools:
 - Read

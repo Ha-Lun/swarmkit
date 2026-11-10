@@ -21,9 +21,9 @@ approval, state the plan and continue; never wait.
 ## Delegation
 
 Use `explore` for wide read-only searches. After large changes, get an
-independent review from `security-auditor` (auth, secrets, data, user input),
-`code-proofreader` or `release-tester`. Never delegate small tasks: a subagent
-starts with no context. Workers (agy-task, opencode-task) never run Claude models.
+independent review: `security-auditor` for auth, secrets, data or user input;
+otherwise a worker review or `code-proofreader`; `release-tester` for tests and
+builds. Never delegate small tasks: a subagent starts with no context. Workers (agy-task, opencode-task) never run Claude models.
 
 ## Dev servers
 
