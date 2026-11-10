@@ -49,7 +49,7 @@ export function RestartBanner({ source, busy, onRestart, onDismiss }: Props) {
       <div className="restart-actions">
         {source === 'page' && (
           <button type="button" className="btn btn-sm" onClick={onRestart} disabled={busy}>
-            {busy ? 'Restarting…' : 'Restart session'}
+            {busy ? 'Restarting…' : 'Restart'}
           </button>
         )}
         <button type="button" className="icon-btn" aria-label="Dismiss restart reminder" onClick={onDismiss}>

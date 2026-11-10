@@ -1,4 +1,4 @@
-// StatusBar: the one-line footer, as in the OpenCode TUI. Left: connection state, Workers
+// StatusBar: the one-line footer. Left: connection state, Workers
 // and Archive buttons. Right: Claude and OpenCode Go usage meters (click for the full usage
 // panel), then the dashboard version.
 import { useEffect, useRef, useState } from 'react';

@@ -102,7 +102,7 @@ export function Continue({ backend, guard, session, git, sessionId, source, onRe
           }}
         />
       }
-      meta={<MetaLine agent={session.agent} model={modelLabel(session.model)} provider={providerName(runtime)} />}
+      meta={<MetaLine agent={session.agent} model={modelLabel(session.model)} provider={providerName(runtime)} runtime={runtime} />}
       hint="enter send · shift+enter newline"
       error={
         (attachments.error || error) && (

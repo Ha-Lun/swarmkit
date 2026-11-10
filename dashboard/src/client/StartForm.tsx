@@ -353,7 +353,7 @@ export function SetupPopover({ runtime, availability, model, effort, onRuntime, 
         title="Change setup, model and effort"
         onClick={() => setOpen((v) => !v)}
       >
-        <MetaLine agent={LEAD_AGENT} model={shortModelLabel(modelShown) || 'Default'} provider={providerName(runtime)} />
+        <MetaLine agent={LEAD_AGENT} model={shortModelLabel(modelShown) || 'Default'} provider={providerName(runtime)} runtime={runtime} />
         <span className="meta-caret" aria-hidden="true">▾</span>
       </button>
       {open && (
