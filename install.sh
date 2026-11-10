@@ -188,7 +188,7 @@ link_files() {
 }
 
 # Skills Claude Code gets globally; the rest come with a pack (--pack).
-CLAUDE_SKILLS="release-testing security-review caveman caveman-commit caveman-compress
+CLAUDE_SKILLS="release-testing security-review security-audit caveman caveman-commit caveman-compress
 caveman-help caveman-review ponytail ponytail-audit ponytail-debt ponytail-help
 ponytail-review curated-resources agy-delegate delegate-implementation hybrid-delegate
 diagnosing-bugs swarm-handoff git-workflow writing-for-agents"

@@ -48,7 +48,7 @@ Antigravity plugin agents have no per-agent model; subagents run on the agy sess
 
 ## 🤖 Agent roster
 
-In Claude Code, `--claude` installs the five quality and review agents below and the `release-testing`, `security-review`, `diagnosing-bugs`, `caveman*`, `ponytail*` and `curated-resources` skills (the last three groups are slash-command only, so they cost no context). In the hybrid profile (see Profiles) it also installs the swarm orchestration pack (`lead-dev-hybrid`, `swarm-architect`, `junior-dev`, `git-specialist`) and the `swarm-handoff`, `git-workflow`, `writing-for-agents` and `hybrid-delegate` skills globally; slim installs leave them out (`--pack swarm` per project still adds them). Everything else is a pack you link into a project with `./install.sh --pack <name> [project]`:
+In Claude Code, `--claude` installs the five quality and review agents below and the `release-testing`, `security-review`, `security-audit`, `diagnosing-bugs`, `caveman*`, `ponytail*` and `curated-resources` skills (the last three groups are slash-command only, so they cost no context). In the hybrid profile (see Profiles) it also installs the swarm orchestration pack (`lead-dev-hybrid`, `swarm-architect`, `junior-dev`, `git-specialist`) and the `swarm-handoff`, `git-workflow`, `writing-for-agents` and `hybrid-delegate` skills globally; slim installs leave them out (`--pack swarm` per project still adds them). Everything else is a pack you link into a project with `./install.sh --pack <name> [project]`:
 
 | Pack | Agents | Skills |
 |---|---|---|
