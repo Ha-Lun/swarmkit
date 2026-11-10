@@ -48,7 +48,7 @@ export interface ApplyOptions {
    * Set only by the page-send path (never derived from a message, so transcript lines cannot
    * claim it): the user text may start with '<' and carries the stored-image URLs.
    */
-  pageUser?: { images?: string[] };
+  pageUser?: { images?: string[]; files?: string[] };
 }
 
 /** Stored-image URLs the page may attach to a user event (see images.ts). */
@@ -367,6 +367,8 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
   // Page-sent images arrive as stored-image URLs (opts.pageUser); transcript lines carry
   // image blocks. Either way the event holds markers and URLs, never base64.
   const urls = (opts?.pageUser?.images ?? []).filter(u => typeof u === 'string' && PAGE_IMAGE_URL_RE.test(u));
+  // Page-sent file attachments arrive as sanitised display names (stored on disk, never served).
+  const files = (opts?.pageUser?.files ?? []).filter(f => typeof f === 'string' && f.length > 0 && f.length <= 80);
   // Page-sent text may start with '<' (pasted HTML); only transcript/SDK lines use '<' for system injections.
   const page = opts?.pageUser !== undefined;
   const addUser = (text: string, imageCount: number): void => {
@@ -391,6 +393,7 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
       summary: firstLine(shown, 200),
       detail: cap(shown),
       ...(urls.length > 0 ? { images: urls } : {}),
+      ...(files.length > 0 ? { files } : {}),
     });
   };
 

@@ -29,7 +29,7 @@ import { gitInfo } from './git.ts';
 import { listStars, setStar } from './stars.ts';
 import { WorkerRegistry } from './registry.ts';
 import { SdkSessions, SessionError } from './sdk/sessions.ts';
-import { validImages, validMessageText, validRuntime, validRuntimeAgent, validRuntimeEffort, validRuntimeModel, ValidationError } from './validate.ts';
+import { validAttachmentTotals, validFiles, validImages, validMessageText, validRuntime, validRuntimeAgent, validRuntimeEffort, validRuntimeModel, ValidationError } from './validate.ts';
 import { imageEtag, readImage } from './images.ts';
 import { resolveDirInHome } from './paths.ts';
 import { staticPolicy } from './static.ts';
@@ -123,7 +123,9 @@ async function resolveCwd(raw: unknown): Promise<string> {
 async function validateSessionBody(body: unknown): Promise<StartSessionBody> {
   const raw = requireObject(body);
   const images = validImages(raw.images);
-  const prompt = validMessageText(raw.prompt, images, 'prompt');
+  const files = validFiles(raw.files);
+  validAttachmentTotals(images, files);
+  const prompt = validMessageText(raw.prompt, images, files, 'prompt');
   const runtime = validRuntime(raw.runtime);
   const start: StartSessionBody = { prompt, cwd: await resolveCwd(raw.cwd), runtime };
   const agent = validRuntimeAgent(runtime, raw.agent);
@@ -133,14 +135,20 @@ async function validateSessionBody(body: unknown): Promise<StartSessionBody> {
   const effort = validRuntimeEffort(runtime, raw.effort);
   if (effort !== undefined) start.effort = effort;
   if (images) start.images = images;
+  if (files) start.files = files;
   return start;
 }
 
 function validateMessageBody(body: unknown): SendMessageBody {
   const raw = requireObject(body);
   const images = validImages(raw.images);
-  const text = validMessageText(raw.text, images);
-  return images ? { text, images } : { text };
+  const files = validFiles(raw.files);
+  validAttachmentTotals(images, files);
+  const text = validMessageText(raw.text, images, files);
+  const out: SendMessageBody = { text };
+  if (images) out.images = images;
+  if (files) out.files = files;
+  return out;
 }
 
 function validateDecisionBody(body: unknown): PermissionDecisionBody {
@@ -262,11 +270,14 @@ async function main(): Promise<void> {
     try {
       const runtime = sdk.runtimeOf(id) ?? 'claude';
       const images = validImages(raw.images);
-      const text = validMessageText(raw.text, images);
+      const files = validFiles(raw.files);
+      validAttachmentTotals(images, files);
+      const text = validMessageText(raw.text, images, files);
       const model = validRuntimeModel(runtime, raw.model);
       const effort = validRuntimeEffort(runtime, raw.effort);
       body = { text };
       if (images) body.images = images;
+      if (files) body.files = files;
       if (model !== undefined) body.model = model;
       if (effort !== undefined) body.effort = effort;
     } catch (err) {
@@ -624,7 +635,7 @@ async function main(): Promise<void> {
         if (!sdk.owns(id)) return sendJson(res, 404, { error: 'session not found' });
         if (parts[3] === 'message') {
           const message = validateMessageBody(await readJson(req, MAX_IMAGE_BODY));
-          if (!sdk.send(id, message.text, message.images)) return sendJson(res, 404, { error: 'session not found' });
+          if (!sdk.send(id, message.text, message.images, message.files)) return sendJson(res, 404, { error: 'session not found' });
         } else if (!sdk.interrupt(id)) {
           return sendJson(res, 404, { error: 'session not found' });
         }

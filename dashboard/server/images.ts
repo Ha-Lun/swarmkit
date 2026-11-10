@@ -7,12 +7,14 @@ import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { MAX_IMAGE_BYTES } from '../src/shared/types.ts';
-import type { ImageAttachment, ImageMediaType } from '../src/shared/types.ts';
+import type { FileAttachment, ImageAttachment, ImageMediaType } from '../src/shared/types.ts';
 
 /** Session ids that may name a store directory (page uuids and transcript ids; no dots, no slashes). */
 export const IMAGE_SESSION_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 /** File names the store hands out and the GET route accepts. */
 export const IMAGE_NAME_RE = /^\d{1,4}\.(png|jpg|gif|webp)$/;
+/** File names the store hands out for general attachments (never matched by IMAGE_NAME_RE, never served over HTTP). */
+export const FILE_NAME_RE = /^f\d{1,4}-.{1,80}$/;
 
 const EXT: Record<ImageMediaType, string> = {
   'image/png': 'png',
@@ -108,9 +110,51 @@ export function saveImages(sessionId: string, images: ImageAttachment[]): { urls
   return { urls, paths };
 }
 
+/**
+ * Writes general attachments as f<n>-<safeName> into the same per-session dir as the
+ * images (same private-dir checks, same O_EXCL loop). The names never match
+ * IMAGE_NAME_RE, so files are never served over HTTP — only the agent reads them
+ * from disk. Returns the sanitised display names and absolute paths in order.
+ */
+export function saveFiles(sessionId: string, files: FileAttachment[]): { names: string[]; paths: string[] } {
+  const dir = imageDir(sessionId);
+  ensurePrivateDir(path.dirname(dir));
+  ensurePrivateDir(dir);
+  let next = 1;
+  for (const name of readdirSync(dir)) {
+    const n = /^f(\d{1,4})-/.exec(name);
+    if (n) next = Math.max(next, Number(n[1]) + 1);
+  }
+  const names: string[] = [];
+  const paths: string[] = [];
+  for (const file of files) {
+    const bytes = Buffer.from(file.data, 'base64');
+    let fd: number | undefined;
+    let name = '';
+    // 'wx' = O_CREAT|O_EXCL: never overwrites and never follows a planted symlink; retry on a lost race.
+    for (; next <= 9999 && fd === undefined; next += 1) {
+      name = `f${next}-${file.name}`;
+      try {
+        fd = openSync(path.join(dir, name), 'wx', 0o600);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+      }
+    }
+    if (fd === undefined) throw new Error('too many stored files for this session');
+    try {
+      let off = 0;
+      while (off < bytes.length) off += writeSync(fd, bytes, off);
+    } finally {
+      closeSync(fd);
+    }
+    names.push(file.name);
+    paths.push(path.join(dir, name));
+  }
+  return { names, paths };
+}
+
 /** Bytes of a stored image, or undefined when the name is invalid, missing, a symlink or too big. */
-export async function readImage(sessionId: string, name: string): Promise<{ data: Buffer; contentType: string } | undefined> {
-  const file = resolveImagePath(sessionId, name);
+export async function readImage(sessionId: string, name: string): Promise<{ data: Buffer; contentType: string } | undefined> {  const file = resolveImagePath(sessionId, name);
   if (!file) return undefined;
   try {
     if ((await lstat(path.dirname(file))).isSymbolicLink()) return undefined;

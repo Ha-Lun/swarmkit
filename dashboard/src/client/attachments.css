@@ -28,6 +28,48 @@
   object-fit: cover;
 }
 
+/* General file attachment chip: same 56px height as a thumbnail. */
+.attach-file {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 56px;
+  max-width: 220px;
+  padding: 0 28px 0 var(--space-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.attach-file-icon {
+  flex: none;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.attach-file-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.attach-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.attach-file-size {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
 .attach-remove {
   position: absolute;
   top: 2px;

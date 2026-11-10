@@ -2,19 +2,30 @@
 import { useRef, useState } from 'react';
 import type { DragEvent, ReactNode } from 'react';
 import { filesFromDrop } from './attachments';
-import type { PendingImage } from './attachments';
+import type { PendingFile, PendingImage } from './attachments';
 import './attachments.css';
 
 interface TrayProps {
   items: PendingImage[];
+  /** Pending general files; optional so existing callers keep compiling (wiring follows). */
+  files?: PendingFile[];
   onRemove: (id: string) => void;
+  onRemoveFile?: (id: string) => void;
 }
 
-/** Row of 56px thumbnails with a remove button each; nothing when empty. */
-export function AttachmentTray({ items, onRemove }: TrayProps) {
-  if (items.length === 0) return null;
+/** Human byte size for a file chip, e.g. `1.2 MB`. */
+export function humanSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Row of 56px thumbnails and file chips with a remove button each; nothing when empty. */
+export function AttachmentTray({ items, files = [], onRemove, onRemoveFile }: TrayProps) {
+  if (items.length === 0 && files.length === 0) return null;
   return (
-    <div className="attach-tray" role="list" aria-label="Attached images">
+    <div className="attach-tray" role="list" aria-label="Attachments">
       {items.map((item, i) => (
         <div className="attach-thumb" role="listitem" key={item.id}>
           <img src={item.previewUrl} alt={item.name || `Attached image ${i + 1}`} />
@@ -29,6 +40,24 @@ export function AttachmentTray({ items, onRemove }: TrayProps) {
           </button>
         </div>
       ))}
+      {files.map((file) => (
+        <div className="attach-file" role="listitem" key={file.id} title={file.name}>
+          <span aria-hidden="true" className="attach-file-icon">🗎</span>
+          <span className="attach-file-meta">
+            <span className="attach-file-name">{file.name}</span>
+            <span className="attach-file-size">{humanSize(file.size)}</span>
+          </span>
+          <button
+            type="button"
+            className="attach-remove"
+            aria-label={`Remove ${file.name}`}
+            title={`Remove ${file.name}`}
+            onClick={() => onRemoveFile?.(file.id)}
+          >
+            ✕
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -38,7 +67,7 @@ interface ButtonProps {
   disabled?: boolean;
 }
 
-/** 📎 button opening a hidden file input (image/*, multiple). */
+/** 📎 button opening a hidden file input (any file, up to the combined cap). */
 export function AttachButton({ onFiles, disabled }: ButtonProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   return (
@@ -46,8 +75,8 @@ export function AttachButton({ onFiles, disabled }: ButtonProps) {
       <button
         type="button"
         className="btn btn-ghost btn-sm"
-        aria-label="Attach images"
-        title="Attach images (PNG, JPEG, GIF, WebP — up to 6)"
+        aria-label="Attach files"
+        title="Attach files (images, PDFs, text… up to 6)"
         disabled={disabled}
         onClick={() => inputRef.current?.click()}
       >
@@ -57,7 +86,6 @@ export function AttachButton({ onFiles, disabled }: ButtonProps) {
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
         multiple
         tabIndex={-1}
         aria-hidden="true"

@@ -26,6 +26,8 @@ export interface ActivityEvent {
   isError?: boolean;
   /** User events only: URLs of the stored images sent with the message (GET /api/sessions/:id/images/:name). */
   images?: string[];
+  /** User events only: display names of the general files sent with the message (stored on disk, never served). */
+  files?: string[];
   /** Page user events only: waiting for the running opencode/agy turn to end before the lead reads it. */
   queued?: boolean;
 }
@@ -253,6 +255,20 @@ export interface ImageAttachment {
   data: string;
 }
 
+/** Max attached general files per message and max decoded bytes per file. */
+export const MAX_FILE_BYTES = 8 * 1024 * 1024;
+/** Max images + files per message combined (MAX_IMAGES still caps images alone). */
+export const MAX_ATTACHMENTS = 6;
+/** Max combined decoded bytes of images + files per message (fits the 48 MB JSON body cap). */
+export const MAX_ATTACHMENT_TOTAL_BYTES = 24 * 1024 * 1024;
+/** One attached general file: base64 without a `data:` prefix; mediaType is only a label. */
+export interface FileAttachment {
+  /** Sanitised display name (safeFileName on the server); shown in the user event. */
+  name: string;
+  mediaType: string;
+  data: string;
+}
+
 export interface StartSessionBody {
   prompt: string;
   /** Absolute path of an existing directory under $HOME. */
@@ -265,6 +281,8 @@ export interface StartSessionBody {
   runtime?: Runtime;
   /** Up to MAX_IMAGES images; the prompt may then be empty ("(image)" is used). */
   images?: ImageAttachment[];
+  /** Up to MAX_ATTACHMENTS images + files combined; stored next to the images and read by the agent. */
+  files?: FileAttachment[];
 }
 export interface StartSessionResponse {
   sessionId: string;
@@ -302,8 +320,8 @@ export interface AgentsResponse {
 export interface DirEntry { name: string; path: string; isGitRepo: boolean }
 export interface DirListing { path: string; parent?: string; entries: DirEntry[] }
 export interface SetStarBody { path: string; starred: boolean }
-export interface ResumeSessionBody { text: string; model?: string; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; images?: ImageAttachment[] }
-export interface SendMessageBody { text: string; images?: ImageAttachment[] }
+export interface ResumeSessionBody { text: string; model?: string; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; images?: ImageAttachment[]; files?: FileAttachment[] }
+export interface SendMessageBody { text: string; images?: ImageAttachment[]; files?: FileAttachment[] }
 /** One `/` command the session's runtime accepts as message text (name without the slash). */
 export interface SlashCommandInfo { name: string; description?: string; argumentHint?: string }
 export interface CommandsResponse { commands: SlashCommandInfo[] }
