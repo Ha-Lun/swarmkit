@@ -124,7 +124,7 @@ export function checkFiles(files: FileLike[], existingCount: number): CheckResul
  * Refuses files over MAX_FILE_BYTES and stops when the running decoded total would
  * exceed MAX_ATTACHMENT_TOTAL_BYTES.
  */
-export function checkOtherFiles(files: FileLike[], existingCount: number): CheckResult {
+export function checkOtherFiles(files: FileLike[], existingCount: number, existingBytes = 0): CheckResult {
   const slots = MAX_ATTACHMENTS - existingCount;
   const accepted: FileLike[] = [];
   const problems: string[] = [];
@@ -134,7 +134,7 @@ export function checkOtherFiles(files: FileLike[], existingCount: number): Check
       error: files.length > 0 ? `You can attach at most ${MAX_ATTACHMENTS} images and files per message.` : null,
     };
   }
-  let total = 0;
+  let total = existingBytes;
   files.forEach((f, i) => {
     if (accepted.length >= slots) {
       if (!problems.some((p) => p.startsWith('Only the first'))) {
@@ -355,7 +355,11 @@ export function useAttachments(): UseAttachments {
       problems.push(`You can attach at most ${MAX_ATTACHMENTS} images per message.`);
     }
     inFlight.current += candidates.length;
-    const otherGate = checkOtherFiles(otherInputs, itemsRef.current.length + filesRef.current.length + inFlight.current + filesInFlight.current);
+    // Bytes already pending (images as decoded base64) count toward the per-message total.
+    const pendingBytes =
+      filesRef.current.reduce((n, f) => n + f.size, 0) +
+      itemsRef.current.reduce((n, p) => n + Math.floor((p.data.length * 3) / 4), 0);
+    const otherGate = checkOtherFiles(otherInputs, itemsRef.current.length + filesRef.current.length + inFlight.current + filesInFlight.current, pendingBytes);
     if (otherGate.error) problems.push(otherGate.error);
     const otherCandidates = otherGate.accepted as File[];
     filesInFlight.current += otherCandidates.length;

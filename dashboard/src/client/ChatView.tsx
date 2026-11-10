@@ -8,6 +8,7 @@ import type { ChatItem } from './chat';
 import { elapsedMs, fmtDuration, modelLabel, toolGroups, workerElapsedS } from './format';
 const Markdown = lazy(() => import('./Markdown').then((m) => ({ default: m.Markdown })));
 import { Scanner } from './Scanner';
+import { FileIcon } from './icons';
 import { PermissionPanel } from './Permission';
 import { toolSummary } from './toolSummary';
 
@@ -77,7 +78,7 @@ function UserBubble({ item }: { item: Extract<ChatItem, { type: 'user' }> }) {
     <ul className="chat-user-files" aria-label="Attached files">
       {files.map((name, i) => (
         <li key={`${i}-${name}`} className="chat-user-file" title={name}>
-          <span aria-hidden="true">🗎</span> {name}
+          <FileIcon size={13} /> {name}
         </li>
       ))}
     </ul>

@@ -419,8 +419,9 @@ export class SdkSessions {
       }
     }
     // Files travel as paths for every runtime; the agent reads them from disk with its tools.
+    // Quoted: names may contain spaces, so an unquoted paste into a shell would split them.
     const withFiles = filePaths.length > 0
-      ? `${text}\n\nAttached files (read them from these paths):\n${filePaths.join('\n')}`
+      ? `${text}\n\nAttached files (read them from these paths):\n${filePaths.map(p => JSON.stringify(p)).join('\n')}`
       : text;
     const uuid = randomUUID();
     const content = session.runtime === 'agy'

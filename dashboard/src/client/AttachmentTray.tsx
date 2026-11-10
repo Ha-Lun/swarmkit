@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 import type { DragEvent, ReactNode } from 'react';
 import { filesFromDrop } from './attachments';
 import type { PendingFile, PendingImage } from './attachments';
+import { FileIcon, PaperclipIcon } from './icons';
 import './attachments.css';
 
 interface TrayProps {
@@ -42,7 +43,7 @@ export function AttachmentTray({ items, files = [], onRemove, onRemoveFile }: Tr
       ))}
       {files.map((file) => (
         <div className="attach-file" role="listitem" key={file.id} title={file.name}>
-          <span aria-hidden="true" className="attach-file-icon">🗎</span>
+          <span aria-hidden="true" className="attach-file-icon"><FileIcon size={20} /></span>
           <span className="attach-file-meta">
             <span className="attach-file-name">{file.name}</span>
             <span className="attach-file-size">{humanSize(file.size)}</span>
@@ -80,7 +81,7 @@ export function AttachButton({ onFiles, disabled }: ButtonProps) {
         disabled={disabled}
         onClick={() => inputRef.current?.click()}
       >
-        <span aria-hidden="true">📎</span>
+        <PaperclipIcon size={16} />
         <span aria-hidden="true" className="attach-btn-label">Attach</span>
       </button>
       <input

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import type { GitInfo, FileAttachment, ImageAttachment, Runtime, SessionSummary, SlashCommandInfo } from '../shared/types';
 import { filesFromPaste, useAttachments } from './attachments';
+import { PauseIcon, SendIcon, StopIcon } from './icons';
 import { AttachButton, AttachDropzone, AttachmentTray } from './AttachmentTray';
 import { useEnterToSend } from './enterToSend';
 import { modelLabel } from './format';
@@ -277,11 +278,11 @@ export function Composer({ session, git, onSend, onInterrupt, onStop, loadComman
           ) : (
             <>
               <button type="button" className="composer-action" aria-label="Interrupt turn" title="Interrupt turn" onClick={() => void run(onInterrupt)}>
-                <span className="btn-icon" aria-hidden="true">⏸</span>
+                <span className="btn-icon" aria-hidden="true"><PauseIcon /></span>
                 <span className="btn-text">interrupt</span>
               </button>
               <button ref={stopRef} type="button" className="composer-action is-danger" aria-label="Stop session" title="Stop session" onClick={() => setConfirming(true)}>
-                <span className="btn-icon" aria-hidden="true">■</span>
+                <span className="btn-icon" aria-hidden="true"><StopIcon /></span>
                 <span className="btn-text">stop</span>
               </button>
               <button
@@ -292,7 +293,7 @@ export function Composer({ session, git, onSend, onInterrupt, onStop, loadComman
                 title={queues ? 'The lead reads it when its current turn ends' : 'Steers the running turn at its next step'}
                 onClick={send}
               >
-                <span className="btn-icon" aria-hidden="true">↑</span>
+                <span className="btn-icon" aria-hidden="true"><SendIcon /></span>
                 <span className="btn-text">{queues ? 'queue' : 'send'}</span>
               </button>
             </>

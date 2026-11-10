@@ -141,8 +141,9 @@ export function TopBar({ sessions, selectedId, onHome, onSelect, onNew, onClose,
             </div>
           );
         })}
-        <button type="button" className="top-tab-new" onClick={onNew}>
-          <span aria-hidden="true">+</span> New session
+        <button type="button" className="top-tab-new" aria-label="New session" onClick={onNew}>
+          <span aria-hidden="true">+</span>
+          <span className="top-tab-new-label">New session</span>
         </button>
       </nav>
     </header>

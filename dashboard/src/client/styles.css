@@ -2639,7 +2639,11 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
   .chat { overscroll-behavior: contain; }
 
   /* session tabs scroll sideways; "+ New session" stays pinned at the right edge */
+  .top-tab-new-label { display: none; }
+  .top-tab-title { max-width: 42vw; }
   .top-tab-new {
+    min-width: 44px;
+    justify-content: center;
     position: sticky;
     right: 0;
     background: var(--bg);
@@ -3009,6 +3013,9 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
   min-width: 0;
 }
 .chat-user-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   max-width: 260px;
   padding: 4px 10px;
   border: 1px solid var(--border-2);

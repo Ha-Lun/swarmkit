@@ -29,6 +29,52 @@ function Svg({ size = 14, className, children }: IconProps & { children: ReactNo
   );
 }
 
+/** Paperclip for the attach button. */
+export function PaperclipIcon({ size = 16, className }: IconProps) {
+  return (
+    <Svg size={size} className={className}>
+      <path d="M20.5 11.5l-8.3 8.3a5 5 0 0 1-7.1-7.1l8.3-8.3a3.3 3.3 0 0 1 4.7 4.7l-8.3 8.3a1.7 1.7 0 0 1-2.4-2.4l7.6-7.6" />
+    </Svg>
+  );
+}
+
+/** Document with a folded corner, for attached-file chips. */
+export function FileIcon({ size = 16, className }: IconProps) {
+  return (
+    <Svg size={size} className={className}>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5" />
+    </Svg>
+  );
+}
+
+/** Pause bars (interrupt a turn). */
+export function PauseIcon({ size = 16, className }: IconProps) {
+  return (
+    <Svg size={size} className={className}>
+      <path d="M9 5v14M15 5v14" />
+    </Svg>
+  );
+}
+
+/** Rounded square (stop a session). */
+export function StopIcon({ size = 16, className }: IconProps) {
+  return (
+    <Svg size={size} className={className}>
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+    </Svg>
+  );
+}
+
+/** Arrow up (send). */
+export function SendIcon({ size = 16, className }: IconProps) {
+  return (
+    <Svg size={size} className={className}>
+      <path d="M12 19V5M6 11l6-6 6 6" />
+    </Svg>
+  );
+}
+
 /** SwarmKit brand mark: hexagon in the teal->violet gradient, optional wordmark. */
 export function Logo({ size = 22, withWordmark = false }: IconProps & { withWordmark?: boolean }) {
   // Gradient id must be unique per mounted instance.
