@@ -380,6 +380,8 @@ describe('securityHeaders', () => {
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("base-uri 'none'");
+    // Pasted-image thumbnails and the canvas re-encode load blob: object URLs.
+    expect(csp).toContain("img-src 'self' data: blob:");
   });
 });
 

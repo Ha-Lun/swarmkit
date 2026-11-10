@@ -215,7 +215,7 @@ export function securityHeaders(development: boolean): Record<string, string> {
   };
   if (!development) {
     headers['Content-Security-Policy'] =
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; " +
       "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
   }
   return headers;
