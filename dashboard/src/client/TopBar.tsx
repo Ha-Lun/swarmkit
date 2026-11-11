@@ -1,53 +1,75 @@
-// TopBar: the single slim sticky strip that replaces the sidebar. Left: the Logo
-// with wordmark as the Home button. Center: a horizontally scrollable row of ACTIVE
-// (running/waiting) session chips (omitted entirely when there are none). Right:
-// Workers link, Archive link, the Claude 5h usage pill, a connection dot and the
-// New session button — pinned to the right edge via margin-left: auto. No hamburger/sheet.
-// On ≤768px the links collapse to 44×44 icon buttons with count badges, the usage
-// pill and connection dot hide, and New session becomes a "+" icon button.
-import type { SessionSummary, UsageReport, WorkerTask } from '../shared/types';
-import { fmtResetIn, usageTone } from './format';
-import { ArchiveIcon, Logo, PlusIcon, WorkerIcon } from './icons';
+// TopBar: session tabs. Left: the "swarmkit" brand as the Home button.
+// Then one tab per running/waiting session plus the selected one (status dot, title,
+// pending count, close button) and a final "+ New session" tab. Workers, Archive,
+// usage and the connection state live in the StatusBar. On phones the tab row
+// scrolls horizontally; close buttons are always visible on touch/narrow screens.
+import { useEffect, useRef, useState } from 'react';
+import type { SessionSummary } from '../shared/types';
+import { sessionHint } from './format';
 
 interface Props {
   sessions: SessionSummary[];
-  workers: WorkerTask[];
   selectedId: string | null;
-  connected: boolean;
-  /** Shared with the landing panel; drives the compact Claude pill. */
-  usage?: UsageReport;
   onHome: () => void;
   onSelect: (id: string) => void;
-  onOpenWorkers: () => void;
-  onOpenArchive: () => void;
   onNew: () => void;
+  onClose: (id: string) => void;
+  /** True while the tab's session has a live turn that needs a stop confirm. */
+  isLivePage?: (s: SessionSummary) => boolean;
 }
 
-export function TopBar({
-  sessions,
-  workers,
-  selectedId,
-  connected,
-  usage,
-  onHome,
-  onSelect,
-  onOpenWorkers,
-  onOpenArchive,
-  onNew,
-}: Props) {
-  const active = sessions.filter((s) => s.status === 'running' || s.status === 'waiting');
-  const runningWorkers = workers.filter((w) => w.state === 'running').length;
-  const archived = sessions.filter((s) => s.resumable === true).length;
+function CloseConfirm({
+  title,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    cancelRef.current?.focus();
+  }, []);
+  return (
+    <span
+      className="top-tab-confirm"
+      role="group"
+      aria-label={`Close ${title}`}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          onCancel();
+        }
+      }}
+    >
+      <span>Stop session?</span>
+      <button type="button" className="btn btn-danger btn-sm" onClick={onConfirm}>
+        Stop
+      </button>
+      <button ref={cancelRef} type="button" className="btn btn-ghost btn-sm" onClick={onCancel}>
+        Cancel
+      </button>
+    </span>
+  );
+}
 
-  const fiveHour = usage?.claude.available === true ? usage.claude.fiveHour : undefined;
-  const utilization = fiveHour?.utilization ?? null;
-  const resetLabel = fiveHour?.resetsAt ? fmtResetIn(fiveHour.resetsAt) : '';
-  const pill =
-    fiveHour != null && utilization != null
-      ? `Claude 5-hour window ${Math.min(100, Math.max(0, Math.round(utilization)))}%${
-          resetLabel ? `, resets ${resetLabel}` : ''
-        }`
-      : undefined;
+export function TopBar({ sessions, selectedId, onHome, onSelect, onNew, onClose, isLivePage }: Props) {
+  const tabs = sessions.filter(
+    (s) => s.status === 'running' || s.status === 'waiting' || s.id === selectedId,
+  );
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const anchorRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (confirmingId === null) return;
+    if (!tabs.some((t) => t.id === confirmingId)) setConfirmingId(null);
+  });
+
+  const cancelConfirm = () => {
+    setConfirmingId(null);
+    anchorRef.current?.focus();
+  };
 
   return (
     <header className="topstrip">
@@ -57,78 +79,71 @@ export function TopBar({
         aria-label="SwarmKit — go to the dashboard home"
         onClick={onHome}
       >
-        <Logo size={22} withWordmark />
+        <span className="top-brand-mark" aria-hidden="true" />
+        swarmkit
       </button>
 
-      {active.length > 0 && (
-        <div className="top-chips" role="group" aria-label="Active sessions">
-          {active.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              className={`tchip${s.id === selectedId ? ' is-selected' : ''}`}
-              aria-current={s.id === selectedId || undefined}
-              aria-label={`${s.title || s.project}, status ${s.status}${
-                s.pendingPermissions > 0 ? `, ${s.pendingPermissions} pending` : ''
-              }`}
-              title={s.title || s.project}
-              onClick={() => onSelect(s.id)}
-            >
-              <i className={`dot st-${s.status}`} aria-hidden="true" />
-              <span className="tchip-title">{s.title || s.project}</span>
-              {s.pendingPermissions > 0 && (
-                <span
-                  className="tchip-pending"
-                  title={`${s.pendingPermissions} pending permission(s)`}
-                >
-                  {s.pendingPermissions}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <nav className="top-actions" aria-label="Dashboard">
-        <button type="button" className="top-link" onClick={onOpenWorkers} aria-label={`Workers, ${runningWorkers} running`}>
-          <span className="top-link-icon" aria-hidden="true">
-            <WorkerIcon size={18} />
-          </span>
-          <span className="top-link-label">Workers</span>
-          <span className="top-count" title={`${runningWorkers} running`} aria-hidden="true">
-            {runningWorkers}
-          </span>
-        </button>
-        <button type="button" className="top-link" onClick={onOpenArchive} aria-label={`Archive, ${archived} resumable`}>
-          <span className="top-link-icon" aria-hidden="true">
-            <ArchiveIcon size={18} />
-          </span>
-          <span className="top-link-label">Archive</span>
-          <span className="top-count" title={`${archived} resumable ended sessions`} aria-hidden="true">
-            {archived}
-          </span>
-        </button>
-        {pill && utilization != null && (
-          <span
-            className={`usage-pill tone-${usageTone(utilization)}`}
-            aria-label={pill}
-            title={resetLabel ? `resets ${resetLabel}` : undefined}
-          >
-            Claude 5h <b>{Math.min(100, Math.max(0, Math.round(utilization)))}%</b>
-          </span>
-        )}
-        <span
-          className={`dot top-conn ${connected ? 'st-running' : 'st-error'}`}
-          role="img"
-          aria-label={connected ? 'Live' : 'Reconnecting'}
-          title={connected ? 'Live' : 'Reconnecting…'}
-        />
-        <button type="button" className="btn btn-primary btn-sm top-new" onClick={onNew}>
-          <PlusIcon size={13} />
-          New session
-        </button>
-        <button type="button" className="icon-btn top-new-icon" onClick={onNew} aria-label="New session">
-          <PlusIcon size={18} />
+      <nav className="top-tabs" aria-label="Sessions">
+        {tabs.map((s) => {
+          const selected = s.id === selectedId;
+          const title = s.title || s.project;
+          const live = isLivePage?.(s) ?? (s.status === 'running' || s.status === 'waiting');
+          if (confirmingId === s.id && live) {
+            return (
+              <div key={s.id} className={`top-tab${selected ? ' is-selected' : ''}`}>
+                <CloseConfirm
+                  title={title}
+                  onConfirm={() => {
+                    setConfirmingId(null);
+                    onClose(s.id);
+                  }}
+                  onCancel={cancelConfirm}
+                />
+              </div>
+            );
+          }
+          return (
+            <div key={s.id} className={`top-tab${selected ? ' is-selected' : ''}`}>
+              <button
+                type="button"
+                className="top-tab-select"
+                aria-current={selected ? 'page' : undefined}
+                aria-label={`${sessionHint(s)}, status ${s.status}${
+                  s.pendingPermissions > 0 ? `, ${s.pendingPermissions} pending` : ''
+                }`}
+                title={sessionHint(s)}
+                onClick={() => onSelect(s.id)}
+              >
+                <i className={`dot st-${s.status}`} aria-hidden="true" />
+                <span className="top-tab-title">{title}</span>
+                {s.pendingPermissions > 0 && (
+                  <span className="top-tab-pending" aria-hidden="true">
+                    {s.pendingPermissions}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                className="top-tab-close"
+                aria-label={`Close ${title}`}
+                title={`Close ${title}`}
+                onClick={(e) => {
+                  if (live) {
+                    anchorRef.current = e.currentTarget;
+                    setConfirmingId(s.id);
+                  } else {
+                    onClose(s.id);
+                  }
+                }}
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>
+          );
+        })}
+        <button type="button" className="top-tab-new" aria-label="New session" onClick={onNew}>
+          <span aria-hidden="true">+</span>
+          <span className="top-tab-new-label">New session</span>
         </button>
       </nav>
     </header>

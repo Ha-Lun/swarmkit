@@ -9,6 +9,7 @@ interface Rate {
 }
 
 const RATES: Record<string, Rate> = {
+  fable: { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
   opus: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
   sonnet: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
   haiku: { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
@@ -19,6 +20,7 @@ export function modelTier(model: string | undefined): string | undefined {
   if (!model) return undefined;
   if (model in RATES) return model;
   const m = model.toLowerCase();
+  if (m.includes('claude-fable')) return 'fable';
   if (m.includes('claude-opus')) return 'opus';
   if (m.includes('claude-sonnet')) return 'sonnet';
   if (m.includes('claude-haiku')) return 'haiku';

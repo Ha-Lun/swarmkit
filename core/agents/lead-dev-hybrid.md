@@ -9,7 +9,8 @@ capabilities:
 - delegate
 - bash
 opencode:
-  model: opencode-go/mimo-v2.6-pro
+  model: opencode-go/deepseek-v4.1-flash
+  effort: max
   mode: primary
   temperature: 0.3
   permission:
@@ -43,7 +44,7 @@ claude:
   - Write
   hooks:
     PreToolUse:
-    - matcher: Write
+    - matcher: Write|Bash
       hooks:
       - type: command
         command: python3 ~/.claude/hooks/guard.py lead-dev-hybrid

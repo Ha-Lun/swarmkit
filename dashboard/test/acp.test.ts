@@ -1,11 +1,11 @@
 // Tests for the OpenCode ACP runtime adapter against a fake `opencode acp` child.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { buildOverlay, createAcpQuery, pickOptionId } from '../server/runtimes/acp.ts';
+import { createAcpQuery, elicitationContent, parseElicitation, pickOptionId } from '../server/runtimes/acp.ts';
 import type { AcpOptions } from '../server/runtimes/acp.ts';
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-acp-agent.mjs');
@@ -150,6 +150,26 @@ describe('acp runtime', () => {
     const entries = readRecord(recordFile);
     expect(entries.some(e => e.method === 'session/new' && (e.params as Rec)?.cwd === process.cwd())).toBe(true);
     expect(entries.some(e => e.method === 'permission-decision' && e.allowed === true)).toBe(true);
+  });
+
+  it('exposes available commands via supportedCommands', async () => {
+    const recordFile = makeRecord();
+    const seen: Seen[] = [];
+    const { options, abort } = sdkOpts(allowUse(seen));
+    const q = createAcpQuery(acpOpts(recordFile))({ prompt: 'do work', options });
+    const first = await timed((q as unknown as AsyncGenerator<SDKMessage>).next(), 15000, 'init');
+    expect((first.value as unknown as Rec).type).toBe('system');
+    await vi.waitFor(async () => {
+      const cmds = await (q as unknown as { supportedCommands: () => Promise<unknown> }).supportedCommands();
+      expect(cmds).toEqual([
+        { name: 'compact', description: 'Compact the session' },
+        { name: 'review', description: 'Review changes', argumentHint: '<path>' },
+      ]);
+    });
+    const rest: SDKMessage[] = [];
+    for await (const m of q) rest.push(m);
+    expect(rest.some(m => (m as unknown as Rec).type === 'result')).toBe(true);
+    abort.abort();
   });
 
   it('deny answers the permission with a failed tool result', async () => {
@@ -327,11 +347,20 @@ describe('acp runtime', () => {
     );
   });
 
-  it('passes OPENCODE=1, drops CLAUDECODE and sends the permission overlay', async () => {
+  it('passes OPENCODE=1, drops CLAUDECODE and never sets OPENCODE_CONFIG_CONTENT', async () => {
     const recordFile = makeRecord();
     const seen: Seen[] = [];
     const { options, abort } = sdkOpts(allowUse(seen));
-    const messages = await collectAll(createAcpQuery(acpOpts(recordFile)), 'echo-env', options, abort);
+    const messages = await collectAll(
+      createAcpQuery(
+        acpOpts(recordFile, {
+          env: { ...process.env, CLAUDECODE: '1', OPENCODE_CONFIG_CONTENT: '{"permission":{"bash":"allow"}}', FAKE_ACP_RECORD: recordFile },
+        }),
+      ),
+      'echo-env',
+      options,
+      abort,
+    );
     const envBlock = messages
       .flatMap(blocksOf)
       .find(b => b.type === 'text' && typeof b.text === 'string' && (b.text as string).startsWith('{'));
@@ -339,13 +368,9 @@ describe('acp runtime', () => {
     const envSeen = JSON.parse(envBlock!.text as string) as Rec;
     expect(envSeen.OPENCODE).toBe('1');
     expect(envSeen.CLAUDECODE).toBeNull();
-    const overlay = JSON.parse(envSeen.overlay as string) as Rec;
-    expect(overlay.permission).toEqual({ bash: { '*': 'ask' } });
-    const agents = overlay.agent as Record<string, Rec>;
-    for (const name of ['build', 'plan', 'general', 'explore', 'lead-dev-hybrid']) {
-      expect(agents[name]).toEqual({ permission: { bash: { '*': 'ask' } } });
-    }
-    expect(JSON.stringify(overlay)).not.toContain('allow');
+    // Even a caller-provided value must not reach the child: the dashboard
+    // never alters the user's OpenCode permission config.
+    expect(envSeen.overlay).toBeNull();
   });
 
   it('a child that exits at once ends the iterator with no unhandled rejection', async () => {
@@ -452,31 +477,6 @@ describe('acp runtime', () => {
   });
 });
 
-describe('buildOverlay', () => {
-  it('adds an ask-bash entry for every agent file in the XDG and project agent dirs', () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'acp-overlay-'));
-    dirs.push(root);
-    const xdg = path.join(root, 'xdg');
-    const cwd = path.join(root, 'proj');
-    for (const d of [path.join(xdg, 'opencode', 'agents'), path.join(xdg, 'opencode', 'agent'), path.join(cwd, '.opencode', 'agents')]) mkdirSync(d, { recursive: true });
-    writeFileSync(path.join(xdg, 'opencode', 'agents', 'backend-specialist.md'), '');
-    writeFileSync(path.join(xdg, 'opencode', 'agent', 'old-one.md'), '');
-    writeFileSync(path.join(cwd, '.opencode', 'agents', 'proj-agent.md'), '');
-    writeFileSync(path.join(xdg, 'opencode', 'agents', 'notes.txt'), '');
-    const overlay = buildOverlay(cwd, { XDG_CONFIG_HOME: xdg }) as { permission: Rec; agent: Record<string, Rec> };
-    expect(overlay.permission).toEqual({ bash: { '*': 'ask' } });
-    for (const name of ['backend-specialist', 'old-one', 'proj-agent', 'build', 'plan', 'general', 'explore', 'lead-dev-hybrid']) {
-      expect(overlay.agent[name]).toEqual({ permission: { bash: { '*': 'ask' } } });
-    }
-    expect(overlay.agent.notes).toBeUndefined();
-  });
-
-  it('tolerates missing dirs', () => {
-    const overlay = buildOverlay('/nonexistent-cwd', { XDG_CONFIG_HOME: '/nonexistent-xdg' }) as { agent: Record<string, Rec> };
-    expect(Object.keys(overlay.agent).sort()).toEqual(['build', 'explore', 'general', 'lead-dev-hybrid', 'plan']);
-  });
-});
-
 describe('pickOptionId', () => {
   const opts = [
     { optionId: 'aa', kind: 'allow_always' },
@@ -494,4 +494,122 @@ describe('pickOptionId', () => {
     expect(pickOptionId([opts[0]], ['reject_once', 'reject_always'])).toBeUndefined();
     expect(pickOptionId('x', ['reject_once'])).toBeUndefined();
   });
+});
+
+/** Answers the AskUserQuestion that an elicitation becomes with `decide`, recording what canUseTool saw. */
+const askUse = (seen: Seen[], decide: (input: Record<string, unknown>) => unknown): NonNullable<Options['canUseTool']> =>
+  (async (toolName, input, opts) => {
+    seen.push({ toolName, input, ...(opts.toolUseID ? { toolUseID: opts.toolUseID } : {}) });
+    return decide(input);
+  }) as NonNullable<Options['canUseTool']>;
+
+const elicitationResult = (recordFile: string): Rec | undefined => readRecord(recordFile).find(e => e.method === 'elicitation-result');
+
+describe('acp elicitation', () => {
+  it('advertises the form elicitation capability', async () => {
+    const recordFile = makeRecord();
+    const { options, abort } = sdkOpts(allowUse([]));
+    await collectAll(createAcpQuery(acpOpts(recordFile)), 'do work', options, abort);
+    const init = readRecord(recordFile).find(e => e.method === 'initialize');
+    expect(((init?.params as Rec).clientCapabilities as Rec).elicitation).toEqual({ form: {} });
+  });
+
+  it('turns the form into one AskUserQuestion and maps the answers back to consts', async () => {
+    const recordFile = makeRecord();
+    const seen: Seen[] = [];
+    const { options, abort } = sdkOpts(askUse(seen, () => ({
+      behavior: 'allow',
+      updatedInput: { answers: { 'Color?': 'Blue', 'Which letters?': 'Alpha, Beta, gamma', 'How many?': '3', 'Are you sure?': 'yes' } },
+    })));
+    const messages = await collectAll(createAcpQuery(acpOpts(recordFile)), 'elicit', options, abort);
+    expect(typesOf(messages).at(-1)).toBe('result');
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.toolName).toBe('AskUserQuestion');
+    expect(seen[0]!.toolUseID).toBe('tc_q');
+    expect(seen[0]!.input).toEqual({
+      questions: [
+        { question: 'Color?', header: 'Color', multiSelect: false, options: [{ label: 'Red', description: 'the Red' }, { label: 'Blue', description: 'the Blue' }] },
+        { question: 'Which letters?', header: 'Letters', multiSelect: true, options: [{ label: 'Alpha' }, { label: 'Beta, gamma' }, { label: 'Delta' }] },
+        { question: 'How many?', header: 'Count', multiSelect: false, options: [] },
+        { question: 'Are you sure?', header: 'Sure', multiSelect: false, options: [] },
+      ],
+    });
+    expect(elicitationResult(recordFile)?.result).toEqual({ action: 'accept', content: { q0: 'blue', q1: ['a', 'b'], q2: 3, q3: true } });
+  });
+
+  it('puts typed text in q<i>_custom, without the choice it would override', async () => {
+    const recordFile = makeRecord();
+    const { options, abort } = sdkOpts(askUse([], () => ({
+      behavior: 'allow',
+      updatedInput: { answers: { 'Color?': 'Green', 'Which letters?': 'Alpha, something else' } },
+    })));
+    await collectAll(createAcpQuery(acpOpts(recordFile)), 'elicit', options, abort);
+    expect(elicitationResult(recordFile)?.result).toEqual({
+      action: 'accept',
+      content: { q0_custom: 'Green', q1_custom: 'Alpha, something else' },
+    });
+  });
+
+  it('a skipped question accepts with empty content instead of declining', async () => {
+    const recordFile = makeRecord();
+    const { options, abort } = sdkOpts(askUse([], () => ({ behavior: 'deny', message: 'The user skipped the question' })));
+    const messages = await collectAll(createAcpQuery(acpOpts(recordFile)), 'elicit', options, abort);
+    expect(elicitationResult(recordFile)?.result).toEqual({ action: 'accept', content: {} });
+    expect(((messages.at(-1) as unknown as Rec).subtype)).toBe('success');
+  });
+
+  it('rejects a form with an unsupported field type', async () => {
+    const recordFile = makeRecord();
+    const seen: Seen[] = [];
+    const { options, abort } = sdkOpts(askUse(seen, () => ({ behavior: 'allow' })));
+    await collectAll(createAcpQuery(acpOpts(recordFile)), 'elicit-unknown', options, abort);
+    expect(seen).toHaveLength(0);
+    expect((elicitationResult(recordFile)?.error as Rec).code).toBe(-32602);
+  });
+
+  it('rejects a form with more than four questions', async () => {
+    const recordFile = makeRecord();
+    const seen: Seen[] = [];
+    const { options, abort } = sdkOpts(askUse(seen, () => ({ behavior: 'allow' })));
+    await collectAll(createAcpQuery(acpOpts(recordFile)), 'elicit-big', options, abort);
+    expect(seen).toHaveLength(0);
+    expect((elicitationResult(recordFile)?.error as Rec).code).toBe(-32602);
+  });
+});
+
+describe('parseElicitation / elicitationContent', () => {
+  const schema = (properties: Rec): Rec => ({ mode: 'form', requestedSchema: { type: 'object', properties } });
+  const opts = (n: number): Rec[] => Array.from({ length: n }, (_v, i) => ({ const: `v${i}`, title: `L${i}` }));
+
+  it('rejects more than ten options, non-form modes and empty schemas', () => {
+    expect(typeof parseElicitation(schema({ q0: { type: 'string', oneOf: opts(11) } }))).toBe('string');
+    expect(typeof parseElicitation({ mode: 'url', requestedSchema: { properties: {} } })).toBe('string');
+    expect(typeof parseElicitation(schema({}))).toBe('string');
+    expect(typeof parseElicitation({})).toBe('string');
+  });
+
+  it('caps long strings and keeps question texts unique', () => {
+    const long = 'x'.repeat(5000);
+    const parsed = parseElicitation(schema({
+      q0: { type: 'string', title: 'A very long header', description: long, oneOf: [{ const: 'a', title: long }] },
+      q1: { type: 'string', title: 'Same', description: long },
+    }));
+    if (typeof parsed === 'string') throw new Error(parsed);
+    const [first, second] = parsed.input.questions;
+    expect(first!.header).toBe('A very long ');
+    expect(first!.question.length).toBe(500);
+    expect(first!.options[0]!.label.length).toBe(100);
+    expect(second!.question).not.toBe(first!.question);
+  });
+
+  it('uses the text as q<i> when the schema has no _custom field, and ignores unusable numbers', () => {
+    const parsed = parseElicitation(schema({ q0: choice(), q1: { type: 'integer', description: 'N' } }));
+    if (typeof parsed === 'string') throw new Error(parsed);
+    expect(elicitationContent(parsed, { 'Pick?': 'Other thing', N: '2.5' })).toEqual({ q0: 'Other thing' });
+    expect(elicitationContent(parsed, undefined)).toEqual({});
+  });
+
+  function choice(): Rec {
+    return { type: 'string', description: 'Pick?', oneOf: [{ const: 'x', title: 'X' }] };
+  }
 });

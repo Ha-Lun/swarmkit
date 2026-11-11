@@ -2,6 +2,8 @@
 """PreToolUse hook gating sandboxed `agy` dashboard sessions (stdlib only, run as `python3 -I`)."""
 import json
 import os
+import re
+import shlex
 import sys
 import urllib.request
 
@@ -67,6 +69,10 @@ def auto_allowed(name, args, root, images_root=None):
                 return False
     if edit and any(os.path.relpath(p, root).lower() in RULES or sensitive_edit(p, root) for p in resolved):
         return False
+    if edit:
+        settings = os.path.realpath(settings_path())
+        if any(p == settings or ".gemini" in (q.lower() for q in p.split(os.sep)) for p in resolved):
+            return False
     return True
 
 
@@ -80,6 +86,129 @@ def sensitive_edit(resolved, root):
         return os.stat(resolved).st_nlink > 1
     except OSError:
         return False
+
+def settings_path():
+    return os.environ.get("SWARMKIT_DASH_AGY_SETTINGS") or os.path.expanduser("~/.gemini/antigravity-cli/settings.json")
+
+
+def load_rules():
+    """Read the agy CLI's own `command(...)` permission rules; any problem yields empty lists."""
+    try:
+        with open(settings_path(), encoding="utf-8") as fh:
+            perms = json.load(fh).get("permissions")
+        return parse_rules(perms.get("allow")), parse_rules(perms.get("deny"))
+    except Exception:
+        return [], []
+
+
+def parse_rules(entries):
+    rules = []
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, str):
+            continue
+        entry = entry.strip()
+        if not (entry.startswith("command(") and entry.endswith(")")):
+            continue
+        try:
+            tokens = shlex.split(entry[8:-1])
+        except ValueError:
+            continue
+        if tokens:
+            rules.append(tokens)
+    return rules
+
+
+def split_command(cmd):
+    """Quote-aware split on && || ; | newline. Returns (segments, unsafe) or None when quoting is unbalanced."""
+    segs, cur, unsafe = [], [], "\r" in cmd
+    quote = None
+    i, n = 0, len(cmd)
+    while i < n:
+        c = cmd[i]
+        nxt = cmd[i + 1] if i + 1 < n else ""
+        if quote == "'":
+            if c == "'":
+                quote = None
+            elif c == "\n":
+                unsafe = True
+            cur.append(c)
+        elif quote == '"':
+            if c == "\\":
+                cur.append(c + nxt)
+                i += 1
+                if nxt == "\n":
+                    unsafe = True
+            else:
+                if c == '"':
+                    quote = None
+                elif c == "`" or (c == "$" and nxt in ("(", "{")) or c == "\n":
+                    unsafe = True
+                cur.append(c)
+        elif c == "\\":
+            cur.append(c + nxt)
+            i += 1
+            if nxt == "\n":
+                unsafe = True
+        elif c in "'\"":
+            quote = c
+            cur.append(c)
+        elif c == "`" or c in "<>" or (c == "$" and nxt in ("(", "{", "'")):
+            unsafe = True
+            cur.append(c)
+        elif c == "#" and (not cur or cur[-1].isspace()):
+            unsafe = True  # a comment: bash would ignore the rest, the hook would not
+            cur.append(c)
+        elif c == "&" and nxt != "&":
+            unsafe = True
+            cur.append(c)
+        elif c in ";\n" or c in "&|":
+            if c in "&|" and nxt == c:
+                i += 1
+            segs.append("".join(cur))
+            cur = []
+        else:
+            cur.append(c)
+        i += 1
+    if quote:
+        return None
+    segs.append("".join(cur))
+    return segs, unsafe
+
+
+def command_decision(cmd):
+    """Return "allow", "deny" or None (ask) for a shell command line using the agy CLI's own rules."""
+    if not isinstance(cmd, str) or not cmd.strip():
+        return None
+    allow, deny = load_rules()
+    split = split_command(cmd.strip() if "\r" not in cmd else cmd)
+    if split is None:
+        return None
+    segs, unsafe = split
+    tokenized = []
+    for seg in segs:
+        if not seg.strip():
+            continue
+        try:
+            tokenized.append(shlex.split(seg))
+        except ValueError:
+            unsafe = True
+            tokenized.append(None)
+    if not tokenized:
+        return None
+
+    def matches(tokens, rules):
+        return any(tokens[: len(r)] == r for r in rules)
+
+    if any(t and matches(t, deny) for t in tokenized):
+        return "deny"
+    if unsafe:
+        return None
+    for t in tokenized:
+        if not t or re.match(r"[A-Za-z_][A-Za-z0-9_]*=", t[0]):
+            return None
+        if not ((t[0] == "cd" and len(t) <= 2) or matches(t, allow)):
+            return None
+    return "allow"
 
 
 def ask_dashboard(url, secret, raw):
@@ -118,6 +247,12 @@ def decide():
     images_root = os.path.realpath(images) if images and images.startswith("/") else None
     if auto_allowed(call.get("name"), call.get("args"), root, images_root):
         return {"decision": "allow"}
+    if call.get("name") == "run_command" and isinstance(call.get("args"), dict):
+        verdict = command_decision(call["args"].get("CommandLine"))
+        if verdict == "allow":
+            return {"decision": "allow"}
+        if verdict == "deny":
+            return {"decision": "deny", "reason": "denied by your agy settings (permissions.deny)"}
     return ask_dashboard(url, secret, raw.encode("utf-8"))
 
 

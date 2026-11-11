@@ -1,8 +1,13 @@
 // HTTP + SSE wrappers around the server contract in ../shared/types.
 import type {
   AgentsResponse,
+  CommandsResponse,
+  GitResponse,
+  DecideOptions,
   DirListing,
-  ImageAttachment,
+  FileAttachment, ImageAttachment,
+  PermissionDecisionBody,
+  PresenceBody,
   RuntimesResponse,
   ServerEvent,
   SessionDetail,
@@ -62,11 +67,19 @@ export interface FleetBackend {
   sessions(): Promise<SessionSummary[]>;
   detail(id: string): Promise<SessionDetail>;
   start(body: StartSessionBody): Promise<StartSessionResponse>;
-  send(sessionId: string, text: string, images?: ImageAttachment[]): Promise<unknown>;
+  send(sessionId: string, text: string, images?: ImageAttachment[], files?: FileAttachment[]): Promise<unknown>;
   interrupt(sessionId: string): Promise<unknown>;
   stop(sessionId: string): Promise<unknown>;
   resume(sessionId: string, body: ResumeSessionBody): Promise<StartSessionResponse>;
-  decide(permissionId: string, allow: boolean, message?: string): Promise<unknown>;
+  /** Stop the session and resume it; `text` is sent as the first message when given. */
+  restart(sessionId: string, text?: string): Promise<{ sessionId: string }>;
+  decide(
+    permissionId: string,
+    allow: boolean,
+    message?: string,
+    answers?: Record<string, string>,
+    opts?: DecideOptions,
+  ): Promise<unknown>;
   agents(cwd: string): Promise<AgentsResponse>;
   cwds(): Promise<string[]>;
   dirs(path?: string, hidden?: boolean): Promise<DirListing>;
@@ -76,6 +89,10 @@ export interface FleetBackend {
   workerLog(lane: string, repo: string, slug: string): Promise<{ lines: string[] }>;
   usage(refresh?: boolean): Promise<UsageReport>;
   runtimes(): Promise<RuntimesResponse>;
+  commands(sessionId: string): Promise<CommandsResponse>;
+  git(sessionId: string): Promise<GitResponse>;
+  /** Tab heartbeat; `keepalive` lets the final hidden report survive page unload. */
+  presence(body: PresenceBody, keepalive?: boolean): Promise<unknown>;
   connect(
     onEvent: (ev: ServerEvent) => void,
     onStatus: (connected: boolean) => void,
@@ -87,8 +104,10 @@ export const apiBackend: FleetBackend = {
   detail: (id) => request(`/api/sessions/${encodeURIComponent(id)}`),
   start: (body) =>
     request('/api/sessions', { method: 'POST', body: JSON.stringify(body) }),
-  send: (sessionId, text, images) => {
-    const body: SendMessageBody = images?.length ? { text, images } : { text };
+  send: (sessionId, text, images, files) => {
+    const body: SendMessageBody = { text };
+    if (images?.length) body.images = images;
+    if (files?.length) body.files = files;
     return request(`/api/sessions/${encodeURIComponent(sessionId)}/message`, {
       method: 'POST',
       body: JSON.stringify(body),
@@ -102,11 +121,24 @@ export const apiBackend: FleetBackend = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
-  decide: (permissionId, allow, message) =>
-    request(`/api/permissions/${encodeURIComponent(permissionId)}`, {
+  restart: (sessionId, text) =>
+    request(`/api/sessions/${encodeURIComponent(sessionId)}/restart`, {
       method: 'POST',
-      body: JSON.stringify(message === undefined ? { allow } : { allow, message }),
+      body: JSON.stringify(text === undefined ? {} : { text }),
     }),
+  decide: (permissionId, allow, message, answers, opts) => {
+    const body: PermissionDecisionBody = { allow };
+    if (message !== undefined) body.message = message;
+    if (answers !== undefined) body.answers = answers;
+    if (opts?.mode !== undefined) body.mode = opts.mode;
+    if (opts?.terminal) body.terminal = true;
+    return request(`/api/permissions/${encodeURIComponent(permissionId)}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+  presence: (body, keepalive) =>
+    request('/api/presence', { method: 'POST', body: JSON.stringify(body), ...(keepalive ? { keepalive: true } : {}) }),
   agents: (cwd) => request(`/api/agents?cwd=${encodeURIComponent(cwd)}`),
   cwds: () => request('/api/cwds'),
   dirs: (path, hidden) => {
@@ -126,6 +158,8 @@ export const apiBackend: FleetBackend = {
     ),
   usage: (refresh) => request(refresh ? '/api/usage?refresh=1' : '/api/usage'),
   runtimes: () => request('/api/runtimes'),
+  commands: (sessionId) => request(`/api/sessions/${encodeURIComponent(sessionId)}/commands`),
+  git: (sessionId) => request(`/api/sessions/${encodeURIComponent(sessionId)}/git`),
   connect(onEvent, onStatus) {
     // EventSource reconnects on its own with backoff; we surface the state and
     // let App refetch the selected detail when the stream reopens.

@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { readFile, stat } from 'node:fs/promises';
 import { accessSync, constants as fsConstants, statSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ViteDevServer } from 'vite';
@@ -24,17 +25,21 @@ import {
 } from './auth.ts';
 import { listAgents } from './agents.ts';
 import { DirError, listDirs } from './dirs.ts';
+import { gitInfo } from './git.ts';
 import { listStars, setStar } from './stars.ts';
 import { WorkerRegistry } from './registry.ts';
 import { SdkSessions, SessionError } from './sdk/sessions.ts';
-import { validImages, validMessageText, validRuntime, validRuntimeAgent, validRuntimeEffort, validRuntimeModel, ValidationError } from './validate.ts';
+import { validAttachmentTotals, validFiles, validImages, validMessageText, validRuntime, validRuntimeAgent, validRuntimeEffort, validRuntimeModel, ValidationError } from './validate.ts';
 import { imageEtag, readImage } from './images.ts';
 import { resolveDirInHome } from './paths.ts';
+import { staticPolicy } from './static.ts';
 import { abortUsageProbe, getUsage } from './usage.ts';
 import { freshTranscriptMtimeMs, holderMessage, liveHolder } from './livesessions.ts';
 import { TranscriptWatcher } from './watch/transcripts.ts';
+import { ClaudeHookBridge, Presence, removeClaudeHookFile, startClaudeHookServer, writeClaudeHookFile } from './claudehook.ts';
+import type { HookSocketServer } from './claudehook.ts';
 import { isLoopback } from './hookauth.ts';
-import type { AgentNode, ResumeSessionBody, RuntimesResponse, SendMessageBody, ServerEvent, SessionSummary, StartSessionBody } from '../src/shared/types.ts';
+import type { AgentNode, PermissionDecisionBody, ResumeSessionBody, RuntimesResponse, SendMessageBody, ServerEvent, SessionSummary, StartSessionBody } from '../src/shared/types.ts';
 
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4317;
@@ -118,7 +123,9 @@ async function resolveCwd(raw: unknown): Promise<string> {
 async function validateSessionBody(body: unknown): Promise<StartSessionBody> {
   const raw = requireObject(body);
   const images = validImages(raw.images);
-  const prompt = validMessageText(raw.prompt, images, 'prompt');
+  const files = validFiles(raw.files);
+  validAttachmentTotals(images, files);
+  const prompt = validMessageText(raw.prompt, images, files, 'prompt');
   const runtime = validRuntime(raw.runtime);
   const start: StartSessionBody = { prompt, cwd: await resolveCwd(raw.cwd), runtime };
   const agent = validRuntimeAgent(runtime, raw.agent);
@@ -128,23 +135,56 @@ async function validateSessionBody(body: unknown): Promise<StartSessionBody> {
   const effort = validRuntimeEffort(runtime, raw.effort);
   if (effort !== undefined) start.effort = effort;
   if (images) start.images = images;
+  if (files) start.files = files;
   return start;
 }
 
 function validateMessageBody(body: unknown): SendMessageBody {
   const raw = requireObject(body);
   const images = validImages(raw.images);
-  const text = validMessageText(raw.text, images);
-  return images ? { text, images } : { text };
+  const files = validFiles(raw.files);
+  validAttachmentTotals(images, files);
+  const text = validMessageText(raw.text, images, files);
+  const out: SendMessageBody = { text };
+  if (images) out.images = images;
+  if (files) out.files = files;
+  return out;
 }
 
-function validateDecisionBody(body: unknown): { allow: boolean; message?: string } {
+function validateDecisionBody(body: unknown): PermissionDecisionBody {
   const raw = requireObject(body);
   if (typeof raw.allow !== 'boolean') throw new HttpError(400, 'allow must be a boolean');
-  const out: { allow: boolean; message?: string } = { allow: raw.allow };
+  const out: PermissionDecisionBody = { allow: raw.allow };
+  if (raw.mode !== undefined) {
+    if (raw.mode !== 'auto' && raw.mode !== 'acceptEdits') throw new HttpError(400, "mode must be 'auto' or 'acceptEdits'");
+    out.mode = raw.mode;
+  }
+  if (raw.terminal !== undefined) {
+    if (raw.terminal !== true) throw new HttpError(400, 'terminal must be true');
+    out.terminal = true;
+  }
   if (raw.message !== undefined) {
     if (typeof raw.message !== 'string') throw new HttpError(400, 'message must be a string');
     out.message = raw.message;
+  }
+  if (raw.answers !== undefined) {
+    if (typeof raw.answers !== 'object' || raw.answers === null || Array.isArray(raw.answers)) {
+      throw new HttpError(400, 'answers must be an object');
+    }
+    const entries = Object.entries(raw.answers as Record<string, unknown>);
+    if (entries.length > 4) throw new HttpError(400, 'answers must have at most 4 entries');
+    if (entries.length === 0) throw new HttpError(400, 'answers must not be empty');
+    // Object.fromEntries keeps "__proto__" an own property instead of hitting
+    // the prototype setter (assignment would silently drop/shadow it).
+    const clean: Record<string, string> = Object.fromEntries(
+      entries.map(([k, v]) => {
+        if (k.length === 0) throw new HttpError(400, 'answers keys must not be empty');
+        if (typeof v !== 'string') throw new HttpError(400, 'answers values must be strings');
+        if (k.length > 4000 || v.length > 4000) throw new HttpError(400, 'answers keys and values must be at most 4000 characters');
+        return [k, v] as const;
+      }),
+    );
+    out.answers = clean;
   }
   return out;
 }
@@ -203,6 +243,17 @@ async function main(): Promise<void> {
   const watcher = new TranscriptWatcher({ emit: broadcast, skip: id => sdk.owns(id) });
   watcher.start();
 
+  // Terminal Claude Code sessions relay AskUserQuestion / ExitPlanMode here through their
+  // PermissionRequest hook; the secret is new on every start and lives only in the hook file.
+  const claudeHookSecret = randomBytes(32).toString('hex');
+  const presence = new Presence();
+  const claudeHook = new ClaudeHookBridge({
+    watcher,
+    owns: id => sdk.owns(id),
+    // Held only while a tab reported itself visible recently (POST /api/presence).
+    dashboardOpen: () => presence.anyVisible(),
+  });
+
   const registry = new WorkerRegistry({
     emit: broadcast,
     link: (lane, slug) => sdk.findWorkerNode(lane, slug) ?? watcher.findWorkerNode(lane, slug),
@@ -219,11 +270,14 @@ async function main(): Promise<void> {
     try {
       const runtime = sdk.runtimeOf(id) ?? 'claude';
       const images = validImages(raw.images);
-      const text = validMessageText(raw.text, images);
+      const files = validFiles(raw.files);
+      validAttachmentTotals(images, files);
+      const text = validMessageText(raw.text, images, files);
       const model = validRuntimeModel(runtime, raw.model);
       const effort = validRuntimeEffort(runtime, raw.effort);
       body = { text };
       if (images) body.images = images;
+      if (files) body.files = files;
       if (model !== undefined) body.model = model;
       if (effort !== undefined) body.effort = effort;
     } catch (err) {
@@ -258,6 +312,20 @@ async function main(): Promise<void> {
     }
     try {
       const sessionId = await sdk.resume(id, body, info);
+      return sendJson(res, 200, { sessionId });
+    } catch (err) {
+      if (err instanceof SessionError) {
+        return sendJson(res, err.status, { error: err.message });
+      }
+      throw err;
+    }
+  }
+
+  /** POST /api/sessions/:id/restart: restart a page-owned Claude session's process on the same id. */
+  async function restartSession(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
+    const raw = requireObject(await readJson(req, MAX_IMAGE_BODY));
+    try {
+      const sessionId = await sdk.restart(id, { text: raw.text as string | undefined });
       return sendJson(res, 200, { sessionId });
     } catch (err) {
       if (err instanceof SessionError) {
@@ -416,19 +484,26 @@ async function main(): Promise<void> {
     if (resolved !== distDir && !resolved.startsWith(distDir + path.sep)) {
       return sendJson(res, 403, { error: 'forbidden' });
     }
-    let file = resolved;
+    let exists = false;
     try {
-      const stats = await stat(file);
-      if (!stats.isFile()) throw new Error('not a file');
+      const stats = await stat(resolved);
+      exists = stats.isFile();
     } catch {
-      file = path.join(distDir, 'index.html');
+      exists = false;
     }
+    const policy = staticPolicy(pathname, exists);
+    if (policy.status === 404) {
+      return sendJson(res, 404, { error: 'not found' });
+    }
+    const file = policy.file === 'index' ? path.join(distDir, 'index.html') : resolved;
     try {
       const data = await readFile(file);
-      res.writeHead(200, {
+      const headers: Record<string, string | number> = {
         'Content-Type': CONTENT_TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
         'Content-Length': data.length,
-      });
+      };
+      if (policy.cacheControl) headers['Cache-Control'] = policy.cacheControl;
+      res.writeHead(200, headers);
       res.end(req.method === 'HEAD' ? undefined : data);
     } catch {
       sendJson(res, 404, { error: 'not found — run `npm run build` to create dist/' });
@@ -549,11 +624,18 @@ async function main(): Promise<void> {
         if (detail) return sendJson(res, 200, detail);
         return sendJson(res, 404, { error: 'session not found' });
       }
+      if (parts.length === 4 && parts[3] === 'git' && method === 'GET') {
+        // Separate from the detail so a slow git never delays it; the client polls this while a session is open.
+        const cwd = mergedSessions().find(s => s.id === id)?.cwd;
+        if (!cwd) return sendJson(res, 404, { error: 'session not found' });
+        const git = await gitInfo(cwd);
+        return sendJson(res, 200, git ? { git } : {});
+      }
       if (parts.length === 4 && (parts[3] === 'message' || parts[3] === 'interrupt') && method === 'POST') {
         if (!sdk.owns(id)) return sendJson(res, 404, { error: 'session not found' });
         if (parts[3] === 'message') {
           const message = validateMessageBody(await readJson(req, MAX_IMAGE_BODY));
-          if (!sdk.send(id, message.text, message.images)) return sendJson(res, 404, { error: 'session not found' });
+          if (!sdk.send(id, message.text, message.images, message.files)) return sendJson(res, 404, { error: 'session not found' });
         } else if (!sdk.interrupt(id)) {
           return sendJson(res, 404, { error: 'session not found' });
         }
@@ -571,7 +653,28 @@ async function main(): Promise<void> {
       if (parts.length === 4 && parts[3] === 'resume' && method === 'POST') {
         return resumeSession(req, res, id);
       }
+      if (parts.length === 4 && parts[3] === 'restart' && method === 'POST') {
+        return restartSession(req, res, id);
+      }
+      if (parts.length === 4 && parts[3] === 'commands') {
+        if (method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+        // Terminal sessions are Claude: they get the last list seen in their cwd.
+        const terminalCwd = sdk.owns(id) ? undefined : watcher.fileInfo(id)?.cwd;
+        const commands = terminalCwd ? sdk.cachedCommands('claude', terminalCwd) : await sdk.commands(id);
+        if (commands === undefined) return sendJson(res, 404, { error: 'session not found' });
+        return sendJson(res, 200, { commands });
+      }
       return sendJson(res, 404, { error: 'not found' });
+    }
+
+    if (url.pathname === '/api/presence') {
+      if (method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+      const body = requireObject(await readJson(req, 1024));
+      const { id } = body;
+      if (typeof body.visible !== 'boolean') throw new HttpError(400, 'visible must be a boolean');
+      if (typeof id !== 'string' || id.length === 0 || id.length > 64) throw new HttpError(400, 'id must be a short string');
+      presence.set(id, body.visible);
+      return sendJson(res, 200, { ok: true });
     }
 
     if (parts[1] === 'permissions') {
@@ -580,7 +683,7 @@ async function main(): Promise<void> {
         return sendJson(res, 404, { error: 'not found' });
       }
       const decision = validateDecisionBody(await readJson(req));
-      return sdk.decide(permId, decision)
+      return sdk.decide(permId, decision) || claudeHook.decide(permId, decision)
         ? sendJson(res, 200, { ok: true })
         : sendJson(res, 404, { error: 'permission not found' });
     }
@@ -608,9 +711,9 @@ async function main(): Promise<void> {
       // Refresh bypasses the collector caches, but at most once per the guard window.
       let refresh = url.searchParams.get('refresh') === '1';
       if (refresh && now - lastUsageBypassMs < USAGE_REFRESH_GUARD_MS) refresh = false;
-      const report = await getUsage({ refresh });
-      // Stamp only after the report resolved, so a failed/aborted request does not burn the window.
+      // Stamp before awaiting, so concurrent refreshes during a slow probe cannot bypass again.
       if (refresh) lastUsageBypassMs = now;
+      const report = await getUsage({ refresh });
       res.setHeader('X-Usage-Refreshed', refresh ? '1' : '0');
       return sendJson(res, 200, report);
     }
@@ -676,12 +779,16 @@ async function main(): Promise<void> {
     });
   });
 
+  let hookSocket: HookSocketServer | undefined;
   let shuttingDown = false;
   const shutdown = (): void => {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log('Shutting down SwarmKit…');
     for (const s of sdk.list()) sdk.stop(s.id);
+    claudeHook.releaseAll();
+    removeClaudeHookFile(claudeHookSecret);
+    void hookSocket?.close();
     watcher.stop();
     registry.stop();
     abortUsageProbe();
@@ -709,6 +816,16 @@ async function main(): Promise<void> {
     const shown = HOST === '0.0.0.0' ? 'localhost' : HOST;
     console.log(`SwarmKit: http://${shown}:${PORT}`);
     console.log(`SwarmKit: token: ${tokenFile}`);
+    // The terminal-Claude hook listens on a private Unix socket, not on this port.
+    startClaudeHookServer({ bridge: claudeHook, secret: claudeHookSecret })
+      .then(started => {
+        hookSocket = started;
+        if (shuttingDown) return started.close();
+        writeClaudeHookFile(started.socketPath, claudeHookSecret);
+      })
+      .catch(err => {
+        console.error('Could not start the Claude hook socket:', err instanceof Error ? err.message : 'unknown error');
+      });
     // The token-in-URL link leaks through logs; print it only on an interactive terminal.
     if (process.stdout.isTTY) {
       console.log(`SwarmKit: http://${shown}:${PORT}/?token=${token}`);

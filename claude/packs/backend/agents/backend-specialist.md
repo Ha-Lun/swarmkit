@@ -2,6 +2,7 @@
 name: backend-specialist
 description: Backend specialist for APIs, services, auth, validation, background jobs and DB queries, including Cloudflare Workers (wrangler.toml). Use proactively for server-side work once the plan is approved.
 model: sonnet
+effort: high
 tools:
 - Read
 - Glob

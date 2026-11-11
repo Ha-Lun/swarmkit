@@ -1,23 +1,23 @@
-// The tree canvas: own tidy layout (no libraries), SVG connectors, pan/zoom/fit.
+// The swarm map: a pan/zoom canvas with the agent tree (own tidy layout, SVG connectors).
+// Finished children fold into one "Done (n)" node per parent so live work and failures stay in focus.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
-import type { AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
-import { NodeCard } from './NodeCard';
-import { matchWorkerTask } from './chat';
-import { FitIcon, ZoomInIcon, ZoomOutIcon } from './icons';
+import type { FocusEvent as ReactFocusEvent, PointerEvent as ReactPointerEvent } from 'react';
+import type { AgentNode, DecideOptions, PermissionRequest, Status, WorkerTask } from '../shared/types';
+import { DoneCard, NodeCard, nodeElapsedMs } from './NodeCard';
+import { agentState, foldDone, matchWorkerTask } from './chat';
+import { ChevronIcon, FitIcon, ZoomInIcon, ZoomOutIcon } from './icons';
 
-const CARD_W = 232;
+const CARD_W = 240;
 const H_GAP = 20;
-const Y_GAP = 40;
-const NOMINAL_H = 60;
+const Y_GAP = 48;
+const NOMINAL_H = 96;
 const MIN_Z = 0.25;
 const MAX_Z = 2.5;
 const FIT_PAD = 24;
 /** A parent with more leaf children than this wraps them into a grid placed after its subtrees. */
 const WRAP_COLS = 4;
-/** Header strip above a wrapped leaf grid + padding around its cards. */
-const GROUP_PAD = 10;
-const GROUP_HEAD = 20;
+/** Padding of the faint band behind a wrapped leaf grid. */
+const GROUP_PAD = 12;
 /** Gutter (in slots) kept on each side of a wrapped leaf group so it never touches neighbours. */
 const GROUP_GUTTER = 0.2;
 const FIT_MIN_Z = 0.6;
@@ -46,19 +46,18 @@ interface Placed {
   y: number; // top edge
 }
 
-interface GroupBox {
+interface GroupBand {
   parentId: string;
   members: string[];
   x: number;
   y: number;
   w: number;
   h: number;
-  live: boolean;
 }
 
 interface Layout {
   placed: Placed[];
-  groups: GroupBox[];
+  groups: GroupBand[];
   w: number;
   h: number;
   rootCx: number;
@@ -166,15 +165,8 @@ export function computeLayout(nodes: AgentNode[], heights: Record<string, number
     .filter((n) => x.has(n.id))
     .map((n) => ({ node: n, x: x.get(n.id)! - CARD_W / 2, y: yAt[depth.get(n.id) ?? 0] ?? 0 }));
 
-  // Wrapped leaf grids: shift children down for the header strip, then box them.
-  const groupedIds = new Set<string>();
-  for (const g of wrapGroups) for (const k of g.kids) groupedIds.add(k);
-  for (const p of placed) {
-    if (groupedIds.has(p.node.id)) p.y += GROUP_HEAD;
-  }
-
   const byPlaced = new Map(placed.map((p) => [p.node.id, p] as const));
-  const groups: GroupBox[] = wrapGroups.map((g) => {
+  const groups: GroupBand[] = wrapGroups.map((g) => {
     const members = g.kids.map((id) => byPlaced.get(id)).filter((p): p is Placed => p !== undefined);
     const left = Math.min(...members.map((p) => p.x));
     const right = Math.max(...members.map((p) => p.x + CARD_W));
@@ -184,10 +176,9 @@ export function computeLayout(nodes: AgentNode[], heights: Record<string, number
       parentId: g.parentId,
       members: g.kids,
       x: left - GROUP_PAD,
-      y: top - GROUP_HEAD - GROUP_PAD,
+      y: top - GROUP_PAD,
       w: right - left + GROUP_PAD * 2,
-      h: bottom - top + GROUP_HEAD + GROUP_PAD * 2,
-      live: members.some((p) => p.node.status === 'running'),
+      h: bottom - top + GROUP_PAD * 2,
     };
   });
 
@@ -209,7 +200,9 @@ interface Props {
   now: number;
   openNodeId: string | null;
   onOpen: (nodeId: string) => void;
-  onDecide: (permission: PermissionRequest, allow: boolean, message?: string) => void;
+  onDecide: (permission: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>, opts?: DecideOptions) => void;
+  /** The session's project is untrusted: plan approval offers manual mode only. */
+  untrusted?: boolean;
 }
 
 interface View {
@@ -218,15 +211,18 @@ interface View {
   z: number;
 }
 
-export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, onOpen, onDecide }: Props) {
+const isLive = (state: Status) => state === 'running' || state === 'waiting';
+
+export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, onOpen, onDecide, untrusted }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
-  const layerRef = useRef<HTMLDivElement>(null);
+  const layerRef = useRef<HTMLUListElement>(null);
   const [view, setView] = useState<View>({ x: FIT_PAD, y: FIT_PAD, z: 1 });
   const [heights, setHeights] = useState<Record<string, number>>({});
+  // Parents whose finished children are shown instead of folded into "Done (n)".
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const userMoved = useRef(false);
   const dragMoved = useRef(false);
-
-  const layout = useMemo(() => computeLayout(nodes, heights), [nodes, heights]);
+  const focusKey = useRef<string | null>(null);
 
   // Live WorkerTask per worker node: same sessionId+nodeId, else same lane+slug.
   const taskByNode = useMemo(() => {
@@ -240,6 +236,55 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
     return m;
   }, [nodes, workers]);
 
+  const permByNode = useMemo(() => {
+    const m = new Map<string, PermissionRequest>();
+    for (const p of permissions) if (!m.has(p.nodeId)) m.set(p.nodeId, p);
+    return m;
+  }, [permissions]);
+
+  const stateOf = useCallback(
+    (n: AgentNode) => agentState(n, taskByNode.get(n.id), permByNode.has(n.id)),
+    [taskByNode, permByNode],
+  );
+  const fold = useMemo(() => foldDone(nodes, expanded, stateOf), [nodes, expanded, stateOf]);
+  const layout = useMemo(() => computeLayout(fold.nodes, heights), [fold.nodes, heights]);
+  const placedById = useMemo(() => new Map(layout.placed.map((p) => [p.node.id, p] as const)), [layout]);
+
+  const setParent = useCallback((parentId: string, open: boolean) => {
+    focusKey.current = open ? `fold:${parentId}` : `done:${parentId}`;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (open) next.add(parentId);
+      else next.delete(parentId);
+      return next;
+    });
+  }, []);
+
+  const allOpen = fold.foldable.size > 0 && Array.from(fold.foldable.keys()).every((id) => expanded.has(id));
+  const toggleAll = () => {
+    focusKey.current = null;
+    setExpanded(allOpen ? new Set() : new Set(fold.foldable.keys()));
+  };
+
+  // The open agent sits inside a folded group: show its group once so the card exists
+  // (a later Fold by the user is respected).
+  const hostParent = useMemo(() => {
+    if (openNodeId == null) return null;
+    for (const g of fold.groups.values()) if (g.members.some((m) => m.id === openNodeId)) return g.parentId;
+    return null;
+  }, [fold.groups, openNodeId]);
+  const hosted = useRef(new Set<string>());
+  useEffect(() => {
+    if (openNodeId == null) {
+      hosted.current.clear();
+      return;
+    }
+    const key = `${openNodeId}|${hostParent}`;
+    if (hostParent == null || hosted.current.has(key)) return;
+    hosted.current.add(key);
+    setExpanded((prev) => new Set(prev).add(hostParent));
+  }, [hostParent, openNodeId]);
+
   const fit = useCallback(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -248,17 +293,13 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
     const zw = (r.width - FIT_PAD * 2) / layout.w;
     const zh = (r.height - FIT_PAD * 2) / layout.h;
     const z = Math.max(fitMin, Math.min(zw, zh, 1));
-    let nx: number;
-    let ny: number;
-    if (layout.w * z <= r.width - FIT_PAD * 2 && layout.h * z <= r.height - FIT_PAD * 2) {
-      nx = (r.width - layout.w * z) / 2;
-      ny = (r.height - layout.h * z) / 2;
-    } else {
-      // Readable floor: the tree overflows at this zoom, so anchor the root
-      // pill on screen instead of zooming out further.
-      nx = Math.min(r.width / 2 - layout.rootCx * z, FIT_PAD);
-      ny = FIT_PAD;
-    }
+    // Centre an axis that fits. One that overflows at the readable floor anchors at the
+    // padding (the root card stays on screen horizontally) instead of zooming out further.
+    const nx =
+      layout.w * z <= r.width - FIT_PAD * 2
+        ? (r.width - layout.w * z) / 2
+        : Math.min(r.width / 2 - layout.rootCx * z, FIT_PAD);
+    const ny = layout.h * z <= r.height - FIT_PAD * 2 ? (r.height - layout.h * z) / 2 : FIT_PAD;
     setView((prev) =>
       Math.abs(nx - prev.x) < 0.5 && Math.abs(ny - prev.y) < 0.5 && z === prev.z
         ? prev
@@ -271,6 +312,35 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
   useEffect(() => {
     if (!userMoved.current) fit();
   }, [fit]);
+
+  // Pan so an off-screen card (an opened agent, a keyboard-focused card) comes into view,
+  // clear of the detail drawer that slides over the right edge.
+  const reveal = useCallback((p: Placed, h: number) => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const drawerW = document.querySelector('.drawer')?.getBoundingClientRect().width ?? 0;
+    const width = drawerW < r.width ? r.width - drawerW : r.width;
+    setView((v) => {
+      const left = p.x * v.z + v.x;
+      const top = p.y * v.z + v.y;
+      if (left >= 0 && top >= 0 && left + CARD_W * v.z <= width && top + h * v.z <= r.height) return v;
+      userMoved.current = true;
+      return { ...v, x: width / 2 - (p.x + CARD_W / 2) * v.z, y: r.height / 2 - (p.y + h / 2) * v.z };
+    });
+  }, []);
+
+  const revealed = useRef<string | null>(null);
+  useEffect(() => {
+    if (openNodeId == null) {
+      revealed.current = null;
+      return;
+    }
+    const p = placedById.get(openNodeId);
+    if (!p || revealed.current === openNodeId) return;
+    revealed.current = openNodeId;
+    reveal(p, heights[openNodeId] ?? NOMINAL_H);
+  }, [openNodeId, placedById, heights, reveal]);
 
   const zoomBy = useCallback((factor: number) => {
     userMoved.current = true;
@@ -320,7 +390,12 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     const target = e.target as Element;
-    if (typeof target.closest === 'function' && target.closest('.perm, input, textarea, select, button, pre')) return;
+    if (typeof target.closest === 'function') {
+      // A card's open button covers the whole card, so a drag may start on it; other controls keep their click.
+      const control = target.closest('button');
+      if (control && !control.classList.contains('agent-open')) return;
+      if (target.closest('.perm, input, textarea, select, pre')) return;
+    }
     dragMoved.current = false;
     ptsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY });
     pinchRef.current = null;
@@ -415,7 +490,7 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
       const id = el.dataset.nodeId;
       if (id) live.add(id);
     }
-    // Nodes that are gone (e.g. after switching sessions) leave a stale
+    // Nodes that are gone (folded away, or after switching sessions) leave a stale
     // element behind: stop observing it and forget the id.
     for (const [id, el] of observed.current) {
       if (!live.has(id)) {
@@ -452,51 +527,88 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
   });
   useEffect(() => () => roRef.current?.disconnect(), []);
 
+  // Folding replaces the control that was clicked: hand keyboard focus to its counterpart.
+  useLayoutEffect(() => {
+    const key = focusKey.current;
+    const layer = layerRef.current;
+    if (!key || !layer) return;
+    focusKey.current = null;
+    // key is `fold:<parentId>` (the chip on that parent) or `done:<parentId>` (the Done node, whose node id is the key).
+    const fold = key.startsWith('fold:');
+    const nodeId = fold ? key.slice('fold:'.length) : key;
+    const host = Array.from(layer.querySelectorAll<HTMLElement>('.node')).find((el) => el.dataset.nodeId === nodeId);
+    host?.querySelector<HTMLElement>(fold ? '.fold-chip' : '.agent-open')?.focus({ preventScroll: true });
+  }, [expanded]);
+
   const edges = useMemo(() => {
-    const byId = new Map(layout.placed.map((p) => [p.node.id, p] as const));
-    // Children inside a wrapped grid get no individual edges.
+    // Children inside a wrapped grid get no individual edges: the band carries one.
     const memberOf = new Set<string>();
     for (const g of layout.groups) for (const id of g.members) memberOf.add(id);
     const out: Array<{ key: string; d: string; live: boolean }> = [];
     for (const g of layout.groups) {
-      const parent = byId.get(g.parentId);
+      const parent = placedById.get(g.parentId);
       if (!parent) continue;
       const px = parent.x + CARD_W / 2;
       const py = parent.y + (heights[parent.node.id] ?? NOMINAL_H);
-      const cx = g.x + g.w / 2;
-      const cy = g.y;
-      out.push({ key: `${g.parentId}=>group`, d: elbow(px, py, cx, cy), live: g.live });
+      const live = g.members.some((id) => {
+        const m = placedById.get(id);
+        return m != null && isLive(stateOf(m.node));
+      });
+      out.push({ key: `${g.parentId}=>group`, d: elbow(px, py, g.x + g.w / 2, g.y), live });
     }
     for (const p of layout.placed) {
       if (memberOf.has(p.node.id)) continue;
-      const parent = p.node.parentId ? byId.get(p.node.parentId) : undefined;
+      const parent = p.node.parentId ? placedById.get(p.node.parentId) : undefined;
       if (!parent) continue;
       // A cycle back-reference (parent at the same depth or deeper) gets no edge.
       if (parent.y >= p.y) continue;
       const px = parent.x + CARD_W / 2;
       const py = parent.y + (heights[parent.node.id] ?? NOMINAL_H);
-      const cx = p.x + CARD_W / 2;
-      const cy = p.y;
       out.push({
         key: `${parent.node.id}->${p.node.id}`,
-        d: elbow(px, py, cx, cy),
-        live: p.node.status === 'running',
+        d: elbow(px, py, p.x + CARD_W / 2, p.y),
+        live: isLive(stateOf(p.node)),
       });
     }
     return out;
-  }, [layout, heights]);
+  }, [layout, placedById, heights, stateOf]);
 
-  const permByNode = useMemo(() => {
-    const m = new Map<string, PermissionRequest>();
-    for (const p of permissions) if (!m.has(p.nodeId)) m.set(p.nodeId, p);
-    return m;
-  }, [permissions]);
+  // Reading order for keyboard and screen readers: row by row.
+  const ordered = useMemo(() => [...layout.placed].sort((a, b) => a.y - b.y || a.x - b.x), [layout.placed]);
+
+  // Never run a click that ended a drag.
+  const guarded = (fn: () => void) => () => {
+    if (!dragMoved.current) fn();
+  };
+
+  // The browser scrolls the clipped canvas to a focused off-screen card; undo that and pan instead.
+  const onFocus = (e: ReactFocusEvent<HTMLDivElement>) => {
+    const wrap = e.currentTarget;
+    wrap.scrollLeft = 0;
+    wrap.scrollTop = 0;
+    const id = (e.target as Element).closest<HTMLElement>('.node')?.dataset.nodeId;
+    const p = id ? placedById.get(id) : undefined;
+    if (p && id) reveal(p, heights[id] ?? NOMINAL_H);
+  };
+
+  const empty = nodes.length === 0;
+  const lonely = nodes.length === 1;
 
   return (
-    <div className="canvas" ref={wrapRef} onPointerDown={onPointerDown} role="region" aria-label="Agent tree canvas">
+    <div
+      className="canvas"
+      ref={wrapRef}
+      onPointerDown={onPointerDown}
+      onFocus={onFocus}
+      onScroll={(e) => {
+        e.currentTarget.scrollLeft = 0;
+        e.currentTarget.scrollTop = 0;
+      }}
+      role="region"
+      aria-label="Agent map"
+    >
       <div
         className="canvas-layer"
-        ref={layerRef}
         style={{
           transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})`,
           width: layout.w,
@@ -510,31 +622,67 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
         </svg>
         {layout.groups.map((g) => (
           <div
-            key={`group-${g.parentId}`}
-            className="node-group"
+            key={`band-${g.parentId}`}
+            className="node-band"
             aria-hidden="true"
             style={{ left: g.x, top: g.y, width: g.w, height: g.h }}
-          >
-            <span className="node-group-label">{g.members.length} agents</span>
-          </div>
+          />
         ))}
-        {layout.placed.map(({ node, x, y }) => (
-          <div key={node.id} className="node" data-node-id={node.id} style={{ left: x, top: y }}>
-            <NodeCard
-              node={node}
-              now={now}
-              task={taskByNode.get(node.id)}
-              workersAt={workersAt}
-              permission={permByNode.get(node.id)}
-              open={openNodeId === node.id}
-              onOpen={() => onOpen(node.id)}
-              onDecide={onDecide}
-              clickGuard={() => dragMoved.current}
-            />
-          </div>
-        ))}
+        <ul className="canvas-nodes" ref={layerRef} aria-label="Agents">
+          {ordered.map(({ node, x, y }) => {
+            const group = fold.groups.get(node.id);
+            return (
+              <li key={node.id} className="node" data-node-id={node.id} style={{ left: x, top: y }}>
+                {group ? (
+                  <DoneCard
+                    group={group}
+                    elapsed={group.members.reduce(
+                      (sum, m) => sum + nodeElapsedMs(m, now, taskByNode.get(m.id), workersAt),
+                      0,
+                    )}
+                    onExpand={guarded(() => setParent(group.parentId, true))}
+                  />
+                ) : (
+                  <NodeCard
+                    root={node.parentId === null}
+                    node={node}
+                    now={now}
+                    task={taskByNode.get(node.id)}
+                    workersAt={workersAt}
+                    permission={permByNode.get(node.id)}
+                    open={openNodeId === node.id}
+                    onOpen={guarded(() => onOpen(node.id))}
+                    onDecide={onDecide}
+                    untrusted={untrusted}
+                  />
+                )}
+                {!group && expanded.has(node.id) && fold.foldable.has(node.id) && (
+                  <button
+                    type="button"
+                    className="fold-chip"
+                    aria-expanded="true"
+                    aria-label={`Fold ${fold.foldable.get(node.id)} done agents`}
+                    onClick={guarded(() => setParent(node.id, false))}
+                  >
+                    <ChevronIcon size={12} className="fold-chip-icon" />
+                    Fold ({fold.foldable.get(node.id)})
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
       </div>
+
+      {empty && <p className="canvas-note">No agents yet. They appear here as soon as the session starts one.</p>}
+      {lonely && permByNode.size === 0 && <p className="canvas-note">No subagents or workers yet. They show up here when the lead delegates.</p>}
+
       <div className="canvas-tools">
+        {fold.foldable.size > 0 && (
+          <button type="button" className="canvas-tool-text" onClick={toggleAll}>
+            {allOpen ? 'Fold all' : 'Expand all'}
+          </button>
+        )}
         <button type="button" className="icon-btn" aria-label="Zoom out" onClick={() => zoomBy(1 / 1.25)}>
           <ZoomOutIcon />
         </button>
@@ -544,7 +692,7 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
         <button
           type="button"
           className="icon-btn"
-          aria-label="Fit tree to view"
+          aria-label="Fit map to view"
           onClick={() => {
             userMoved.current = false;
             fit();

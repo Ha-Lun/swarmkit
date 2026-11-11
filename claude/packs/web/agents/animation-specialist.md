@@ -2,6 +2,7 @@
 name: animation-specialist
 description: 2D/3D web motion with Motion, GSAP, Three.js and R3F, animating transform/opacity only. Use proactively for hero scenes, scroll-driven storytelling, micro-interactions or shader work.
 model: sonnet
+effort: high
 tools:
 - Read
 - Write

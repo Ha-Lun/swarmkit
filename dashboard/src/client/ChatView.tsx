@@ -1,15 +1,16 @@
 // Chat transcript for one agent: bubbles, tool rows, handoff cards, thinking indicator.
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
+import type { CSSProperties } from 'react';
+import type { AgentNode, DecideOptions, PermissionRequest, WorkerTask } from '../shared/types';
 import { MAX_EVENTS } from '../shared/types';
 import { agentLabel, buildChat, isSafeImageUrl, matchWorkerTask, orbColor, orbLabel, orbState, stripImageMarkers } from './chat';
 import type { ChatItem } from './chat';
 import { elapsedMs, fmtDuration, modelLabel, toolGroups, workerElapsedS } from './format';
-import type { ToolKey } from './format';
-import { toolIcon } from './icons';
 const Markdown = lazy(() => import('./Markdown').then((m) => ({ default: m.Markdown })));
-import { Orb } from './Orb';
+import { Scanner } from './Scanner';
+import { FileIcon } from './icons';
 import { PermissionPanel } from './Permission';
+import { toolSummary } from './toolSummary';
 
 interface Props {
   node: AgentNode;
@@ -19,19 +20,11 @@ interface Props {
   workersAt: number;
   now: number;
   onOpenAgent: (nodeId: string) => void;
-  onDecide: (p: PermissionRequest, allow: boolean, message?: string) => void;
+  onDecide: (p: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>, opts?: DecideOptions) => void;
+  /** The session's project is untrusted: plan approval offers manual mode only. */
+  untrusted?: boolean;
   onOpenWorkerLog?: (task: WorkerTask) => void;
 }
-
-const GROUP_LABEL: Record<ToolKey, string> = {
-  read: 'Read',
-  edit: 'Edit',
-  bash: 'Bash',
-  search: 'Search',
-  web: 'Web',
-  agent: 'Agent',
-  other: 'Other',
-};
 
 function firstLine(s: string): string {
   const line = s.split('\n')[0].trim();
@@ -75,11 +68,33 @@ function UserBubble({ item }: { item: Extract<ChatItem, { type: 'user' }> }) {
     setOpen(null);
   };
 
+  const chip = item.queued ? (
+    <span className="chat-queued" role="status" aria-label="Queued until the current turn ends">
+      [queued]
+    </span>
+  ) : null;
+  const files = item.files ?? [];
+  const fileRow = files.length > 0 ? (
+    <ul className="chat-user-files" aria-label="Attached files">
+      {files.map((name, i) => (
+        <li key={`${i}-${name}`} className="chat-user-file" title={name}>
+          <FileIcon size={13} /> {name}
+        </li>
+      ))}
+    </ul>
+  ) : null;
   if (images.length === 0) {
-    return <p className="chat-user">{text}</p>;
+    if (!chip && !fileRow) return <p className="chat-user">{text}</p>;
+    return (
+      <div className={item.queued ? 'chat-user-block is-queued' : 'chat-user-block'}>
+        {fileRow}
+        <p className="chat-user">{text}</p>
+        {chip}
+      </div>
+    );
   }
   return (
-    <div className="chat-user-block">
+    <div className={item.queued ? 'chat-user-block is-queued' : 'chat-user-block'}>
       <div className="chat-user-images">
         {images.map((src, i) => (
           <button
@@ -96,7 +111,9 @@ function UserBubble({ item }: { item: Extract<ChatItem, { type: 'user' }> }) {
           </button>
         ))}
       </div>
+      {fileRow}
       {text ? <p className="chat-user">{text}</p> : null}
+      {chip}
       {open !== null && images[open] && (
         <div className="lightbox" onClick={() => close(open)}>
           <div
@@ -128,20 +145,10 @@ function ToolsRow({ item }: { item: Extract<ChatItem, { type: 'tools' }> }) {
   const counts: Record<string, number> = {};
   for (const c of item.counts) counts[c.tool] = c.count;
   const groups = toolGroups(counts);
-  const text = groups.map((g) => `${GROUP_LABEL[g.key]} ${g.count}`).join(' · ');
   const uses = item.events.filter((e) => e.kind === 'tool_use');
   return (
     <details className="chat-tools">
-      <summary>
-        <span className="chat-tools-icons" aria-hidden="true">
-          {groups.map((g) => (
-            <span key={g.key} className="chat-tools-icon">
-              {toolIcon(g.key, 12)}
-            </span>
-          ))}
-        </span>
-        <span>{text || 'Tools'}</span>
-      </summary>
+      <summary>{toolSummary(groups)}</summary>
       <div className="chat-tools-list">
         {item.events.map((e) => {
           if (e.kind === 'tool_use') {
@@ -184,6 +191,7 @@ function HandoffCard({
   workersAt,
   onOpenAgent,
   onDecide,
+  untrusted,
 }: {
   child: AgentNode;
   task?: WorkerTask;
@@ -191,7 +199,8 @@ function HandoffCard({
   now: number;
   workersAt: number;
   onOpenAgent: (nodeId: string) => void;
-  onDecide: (p: PermissionRequest, allow: boolean, message?: string) => void;
+  onDecide: (p: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>, opts?: DecideOptions) => void;
+  untrusted?: boolean;
 }) {
   const [showFull, setShowFull] = useState(false);
   const name = agentLabel(child);
@@ -219,7 +228,7 @@ function HandoffCard({
           ) : child.status === 'error' || child.status === 'stopped' ? (
             <span className="handoff-x">✕</span>
           ) : (
-            <Orb size={20} state={orbState(child, waiting)} color={orbColor(child, task)} />
+            <Scanner size="sm" state={orbState(child, waiting)} color={orbColor(child, task)} />
           )}
         </span>
         <div className="handoff-body">
@@ -257,13 +266,35 @@ function HandoffCard({
         </div>
       </div>
       {permission && (
-        <PermissionPanel request={permission} onDecide={(allow, message) => onDecide(permission, allow, message)} />
+        <PermissionPanel key={permission.id} request={permission} untrusted={untrusted} onDecide={(allow, message, answers, opts) => onDecide(permission, allow, message, answers, opts)} />
       )}
     </div>
   );
 }
 
-export function ChatView({ node, nodes, permissions, workers, workersAt, now, onOpenAgent, onDecide, onOpenWorkerLog }: Props) {
+/** Live thinking line: Scanner + shimmering label + elapsed seconds + last activity. */
+function ThinkingStatus({ node, color, waiting }: { node: AgentNode; color: string; waiting: boolean }) {
+  const state = orbState(node, waiting);
+  const base = orbLabel(state).replace(/…|\.\.\.$/, '').trim() || 'Working';
+  const startTs = node.events.length > 0 ? node.events[node.events.length - 1].ts : node.startedAt;
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = window.setInterval(() => setTick((n) => n + 1), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+  void tick;
+  const secs = Math.max(0, Math.floor((Date.now() - startTs) / 1000));
+  return (
+    <div className="chat-thinking">
+      <Scanner size="sm" state={state} color={color} />
+      <span className="chat-thinking-label">{base}</span>
+      <span className="chat-thinking-elapsed" aria-label={`${secs} seconds`}>· {secs}s</span>
+      {node.lastActivity && <span className="chat-thinking-activity">{node.lastActivity}</span>}
+    </div>
+  );
+}
+
+export function ChatView({ node, nodes, permissions, workers, workersAt, now, onOpenAgent, onDecide, untrusted, onOpenWorkerLog }: Props) {
   const children = nodes.filter((n) => n.parentId === node.id);
   const items = buildChat(node, children);
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -308,13 +339,11 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
   };
 
   const thinking = node.status === 'running' || node.status === 'waiting';
-  const waiting = node.status === 'waiting' || permByNode.has(node.id);
-  const state = orbState(node, waiting);
 
   return (
     <div className="chat-wrap">
       <div className="chat" role="log" aria-live="polite" ref={scrollRef} onScroll={onScroll}>
-        <div className="chat-col">
+        <div className="chat-col" style={{ '--lane': orbColor(node, task) } as CSSProperties}>
           {trimmed && <p className="chat-trimmed">Earlier activity trimmed</p>}
           {node.prompt && node.kind !== 'main' && (
             <details className="chat-given">
@@ -344,7 +373,9 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
                   <summary>
                     <i>Thinking · {firstLine(item.summary)}</i>
                   </summary>
-                  <p>{item.text}</p>
+                  <Suspense fallback={<p className="md-plain">{item.text}</p>}>
+                    <Markdown text={item.text} />
+                  </Suspense>
                 </details>
               );
             }
@@ -364,6 +395,7 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
                   workersAt={workersAt}
                   onOpenAgent={onOpenAgent}
                   onDecide={onDecide}
+                  untrusted={untrusted}
                 />
               );
             }
@@ -381,14 +413,10 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
             );
           })}
           {pendingForNode.map((p) => (
-            <PermissionPanel key={p.id} request={p} onDecide={(allow, message) => onDecide(p, allow, message)} />
+            <PermissionPanel key={p.id} request={p} untrusted={untrusted} onDecide={(allow, message, answers, opts) => onDecide(p, allow, message, answers, opts)} />
           ))}
           {thinking && (
-            <div className="chat-thinking">
-              <Orb size={32} state={state} color={orbColor(node)} />
-              <span className="chat-thinking-label">{orbLabel(state)}</span>
-              {node.lastActivity && <span className="chat-thinking-activity">{node.lastActivity}</span>}
-            </div>
+            <ThinkingStatus node={node} color={orbColor(node, task)} waiting={node.status === 'waiting' || permByNode.has(node.id)} />
           )}
         </div>
       </div>

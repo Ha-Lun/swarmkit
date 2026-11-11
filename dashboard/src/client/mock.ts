@@ -4,8 +4,10 @@ import type {
   AgentNode,
   AgentNodeHead,
   AgentsResponse,
+  CommandsResponse,
   DirEntry,
   DirListing,
+  GitInfo,
   ImageAttachment,
   PermissionRequest,
   ServerEvent,
@@ -210,7 +212,7 @@ export function createMockBackend(): FleetBackend {
       repo: 'swarmkit',
       slug: 'docs-refresh',
       state: 'ok',
-      model: 'claude-sonnet-5-5',
+      model: 'gemini-3.8-flash-high',
       agent: 'release-tester',
       startedAt: base - 1_500_000,
       endedAt: base - 688_000,
@@ -225,7 +227,7 @@ export function createMockBackend(): FleetBackend {
       repo: 'api-gateway',
       slug: 'flaky-migrate',
       state: 'not-ok',
-      model: 'claude-opus-5-5',
+      model: 'gemini-3.8-flash',
       startedAt: base - 7_200_000,
       endedAt: base - 6_900_000,
       elapsedS: 300,
@@ -240,7 +242,7 @@ export function createMockBackend(): FleetBackend {
       repo: 'swarmkit',
       slug: 'lint-sweep',
       state: 'unfinished',
-      model: 'opencode-go/glm-4.5-air',
+      model: 'opencode-go/muse-spark-1.3-contributor',
       startedAt: base - 86_400_000,
       elapsedS: 3600,
       denied: 0,
@@ -376,6 +378,120 @@ export function createMockBackend(): FleetBackend {
       { id: 't4-e1', ts: t4.startedAt, kind: 'user', summary: 'Aborted before the first reply.' },
     ],
   });
+
+  // t5: a terminal session blocked on a plan and a text-only question relayed through the hook.
+  const t5: SessionSummary = {
+    id: 'mock-term-5',
+    source: 'terminal',
+    project: 'docs-site',
+    cwd: '/home/demo/work/docs-site',
+    title: 'claude "plan the changelog redesign"',
+    status: 'waiting',
+    startedAt: base - 600_000,
+    updatedAt: base - 5_000,
+    costUsd: 0.09,
+    nodeCount: 1,
+    pendingPermissions: 2,
+    resumable: false,
+  };
+  sessions.set(t5.id, t5);
+  nodeMaps.set(t5.id, new Map());
+  nodeMaps.get(t5.id)!.set('root', {
+    id: 'root',
+    sessionId: t5.id,
+    parentId: null,
+    kind: 'main',
+    agentType: 'main',
+    description: 'Plan the changelog redesign',
+    prompt: 'Plan the changelog redesign.',
+    status: 'waiting',
+    startedAt: t5.startedAt,
+    costUsd: t5.costUsd,
+    tokens: tu(6200, 1800),
+    toolCounts: {},
+    lastActivity: 'Waiting for your decision.',
+    events: [{ id: 't5-e1', ts: t5.startedAt, kind: 'user', summary: 'Plan the changelog redesign.' }],
+  });
+  permLists.set(t5.id, [
+    {
+      id: uid('perm'),
+      sessionId: t5.id,
+      nodeId: 'root',
+      tool: 'ExitPlanMode',
+      kind: 'plan',
+      terminal: true,
+      input: { plan: '## Plan: changelog redesign\n\n1. Group entries by release\n2. Add a filter for breaking changes\n3. Cover the new layout with screenshots' },
+      title: 'Claude wants to exit plan mode',
+      createdAt: base - 20_000,
+    },
+    {
+      id: uid('perm'),
+      sessionId: t5.id,
+      nodeId: 'root',
+      tool: 'AskUserQuestion',
+      kind: 'question',
+      terminal: true,
+      input: { questions: [{ question: 'What should the changelog page be called?', header: 'Name', multiSelect: false, options: [] }] },
+      title: 'Claude wants to ask a question',
+      createdAt: base - 10_000,
+    },
+  ]);
+
+  // m1: an opencode page session whose second message is queued behind the running turn.
+  const m1: SessionSummary = {
+    id: 'mock-oc-1',
+    source: 'page',
+    project: 'swarmkit',
+    cwd: '/home/demo/work/swarmkit',
+    title: 'Rename the worker lanes',
+    status: 'running',
+    startedAt: base - 90_000,
+    updatedAt: base - 2_000,
+    costUsd: 0.01,
+    agent: 'lead-dev-hybrid',
+    model: 'opencode-go/deepseek-v4.1-flash',
+    nodeCount: 1,
+    pendingPermissions: 0,
+    resumable: false,
+    runtime: 'opencode',
+  };
+  sessions.set(m1.id, m1);
+  permLists.set(m1.id, []);
+  nodeMaps.set(m1.id, new Map());
+  nodeMaps.get(m1.id)!.set('root', {
+    id: 'root',
+    sessionId: m1.id,
+    parentId: null,
+    kind: 'main',
+    agentType: 'lead-dev-hybrid',
+    model: m1.model,
+    description: m1.title,
+    prompt: 'Rename the worker lanes to match the new names.',
+    status: 'running',
+    startedAt: m1.startedAt,
+    costUsd: m1.costUsd,
+    tokens: tu(4200, 900),
+    toolCounts: {},
+    lastActivity: 'Renaming lane identifiers.',
+    events: [
+      { id: 'm1-e1', ts: base - 90_000, kind: 'user', summary: 'Rename the worker lanes to match the new names.' },
+      { id: 'm1-e2', ts: base - 60_000, kind: 'text', summary: 'Renaming lane identifiers across the dashboard server and client.' },
+      {
+        id: 'm1-e3',
+        ts: base - 20_000,
+        kind: 'user',
+        summary: 'Also update the docs once that is done.',
+        queued: true,
+      },
+    ],
+  });
+
+  // Mock git state for the composer footer and the topbar chip: dirty and ahead, clean in a worktree, none.
+  const gitInfo = new Map<string, GitInfo>([
+    [s1.id, { branch: 'feat/pricing-page', detached: false, dirty: 3, ahead: 2, behind: 0 }],
+    [m1.id, { branch: 'rename-lanes', detached: false, dirty: 0, ahead: 0, behind: 0, worktreeOf: '/home/demo/work/swarmkit' }],
+    [t1.id, { branch: 'main', detached: false, dirty: 0, ahead: 0, behind: 0 }],
+  ]);
 
   // --- the scripted page session ---
   const root: AgentNode = {
@@ -526,7 +642,7 @@ export function createMockBackend(): FleetBackend {
     });
   };
 
-  const resolvePermission = (allow: boolean, message?: string) => {
+  const resolvePermission = (allow: boolean, message?: string, answers?: Record<string, string>) => {
     const p = pendingPerm;
     if (!p) return;
     pendingPerm = null;
@@ -537,14 +653,61 @@ export function createMockBackend(): FleetBackend {
     const idx = list.findIndex((r) => r.id === p.id);
     if (idx >= 0) list.splice(idx, 1);
     emit?.({ type: 'permission.resolved', sessionId: s1.id, id: p.id, allow });
-    s1.status = 'running';
-    s1.pendingPermissions = 0;
+    s1.status = list.length > 0 ? 'waiting' : 'running';
+    s1.pendingPermissions = list.length;
     bumpSession(s1.id);
-    if (req && fs) {
-      pushEvent(fs, 'permission', `${req.tool} ${allow ? 'allowed' : 'denied'}${message ? `: “${message}”` : ''}`);
-      if (!allow) toolBack(fs, req.tool, 'Permission denied by the user', undefined, true);
+    const nodeMap = nodeMaps.get(s1.id)!;
+    const target = req ? (nodeMap.get(req.nodeId) ?? fs) : fs;
+    if (req && target) {
+      const answerText = answers && Object.keys(answers).length > 0
+        ? `: ${Object.entries(answers).map(([k, v]) => `${k} → ${v}`).join('; ')}`
+        : message ? `: “${message}”` : '';
+      pushEvent(target, 'permission', `${req.tool} ${allow ? 'allowed' : 'denied'}${answerText}`);
+      if (!allow) toolBack(target, req.tool, 'Permission denied by the user', undefined, true);
     }
-    scheduleCompletion(!allow);
+    if (!askPerm) scheduleCompletion(!allow);
+  };
+
+  let planPerm: { id: string } | null = null;
+  const resolvePlan = (allow: boolean, message?: string) => {
+    if (!planPerm) return;
+    const id = planPerm.id;
+    planPerm = null;
+    const list = permLists.get(s1.id)!;
+    const idx = list.findIndex((r) => r.id === id);
+    const req = idx >= 0 ? list[idx]! : null;
+    if (idx >= 0) list.splice(idx, 1);
+    emit?.({ type: 'permission.resolved', sessionId: s1.id, id, allow });
+    s1.status = list.length > 0 ? 'waiting' : 'running';
+    s1.pendingPermissions = list.length;
+    bumpSession(s1.id);
+    const target = req ? (nodeMaps.get(s1.id)!.get(req.nodeId) ?? root) : root;
+    pushEvent(target, 'permission', `ExitPlanMode ${allow ? 'approved' : 'rejected'}${message ? `: “${message}”` : ''}`);
+  };
+
+  let askPerm: { id: string } | null = null;
+  const resolveAsk = (allow: boolean, message?: string, answers?: Record<string, string>) => {
+    if (!askPerm) return;
+    const id = askPerm.id;
+    askPerm = null;
+    const list = permLists.get(s1.id)!;
+    const req = list.find((r) => r.id === id) ?? null;
+    const idx = list.findIndex((r) => r.id === id);
+    if (idx >= 0) list.splice(idx, 1);
+    emit?.({ type: 'permission.resolved', sessionId: s1.id, id, allow });
+    s1.status = list.length > 0 ? 'waiting' : 'running';
+    s1.pendingPermissions = list.length;
+    bumpSession(s1.id);
+    const nodeMap = nodeMaps.get(s1.id)!;
+    const target = req ? (nodeMap.get(req.nodeId) ?? root) : root;
+    if (req && target) {
+      if (allow && answers && Object.keys(answers).length > 0) {
+        pushEvent(target, 'permission', `AskUserQuestion answered: ${Object.entries(answers).map(([k, v]) => `${k} → ${v}`).join('; ')}`);
+      } else {
+        pushEvent(target, 'permission', `AskUserQuestion ${allow ? 'allowed' : 'denied'}${message ? `: “${message}”` : ''}`);
+        if (!allow) toolBack(target, req.tool, 'Permission denied by the user', undefined, true);
+      }
+    }
   };
 
   let explore: AgentNode | undefined;
@@ -714,6 +877,89 @@ A claim with a footnote.[^1]
     pendingPerm = { id: req.id, auto };
   });
 
+  // scripted AskUserQuestion on the main session node (stays open for the user to answer)
+  at(18000, () => {
+    const req: PermissionRequest = {
+      id: uid('perm'),
+      sessionId: s1.id,
+      nodeId: root.id,
+      tool: 'AskUserQuestion',
+      input: {
+        questions: [
+          {
+            question: 'Which pricing layout should we ship first?',
+            header: 'Layout',
+            multiSelect: false,
+            options: [
+              {
+                label: 'Three tiers',
+                description: 'Classic three-column pricing with a highlighted middle plan.',
+                preview: '<PricingGrid tiers={3} highlight="middle" />\n// monthly $19 / $49 / $99\n// annual saves 20%',
+              },
+              {
+                label: 'Two tiers',
+                description: 'Simpler starter/pro split for a faster launch.',
+              },
+              {
+                label: 'Usage-based',
+                description: 'Pay per seat with metered overages.',
+              },
+            ],
+          },
+          {
+            question: 'Which extras should the launch include?',
+            header: 'Extras',
+            multiSelect: true,
+            options: [
+              { label: 'FAQ section', description: 'Accordion with the top five questions.' },
+              { label: 'Annual toggle', description: 'Monthly/annual switch with savings callout.' },
+              { label: 'Testimonials', description: 'Two customer quotes under the grid.' },
+            ],
+          },
+        ],
+      },
+      title: 'Claude wants to ask a question',
+      createdAt: Date.now(),
+    };
+    permLists.get(s1.id)!.push(req);
+    emit?.({ type: 'permission.request', request: req });
+    s1.status = 'waiting';
+    s1.pendingPermissions = permLists.get(s1.id)!.length;
+    bumpSession(s1.id);
+    askPerm = { id: req.id };
+    const autoAsk = window.setTimeout(() => {
+      if (askPerm?.id === req.id) {
+        resolveAsk(true, undefined, {
+          'Which pricing layout should we ship first?': 'Three tiers',
+          'Which extras should the launch include?': 'FAQ section, Annual toggle',
+        });
+      }
+    }, 30000);
+    timers.add(autoAsk);
+  });
+
+  // scripted ExitPlanMode on the main session node (stays open for the user to decide)
+  at(20000, () => {
+    const req: PermissionRequest = {
+      id: uid('perm'),
+      sessionId: s1.id,
+      nodeId: root.id,
+      tool: 'ExitPlanMode',
+      kind: 'plan',
+      input: {
+        plan: '## Plan: pricing page\n\n1. Add a `PricingGrid` component with three tiers\n2. Wire the annual toggle to `usePricing()`\n3. Cover tier switching with tests\n\n| Step | Owner |\n| --- | --- |\n| Grid | frontend-specialist |\n| Tests | test-writer |\n\nSee [the spec](https://example.com/spec).',
+      },
+      title: 'Claude wants to exit plan mode',
+      createdAt: Date.now(),
+    };
+    permLists.get(s1.id)!.push(req);
+    emit?.({ type: 'permission.request', request: req });
+    s1.status = 'waiting';
+    s1.pendingPermissions = permLists.get(s1.id)!.length;
+    bumpSession(s1.id);
+    planPerm = { id: req.id };
+  });
+
   // ---- crowded demo tree: leaf pills, one wrapped audit group, one nested backend ----
   // The lead's direct leaves exercise the compact pill; the audit node (7 leaf-only
   // children) exercises the wrapped grid + group box; backend-specialist under the
@@ -796,6 +1042,50 @@ A claim with a footnote.[^1]
     });
   });
 
+  // Workers on both lanes plus a failed and a stopped subagent, so the map shows every section.
+  // The worker nodes link to the mock worker tasks above by lane + slug.
+  const endNode = (n: AgentNode, status: 'error' | 'stopped', text: string) => {
+    n.status = status;
+    n.endedAt = Date.now();
+    n.result = text;
+    pushEvent(n, 'system', text);
+    upsertHead(n);
+  };
+  at(6200, () => {
+    const w = spawn(root, 'task-w-docs', 'worker', 'agy-task', 'gemini-3.8-flash-high', 'agy worker docs-refresh (gemini-3.8-flash-high)', 'Refresh the README against the current build.\nKeep the diff small.', {
+      worker: { lane: 'agy', slug: 'docs-refresh' },
+    });
+    at(1500, () => finishNode(w, 'Docs refreshed; no regressions found.', 0.004, tu(2600, 520)));
+  });
+  at(6600, () => {
+    const w = spawn(root, 'task-w-migrate', 'worker', 'agy-task', 'gemini-3.8-flash', 'agy worker flaky-migrate (gemini-3.8-flash)', '', {
+      worker: { lane: 'agy', slug: 'flaky-migrate' },
+    });
+    at(1600, () => endNode(w, 'error', 'Migration aborted: the user denied a run of shell commands.'));
+  });
+  at(7000, () => {
+    const w = spawn(root, 'task-w-lint', 'worker', 'opencode-task', 'opencode-go/muse-spark-1.3-contributor', 'opencode worker lint-sweep (opencode-go/muse-spark-1.3-contributor)', 'Sweep the client for unused exports and fix lint warnings.', {
+      worker: { lane: 'opencode', slug: 'lint-sweep' },
+    });
+    at(1200, () => finishNode(w, 'Removed 6 unused exports.', 0.003, tu(1800, 400)));
+  });
+  at(7400, () => {
+    const w = spawn(root, 'task-w-probe', 'worker', 'agy-task', 'gemini-3.8-flash-high', 'agy worker probe-agent (gemini-3.8-flash-high)', 'Probe the agent gate: ask for a file outside the repo and report how it answers.', {
+      worker: { lane: 'agy', slug: 'probe-agent' },
+    });
+    at(900, () => toolCall(w, 'Read', 'gate/schema.json'));
+  });
+  at(7800, () => {
+    const a = spawn(root, 'task-sc-secaudit', 'subagent', 'security-auditor', 'claude-opus-5-5', 'Audit the pricing webhook handler', 'Review signature checks and replay protection on the billing webhook.');
+    at(900, () => toolCall(a, 'Read', 'server/routes/billing-webhook.ts'));
+    at(1700, () => endNode(a, 'error', 'Review failed: the webhook secret is not configured in this environment.'));
+  });
+  at(8200, () => {
+    const t = spawn(root, 'task-sc-i18n', 'subagent', 'general-purpose', 'claude-haiku-4-5-20251001', 'Translate the plan copy to Swedish', 'Translate every plan headline and footnote to Swedish.');
+    at(900, () => toolCall(t, 'Edit', 'pricing/copy.sv.json'));
+    at(1600, () => endNode(t, 'stopped', 'Stopped by the user.'));
+  });
+
   // ---- demo keep-alive: the landing page's "Running now" must never go empty ----
   // The script above finishes s1 (~7s) and the worker node (~12.5s). This chained
   // heartbeat restores s1/root to running when the script ends and keeps the first
@@ -855,6 +1145,11 @@ A claim with a footnote.[^1]
         { days: 7, tokens: 1_120_000, costUsd: 2.11 },
         { days: 30, tokens: 3_450_000, costUsd: 6.4 },
       ],
+      limits: [
+        { window: 'rolling', utilization: 34, resetsAt: new Date(base + 2 * 3_600_000).toISOString(), limited: false },
+        { window: 'weekly', utilization: 61, resetsAt: new Date(base + 3 * 86_400_000).toISOString(), limited: false },
+        { window: 'monthly', utilization: 12, resetsAt: new Date(base + 20 * 86_400_000).toISOString(), limited: false },
+      ],
     },
     agy: {
       available: true,
@@ -894,6 +1189,10 @@ A claim with a footnote.[^1]
   return {
     sessions: () => Promise.resolve(Array.from(sessions.values()).map((s) => ({ ...s })).sort((a, b) => b.updatedAt - a.updatedAt)),
     detail: (id) => Promise.resolve(detail(id)),
+    git: (id) => {
+      const git = gitInfo.get(id);
+      return Promise.resolve(git ? { git: { ...git } } : {});
+    },
     start: (body: StartSessionBody) => {
       const now = Date.now();
       const id = uid('page');
@@ -956,17 +1255,27 @@ A claim with a footnote.[^1]
       });
       return Promise.resolve({ sessionId: id } satisfies StartSessionResponse);
     },
-    send: (sessionId, text, images) => {
+    send: (sessionId, text, images, files) => {
       const map = nodeMaps.get(sessionId);
       const s = sessions.get(sessionId);
       if (!map || !s) return Promise.reject(new Error('mock: unknown session'));
       if (s.source !== 'page') return Promise.reject(new Error('Terminal sessions are read-only'));
       const n = map.get('root');
       if (!n) return Promise.reject(new Error('mock: no root'));
-      pushEvent(n, 'user', text.split('\n')[0], {
+      // opencode/agy leads read a mid-turn message only after the turn ends: show it queued, then release it.
+      const queued = s.runtime !== undefined && s.runtime !== 'claude' && n.status === 'running';
+      const sent = pushEvent(n, 'user', text.split('\n')[0], {
         detail: text,
+        ...(queued ? { queued: true } : {}),
         ...(toDataUrls(images) ? { images: toDataUrls(images)! } : {}),
+        ...(files?.length ? { files: files.map((f) => f.name) } : {}),
       });
+      if (queued) {
+        at(4000, () => {
+          delete sent.queued;
+          emit?.({ type: 'node.event', sessionId, nodeId: n.id, event: { ...sent } });
+        });
+      }
       n.status = 'running';
       n.endedAt = undefined;
       n.result = undefined;
@@ -1022,11 +1331,26 @@ A claim with a footnote.[^1]
       s.pendingPermissions = 0;
       s.resumable = true;
       pendingPerm = null;
+      askPerm = null;
+      planPerm = null;
+      permLists.get(sessionId)?.splice(0);
       bumpSession(sessionId);
       return Promise.resolve({ ok: true });
     },
-    decide: (permissionId, allow, message) => {
-      if (pendingPerm?.id === permissionId) resolvePermission(allow, message);
+    decide: (permissionId, allow, message, answers) => {
+      const termList = permLists.get(t5.id)!;
+      const termIdx = termList.findIndex((r) => r.id === permissionId);
+      if (termIdx >= 0) {
+        termList.splice(termIdx, 1);
+        emit?.({ type: 'permission.resolved', sessionId: t5.id, id: permissionId, allow });
+        t5.pendingPermissions = termList.length;
+        t5.status = termList.length > 0 ? 'waiting' : 'running';
+        bumpSession(t5.id);
+        return Promise.resolve({ ok: true });
+      }
+      if (pendingPerm?.id === permissionId) resolvePermission(allow, message, answers);
+      else if (askPerm?.id === permissionId) resolveAsk(allow, message, answers);
+      else if (planPerm?.id === permissionId) resolvePlan(allow, message);
       return Promise.resolve({ ok: true });
     },
     agents: (_cwd) =>
@@ -1073,6 +1397,16 @@ A claim with a footnote.[^1]
     },
     usage: () => Promise.resolve<UsageReport>(mockUsage),
     runtimes: () => Promise.resolve({ claude: true, opencode: true, agy: true }),
+    presence: () => Promise.resolve({ ok: true }),
+    commands: () =>
+      Promise.resolve<CommandsResponse>({
+        commands: [
+          { name: 'compact', description: 'Compact the conversation history to free context.' },
+          { name: 'review', argumentHint: '<path>', description: 'Review the given file or directory.' },
+          { name: 'delegate-implementation', description: 'Hand a plan to a worker for implementation.' },
+          { name: 'frontend-quality', description: 'Check frontend code against quality guidelines.' },
+        ],
+      }),
     resume: (sessionId, body: ResumeSessionBody) => {
       const s = sessions.get(sessionId);
       const map = nodeMaps.get(sessionId);
@@ -1103,6 +1437,29 @@ A claim with a footnote.[^1]
       }
       bumpSession(sessionId);
       return Promise.resolve({ sessionId } satisfies StartSessionResponse);
+    },
+    restart: (sessionId, text) => {
+      const s = sessions.get(sessionId);
+      const map = nodeMaps.get(sessionId);
+      if (!s || !map) return Promise.reject(new ApiError(404, 'session not found'));
+      if (s.source !== 'page') return Promise.reject(new ApiError(400, 'Only page-owned sessions can be restarted'));
+      const root = map.get('root');
+      s.status = text ? 'running' : 'idle';
+      s.resumable = false;
+      if (root) {
+        root.status = text ? 'running' : 'idle';
+        root.endedAt = undefined;
+        root.result = undefined;
+        if (text) {
+          pushEvent(root, 'user', text.split('\n')[0], { detail: text });
+          at(2400, () => {
+            if (root.status === 'running') finishNode(root, 'Restarted and finished (mock).', 0.012, tu(2400, 700));
+          });
+        }
+        upsertHead(root);
+      }
+      bumpSession(sessionId);
+      return Promise.resolve({ sessionId });
     },
     connect(onEvent, onStatus) {
       emit = onEvent;

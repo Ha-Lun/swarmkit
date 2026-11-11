@@ -1,7 +1,7 @@
 // Token storage (XDG config), auth checks (header token, derived cookie), CSRF/Origin
 // guard, owner check, host allowlist, security headers and other small pure HTTP helpers.
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { IncomingMessage } from 'node:http';
@@ -12,18 +12,22 @@ export interface TokenResult {
   file: string;
 }
 
-/** Token file location: $XDG_CONFIG_HOME/claude-fleet/token, default ~/.config/claude-fleet/token. */
-export function tokenFilePath(): string {
+function configBase(): string {
   const xdg = process.env.XDG_CONFIG_HOME?.trim();
-  const base = xdg ? path.resolve(xdg) : path.join(os.homedir(), '.config');
-  return path.join(base, 'claude-fleet', 'token');
+  return xdg && path.isAbsolute(xdg) ? path.resolve(xdg) : path.join(os.homedir(), '.config');
+}
+
+/** Token file location: $XDG_CONFIG_HOME/swarmkit/token, default ~/.config/swarmkit/token. */
+export function tokenFilePath(): string {
+  return path.join(configBase(), 'swarmkit', 'token');
 }
 
 /**
  * Loads the fleet token from FLEET_TOKEN (must be >= 32 chars; removed from the
- * environment after reading), the XDG token file, or the legacy <dataDir>/.data/token
- * (its value is migrated to the XDG file and the old file deleted), creating a fresh
- * token otherwise (dir 0700, file 0600).
+ * environment after reading), the XDG token file, the pre-rename
+ * $XDG_CONFIG_HOME/claude-fleet/token or the legacy <dataDir>/.data/token (either one is
+ * migrated to the XDG file and the old file deleted; a failed write keeps the old file),
+ * creating a fresh token otherwise (dir 0700, file 0600).
  */
 export function loadToken(dataDir: string): TokenResult {
   const fromEnv = process.env.FLEET_TOKEN;
@@ -36,6 +40,25 @@ export function loadToken(dataDir: string): TokenResult {
   }
   const file = tokenFilePath();
   let token = readTokenIfPresent(file);
+  if (!token) {
+    const oldFile = path.join(configBase(), 'claude-fleet', 'token');
+    const old = readTokenIfPresent(oldFile);
+    if (old) {
+      // Never leave without the existing token: a failed write keeps the old file in use.
+      token = old;
+      try {
+        writeTokenFile(file, old);
+        rmSync(oldFile);
+        try {
+          rmdirSync(path.dirname(oldFile)); // only succeeds when empty
+        } catch {
+          // Other files remain in the old dir; leave it.
+        }
+      } catch (err) {
+        console.error('Could not migrate the dashboard token to the swarmkit config dir:', err);
+      }
+    }
+  }
   if (!token) {
     const legacyFile = path.join(dataDir, '.data', 'token');
     const legacy = readTokenIfPresent(legacyFile);
@@ -192,7 +215,7 @@ export function securityHeaders(development: boolean): Record<string, string> {
   };
   if (!development) {
     headers['Content-Security-Policy'] =
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; " +
       "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
   }
   return headers;

@@ -29,7 +29,53 @@ function Svg({ size = 14, className, children }: IconProps & { children: ReactNo
   );
 }
 
-/** SwarmKit brand mark: hexagon in the violet->teal gradient, optional wordmark. */
+/** Paperclip for the attach button. */
+export function PaperclipIcon({ size = 16, className }: IconProps) {
+  return (
+    <Svg size={size} className={className}>
+      <path d="M20.5 11.5l-8.3 8.3a5 5 0 0 1-7.1-7.1l8.3-8.3a3.3 3.3 0 0 1 4.7 4.7l-8.3 8.3a1.7 1.7 0 0 1-2.4-2.4l7.6-7.6" />
+    </Svg>
+  );
+}
+
+/** Document with a folded corner, for attached-file chips. */
+export function FileIcon({ size = 16, className }: IconProps) {
+  return (
+    <Svg size={size} className={className}>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5" />
+    </Svg>
+  );
+}
+
+/** Pause bars (interrupt a turn). */
+export function PauseIcon({ size = 16, className }: IconProps) {
+  return (
+    <Svg size={size} className={className}>
+      <path d="M9 5v14M15 5v14" />
+    </Svg>
+  );
+}
+
+/** Rounded square (stop a session). */
+export function StopIcon({ size = 16, className }: IconProps) {
+  return (
+    <Svg size={size} className={className}>
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+    </Svg>
+  );
+}
+
+/** Arrow up (send). */
+export function SendIcon({ size = 16, className }: IconProps) {
+  return (
+    <Svg size={size} className={className}>
+      <path d="M12 19V5M6 11l6-6 6 6" />
+    </Svg>
+  );
+}
+
+/** SwarmKit brand mark: hexagon in the teal->violet gradient, optional wordmark. */
 export function Logo({ size = 22, withWordmark = false }: IconProps & { withWordmark?: boolean }) {
   // Gradient id must be unique per mounted instance.
   const gid = `swk-grad-${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
@@ -38,12 +84,12 @@ export function Logo({ size = 22, withWordmark = false }: IconProps & { withWord
       <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" focusable="false">
         <defs>
           <linearGradient id={gid} x1="4" y1="5" x2="27" y2="28" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stopColor="#d9ccff" />
-            <stop offset="1" stopColor="#2ee6c8" />
+            <stop offset="0" stopColor="#5eead4" />
+            <stop offset="1" stopColor="#a78bfa" />
           </linearGradient>
         </defs>
         <path d="M16 2l12 7v14l-12 7-12-7V9z" fill={`url(#${gid})`} />
-        <path d="M16 8.5l6.5 3.75v7.5L16 23.5l-6.5-3.75v-7.5L16 8.5z" fill="rgba(5,6,10,0.45)" />
+        <path d="M16 8.5l6.5 3.75v7.5L16 23.5l-6.5-3.75v-7.5L16 8.5z" fill="rgba(15,17,21,0.85)" />
       </svg>
       {withWordmark && (
         <span className="logo-word" style={{ fontSize: Math.max(13, Math.round(size * 0.82)) }}>

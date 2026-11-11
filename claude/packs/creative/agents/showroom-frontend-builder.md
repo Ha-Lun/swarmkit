@@ -2,6 +2,7 @@
 name: showroom-frontend-builder
 description: 'Showroom frontend builder: builds the 10 section components in Astro and Tailwind, responsive from 390px to 1440px. Use when the main agent dispatches it from a showroom coordinator handoff to scaffold or build page sections.'
 model: sonnet
+effort: high
 tools:
 - Read
 - Glob

@@ -1,8 +1,8 @@
 // Tests for the chat transcript helpers.
 import { describe, expect, it } from 'vitest';
-import { agentTabs, buildChat, isSafeImageUrl, matchWorkerTask, orbColor, orbLabel, orbState, stripImageMarkers } from '../src/client/chat.ts';
+import { agentDescription, agentState, agentTabs, buildChat, doneNames, foldDone, isSafeImageUrl, matchWorkerTask, orbColor, orbLabel, orbState, stripImageMarkers } from '../src/client/chat.ts';
 import type { ActivityEvent, AgentNode, PermissionRequest, WorkerTask } from '../src/shared/types.ts';
-import type { OrbState } from 'thinking-orbs';
+import type { OrbState } from '../src/client/chat.ts';
 
 let seq = 0;
 
@@ -211,28 +211,28 @@ describe('orbLabel', () => {
 
 describe('orbColor', () => {
   it('worker lanes', () => {
-    expect(orbColor(node({ kind: 'worker', worker: { lane: 'agy', slug: 'a' } }))).toBe('#ffb547');
-    expect(orbColor(node({ kind: 'worker', worker: { lane: 'opencode', slug: 'a' } }))).toBe('#2ee6c8');
-    expect(orbColor(node({ kind: 'worker' }))).toBe('#2ee6c8');
-    expect(orbColor(node({ kind: 'worker', worker: { lane: 'opencode', slug: 'a' } }), workerTask({ lane: 'agy' }))).toBe('#ffb547');
+    expect(orbColor(node({ kind: 'worker', worker: { lane: 'agy', slug: 'a' } }))).toBe('#4f8cff');
+    expect(orbColor(node({ kind: 'worker', worker: { lane: 'opencode', slug: 'a' } }))).toBe('#f59e0b');
+    expect(orbColor(node({ kind: 'worker' }))).toBe('#f59e0b');
+    expect(orbColor(node({ kind: 'worker', worker: { lane: 'opencode', slug: 'a' } }), workerTask({ lane: 'agy' }))).toBe('#4f8cff');
   });
   it('model names case-insensitive with task override', () => {
-    expect(orbColor(node({ kind: 'subagent', model: 'claude-opus-5-5' }))).toBe('#d9ccff');
-    expect(orbColor(node({ kind: 'subagent', model: 'Claude-Sonnet-4' }))).toBe('#2ee6c8');
-    expect(orbColor(node({ kind: 'subagent', model: 'haiku-3' }))).toBe('#b4b1d0');
-    expect(orbColor(node({ kind: 'subagent', model: 'sonnet-x' }), workerTask({ model: 'opus-y' }))).toBe('#d9ccff');
-    expect(orbColor(mainNode({ model: undefined }))).toBe('#d9ccff');
-    expect(orbColor(node({ kind: 'subagent', model: 'other-model' }))).toBe('#b4b1d0');
-    expect(orbColor(node({ kind: 'subagent' }))).toBe('#b4b1d0');
+    expect(orbColor(node({ kind: 'subagent', model: 'claude-opus-5-5' }))).toBe('#d97757');
+    expect(orbColor(node({ kind: 'subagent', model: 'Claude-Sonnet-4' }))).toBe('#e7e9ee');
+    expect(orbColor(node({ kind: 'subagent', model: 'haiku-3' }))).toBe('#9aa1ae');
+    expect(orbColor(node({ kind: 'subagent', model: 'sonnet-x' }), workerTask({ model: 'opus-y' }))).toBe('#d97757');
+    expect(orbColor(mainNode({ model: undefined }))).toBe('#d97757');
+    expect(orbColor(node({ kind: 'subagent', model: 'other-model' }))).toBe('#9aa1ae');
+    expect(orbColor(node({ kind: 'subagent' }))).toBe('#9aa1ae');
   });
   it('main runtime models before the generic rules', () => {
-    expect(orbColor(mainNode({ model: 'opencode-go/mimo-v2.6-pro' }))).toBe('#2ee6c8');
-    expect(orbColor(mainNode({ model: 'opencode-go/glm-5.3-flash' }))).toBe('#2ee6c8');
-    expect(orbColor(mainNode({ model: 'gemini-3.8-flash-high' }))).toBe('#ffb547');
+    expect(orbColor(mainNode({ model: 'opencode-go/mimo-v2.6-pro' }))).toBe('#f59e0b');
+    expect(orbColor(mainNode({ model: 'opencode-go/glm-5.3-flash' }))).toBe('#f59e0b');
+    expect(orbColor(mainNode({ model: 'gemini-3.8-flash-high' }))).toBe('#4f8cff');
     // gemini wins over a generic opus/sonnet match on main nodes.
-    expect(orbColor(mainNode({ model: 'gemini-opus-bridge' }))).toBe('#ffb547');
+    expect(orbColor(mainNode({ model: 'gemini-opus-bridge' }))).toBe('#4f8cff');
     // Non-main nodes keep the generic rules for the same models.
-    expect(orbColor(node({ kind: 'subagent', model: 'opencode-go/mimo-v2.6-pro' }))).toBe('#b4b1d0');
+    expect(orbColor(node({ kind: 'subagent', model: 'opencode-go/mimo-v2.6-pro' }))).toBe('#9aa1ae');
   });
 });
 
@@ -321,12 +321,22 @@ describe('buildChat user images', () => {
     expect(items[0]).toEqual({ type: 'user', id: 'u1', ts: 1, text: 'hi' });
     expect('images' in (items[0] as object)).toBe(false);
   });
+  it('carries queued onto the user item and drops it once the event updates', () => {
+    const queued = buildChat(node({ events: [ev({ id: 'u1', ts: 1, kind: 'user', summary: 'later', queued: true })] }), []);
+    expect(queued[0]).toEqual({ type: 'user', id: 'u1', ts: 1, text: 'later', queued: true });
+    const read = buildChat(node({ events: [ev({ id: 'u1', ts: 1, kind: 'user', summary: 'later' })] }), []);
+    expect('queued' in (read[0] as object)).toBe(false);
+  });
   it('copies the array so later mutations cannot leak in', () => {
     const urls = ['/api/sessions/s1/images/1.png'];
     const n = node({ events: [ev({ id: 'u1', ts: 1, kind: 'user', summary: 'hi', images: urls })] });
     const items = buildChat(n, []);
     urls.push('/api/sessions/s1/images/2.png');
     expect((items[0] as { images?: string[] }).images).toEqual(['/api/sessions/s1/images/1.png']);
+  });
+  it('carries attached file names onto the user item', () => {
+    const items = buildChat(node({ events: [ev({ id: 'u1', ts: 1, kind: 'user', summary: 'see', files: ['report.pdf'] })] }), []);
+    expect(items[0]).toEqual({ type: 'user', id: 'u1', ts: 1, text: 'see', files: ['report.pdf'] });
   });
 });
 
@@ -488,5 +498,163 @@ describe('buildChat tools-only-results', () => {
     const items = buildChat(n, []);
     expect(items.length).toBe(1);
     expect(items[0].type).toBe('tools');
+  });
+});
+
+describe('agentDescription', () => {
+  const worker = (over: Partial<AgentNode> = {}) =>
+    node({ kind: 'worker', agentType: 'agy-task', worker: { lane: 'agy', slug: 'probe-plain' }, ...over });
+
+  it('keeps a real description', () => {
+    expect(agentDescription(node({ description: 'Map the data flow' }))).toBe('Map the data flow');
+    expect(agentDescription(worker({ description: 'Rename session fields' }))).toBe('Rename session fields');
+  });
+
+  it('replaces a worker description that repeats the shell label with the first prompt line', () => {
+    const w = worker({ description: 'agy worker probe-plain (gemini-3.8-flash)', prompt: '\n  Probe the plain gate.\nSecond line' });
+    expect(agentDescription(w)).toBe('Probe the plain gate.');
+    expect(agentDescription(worker({ description: 'opencode worker dash-restart-api' , prompt: 'Add the restart API' }))).toBe('Add the restart API');
+  });
+
+  it('falls back to the task last tool, then to nothing', () => {
+    const w = worker({ description: 'agy worker probe-plain (gemini-3.8-flash)' });
+    const task = { lastTool: 'edit src/app.ts' } as WorkerTask;
+    expect(agentDescription(w, task)).toBe('edit src/app.ts');
+    expect(agentDescription(w)).toBe('');
+    // A prompt that is only the delegation command is not a task description.
+    expect(agentDescription({ ...w, prompt: 'agy-task start probe-plain -' })).toBe('');
+  });
+
+  it('never rewrites non-worker nodes that happen to match the label', () => {
+    expect(agentDescription(node({ description: 'agy worker probe-plain' }))).toBe('agy worker probe-plain');
+  });
+});
+
+describe('agentState', () => {
+  const task = (state: WorkerTask['state']) => ({ state }) as WorkerTask;
+
+  it('lets a worker task override the node status', () => {
+    expect(agentState(node({ status: 'running' }), task('ok'))).toBe('done');
+    expect(agentState(node({ status: 'done' }), task('not-ok'))).toBe('error');
+    expect(agentState(node({ status: 'running' }), task('unfinished'))).toBe('stopped');
+    expect(agentState(node({ status: 'stopped' }), task('unfinished'))).toBe('stopped');
+  });
+
+  it('turns a live node with a pending permission into waiting', () => {
+    expect(agentState(node({ status: 'running' }), undefined, true)).toBe('waiting');
+    expect(agentState(node({ status: 'done' }), undefined, true)).toBe('done');
+  });
+})
+
+describe('foldDone', () => {
+  const kid = (id: string, status: AgentNode['status'], parentId = 'root', startedAt = 10) =>
+    node({ id, status, parentId, startedAt });
+  const ids = (nodes: AgentNode[]) => nodes.map((n) => n.id).sort();
+  const none = new Set<string>();
+
+  it('folds finished siblings into one done:<parent> node and counts them', () => {
+    const r = foldDone([mainNode(), kid('a', 'done'), kid('b', 'idle'), kid('c', 'done')], none);
+    expect(ids(r.nodes)).toEqual(['done:root', 'root']);
+    expect(r.nodes.find((n) => n.id === 'done:root')).toMatchObject({ parentId: 'root', status: 'done' });
+    const g = r.groups.get('done:root')!;
+    expect(g.members.map((m) => m.id).sort()).toEqual(['a', 'b', 'c']);
+    expect(r.foldable.get('root')).toBe(3);
+  });
+
+  it('never folds running, waiting, failed or stopped agents', () => {
+    const nodes = [
+      mainNode(),
+      kid('run', 'running'),
+      kid('wait', 'waiting'),
+      kid('bad', 'error'),
+      kid('stop', 'stopped'),
+      kid('d1', 'done'),
+      kid('d2', 'done'),
+    ];
+    const r = foldDone(nodes, none);
+    expect(ids(r.nodes)).toEqual(['bad', 'done:root', 'root', 'run', 'stop', 'wait']);
+    expect(r.groups.get('done:root')!.members.map((m) => m.id).sort()).toEqual(['d1', 'd2']);
+  });
+
+  it('leaves a lone finished child as a card', () => {
+    const r = foldDone([mainNode(), kid('a', 'done'), kid('b', 'running')], none);
+    expect(ids(r.nodes)).toEqual(['a', 'b', 'root']);
+    expect(r.groups.size).toBe(0);
+    expect(r.foldable.size).toBe(0);
+  });
+
+  it('keeps a done parent that has a running child, and its finished siblings fold around it', () => {
+    const nodes = [
+      mainNode(),
+      kid('mid', 'done'),
+      kid('live', 'running', 'mid'),
+      kid('x', 'done'),
+      kid('y', 'done'),
+    ];
+    const r = foldDone(nodes, none);
+    expect(ids(r.nodes)).toEqual(['done:root', 'live', 'mid', 'root']);
+    expect(r.groups.get('done:root')!.members.map((m) => m.id).sort()).toEqual(['x', 'y']);
+  });
+
+  it('folds a finished subtree whole, counting its descendants', () => {
+    const nodes = [mainNode(), kid('p', 'done'), kid('c1', 'done', 'p'), kid('c2', 'done', 'p')];
+    const r = foldDone(nodes, none);
+    expect(ids(r.nodes)).toEqual(['done:root', 'root']);
+    expect(r.groups.get('done:root')!.members).toHaveLength(3);
+  });
+
+  it('shows the children of an expanded parent in place and keeps the rest folded', () => {
+    const nodes = [mainNode(), kid('p', 'done'), kid('c1', 'done', 'p'), kid('c2', 'done', 'p'), kid('q', 'done')];
+    const open = foldDone(nodes, new Set(['root']));
+    // root expanded: p and q are cards, p's own children stay folded under done:p.
+    expect(ids(open.nodes)).toEqual(['done:p', 'p', 'q', 'root']);
+    expect(open.groups.get('done:p')!.members.map((m) => m.id).sort()).toEqual(['c1', 'c2']);
+    const all = foldDone(nodes, new Set(['root', 'p']));
+    expect(ids(all.nodes)).toEqual(['c1', 'c2', 'p', 'q', 'root']);
+    expect(all.groups.size).toBe(0);
+    expect(all.foldable.size).toBe(2);
+  });
+
+  it('expands per parent', () => {
+    const nodes = [
+      mainNode(),
+      kid('a', 'running'),
+      kid('b', 'running'),
+      kid('a1', 'done', 'a'),
+      kid('a2', 'done', 'a'),
+      kid('b1', 'done', 'b'),
+      kid('b2', 'done', 'b'),
+    ];
+    const r = foldDone(nodes, new Set(['a']));
+    expect(ids(r.nodes)).toEqual(['a', 'a1', 'a2', 'b', 'done:b', 'root']);
+  });
+
+  it('lets a worker task decide the state', () => {
+    const nodes = [mainNode(), kid('a', 'done'), kid('b', 'done'), kid('c', 'done')];
+    const r = foldDone(nodes, none, (n) => (n.id === 'b' ? 'error' : n.status));
+    expect(ids(r.nodes)).toEqual(['b', 'done:root', 'root']);
+  });
+
+  it('copes with no nodes, a lone root and parent cycles', () => {
+    expect(foldDone([], none).nodes).toEqual([]);
+    expect(foldDone([mainNode()], none).nodes.map((n) => n.id)).toEqual(['root']);
+    const cyc = foldDone([mainNode(), kid('a', 'done', 'b'), kid('b', 'done', 'a')], none);
+    expect(ids(cyc.nodes)).toContain('root');
+    // every agent is either drawn or inside a folded group
+    const accounted = new Set([...cyc.nodes.map((n) => n.id), ...[...cyc.groups.values()].flatMap((g) => g.members.map((m) => m.id))]);
+    expect([...accounted]).toEqual(expect.arrayContaining(['a', 'b', 'root']));
+  });
+});
+
+describe('doneNames', () => {
+  it('lists distinct names with repeat counts in first-seen order', () => {
+    const w = node({ kind: 'worker', agentType: 'agy-task', worker: { lane: 'agy', slug: 'docs' } });
+    const names = doneNames([
+      node({ agentType: 'explore' }),
+      w,
+      node({ agentType: 'explore' }),
+      node({ agentType: 'tester' }),
+    ]);
+    expect(names).toEqual(['explore ×2', 'docs', 'tester']);
   });
 });

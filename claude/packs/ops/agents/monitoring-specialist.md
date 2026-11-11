@@ -2,6 +2,7 @@
 name: monitoring-specialist
 description: Observability with Prometheus, Grafana, Loki, alerting, tracing and SLI/SLO. Use proactively for metrics, dashboards, alerting or logging work.
 model: sonnet
+effort: high
 tools:
 - Read
 - Glob

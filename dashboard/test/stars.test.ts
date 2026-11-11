@@ -1,8 +1,8 @@
 // Starred folders: add, list, remove, validation, persistence and the 50-entry cap.
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { DirError } from '../server/dirs.ts';
 import { listStars, setStar, starsFilePath } from '../server/stars.ts';
 
@@ -139,5 +139,67 @@ describe('stars', () => {
     const entries = await readdir(path.dirname(starsFilePath()));
     expect(entries.filter(f => f.endsWith('.tmp'))).toEqual([]);
     await rm(starsFilePath(), { force: true });
+  });
+});
+
+describe('stars migration from claude-fleet', () => {
+  let xdg: string;
+  let dir: string;
+  let previousXdg: string | undefined;
+  const exists = (p: string): Promise<boolean> => access(p).then(() => true, () => false);
+
+  beforeEach(async () => {
+    xdg = await mkdtemp(path.join(tmpdir(), 'fleet-stars-mig-'));
+    previousXdg = process.env.XDG_CONFIG_HOME;
+    process.env.XDG_CONFIG_HOME = xdg;
+    dir = await mkdtemp(path.join(await realpath(homedir()), 'fleet-star-mig-'));
+  });
+
+  afterEach(async () => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previousXdg;
+    await rm(xdg, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('moves starred.json to swarmkit (0600, dir 0700) and removes the emptied old dir', async () => {
+    const real = await realpath(dir);
+    await mkdir(path.join(xdg, 'claude-fleet'));
+    await writeFile(path.join(xdg, 'claude-fleet', 'starred.json'), JSON.stringify([real]));
+    expect(await listStars()).toEqual([real]);
+    const file = path.join(xdg, 'swarmkit', 'starred.json');
+    expect(file).toBe(starsFilePath());
+    expect(JSON.parse(await readFile(file, 'utf8'))).toEqual([real]);
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    expect((await stat(path.dirname(file))).mode & 0o777).toBe(0o700);
+    expect(await exists(path.join(xdg, 'claude-fleet'))).toBe(false);
+  });
+
+  it('keeps the old dir when other files remain in it', async () => {
+    await mkdir(path.join(xdg, 'claude-fleet'));
+    await writeFile(path.join(xdg, 'claude-fleet', 'starred.json'), '[]');
+    await writeFile(path.join(xdg, 'claude-fleet', 'other'), 'x');
+    await listStars();
+    expect(await exists(path.join(xdg, 'claude-fleet', 'starred.json'))).toBe(false);
+    expect(await exists(path.join(xdg, 'claude-fleet', 'other'))).toBe(true);
+  });
+
+  it('does not migrate when the new file exists (new wins, old untouched)', async () => {
+    const real = await realpath(dir);
+    await mkdir(path.join(xdg, 'claude-fleet'));
+    await mkdir(path.join(xdg, 'swarmkit'));
+    await writeFile(path.join(xdg, 'claude-fleet', 'starred.json'), JSON.stringify([real]));
+    await writeFile(path.join(xdg, 'swarmkit', 'starred.json'), '[]');
+    expect(await listStars()).toEqual([]);
+    expect(await exists(path.join(xdg, 'claude-fleet', 'starred.json'))).toBe(true);
+  });
+
+  it('still returns the old stars when the new location cannot be written', async () => {
+    const real = await realpath(dir);
+    await mkdir(path.join(xdg, 'claude-fleet'));
+    await writeFile(path.join(xdg, 'claude-fleet', 'starred.json'), JSON.stringify([real]));
+    await writeFile(path.join(xdg, 'swarmkit'), 'in the way');
+    expect(await listStars()).toEqual([real]);
+    expect(await exists(path.join(xdg, 'claude-fleet', 'starred.json'))).toBe(true);
   });
 });

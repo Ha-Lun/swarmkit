@@ -58,7 +58,7 @@ function parseAgentFile(content: string, fileName: string, scope: AgentInfo['sco
   };
 }
 
-function cleanValue(raw: string): string {
+export function cleanValue(raw: string): string {
   let value = raw.trim();
   if (value.length > 1 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))) {
     value = value.slice(1, -1);

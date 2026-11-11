@@ -121,7 +121,7 @@ The installer symlinks everything into each CLI's config directory. The agents a
 
 | Flag | Description |
 |---|---|
-| `--claude` | Install the Claude Code config (rules, core agents, hooks, core skills) plus the swarm pack orchestrators and coordination agents/skills globally. Removes the old `plan-gate.py` hook entry from `~/.claude/settings.json` if present |
+| `--claude` | Install the Claude Code config (rules, core agents, hooks, core skills) plus the swarm pack orchestrators and coordination agents/skills globally. Adds one `PermissionRequest` entry for the `dashboard-ask.py` hook to `~/.claude/settings.json` (backed up first, rerun-safe; invalid JSON is left alone with a warning) and removes the old `plan-gate.py` entry if present |
 | `--pack <name> [project]` | Link a Claude Code pack's agents and skills into `<project>/.claude/` (default: current dir) and list the links in the repo's `.git/info/exclude`. Packs: `web`, `backend`, `ops`, `mobile`, `n8n`, `creative`, `swarm`. With `--uninstall`, removes that pack from the project |
 | `--opencode` | Install the OpenCode config (rules, agents, commands, skills, `opencode.jsonc`) |
 | `--agy` | Install the Antigravity config (`swarmkit` plugin, skills) and `agyw` |
@@ -133,7 +133,7 @@ The installer symlinks everything into each CLI's config directory. The agents a
 | `--n8n` | Configure self-hosted n8n credentials (not included in `--all`) |
 | `--cloudflare` | Install Cloudflare skills and authenticate (not included in `--all`) |
 | `--free` | OpenCode free mode: copies `opencode.jsonc` with a free default model |
-| `--uninstall` | Remove every global link that points into this repo and any old plan-gate entry in `~/.claude/settings.json` |
+| `--uninstall` | Remove every global link that points into this repo and the `dashboard-ask.py` and any old plan-gate entry in `~/.claude/settings.json` |
 | `--help` | Show the help message |
 
 ### Profiles

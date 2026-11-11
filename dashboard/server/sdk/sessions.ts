@@ -12,14 +12,15 @@ import { pollWorkers } from '../model/workers.ts';
 import { noteRateLimit } from '../usage.ts';
 import { DASHBOARD_ENTRYPOINTS, holderMessage, liveHolder } from '../livesessions.ts';
 import { MAX_EVENTS, RUNTIME_MODELS } from '../../src/shared/types.ts';
-import type { AgentNode, ImageAttachment, PermissionDecisionBody, PermissionRequest, ResumeSessionBody, Runtime, ServerEvent, SessionDetail, SessionSummary, StartSessionBody } from '../../src/shared/types.ts';
-import { AGENT_RE, validEffort, validImages, validMessageText, validResumeModel, validText } from '../validate.ts';
+import type { AgentNode, FileAttachment, ImageAttachment, PermissionDecisionBody, PermissionRequest, ResumeSessionBody, Runtime, ServerEvent, SessionDetail, SessionSummary, SlashCommandInfo, StartSessionBody } from '../../src/shared/types.ts';
+import { AGENT_RE, validAttachmentTotals, validEffort, validFiles, validImages, validMessageText, validResumeModel, validText } from '../validate.ts';
 import { createAcpQuery } from '../runtimes/acp.ts';
 import type { AcpOptions } from '../runtimes/acp.ts';
 import { AgyHookBridge, createAgyQuery } from '../runtimes/agy.ts';
+import { listAgyCommands } from '../runtimes/agy-commands.ts';
 import type { AgyHookResponse, AgyOptions } from '../runtimes/agy.ts';
 import { claudeConfigDir, resolveDirInHome } from '../paths.ts';
-import { deleteImages, imageDir, pruneOrphanImages, saveImages } from '../images.ts';
+import { deleteImages, imageDir, pruneOrphanImages, saveFiles, saveImages } from '../images.ts';
 
 /** Main-thread agent names must start alphanumerically and stay short (no '../', no path tricks). */
 export { AGENT_RE };
@@ -66,12 +67,16 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
   private items: SDKUserMessage[] = [];
   private waiters: Array<(result: IteratorResult<SDKUserMessage>) => void> = [];
   private closed = false;
+  /** Called when the reader takes a message (the turn that answers it starts). */
+  onTake?: (message: SDKUserMessage) => void;
 
   push(message: SDKUserMessage): void {
     if (this.closed) return;
     const waiter = this.waiters.shift();
-    if (waiter) waiter({ value: message, done: false });
-    else this.items.push(message);
+    if (waiter) {
+      this.onTake?.(message);
+      waiter({ value: message, done: false });
+    } else this.items.push(message);
   }
 
   close(): void {
@@ -84,7 +89,10 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
     return {
       next: () => {
         const item = this.items.shift();
-        if (item) return Promise.resolve({ value: item, done: false });
+        if (item) {
+          this.onTake?.(item);
+          return Promise.resolve({ value: item, done: false });
+        }
         if (this.closed) return Promise.resolve({ value: undefined as never, done: true });
         return new Promise<IteratorResult<SDKUserMessage>>(resolve => this.waiters.push(resolve));
       },
@@ -118,6 +126,8 @@ interface PageSession {
   updatedAt: number;
   tree: SessionTree;
   queue: InputQueue;
+  /** Page messages waiting for the current opencode/agy turn to end (see markQueued). */
+  queuedUuids?: Set<string>;
   abort: AbortController;
   query: AsyncIterable<SDKMessage> | null;
   pending: Map<string, PendingPermission>;
@@ -129,7 +139,19 @@ interface PageSession {
   consumePromise: Promise<void> | null;
   /** True when the cwd's project settings are untrusted (only user settings are read). */
   untrustedProject: boolean;
+  /** The SDK session's current permission mode (seeded at startQuery, kept up to date from system messages). */
+  permissionMode?: NonNullable<Options['permissionMode']>;
+  /** Terminal slash commands from the init message (filtered out of commands()). */
+  terminalCommands?: Set<string>;
   upsertThrottle: { lastSent: number; timer: NodeJS.Timeout | null };
+}
+
+/** The string-valued entries of a decision's answers object, undefined when there are none. */
+function stringAnswers(v: unknown): Record<string, string> | undefined {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, a] of Object.entries(v)) if (typeof a === 'string' && a.length > 0) out[k] = a;
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 const firstPromptLine = (prompt: string): string => {
@@ -300,7 +322,7 @@ export class SdkSessions {
     this.sessions.set(id, session);
 
     try {
-      this.startQuery(session, body.prompt, body.model, body.effort, false, body.images);
+      this.startQuery(session, body.prompt, body.model, body.effort, false, body.images, body.files);
     } catch (err) {
       this.sessions.delete(id);
       deleteImages(id);
@@ -310,9 +332,11 @@ export class SdkSessions {
   }
 
   /** Runs the SDK query for a session (fresh start or resumed continuation) and consumes it in the background. */
-  private startQuery(session: PageSession, prompt: string, model: string | undefined, effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined, resume: boolean, images?: ImageAttachment[]): void {
-    // Store the images first: a disk error must not leave a half-started query behind.
-    const turn = this.prepareTurn(session, prompt, images);
+  private startQuery(session: PageSession, prompt: string | undefined, model: string | undefined, effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined, resume: boolean, images?: ImageAttachment[], files?: FileAttachment[]): void {
+    // Store the attachments first: a disk error must not leave a half-started query behind.
+    // A restart without text prepares no turn: the fresh process just waits for input.
+    const turn = prompt !== undefined ? this.prepareTurn(session, prompt, images, files) : undefined;
+    session.queue.onTake = m => this.unqueue(session, m.uuid ?? '');
     session.generation += 1;
     const generation = session.generation;
     session.abort = new AbortController();
@@ -326,7 +350,7 @@ export class SdkSessions {
         forwardSubagentText: true,
         // The SDK defaults to 'default' when permissionMode is omitted (unlike the interactive CLI), so pass it explicitly.
         // Trusted: the terminal's mode (permissions.defaultMode, else auto); untrusted: always ask.
-        permissionMode: session.untrustedProject ? 'default' : terminalPermissionMode(),
+        permissionMode: (session.permissionMode = session.untrustedProject ? 'default' : terminalPermissionMode()),
         canUseTool: this.makeCanUseTool(session, generation),
         // A resumed session keeps its id and drops the fixed sessionId (the SDK continues the old one).
         ...(resume ? { resume: session.id } : { sessionId: session.id }),
@@ -338,52 +362,82 @@ export class SdkSessions {
     } else {
       session.query = this.startRuntimeQuery(session, generation, model, effort, resume);
     }
-    session.queue.push(turn.message);
+    if (turn) session.queue.push(turn.message);
     session.consumePromise = this.consume(session, generation).catch(err => {
       console.error(`Session ${session.id} consume crashed:`, err);
     });
     if (resume) {
-      for (const event of setStatus(session.tree, 'root', 'running')) this.emit(event);
+      // A text-less restart leaves the root idle (the post-turn state), exactly as if no turn runs yet.
+      for (const event of setStatus(session.tree, 'root', turn ? 'running' : 'idle')) this.emit(event);
     }
     this.scheduleUpsert(session);
-    for (const event of turn.events) this.emit(event);
+    if (turn) for (const event of turn.events) this.emit(event);
   }
 
   /**
-   * The queued user message of one turn. Without images it is the plain text. With images they
-   * are stored (private files) and the turn carries them per runtime: claude/opencode as base64
+   * The queued user message of one turn. Without attachments it is the plain text. Images are
+   * stored (private files) and the turn carries them per runtime: claude/opencode as base64
    * image blocks before the text, agy as the file paths appended to the text (it reads them with
-   * read_file). `events` is the user ActivityEvent with the stored-image URLs (never base64).
+   * read_file). Files are stored the same way and appended as absolute paths for every runtime
+   * (Claude included: it reads them with its file tools). `events` is the user ActivityEvent
+   * with the stored-image URLs and file display names (never base64).
    */
-  private prepareTurn(session: PageSession, text: string, images?: ImageAttachment[]): { message: SDKUserMessage; events: ServerEvent[] } {
+  private prepareTurn(session: PageSession, text: string, images?: ImageAttachment[], files?: FileAttachment[]): { message: SDKUserMessage; events: ServerEvent[] } {
     const base = { type: 'user' as const, parent_tool_use_id: null, session_id: session.id };
-    if (!images || images.length === 0) {
+    const hasImages = !!images && images.length > 0;
+    const hasFiles = !!files && files.length > 0;
+    if (!hasImages && !hasFiles) {
       // The SDK and the adapters never echo page-sent text, so the user event is made here.
       const uuid = randomUUID();
       const events = applyMessage(session.tree, { type: 'user', uuid, message: { role: 'user', content: text } }, { pageUser: {} });
       return { message: { ...base, uuid, message: { role: 'user', content: text } }, events };
     }
-    let stored: { urls: string[]; paths: string[] };
-    try {
-      stored = saveImages(session.id, images);
-      session.imagesDir = imageDir(session.id);
-    } catch (err) {
-      console.error(`Session ${session.id}: could not store images:`, (err as Error).message);
-      throw new SessionError(500, 'could not store the images');
+    let urls: string[] = [];
+    let imagePaths: string[] = [];
+    if (hasImages) {
+      try {
+        const stored = saveImages(session.id, images!);
+        session.imagesDir = imageDir(session.id);
+        urls = stored.urls;
+        imagePaths = stored.paths;
+      } catch (err) {
+        console.error(`Session ${session.id}: could not store images:`, (err as Error).message);
+        throw new SessionError(500, 'could not store the images');
+      }
     }
+    let names: string[] = [];
+    let filePaths: string[] = [];
+    if (hasFiles) {
+      try {
+        const stored = saveFiles(session.id, files!);
+        session.imagesDir = imageDir(session.id);
+        names = stored.names;
+        filePaths = stored.paths;
+      } catch (err) {
+        console.error(`Session ${session.id}: could not store files:`, (err as Error).message);
+        throw new SessionError(500, 'could not store the files');
+      }
+    }
+    // Files travel as paths for every runtime; the agent reads them from disk with its tools.
+    // Quoted: names may contain spaces, so an unquoted paste into a shell would split them.
+    const withFiles = filePaths.length > 0
+      ? `${text}\n\nAttached files (read them from these paths):\n${filePaths.map(p => JSON.stringify(p)).join('\n')}`
+      : text;
     const uuid = randomUUID();
     const content = session.runtime === 'agy'
-      ? `${text}\n\nAttached images (open them with read_file):\n${stored.paths.join('\n')}`
+      ? (imagePaths.length > 0
+        ? `${withFiles}\n\nAttached images (open them with read_file):\n${imagePaths.join('\n')}`
+        : withFiles)
       : [
-          ...images.map(i => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: i.mediaType, data: i.data } })),
-          { type: 'text' as const, text },
+          ...(images ?? []).map(i => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: i.mediaType, data: i.data } })),
+          { type: 'text' as const, text: withFiles },
         ];
     // The same uuid lets a replayed/echoed copy of this message dedupe against the event below.
     const events = applyMessage(session.tree, {
       type: 'user',
       uuid,
       message: { role: 'user', content: text },
-    }, { pageUser: { images: stored.urls } });
+    }, { pageUser: { images: urls, files: names } });
     return { message: { ...base, uuid, message: { role: 'user', content } }, events };
   }
 
@@ -428,7 +482,11 @@ export class SdkSessions {
       } catch {
         return { allow: false, reason: 'permission check failed' };
       }
-      if (decision && decision.behavior === 'allow') return { allow: true };
+      if (decision && decision.behavior === 'allow') {
+        // A question's answers travel back so the agy bridge can phrase them for the model.
+        const answers = req.tool === 'AskUserQuestion' ? stringAnswers((decision as { updatedInput?: { answers?: unknown } }).updatedInput?.answers) : undefined;
+        return answers ? { allow: true, answers } : { allow: true };
+      }
       const message = (decision as { message?: unknown }).message;
       return typeof message === 'string' && message ? { allow: false, reason: message } : { allow: false };
     });
@@ -453,6 +511,15 @@ export class SdkSessions {
         if ((message as { type?: string }).type === 'rate_limit_event') {
           // Feed the latest-known plan limits to /api/usage.
           noteRateLimit((message as SDKRateLimitEvent).rate_limit_info);
+        }
+        const init = message as unknown as { type?: unknown; subtype?: unknown; terminal_slash_commands?: unknown; permissionMode?: unknown };
+        if (init.type === 'system' && (init.subtype === 'init' || init.subtype === 'status') && typeof init.permissionMode === 'string') {
+          session.permissionMode = init.permissionMode as NonNullable<Options['permissionMode']>;
+        }
+        if (init.type === 'system' && init.subtype === 'init' && Array.isArray(init.terminal_slash_commands)) {
+          session.terminalCommands = new Set(
+            init.terminal_slash_commands.filter((v): v is string => typeof v === 'string'),
+          );
         }
         for (const event of applyMessage(session.tree, message)) this.emit(event);
         this.scheduleUpsert(session);
@@ -487,6 +554,7 @@ export class SdkSessions {
         sessionId: session.id,
         nodeId: ownerOf(session.tree, toolUseID),
         tool: toolName,
+        kind: toolName === 'AskUserQuestion' ? 'question' : toolName === 'ExitPlanMode' ? 'plan' : 'tool',
         ...(toolUseID ? { toolUseId: toolUseID } : {}),
         input,
         ...(title ? { title } : {}),
@@ -531,9 +599,22 @@ export class SdkSessions {
     if (!entry) return false;
     target.pending.delete(permissionId);
 
-    const result: PermissionResult = body.allow
-      ? { behavior: 'allow', updatedInput: entry.request.input }
-      : { behavior: 'deny', message: body.message || 'Denied in SwarmKit' };
+    const result: PermissionResult =
+      body.allow && body.answers && entry.request.tool === 'AskUserQuestion'
+        ? { behavior: 'allow', updatedInput: { ...entry.request.input, answers: body.answers } }
+        : body.allow
+          ? {
+              behavior: 'allow',
+              updatedInput: entry.request.input,
+              // A plan approval can pick the mode to continue in (applies to this session only);
+              // an untrusted project stays on 'default' (its settings files are attacker-controlled),
+              // and only a session actually in plan mode takes one.
+              ...(body.mode && entry.request.kind === 'plan' && !target.untrustedProject && target.permissionMode === 'plan'
+                ? { updatedPermissions: [{ type: 'setMode' as const, mode: body.mode, destination: 'session' as const }] }
+                : {}),
+            }
+          : { behavior: 'deny', message: body.message || 'Denied in SwarmKit' };
+    if (result.behavior === 'allow' && result.updatedPermissions && body.mode) target.permissionMode = body.mode;
     this.emit({ type: 'permission.resolved', sessionId: target.id, id: permissionId, allow: body.allow });
     for (const event of setStatus(target.tree, entry.request.nodeId, 'running')) this.emit(event);
     this.scheduleUpsert(target);
@@ -541,18 +622,44 @@ export class SdkSessions {
     return true;
   }
 
-  send(id: string, text: string, images?: ImageAttachment[]): boolean {
+  send(id: string, text: string, images?: ImageAttachment[], files?: FileAttachment[]): boolean {
     const session = this.sessions.get(id);
     if (!session) return false;
     if (session.stopped || !session.consuming || !session.query) {
       throw new SessionError(409, 'Session has ended; use Continue');
     }
-    const turn = this.prepareTurn(session, text, images);
-    session.queue.push(turn.message);
+    const busy = ['running', 'waiting'].includes(session.tree.nodes.get('root')?.status ?? '');
+    const turn = this.prepareTurn(session, text, images, files);
+    // opencode (ACP refuses a second prompt mid-turn) and agy (one process per turn) answer after the turn:
+    // the user event shows Queued until the adapter takes the message (onTake).
+    if (busy && session.runtime !== 'claude') this.markQueued(session, turn);
+    // Claude: 'next' steers a running turn at its next tool boundary instead of waiting for the turn to end
+    // (never interrupt: that would kill background agents and workers).
+    session.queue.push(session.runtime === 'claude' ? { ...turn.message, priority: 'next' } : turn.message);
     for (const event of turn.events) this.emit(event);
     for (const event of setStatus(session.tree, 'root', 'running')) this.emit(event);
     this.scheduleUpsert(session);
     return true;
+  }
+
+  /** Flags the turn's user event as queued (the stored event and the one about to be emitted are the same object). */
+  private markQueued(session: PageSession, turn: { message: SDKUserMessage; events: ServerEvent[] }): void {
+    for (const ev of turn.events) if (ev.type === 'node.event' && ev.event.kind === 'user') ev.event.queued = true;
+    if (turn.message.uuid) (session.queuedUuids ??= new Set()).add(turn.message.uuid);
+  }
+
+  /** Clears the Queued flag of one queued message (the lead took it) or, without a uuid, of all (stop/unwind). */
+  private unqueue(session: PageSession, uuid?: string): void {
+    const queued = session.queuedUuids;
+    if (!queued || queued.size === 0) return;
+    const ids = uuid === undefined ? [...queued] : queued.has(uuid) ? [uuid] : [];
+    for (const u of ids) {
+      queued.delete(u);
+      const event = session.tree.nodes.get('root')?.events.find(e => e.id === `${u}:user`);
+      if (!event?.queued) continue;
+      delete event.queued;
+      this.emit({ type: 'node.event', sessionId: session.id, nodeId: 'root', event: { ...event } });
+    }
   }
 
   interrupt(id: string): boolean {
@@ -579,6 +686,7 @@ export class SdkSessions {
       void interrupt?.call(session.query)?.catch(() => {});
     }
     session.queue.close();
+    this.unqueue(session);  // messages still waiting are dropped with the queue
     session.abort.abort();
     // Anything still pending is denied here (the abort listener handles results
     // flowing through canUseTool's own signal; this is the fallback path).
@@ -616,9 +724,12 @@ export class SdkSessions {
     let model: string | undefined;
     let effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined;
     let images: ImageAttachment[] | undefined;
+    let files: FileAttachment[] | undefined;
     try {
       images = validImages(body?.images);
-      text = validMessageText(body?.text, images);
+      files = validFiles(body?.files);
+      validAttachmentTotals(images, files);
+      text = validMessageText(body?.text, images, files);
       model = validResumeModel(body.model);
       effort = validEffort(body.effort);
     } catch (err) {
@@ -635,7 +746,7 @@ export class SdkSessions {
       throw new SessionError(400, `agent must match ${String(AGENT_RE)}`);
     }
     if (existing) {
-      if (existing.runtime !== 'claude') return this.resumeRuntime(existing, text, model, effort, images);
+      if (existing.runtime !== 'claude') return this.resumeRuntime(existing, text, model, effort, images, files);
       const root = existing.tree.nodes.get('root');
       if (!existing.stopped && existing.consuming) {
         if (root && (root.status === 'running' || root.status === 'waiting')) {
@@ -644,7 +755,7 @@ export class SdkSessions {
         // Idle (turn ended, input queue open): the live process just takes the message.
         if (effort !== undefined) existing.effort = effort;
         existing.updatedAt = Date.now();
-        const turn = this.prepareTurn(existing, text, images);
+        const turn = this.prepareTurn(existing, text, images, files);
         existing.queue.push(turn.message);
         for (const event of turn.events) this.emit(event);
         for (const event of setStatus(existing.tree, 'root', 'running')) this.emit(event);
@@ -659,18 +770,9 @@ export class SdkSessions {
         throw new SessionError(409, holderMessage(leftover.pid));
       }
       // The old process is gone (or stopping): unwind it before starting the new query.
-      existing.abort.abort();
-      await Promise.race([
-        existing.consumePromise ?? Promise.resolve(),
-        new Promise<void>(resolve => setTimeout(resolve, RESUME_UNWIND_MS).unref()),
-      ]);
-      existing.stopped = false;
-      existing.pending.clear();
-      existing.queue = new InputQueue();
-      existing.upsertThrottle = { lastSent: 0, timer: null };
-      existing.updatedAt = Date.now();
+      await this.unwind(existing);
       if (effort !== undefined) existing.effort = effort;
-      this.startQuery(existing, text, model, effort ?? existing.effort, true, images);
+      this.startQuery(existing, text, model, effort ?? existing.effort, true, images, files);
       return id;
     }
     // Non-Claude runtimes live only in page memory: a terminal transcript cannot be adopted into one.
@@ -710,7 +812,7 @@ export class SdkSessions {
       upsertThrottle: { lastSent: 0, timer: null },
     };
     this.sessions.set(id, session);
-    this.startQuery(session, text, model, effort, true, images);
+    this.startQuery(session, text, model, effort, true, images, files);
     return id;
   }
 
@@ -720,7 +822,7 @@ export class SdkSessions {
    * conversation id. Idle-but-live sessions just take the message; active ones
    * refuse with 409; ended ones restart the adapter query.
    */
-  private async resumeRuntime(session: PageSession, text: string, model: string | undefined, effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined, images?: ImageAttachment[]): Promise<string> {
+  private async resumeRuntime(session: PageSession, text: string, model: string | undefined, effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined, images?: ImageAttachment[], files?: FileAttachment[]): Promise<string> {
     const root = session.tree.nodes.get('root');
     if (!session.stopped && session.consuming) {
       if (root && (root.status === 'running' || root.status === 'waiting')) {
@@ -729,7 +831,7 @@ export class SdkSessions {
       if (effort !== undefined) session.effort = effort;
       if (model !== undefined) session.model = model;
       session.updatedAt = Date.now();
-      const turn = this.prepareTurn(session, text, images);
+      const turn = this.prepareTurn(session, text, images, files);
       session.queue.push(turn.message);
       for (const event of turn.events) this.emit(event);
       for (const event of setStatus(session.tree, 'root', 'running')) this.emit(event);
@@ -743,6 +845,15 @@ export class SdkSessions {
       throw new SessionError(409, holderMessage(leftover.pid));
     }
     // The old process is gone (or stopping): unwind it before starting the new query.
+    await this.unwind(session);
+    if (model !== undefined) session.model = model;
+    if (effort !== undefined) session.effort = effort;
+    this.startQuery(session, text, model ?? session.model, effort, true, images, files);
+    return session.id;
+  }
+
+  /** Unwinds a stopped/stopping query before a resumed/restarted one starts. */
+  private async unwind(session: PageSession): Promise<void> {
     session.abort.abort();
     await Promise.race([
       session.consumePromise ?? Promise.resolve(),
@@ -750,13 +861,44 @@ export class SdkSessions {
     ]);
     session.stopped = false;
     session.pending.clear();
+    this.unqueue(session);
     session.queue = new InputQueue();
     session.upsertThrottle = { lastSent: 0, timer: null };
     session.updatedAt = Date.now();
-    if (model !== undefined) session.model = model;
-    if (effort !== undefined) session.effort = effort;
-    this.startQuery(session, text, model ?? session.model, effort, true, images);
-    return session.id;
+  }
+
+  /**
+   * Restarts the SDK process of a page-owned Claude session on the same id
+   * (picks up newly installed agents): a live process is stopped first, the old
+   * query is unwound, and a resumed query starts with the session's stored
+   * cwd/agent/effort/model. Without text no user turn is prepared and the root
+   * stays idle; with text it behaves like a resume.
+   */
+  async restart(id: string, body: { text?: string }): Promise<string> {
+    const session = this.sessions.get(id);
+    if (!session) throw new SessionError(404, 'session not found');
+    if (session.runtime !== 'claude') throw new SessionError(400, 'Restart is only for Claude sessions');
+    // Empty/absent text means "no text"; given text must read like a resume message.
+    let text: string | undefined;
+    const raw = body?.text;
+    if (typeof raw === 'string' && raw.trim().length === 0) {
+      text = undefined;
+    } else if (raw !== undefined && raw !== null) {
+      try {
+        text = validMessageText(raw, undefined);
+      } catch (err) {
+        throw new SessionError(400, (err as Error).message);
+      }
+    }
+    // Same fork-protection as resume: a live non-dashboard holder refuses the restart.
+    const leftover = await liveHolder(id);
+    if (leftover && !DASHBOARD_ENTRYPOINTS.has(leftover.entrypoint ?? '')) {
+      throw new SessionError(409, holderMessage(leftover.pid));
+    }
+    if (!session.stopped) this.stop(id);
+    await this.unwind(session);
+    this.startQuery(session, text, session.model, session.effort, true);
+    return id;
   }
 
   /** Rebuilds a SessionTree from transcript nodes: statuses become terminal states, the root restarts. */
@@ -819,6 +961,66 @@ export class SdkSessions {
   /** Lead runtime of a page session, if we own the id. */
   runtimeOf(id: string): Runtime | undefined {
     return this.sessions.get(id)?.runtime;
+  }
+
+  /** Last live command list per runtime + cwd, served while no query of that kind is live. */
+  private commandCache = new Map<string, SlashCommandInfo[]>();
+
+  /** The last live command list seen for this runtime and cwd ([] when none yet). */
+  cachedCommands(runtime: Runtime, cwd: string): SlashCommandInfo[] {
+    return this.commandCache.get(`${runtime}\0${cwd}`) ?? [];
+  }
+
+  /**
+   * Slash commands of a page session; undefined when the id isn't ours. A live query is
+   * asked directly; otherwise agy rescans disk and the others get the cached list.
+   */
+  async commands(id: string): Promise<SlashCommandInfo[] | undefined> {
+    const session = this.sessions.get(id);
+    if (!session) return undefined;
+    if (!session.query) {
+      return session.runtime === 'agy' ? listAgyCommands(session.cwd) : this.cachedCommands(session.runtime, session.cwd);
+    }
+    const live = await this.liveCommands(session);
+    if (live.length > 0) this.commandCache.set(`${session.runtime}\0${session.cwd}`, live);
+    return live.length > 0 ? live : this.cachedCommands(session.runtime, session.cwd);
+  }
+
+  private async liveCommands(session: PageSession): Promise<SlashCommandInfo[]> {
+    const fn = (session.query as unknown as { supportedCommands?: () => Promise<unknown> }).supportedCommands;
+    if (!fn) return [];
+    let timer: NodeJS.Timeout | null = null;
+    let raw: unknown;
+    try {
+      const timeout = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('commands timed out')), 5000);
+      });
+      raw = await Promise.race([fn.call(session.query), timeout]);
+    } catch {
+      return [];
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    if (!Array.isArray(raw)) return [];
+    const seen = new Set<string>();
+    const out: SlashCommandInfo[] = [];
+    for (const item of raw) {
+      if (!item || typeof item !== 'object') continue;
+      const r = item as { name?: unknown; description?: unknown; argumentHint?: unknown };
+      if (typeof r.name !== 'string' || r.name.length === 0) continue;
+      let name = r.name;
+      if (name.startsWith('/')) name = name.slice(1);
+      // '__'-prefixed names are the CLI's internal commands.
+      if (name.length === 0 || name.startsWith('__')) continue;
+      if (session.terminalCommands?.has(name)) continue;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const cmd: SlashCommandInfo = { name };
+      if (typeof r.description === 'string' && r.description.length > 0) cmd.description = r.description;
+      if (typeof r.argumentHint === 'string' && r.argumentHint.length > 0) cmd.argumentHint = r.argumentHint;
+      out.push(cmd);
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   /**

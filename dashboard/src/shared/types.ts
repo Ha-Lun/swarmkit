@@ -26,6 +26,10 @@ export interface ActivityEvent {
   isError?: boolean;
   /** User events only: URLs of the stored images sent with the message (GET /api/sessions/:id/images/:name). */
   images?: string[];
+  /** User events only: display names of the general files sent with the message (stored on disk, never served). */
+  files?: string[];
+  /** Page user events only: waiting for the running opencode/agy turn to end before the lead reads it. */
+  queued?: boolean;
 }
 
 export interface TokenUsage {
@@ -87,10 +91,21 @@ export interface PermissionRequest {
   /** The node whose tool call asks (found from the tool_use_id), 'root' if unknown. */
   nodeId: string;
   tool: string;
+  /**
+   * What the request is, set by the server: 'question' (AskUserQuestion: answers go back
+   * in the decision), 'plan' (ExitPlanMode: approve or send feedback), 'tool' (everything else).
+   */
+  kind?: 'question' | 'plan' | 'tool';
   toolUseId?: string;
   input: Record<string, unknown>;
   /** The SDK's prompt sentence, e.g. "Claude wants to read foo.txt", when present. */
   title?: string;
+  /**
+   * True for a terminal Claude Code session's question or plan, relayed through the
+   * PermissionRequest hook: deciding it answers the terminal prompt, and
+   * PermissionDecisionBody.terminal hands it back to the terminal dialog.
+   */
+  terminal?: boolean;
   createdAt: number;
 }
 
@@ -124,9 +139,28 @@ export interface SessionSummary {
   untrustedProject?: boolean;
 }
 
+/** Git state of a session's cwd (server/git.ts), shown in the session header and composer footer. */
+export interface GitInfo {
+  /** Branch name; the short commit sha when detached. */
+  branch: string;
+  detached: boolean;
+  /** Changed + untracked paths (`git status --porcelain` lines). */
+  dirty: number;
+  /** Commits ahead of / behind the upstream; 0 without an upstream. */
+  ahead: number;
+  behind: number;
+  /** Set when cwd is a linked worktree: the main checkout's path. */
+  worktreeOf?: string;
+}
+
 export interface SessionDetail extends SessionSummary {
   nodes: AgentNode[];
   permissions: PermissionRequest[];
+}
+
+/** GET /api/sessions/:id/git; `git` is absent when cwd is not inside a git repository (or git failed). */
+export interface GitResponse {
+  git?: GitInfo;
 }
 
 /** Sent over GET /events as `data: <json>` lines. */
@@ -169,6 +203,7 @@ export interface WorkerTask {
 // HTTP API bodies. All endpoints need the token (cookie `fleet_token` or header `x-fleet-token`).
 // GET  /api/sessions                    -> SessionSummary[]
 // GET  /api/sessions/:id                -> SessionDetail
+// GET  /api/sessions/:id/commands       -> CommandsResponse (slash commands of a live page session)
 // POST /api/sessions                    StartSessionBody -> StartSessionResponse
 // POST /api/sessions/:id/message        SendMessageBody -> { ok: true }
 // POST /api/sessions/:id/interrupt      -> { ok: true }
@@ -176,6 +211,7 @@ export interface WorkerTask {
 // GET  /api/sessions/:id/images/:name   -> the stored image bytes (name like 1.png; 404 when unknown)
 // DELETE /api/sessions/:id              -> { ok: true }   (stops a page session)
 // POST /api/permissions/:id             PermissionDecisionBody -> { ok: true }
+// POST /api/presence                  PresenceBody -> { ok: true }   (is this tab visible? gates terminal-prompt relay)
 // GET  /api/agents?cwd=<abs path>       -> AgentsResponse
 // GET  /api/cwds                        -> string[]       (recent cwds, most recent first)
 // GET  /api/workers                     -> WorkerTask[]
@@ -219,6 +255,20 @@ export interface ImageAttachment {
   data: string;
 }
 
+/** Max attached general files per message and max decoded bytes per file. */
+export const MAX_FILE_BYTES = 8 * 1024 * 1024;
+/** Max images + files per message combined (MAX_IMAGES still caps images alone). */
+export const MAX_ATTACHMENTS = 6;
+/** Max combined decoded bytes of images + files per message (fits the 48 MB JSON body cap). */
+export const MAX_ATTACHMENT_TOTAL_BYTES = 24 * 1024 * 1024;
+/** One attached general file: base64 without a `data:` prefix; mediaType is only a label. */
+export interface FileAttachment {
+  /** Sanitised display name (safeFileName on the server); shown in the user event. */
+  name: string;
+  mediaType: string;
+  data: string;
+}
+
 export interface StartSessionBody {
   prompt: string;
   /** Absolute path of an existing directory under $HOME. */
@@ -231,15 +281,34 @@ export interface StartSessionBody {
   runtime?: Runtime;
   /** Up to MAX_IMAGES images; the prompt may then be empty ("(image)" is used). */
   images?: ImageAttachment[];
+  /** Up to MAX_ATTACHMENTS images + files combined; stored next to the images and read by the agent. */
+  files?: FileAttachment[];
 }
 export interface StartSessionResponse {
   sessionId: string;
 }
+/**
+ * Heartbeat of a dashboard tab. Send on visibilitychange and every 45 s while visible; the server
+ * holds a terminal prompt only while some tab reported visible:true within the last 90 s.
+ */
+export interface PresenceBody {
+  visible: boolean;
+  /** Per-tab key (random string, at most 64 chars) so tabs do not overwrite each other. */
+  id: string;
+}
 export interface PermissionDecisionBody {
   allow: boolean;
-  /** Required by the SDK on deny; also how the user answers AskUserQuestion. */
+  /** Required by the SDK on deny (free-text reason). Answers carry AskUserQuestion choices instead. */
   message?: string;
+  /** AskUserQuestion answers keyed by the exact question text. */
+  answers?: Record<string, string>;
+  /** Plan approvals only: the permission mode to continue in (ignored on other requests). */
+  mode?: 'auto' | 'acceptEdits';
+  /** Terminal requests only ("Answer in terminal"): hand the prompt back to the terminal dialog. */
+  terminal?: true;
 }
+/** Extra decision fields beyond allow/message/answers: plan mode choice, hand back to the terminal. */
+export type DecideOptions = Pick<PermissionDecisionBody, 'mode' | 'terminal'>;
 export interface AgentInfo {
   name: string;
   description?: string;
@@ -251,8 +320,11 @@ export interface AgentsResponse {
 export interface DirEntry { name: string; path: string; isGitRepo: boolean }
 export interface DirListing { path: string; parent?: string; entries: DirEntry[] }
 export interface SetStarBody { path: string; starred: boolean }
-export interface ResumeSessionBody { text: string; model?: string; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; images?: ImageAttachment[] }
-export interface SendMessageBody { text: string; images?: ImageAttachment[] }
+export interface ResumeSessionBody { text: string; model?: string; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; images?: ImageAttachment[]; files?: FileAttachment[] }
+export interface SendMessageBody { text: string; images?: ImageAttachment[]; files?: FileAttachment[] }
+/** One `/` command the session's runtime accepts as message text (name without the slash). */
+export interface SlashCommandInfo { name: string; description?: string; argumentHint?: string }
+export interface CommandsResponse { commands: SlashCommandInfo[] }
 
 // GET  /api/usage                     -> UsageReport   (?refresh=1 bypasses the caches, at most once per 30 s)
 
@@ -262,6 +334,8 @@ export interface UsageLimit { utilization: number | null; resetsAt: string | nul
 export interface UsageWindow { days: number; tokens: number; costUsd?: number; runs?: number; stopped?: number }
 /** Whether a collector answered at all. */
 export interface UsageSource { available: boolean; asOf: string | null; error?: string }
+/** One OpenCode Go plan window (plan-wide, not per model): utilization 0-100, resetsAt ISO 8601. */
+export interface GoLimit { window: 'rolling' | 'weekly' | 'monthly'; utilization: number | null; resetsAt: string | null; limited: boolean }
 export interface UsageReport {
   claude: UsageSource & {
     subscription?: string;
@@ -271,6 +345,6 @@ export interface UsageReport {
     sevenDaySonnet?: UsageLimit;
     source?: 'probe' | 'session';
   };
-  opencode: UsageSource & { windows: UsageWindow[] };   // days 1, 7, 30: tokens + costUsd (estimated)
+  opencode: UsageSource & { windows: UsageWindow[]; limits?: GoLimit[]; limitsError?: string };   // days 1, 7, 30: tokens + costUsd (estimated); Go plan limits from opencode.ai (server-side key)
   agy: UsageSource & { windows: UsageWindow[]; limits?: { group: string; window: '5h' | 'weekly'; utilization: number | null; resetsAt: string | null }[] };        // days 1, 7: tokens, runs, stopped + plan limits from `agy -p /usage`
 }

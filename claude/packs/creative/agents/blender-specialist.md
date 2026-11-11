@@ -2,6 +2,7 @@
 name: blender-specialist
 description: 3D modelling and scene assembly through the Blender MCP in small validated steps. Use proactively for meshes, geometry nodes, asset staging or any Blender work.
 model: sonnet
+effort: high
 tools:
 - Read
 - Write

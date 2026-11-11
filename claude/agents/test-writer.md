@@ -2,6 +2,7 @@
 name: test-writer
 description: Writes unit and integration tests following project conventions, editing test files only.
 model: haiku
+effort: high
 tools:
 - Read
 - Glob

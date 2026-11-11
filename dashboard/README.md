@@ -20,13 +20,20 @@ Setups whose binary is missing from `PATH` are disabled in the form with a
 "`<name>` not found on PATH" title; `GET /api/runtimes` reports the same
 availability (`{ claude, opencode, agy }`, cached for a minute).
 
-Permission prompts appear in the dashboard for all three. OpenCode asks for
-every bash command, including `agy-task` delegations, for the lead and its subagents. For agy, the plugin calls back to
+Permission prompts appear in the dashboard for all three. OpenCode and agy
+sessions follow the same permission settings as their CLIs on this machine.
+OpenCode uses your normal OpenCode config (opencode.json/jsonc, global and per
+agent); only what it would ask about in the terminal (`ask`) shows up as a
+prompt in the dashboard. For agy, commands matching `permissions.allow`
+(`command(<binary and subcommand>)` prefixes) in
+~/.gemini/antigravity-cli/settings.json run without asking,
+`permissions.deny` matches are refused, `cd` is always allowed, file reads and
+edits inside the folder are auto-allowed (edits to tool-config files such as
+.claude/, .github/, CLAUDE.md, package.json or hard-linked files always ask),
+and everything else asks in the dashboard. For agy, the plugin calls back to
 `POST /api/agy-hook/:id` — loopback plus the per-session `x-swarmkit-hook`
 secret only, never the fleet token — and the dashboard answers from your
-Allow/Deny clicks: file reads and edits inside the folder are auto-allowed,
-everything else asks (edits to tool-config files such as `.claude/`, `.github/`,
-`CLAUDE.md`, `package.json` or hard-linked files always ask). A hook that times
+Allow/Deny clicks. A hook that times
 out fails closed (the tool errors); if the hook process is killed outright agy
 may treat it as allow (accepted risk).
 
@@ -51,7 +58,7 @@ Open the URL the server prints on startup, e.g.
 
 ```
 SwarmKit: http://127.0.0.1:4317
-SwarmKit: token: /home/you/.config/claude-fleet/token
+SwarmKit: token: /home/you/.config/swarmkit/token
 ```
 
 The first visit with `?token=…` (printed on an interactive terminal — on a TTY only)
@@ -65,12 +72,16 @@ per minute per address) to get the cookie.
 | -------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------ |
 | `PORT`         | `4317`                                                                     | HTTP port                                                     |
 | `HOST`         | `127.0.0.1`                                                                | Bind address (`0.0.0.0` also prints LAN URLs)                 |
-| `FLEET_TOKEN`  | stored at `$XDG_CONFIG_HOME/claude-fleet/token` (default `~/.config/claude-fleet/token`, dir `0700`, file `0600`) | Shared token; must be **≥ 32 chars** when set |
+| `FLEET_TOKEN`  | stored at `$XDG_CONFIG_HOME/swarmkit/token` (default `~/.config/swarmkit/token`, dir `0700`, file `0600`) | Shared token; must be **≥ 32 chars** when set |
 | `FLEET_HOSTS`  | `127.0.0.1:<PORT>,localhost:<PORT>,ll-server.tail3e28e1.ts.net:<PORT>`      | Comma-separated Host allowlist; other Hosts get `421`         |
 | `FLEET_OWNER`  | unset                                                                      | When set, requests carrying a different `tailscale-user-login` header are rejected with `403` (requests without the header, i.e. local access, pass) |
 
-A legacy `dashboard/.data/token` is migrated to `$XDG_CONFIG_HOME/claude-fleet/token`
-on start (the old file is deleted). `FLEET_TOKEN` is scrubbed from the environment
+A legacy `dashboard/.data/token` is migrated to `$XDG_CONFIG_HOME/swarmkit/token`
+on start (the old file is deleted). The same one-time move applies to the previous
+`$XDG_CONFIG_HOME/claude-fleet/` location: `token` and `starred.json` are copied to
+`swarmkit/`, the old files are deleted only after the new ones are written, and the
+old directory is removed if it is then empty. If the new file already exists it wins
+and the old one is left alone. `FLEET_TOKEN` is scrubbed from the environment
 right after reading, so child agents never see it.
 
 **Auth shapes.** The raw token is accepted via the `x-fleet-token` header and the
@@ -84,6 +95,7 @@ not the cookie.
 
 `GET /api/sessions`, `GET /api/sessions/:id`, `POST /api/sessions`,
 `POST /api/sessions/:id/message`, `POST /api/sessions/:id/interrupt`,
+`POST /api/sessions/:id/restart`,
 `DELETE /api/sessions/:id`, `POST /api/permissions/:id`, `GET /api/agents?cwd=…`,
 `GET /api/cwds`, `GET /api/stars`, `POST /api/stars`, `POST /api/auth`, `GET /api/usage`,
 `GET /api/sessions/:id/images/:name`, `GET /api/runtimes`, and `GET /events`
@@ -131,7 +143,17 @@ timeout and never fails the others — a failing one answers
   This relies on an unstable SDK API (`usage_EXPERIMENTAL_…`) that may change
   or disappear in any release.
 - **OpenCode**: consumption only (tokens spent and estimated USD cost),
-  derived from `opencode stats`. No plan limit is exposed for it.
+  derived from `opencode stats`. Plan-wide OpenCode Go limits (`limits`:
+  rolling, weekly, monthly utilisation 0-100 with ISO reset times, `limited`
+  flag) come from opencode's undocumented `GET https://opencode.ai/zen/go/v1/usage`,
+  cached 2 minutes. The server reads the key (or OAuth access token) at
+  request time from opencode's data dir (`$XDG_DATA_HOME` or
+  `~/.local/share/opencode`): the active `opencode-go` (else `opencode`) row of
+  the `credential` table in `opencode.db` (opencode 2.x, opened read-only,
+  needs `node:sqlite`), else the legacy `auth.json`, which 2.x leaves stale
+  after a re-login. The key is never cached, logged or sent to the browser. Failures
+  only set `limitsError` (`opencode not signed in`, `no OpenCode Go plan`,
+  `go limits unavailable`); the consumption windows are unaffected.
 - **agy**: consumption (tokens, runs, stopped from the worker task
   directories) plus real plan limits via `agy -p /usage --output-format json`
   (no agent turn, no quota spent): per-group `5h`/`weekly` utilisation 0-100
@@ -174,7 +196,7 @@ every path outside `$HOME` (including symlinks that would escape it), hides
 dotfiles unless `hidden=1`, and never lists `node_modules`; git repositories
 are flagged with `isGitRepo`.
 
-Folders can be starred from the picker, and starred repos are listed first on the landing page. `GET /api/stars` returns the starred paths that still exist inside `$HOME`; `POST /api/stars` with `{"path": "<abs dir>", "starred": true|false}` sets one and returns the new list (`400` for a path outside `$HOME` or a missing boolean). Stars are stored in `$XDG_CONFIG_HOME/claude-fleet/starred.json` (default `~/.config/claude-fleet/starred.json`, mode `0600`, next to the token file), capped at 50 folders.
+Folders can be starred from the picker, and starred repos are listed first on the landing page. `GET /api/stars` returns the starred paths that still exist inside `$HOME`; `POST /api/stars` with `{"path": "<abs dir>", "starred": true|false}` sets one and returns the new list (`400` for a path outside `$HOME` or a missing boolean). Stars are stored in `$XDG_CONFIG_HOME/swarmkit/starred.json` (default `~/.config/swarmkit/starred.json`, mode `0600`, next to the token file), capped at 50 folders.
 
 ## Continue (resume)
 
@@ -189,6 +211,10 @@ or the transcript file modified within the last minute), `400` for bad input
 (including a resume `cwd` that fails the same validation as the start path:
 existing directory under `$HOME`), `404` for unknown ids. Sending/interrupting a
 session whose process has ended answers `409 "Session has ended; use Continue"`.
+
+`POST /api/sessions/:id/restart` restarts the session's process on the same id
+(picks up newly installed agents); an optional `text` is sent as the next turn,
+while a text-less restart just leaves the session idle, ready for the next message.
 
 ## Project settings trust (untrusted projects)
 
@@ -206,12 +232,12 @@ Run the service from a **pinned deployment worktree**, not from the development
 checkout. One-time setup:
 
 ```sh
-git -C /home/ha-lun/opencode-config branch fleet-live dashboard
-git -C /home/ha-lun/opencode-config worktree add /home/ha-lun/apps/claude-fleet fleet-live
-npm ci --prefix /home/ha-lun/apps/claude-fleet/dashboard
-ln -sf /home/ha-lun/apps/claude-fleet/dashboard/deploy/claude-fleet.service ~/.config/systemd/user/
+git -C /home/ha-lun/opencode-config branch swarmkit-live dashboard
+git -C /home/ha-lun/opencode-config worktree add /home/ha-lun/apps/swarmkit swarmkit-live
+npm ci --prefix /home/ha-lun/apps/swarmkit/dashboard
+ln -sf /home/ha-lun/apps/swarmkit/dashboard/deploy/swarmkit.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now claude-fleet.service
+systemctl --user enable --now swarmkit.service
 ```
 
 Expose it to your tailnet only (never Funnel):
@@ -223,16 +249,16 @@ tailscale serve --bg --https=4317 http://127.0.0.1:4317
 To update the service to the latest dashboard code (fast-forward only):
 
 ```sh
-git -C /home/ha-lun/apps/claude-fleet merge --ff-only dashboard && systemctl --user restart claude-fleet
+git -C /home/ha-lun/apps/swarmkit merge --ff-only dashboard && systemctl --user restart swarmkit
 ```
 
 Undo with `tailscale serve --https=4317 off` and
-`systemctl --user disable --now claude-fleet.service`.
+`systemctl --user disable --now swarmkit.service`.
 
 ## Security notes
 
 - **Every API call is token-gated.** The token is generated on first start
-  (`$XDG_CONFIG_HOME/claude-fleet/token`, dir mode `0700`, file mode `0600`, legacy
+  (`$XDG_CONFIG_HOME/swarmkit/token`, dir mode `0700`, file mode `0600`, legacy
   `.data/token` migrated) or taken from `FLEET_TOKEN` (≥ 32 chars, scrubbed from the
   environment after reading).
 - Startup logs never contain the token — only the token file path; the full

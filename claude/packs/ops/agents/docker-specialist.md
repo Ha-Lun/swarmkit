@@ -2,6 +2,7 @@
 name: docker-specialist
 description: Dockerfiles, Compose stacks, image optimisation, build caching and container security. Use proactively for any containerisation work.
 model: sonnet
+effort: high
 tools:
 - Read
 - Glob

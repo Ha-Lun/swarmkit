@@ -1,6 +1,8 @@
 // Usage collectors: opencode stats parsing, fallback paths, agy result.json windows,
-// cache TTLs with a fake clock and the claude probe mapping (including its finally).
+// cache TTLs with a fake clock, the claude probe mapping (including its finally) and the
+// OpenCode Go plan-limits fetch (fake auth.json / opencode.db + mocked fetch, never the network).
 import { mkdir, mkdtemp, rm, symlink, utimes, writeFile } from 'node:fs/promises';
+import { DatabaseSync } from 'node:sqlite';
 import os from 'node:os';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,6 +16,24 @@ import type {
 import { createUsageState, getUsage, noteRateLimit } from '../server/usage.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Every test runs against an empty XDG_DATA_HOME: the Go collector never reads the real
+// opencode auth.json nor calls the network (no entry -> 'opencode not signed in').
+const realXdg = process.env.XDG_DATA_HOME;
+let emptyXdg: string;
+beforeAll(async () => {
+  emptyXdg = await mkdtemp(join(tmpdir(), 'usage-xdg-empty-'));
+  process.env.XDG_DATA_HOME = emptyXdg;
+  vi.stubGlobal('fetch', async () => {
+    throw new Error('network disabled in tests');
+  });
+});
+afterAll(async () => {
+  vi.unstubAllGlobals();
+  if (realXdg === undefined) delete process.env.XDG_DATA_HOME;
+  else process.env.XDG_DATA_HOME = realXdg;
+  await rm(emptyXdg, { recursive: true, force: true });
+});
 /** Epoch seconds a day ahead of the real clock: session records with it are never stale. */
 const FUTURE_RESET = Math.floor(Date.now() / 1000) + 86_400;
 
@@ -742,6 +762,335 @@ describe('agy limits', () => {
       expect(report.agy.error).toBe('agy limits unavailable');
     } finally {
       await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('opencode Go limits', () => {
+  const KEY = 'sk-test-SECRET-123';
+  let xdg: string;
+
+  async function writeAuth(content: unknown): Promise<void> {
+    await mkdir(join(xdg, 'opencode'), { recursive: true });
+    await writeFile(join(xdg, 'opencode', 'auth.json'), typeof content === 'string' ? content : JSON.stringify(content));
+  }
+  const NEW_SHAPE = {
+    usage: {
+      rolling: { status: 'ok', percent: 12.5, resetsAt: '2026-10-29T12:00:00.000Z' },
+      weekly: { status: 'rate-limited', percent: 100, resetsAt: '2026-11-02T00:00:00.000Z' },
+      monthly: { status: 'ok', percent: 40, resetsAt: '2026-11-30T00:00:00.000Z' },
+    },
+  };
+  type Call = { url: string; init: RequestInit };
+  function mockFetch(respond: () => Response | Promise<Response>): { fetch: typeof globalThis.fetch; calls: Call[] } {
+    const calls: Call[] = [];
+    const f = (async (url: unknown, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init ?? {} });
+      return respond();
+    }) as typeof globalThis.fetch;
+    return { fetch: f, calls };
+  }
+  const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status });
+  const run = (o: UsageOptions) => getUsage({ execFile: enoentExec, queryFactory: noProbeFactory, taskDir: '/nonexistent-agy', state: createUsageState(), ...o });
+
+  beforeEach(async () => {
+    xdg = await mkdtemp(join(tmpdir(), 'usage-xdg-'));
+    process.env.XDG_DATA_HOME = xdg;
+  });
+  afterEach(async () => {
+    process.env.XDG_DATA_HOME = emptyXdg;
+    await rm(xdg, { recursive: true, force: true });
+  });
+
+  it('maps the {usage:{rolling,weekly,monthly}} shape, sends the fixed URL, redirect:error and bearer key', async () => {
+    await writeAuth({ 'opencode-go': { type: 'api', key: KEY, metadata: { orgID: 'wrk_1' } } });
+    const m = mockFetch(() => json(NEW_SHAPE));
+    const report = await run({ fetch: m.fetch });
+    expect(report.opencode.limits).toEqual([
+      { window: 'rolling', utilization: 12.5, resetsAt: '2026-10-29T12:00:00.000Z', limited: false },
+      { window: 'weekly', utilization: 100, resetsAt: '2026-11-02T00:00:00.000Z', limited: true },
+      { window: 'monthly', utilization: 40, resetsAt: '2026-11-30T00:00:00.000Z', limited: false },
+    ]);
+    expect(report.opencode.limitsError).toBeUndefined();
+    expect(m.calls).toHaveLength(1);
+    expect(m.calls[0]!.url).toBe('https://opencode.ai/zen/go/v1/usage');
+    expect(m.calls[0]!.init.redirect).toBe('error');
+    expect(m.calls[0]!.init.signal).toBeInstanceOf(AbortSignal);
+    const h = m.calls[0]!.init.headers as Record<string, string>;
+    expect(h.authorization).toBe(`Bearer ${KEY}`);
+    expect(h['x-opencode-org-id']).toBe('wrk_1');
+    expect(JSON.stringify(report)).not.toContain(KEY);
+  });
+
+  it('maps the original {rollingUsage,weeklyUsage,monthlyUsage} shape; oauth access token, no org header', async () => {
+    await writeAuth({ opencode: { type: 'oauth', access: KEY, refresh: 'r', expires: 1 } });
+    const now = 1_000_000_000_000;
+    const m = mockFetch(() => json({
+      useBalance: false,
+      rollingUsage: { status: 'ok', resetInSec: 60, usagePercent: 5 },
+      weeklyUsage: { status: 'ok', resetInSec: 3600, usagePercent: 150 },
+      monthlyUsage: { status: 'rate-limited', resetInSec: 7200, usagePercent: 99 },
+    }));
+    const report = await run({ fetch: m.fetch, now: () => now });
+    expect(report.opencode.limits).toEqual([
+      { window: 'rolling', utilization: 5, resetsAt: new Date(now + 60_000).toISOString(), limited: false },
+      { window: 'weekly', utilization: 100, resetsAt: new Date(now + 3_600_000).toISOString(), limited: false },
+      { window: 'monthly', utilization: 99, resetsAt: new Date(now + 7_200_000).toISOString(), limited: true },
+    ]);
+    const h = m.calls[0]!.init.headers as Record<string, string>;
+    expect(h.authorization).toBe(`Bearer ${KEY}`);
+    expect(h['x-opencode-org-id']).toBeUndefined();
+  });
+
+  it.each([
+    [401, 'opencode not signed in'],
+    [403, 'no OpenCode Go plan'],
+    [500, 'go limits unavailable'],
+  ])('HTTP %i answers the fixed error and keeps the opencode windows', async (status, msg) => {
+    await writeAuth({ 'opencode-go': { type: 'api', key: KEY } });
+    const m = mockFetch(() => new Response(`oops ${KEY}`, { status }));
+    const report = await run({ fetch: m.fetch });
+    expect(report.opencode.limitsError).toBe(msg);
+    expect(report.opencode.limits).toBeUndefined();
+    expect(report.opencode.windows).toEqual([]);
+    expect(JSON.stringify(report)).not.toContain(KEY);
+  });
+
+  it('a thrown fetch error (timeout/abort, key in message) and a garbage body are "go limits unavailable"', async () => {
+    await writeAuth({ 'opencode-go': { type: 'api', key: KEY } });
+    const aborted = await run({ fetch: (async () => { throw new DOMException(`aborted ${KEY}`, 'TimeoutError'); }) as typeof fetch });
+    expect(aborted.opencode.limitsError).toBe('go limits unavailable');
+    const garbage = await run({ fetch: mockFetch(() => json({ nope: 1 })).fetch });
+    expect(garbage.opencode.limitsError).toBe('go limits unavailable');
+    expect(JSON.stringify([aborted, garbage])).not.toContain(KEY);
+  });
+
+  it('rejects an oversized body (header and stream)', async () => {
+    await writeAuth({ 'opencode-go': { type: 'api', key: KEY } });
+    const big = JSON.stringify({ ...NEW_SHAPE, pad: 'x'.repeat(70 * 1024) });
+    const streamed = await run({ fetch: mockFetch(() => new Response(big, { status: 200 })).fetch });
+    expect(streamed.opencode.limitsError).toBe('go limits unavailable');
+    const header = await run({ fetch: mockFetch(() => new Response(JSON.stringify(NEW_SHAPE), { status: 200, headers: { 'content-length': '999999' } })).fetch });
+    expect(header.opencode.limitsError).toBe('go limits unavailable');
+  });
+
+  it('missing file, bad file and missing entry never call fetch', async () => {
+    const m = mockFetch(() => json(NEW_SHAPE));
+    expect((await run({ fetch: m.fetch })).opencode.limitsError).toBe('opencode not signed in');
+    await writeAuth('not json');
+    expect((await run({ fetch: m.fetch })).opencode.limitsError).toBe('opencode not signed in');
+    await writeAuth({ anthropic: { type: 'api', key: KEY } });
+    const report = await run({ fetch: m.fetch });
+    expect(report.opencode.limitsError).toBe('opencode not signed in');
+    expect(m.calls).toHaveLength(0);
+    expect(JSON.stringify(report)).not.toContain(KEY);
+  });
+
+  it('caches 120 s, failures 60 s, and refresh bypasses both', async () => {
+    await writeAuth({ 'opencode-go': { type: 'api', key: KEY } });
+    const clock = clockOf();
+    const state = createUsageState();
+    const ok = mockFetch(() => json(NEW_SHAPE));
+    const base = (extra: Partial<UsageOptions> = {}) => run({ fetch: ok.fetch, now: clock.now, state, ...extra });
+    await base();
+    clock.advance(119_000);
+    await base();
+    expect(ok.calls).toHaveLength(1);
+    clock.advance(2_000);
+    await base();
+    expect(ok.calls).toHaveLength(2);
+    await base({ refresh: true });
+    expect(ok.calls).toHaveLength(3);
+
+    const bad = mockFetch(() => new Response('x', { status: 500 }));
+    const st2 = createUsageState();
+    const c2 = clockOf();
+    const fail = () => run({ fetch: bad.fetch, now: c2.now, state: st2 });
+    await fail();
+    c2.advance(59_000);
+    await fail();
+    expect(bad.calls).toHaveLength(1);
+    c2.advance(2_000);
+    await fail();
+    expect(bad.calls).toHaveLength(2);
+    await run({ fetch: bad.fetch, now: c2.now, state: st2, refresh: true });
+    expect(bad.calls).toHaveLength(3);
+  });
+
+  it('ignores a relative XDG_DATA_HOME (falls back to an empty fake home, never the real one)', async () => {
+    const prevHome = process.env.HOME;
+    process.env.HOME = xdg; // os.homedir() reads HOME: keep the fallback inside the temp dir
+    try {
+      await mkdir(join(process.cwd(), 'relative-xdg-never'), { recursive: true }).catch(() => {});
+      process.env.XDG_DATA_HOME = 'relative-xdg-never';
+      const m = mockFetch(() => json(NEW_SHAPE));
+      const report = await run({ fetch: m.fetch });
+      expect(report.opencode.limitsError).toBe('opencode not signed in');
+      expect(m.calls).toHaveLength(0);
+    } finally {
+      process.env.HOME = prevHome;
+      await rm(join(process.cwd(), 'relative-xdg-never'), { recursive: true, force: true });
+    }
+  });
+
+  it('an oversize auth.json is "not signed in" and no request is made', async () => {
+    await writeAuth(JSON.stringify({ 'opencode-go': { type: 'api', key: KEY }, pad: 'x'.repeat(70 * 1024) }));
+    const m = mockFetch(() => json(NEW_SHAPE));
+    const report = await run({ fetch: m.fetch });
+    expect(report.opencode.limitsError).toBe('opencode not signed in');
+    expect(m.calls).toHaveLength(0);
+  });
+
+  it('a non-file (directory) at the auth.json path is "not signed in"', async () => {
+    await mkdir(join(xdg, 'opencode', 'auth.json'), { recursive: true });
+    const m = mockFetch(() => json(NEW_SHAPE));
+    const report = await run({ fetch: m.fetch });
+    expect(report.opencode.limitsError).toBe('opencode not signed in');
+    expect(m.calls).toHaveLength(0);
+  });
+
+  it('a huge resetInSec gives resetsAt null but keeps the limits', async () => {
+    await writeAuth({ 'opencode-go': { type: 'api', key: KEY } });
+    const m = mockFetch(() => json({
+      rollingUsage: { status: 'ok', resetInSec: 1e15, usagePercent: 5 },
+      weeklyUsage: { status: 'ok', resetInSec: 3600, usagePercent: 6 },
+      monthlyUsage: { status: 'ok', resetInSec: -5, usagePercent: 7 },
+    }));
+    const report = await run({ fetch: m.fetch, now: () => 1_000_000_000_000 });
+    expect(report.opencode.limitsError).toBeUndefined();
+    expect(report.opencode.limits?.map((l) => l.resetsAt)).toEqual([null, new Date(1_000_000_000_000 + 3_600_000).toISOString(), null]);
+  });
+
+  // opencode 2.x: credentials live in opencode.db (`credential` table); auth.json is only a stale import.
+  async function writeDb(rows: Array<{ integration: string; value: unknown; active: number; updated?: number }>): Promise<DatabaseSync> {
+    await mkdir(join(xdg, 'opencode'), { recursive: true });
+    const db = new DatabaseSync(join(xdg, 'opencode', 'opencode.db'));
+    db.exec('CREATE TABLE credential (id TEXT PRIMARY KEY, integration_id TEXT NOT NULL, label TEXT, value TEXT NOT NULL, active INTEGER, time_updated INTEGER)');
+    const ins = db.prepare('INSERT INTO credential (id, integration_id, label, value, active, time_updated) VALUES (?, ?, ?, ?, ?, ?)');
+    rows.forEach((r, i) => ins.run(`c${i}`, r.integration, 'l', typeof r.value === 'string' ? r.value : JSON.stringify(r.value), r.active, r.updated ?? i));
+    return db;
+  }
+  const authOf = (m: { calls: Call[] }) => (m.calls[0]!.init.headers as Record<string, string>).authorization;
+
+  it('prefers the active opencode.db credential over a stale auth.json', async () => {
+    await writeAuth({ 'opencode-go': { type: 'api', key: 'sk-stale-file' } });
+    (await writeDb([
+      { integration: 'opencode-go', value: { type: 'key', key: 'sk-old-inactive' }, active: 0, updated: 9 },
+      { integration: 'opencode-go', value: { type: 'key', key: KEY, metadata: { orgID: 'wrk_db' } }, active: 1, updated: 5 },
+    ])).close();
+    const m = mockFetch(() => json(NEW_SHAPE));
+    const report = await run({ fetch: m.fetch });
+    expect(report.opencode.limits).toHaveLength(3);
+    expect(authOf(m)).toBe(`Bearer ${KEY}`);
+    expect((m.calls[0]!.init.headers as Record<string, string>)['x-opencode-org-id']).toBe('wrk_db');
+    expect(JSON.stringify(report)).not.toContain(KEY);
+  });
+
+  it('uses the active Zen opencode db credential when there is no opencode-go one', async () => {
+    (await writeDb([{ integration: 'opencode', value: { type: 'oauth', access: KEY }, active: 1 }])).close();
+    const m = mockFetch(() => json(NEW_SHAPE));
+    await run({ fetch: m.fetch });
+    expect(authOf(m)).toBe(`Bearer ${KEY}`);
+  });
+
+  it('an existing credential table is the source of truth: no active credential is "not signed in", never auth.json', async () => {
+    await writeAuth({ 'opencode-go': { type: 'api', key: KEY } });
+    (await writeDb([{ integration: 'opencode-go', value: { type: 'key', key: 'sk-inactive' }, active: 0 }])).close();
+    const m = mockFetch(() => json(NEW_SHAPE));
+    const report = await run({ fetch: m.fetch });
+    expect(report.opencode.limitsError).toBe('opencode not signed in');
+    expect(m.calls).toHaveLength(0);
+  });
+
+  it('falls back to auth.json when the db has no credential table or is not a database', async () => {
+    await writeAuth({ 'opencode-go': { type: 'api', key: KEY } });
+    await mkdir(join(xdg, 'opencode'), { recursive: true });
+    const empty = new DatabaseSync(join(xdg, 'opencode', 'opencode.db'));
+    empty.exec('CREATE TABLE other (x TEXT)');
+    empty.close();
+    let m = mockFetch(() => json(NEW_SHAPE));
+    await run({ fetch: m.fetch });
+    expect(authOf(m)).toBe(`Bearer ${KEY}`);
+
+    await writeFile(join(xdg, 'opencode', 'opencode.db'), 'not a database');
+    m = mockFetch(() => json(NEW_SHAPE));
+    await run({ fetch: m.fetch });
+    expect(authOf(m)).toBe(`Bearer ${KEY}`);
+  });
+
+  it('a malformed active db row is skipped for the next usable one; none usable is "not signed in" (not auth.json)', async () => {
+    await writeAuth({ 'opencode-go': { type: 'api', key: 'sk-stale-file' } });
+    (await writeDb([
+      { integration: 'opencode-go', value: 'not json', active: 1, updated: 9 },
+      { integration: 'opencode', value: { type: 'oauth', access: KEY }, active: 1, updated: 1 },
+    ])).close();
+    let m = mockFetch(() => json(NEW_SHAPE));
+    await run({ fetch: m.fetch });
+    expect(authOf(m)).toBe(`Bearer ${KEY}`);
+
+    await rm(join(xdg, 'opencode', 'opencode.db'));
+    (await writeDb([{ integration: 'opencode-go', value: 'not json', active: 1 }])).close();
+    m = mockFetch(() => json(NEW_SHAPE));
+    const report = await run({ fetch: m.fetch });
+    expect(report.opencode.limitsError).toBe('opencode not signed in');
+    expect(m.calls).toHaveLength(0);
+  });
+
+  it('an oversize db value (counted in bytes) is not used', async () => {
+    (await writeDb([{ integration: 'opencode-go', value: { type: 'key', key: KEY, pad: 'é'.repeat(40 * 1024) }, active: 1 }])).close();
+    const m = mockFetch(() => json(NEW_SHAPE));
+    const report = await run({ fetch: m.fetch });
+    expect(report.opencode.limitsError).toBe('opencode not signed in');
+    expect(m.calls).toHaveLength(0);
+  });
+
+  it('skips the db (falls back to auth.json) on a Node below 22.13, where readOnly is not honoured', async () => {
+    await writeAuth({ 'opencode-go': { type: 'api', key: 'sk-file' } });
+    (await writeDb([{ integration: 'opencode-go', value: { type: 'key', key: KEY }, active: 1 }])).close();
+    const desc = Object.getOwnPropertyDescriptor(process.versions, 'node')!;
+    Object.defineProperty(process.versions, 'node', { ...desc, value: '22.12.0' });
+    try {
+      const m = mockFetch(() => json(NEW_SHAPE));
+      await run({ fetch: m.fetch });
+      expect(authOf(m)).toBe('Bearer sk-file');
+    } finally {
+      Object.defineProperty(process.versions, 'node', desc);
+    }
+    const m2 = mockFetch(() => json(NEW_SHAPE));
+    await run({ fetch: m2.fetch });
+    expect(authOf(m2)).toBe(`Bearer ${KEY}`);
+  });
+
+  it('a numeric busy/locked errcode alone (no errstr) is "go limits unavailable"', async () => {
+    await writeAuth({ 'opencode-go': { type: 'api', key: 'sk-stale-file' } });
+    (await writeDb([{ integration: 'opencode-go', value: { type: 'key', key: KEY }, active: 1 }])).close();
+    const spy = vi.spyOn(DatabaseSync.prototype, 'prepare').mockImplementation(() => {
+      throw Object.assign(new Error('x'), { errcode: 5 | (2 << 8) });
+    });
+    try {
+      const m = mockFetch(() => json(NEW_SHAPE));
+      const report = await run({ fetch: m.fetch });
+      expect(report.opencode.limitsError).toBe('go limits unavailable');
+      expect(m.calls).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('a locked db is "go limits unavailable" (no stale-file fallback, no request)', async () => {
+    await writeAuth({ 'opencode-go': { type: 'api', key: 'sk-stale-file' } });
+    const db = await writeDb([{ integration: 'opencode-go', value: { type: 'key', key: KEY }, active: 1 }]);
+    db.exec('PRAGMA journal_mode = DELETE');
+    db.exec('BEGIN EXCLUSIVE');
+    try {
+      const m = mockFetch(() => json(NEW_SHAPE));
+      const report = await run({ fetch: m.fetch });
+      expect(report.opencode.limitsError).toBe('go limits unavailable');
+      expect(m.calls).toHaveLength(0);
+      expect(JSON.stringify(report)).not.toContain(KEY);
+    } finally {
+      db.exec('ROLLBACK');
+      db.close();
     }
   });
 });

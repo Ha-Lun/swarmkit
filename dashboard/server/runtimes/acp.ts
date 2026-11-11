@@ -1,12 +1,14 @@
 // OpenCode ACP runtime adapter: drives `opencode acp` over stdio JSON-RPC and
 // yields Claude-SDK-shaped messages so SdkSessions can consume them like SDK output.
+// Sessions use the user's normal OpenCode config exactly like the `opencode` CLI:
+// the dashboard never injects OPENCODE_CONFIG_CONTENT (and strips any
+// caller-provided value) so only what the config marks `ask` reaches the
+// dashboard via session/request_permission.
 import { spawn } from 'node:child_process';
-import { readdirSync } from 'node:fs';
-import { homedir } from 'node:os';
-import path from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { QueryFn } from '../sdk/sessions.ts';
+import type { SlashCommandInfo } from '../../src/shared/types.ts';
 import { num, rec, str, userBlocks } from './util.ts';
 import type { Rec } from './util.ts';
 
@@ -18,41 +20,6 @@ export interface AcpOptions {
   resumeId?: string;
   onSessionId?: (id: string) => void;
   env?: NodeJS.ProcessEnv;
-}
-
-const BUILTIN_AGENTS = ['build', 'plan', 'general', 'explore', 'lead-dev-hybrid'];
-
-/** Agent names OpenCode may load: built-ins plus the .md basenames in its agent dirs. */
-function agentNames(cwd: string, env: NodeJS.ProcessEnv): string[] {
-  const home = env.HOME ?? homedir();
-  const cfg = env.XDG_CONFIG_HOME || path.join(home, '.config');
-  const dirs = [
-    path.join(cfg, 'opencode', 'agent'),
-    path.join(cfg, 'opencode', 'agents'),
-    path.join(cwd, '.opencode', 'agent'),
-    path.join(cwd, '.opencode', 'agents'),
-  ];
-  const names = new Set(BUILTIN_AGENTS);
-  for (const dir of dirs) {
-    let entries: string[] = [];
-    try {
-      entries = readdirSync(dir);
-    } catch {
-      // Missing dir.
-    }
-    for (const f of entries) if (f.endsWith('.md') && f.length > 3) names.add(f.slice(0, -3));
-  }
-  return [...names];
-}
-
-/**
- * Every bash call asks, for the lead and for every subagent it can dispatch
- * (agent-level permission wins over the agent's own block and the global one).
- */
-export function buildOverlay(cwd: string, env: NodeJS.ProcessEnv): Rec {
-  const agent: Record<string, unknown> = {};
-  for (const name of agentNames(cwd, env)) agent[name] = { permission: { bash: { '*': 'ask' } } };
-  return { permission: { bash: { '*': 'ask' } }, agent };
 }
 
 const MAX_TOOL_TEXT = 20000;
@@ -154,6 +121,153 @@ function outcomeFor(options: unknown, kinds: string[]): { outcome: Rec } {
   return { outcome: optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' } };
 }
 
+const MAX_QUESTIONS = 4;
+const MAX_OPTIONS = 10;
+const MAX_QUESTION_TEXT = 500;
+const MAX_LABEL_TEXT = 100;
+const MAX_DESCRIPTION_TEXT = 300;
+const MAX_HEADER = 12;
+const MAX_ANSWER_TEXT = 2000;
+const MAX_ANSWER_TOKENS = 50;
+
+const clip = (v: string, n: number): string => (v.length > n ? v.slice(0, n) : v);
+
+interface ElicitOption {
+  label: string;
+  description?: string;
+  value: unknown;
+}
+
+interface ElicitField {
+  key: string;
+  /** The `<key>_custom` property, present only when the schema declares it. */
+  customKey?: string;
+  type: 'single' | 'multi' | 'text' | 'number' | 'integer' | 'boolean';
+  /** The unique question text, which keys the dashboard's answers. */
+  question: string;
+  options: ElicitOption[];
+}
+
+export interface Elicitation {
+  input: { questions: Array<{ question: string; header: string; multiSelect: boolean; options: Array<{ label: string; description?: string }> }> };
+  fields: ElicitField[];
+}
+
+/** oneOf/anyOf entries ({const,title,description}) or enum scalars, as options. null when the list is not an array. */
+function elicitOptions(list: unknown): ElicitOption[] | null {
+  if (!Array.isArray(list)) return null;
+  const out: ElicitOption[] = [];
+  for (const entry of list) {
+    const e = rec(entry);
+    const value = e ? e.const : entry;
+    if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') continue;
+    const label = (e && str(e.title)) || String(value);
+    const description = e ? str(e.description) : undefined;
+    out.push({ label: clip(label, MAX_LABEL_TEXT), ...(description ? { description: clip(description, MAX_DESCRIPTION_TEXT) } : {}), value });
+  }
+  return out;
+}
+
+/**
+ * opencode's `elicitation/create` form as the AskUserQuestion input the dashboard shows.
+ * The payload is model-controlled, so shape and sizes are checked strictly: a string with
+ * an error means the request is rejected as a whole.
+ */
+export function parseElicitation(params: Rec): Elicitation | string {
+  if (params.mode !== undefined && params.mode !== 'form') return 'unsupported elicitation mode';
+  const schema = rec(params.requestedSchema);
+  const props = rec(schema?.properties);
+  if (!props) return 'missing requestedSchema.properties';
+  const keys = Object.keys(props);
+  const fields: ElicitField[] = [];
+  const questions: Elicitation['input']['questions'] = [];
+  const used = new Set<string>();
+  for (const key of keys) {
+    const base = key.endsWith('_custom') ? key.slice(0, -'_custom'.length) : undefined;
+    if (base !== undefined && base.length > 0 && props[base] !== undefined) continue; // The "other" box of a choice.
+    const def = rec(props[key]);
+    if (!def) return `field ${clip(key, 40)} is not an object`;
+    let type: ElicitField['type'];
+    let options: ElicitOption[] = [];
+    if (def.type === 'string') {
+      options = elicitOptions(def.oneOf) ?? elicitOptions(def.anyOf) ?? elicitOptions(def.enum) ?? [];
+      type = options.length > 0 ? 'single' : 'text';
+    } else if (def.type === 'array') {
+      const items = rec(def.items);
+      options = elicitOptions(items?.anyOf) ?? elicitOptions(items?.oneOf) ?? elicitOptions(items?.enum) ?? [];
+      if (options.length === 0) return `field ${clip(key, 40)} has no choices`;
+      type = 'multi';
+    } else if (def.type === 'number' || def.type === 'integer' || def.type === 'boolean') {
+      type = def.type;
+    } else {
+      return `field ${clip(key, 40)} has an unsupported type`;
+    }
+    if (questions.length >= MAX_QUESTIONS) return `more than ${MAX_QUESTIONS} questions`;
+    if (options.length > MAX_OPTIONS) return `more than ${MAX_OPTIONS} options`;
+    const title = str(def.title);
+    let question = clip(str(def.description) ?? title ?? key, MAX_QUESTION_TEXT);
+    for (let n = 2; used.has(question); n++) question = `${clip(question, MAX_QUESTION_TEXT)} (${n})`;
+    used.add(question);
+    const customKey = `${key}_custom`;
+    fields.push({ key, ...(props[customKey] !== undefined ? { customKey } : {}), type, question, options });
+    questions.push({
+      question,
+      header: clip(title ?? key, MAX_HEADER),
+      multiSelect: type === 'multi',
+      options: options.map(o => ({ label: o.label, ...(o.description ? { description: o.description } : {}) })),
+    });
+  }
+  if (questions.length === 0) return 'no questions';
+  return { input: { questions }, fields };
+}
+
+/** The accept `content` for the dashboard's answers (keyed by question text): consts for matched choices, free text via `<key>_custom`. */
+export function elicitationContent(e: Elicitation, answers: Record<string, unknown> | undefined): Rec {
+  const content: Rec = {};
+  for (const f of e.fields) {
+    const raw = answers?.[f.question];
+    const text = typeof raw === 'string' ? clip(raw.trim(), MAX_ANSWER_TEXT) : '';
+    if (text.length === 0) continue;
+    if (f.type === 'single') {
+      const hit = f.options.find(o => o.label === text);
+      if (hit) content[f.key] = hit.value;
+      else content[f.customKey ?? f.key] = text;
+    } else if (f.type === 'multi') {
+      const tokens = text.split(',').slice(0, MAX_ANSWER_TOKENS);
+      const picked: unknown[] = [];
+      let unmatched = false;
+      for (let i = 0; i < tokens.length;) {
+        let hit: ElicitOption | undefined;
+        let end = i + 1;
+        // Longest run of tokens that rejoins into a label (labels may contain commas).
+        for (let j = tokens.length; j > i; j--) {
+          const candidate = tokens.slice(i, j).join(',').trim();
+          hit = f.options.find(o => o.label === candidate);
+          if (hit) {
+            end = j;
+            break;
+          }
+        }
+        if (hit) picked.push(hit.value);
+        else if (tokens[i]!.trim().length > 0) unmatched = true;
+        i = end;
+      }
+      // A non-empty custom field overrides the choices in opencode, so free text carries the whole answer.
+      if (unmatched && f.customKey) content[f.customKey] = text;
+      else if (picked.length > 0) content[f.key] = picked;
+    } else if (f.type === 'number' || f.type === 'integer') {
+      const n = Number(text);
+      if (Number.isFinite(n) && (f.type === 'number' || Number.isInteger(n))) content[f.key] = n;
+    } else if (f.type === 'boolean') {
+      if (/^(true|yes|y|1)$/i.test(text)) content[f.key] = true;
+      else if (/^(false|no|n|0)$/i.test(text)) content[f.key] = false;
+    } else {
+      content[f.key] = text;
+    }
+  }
+  return content;
+}
+
 interface ToolState {
   emitted: boolean;
   finished: boolean;
@@ -175,7 +289,10 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
     const cmd = acpOpts.command ?? ['opencode', 'acp'];
     const cwd = typeof options.cwd === 'string' ? options.cwd : process.cwd();
     const baseEnv = acpOpts.env ?? process.env;
-    const env: NodeJS.ProcessEnv = { ...baseEnv, OPENCODE: '1', OPENCODE_CONFIG_CONTENT: JSON.stringify(buildOverlay(cwd, baseEnv)) };
+    // Use the user's normal OpenCode config: never inject OPENCODE_CONFIG_CONTENT,
+    // and strip any caller-provided value so the dashboard cannot alter permissions.
+    const env: NodeJS.ProcessEnv = { ...baseEnv, OPENCODE: '1' };
+    delete env.OPENCODE_CONFIG_CONTENT;
     delete env.CLAUDECODE;
 
     let child: ChildProcess | null = null;
@@ -186,6 +303,8 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
     let aborted = false;
     let ready = false;
     let sessionId: string | undefined;
+    // Latest available slash commands from the agent (available_commands_update).
+    let commands: SlashCommandInfo[] = [];
     let modelName = acpOpts.model;
     let turnCount = 0;
     let cost: number | undefined;
@@ -352,6 +471,23 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
     };
 
     const onUpdate = (update: Rec, sid: string | undefined): void => {
+      // Commands arrive right after session/new or load, before ready is set.
+      if (update.sessionUpdate === 'available_commands_update') {
+        if (sid !== undefined && sessionId !== undefined && sid !== sessionId) return;
+        const list = Array.isArray(update.availableCommands) ? update.availableCommands : [];
+        const next: SlashCommandInfo[] = [];
+        for (const entry of list) {
+          const r = rec(entry);
+          if (!r || typeof r.name !== 'string' || r.name.length === 0) continue;
+          const item: SlashCommandInfo = { name: r.name };
+          if (typeof r.description === 'string' && r.description.length > 0) item.description = r.description;
+          const hint = rec(r.input)?.hint;
+          if (typeof hint === 'string' && hint.length > 0) item.argumentHint = hint;
+          next.push(item);
+        }
+        commands = next;
+        return;
+      }
       if (!ready) return;
       if (sid !== undefined && sessionId !== undefined && sid !== sessionId) return;
       const kind = update.sessionUpdate;
@@ -433,6 +569,56 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
       }
     };
 
+    /** agent -> client `elicitation/create`: opencode's questions, shown through canUseTool as an AskUserQuestion. */
+    const onElicitation = async (id: number | string, reqParams: Rec): Promise<void> => {
+      const sid = str(reqParams.sessionId);
+      if (!sessionId || (sid !== undefined && sid !== sessionId)) {
+        write({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } });
+        return;
+      }
+      const parsed = parseElicitation(reqParams);
+      if (typeof parsed === 'string') {
+        write({ jsonrpc: '2.0', id, error: { code: -32602, message: `Invalid elicitation: ${parsed}` } });
+        return;
+      }
+      const canUse = options.canUseTool;
+      const signal = options.abortController?.signal;
+      // Declining would cancel the whole turn, so no way to ask means "skipped": accept with nothing.
+      if (!canUse) {
+        write({ jsonrpc: '2.0', id, result: { action: 'accept', content: {} } });
+        return;
+      }
+      if (aborted || signal?.aborted) {
+        write({ jsonrpc: '2.0', id, result: { action: 'cancel' } });
+        return;
+      }
+      let decision: unknown;
+      try {
+        decision = await Promise.race([
+          canUse('AskUserQuestion', parsed.input as Record<string, unknown>, {
+            signal: (signal ?? new AbortController().signal) as AbortSignal,
+            toolUseID: str(reqParams.toolCallId) ?? String(id),
+            requestId: String(id),
+          }),
+          endPromise.then(
+            () => ({ behavior: 'cancelled' }),
+            () => ({ behavior: 'cancelled' }),
+          ),
+        ]);
+      } catch {
+        decision = { behavior: 'deny' };
+      }
+      const d = rec(decision);
+      if (aborted || signal?.aborted || d?.behavior === 'cancelled') {
+        write({ jsonrpc: '2.0', id, result: { action: 'cancel' } });
+      } else if (d?.behavior === 'allow') {
+        const answers = rec(rec(d.updatedInput)?.answers);
+        write({ jsonrpc: '2.0', id, result: { action: 'accept', content: elicitationContent(parsed, answers) } });
+      } else {
+        write({ jsonrpc: '2.0', id, result: { action: 'accept', content: {} } });
+      }
+    };
+
     const onLine = (line: string): void => {
       const trimmed = line.trim();
       if (trimmed.length === 0) return;
@@ -449,6 +635,8 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
         if (msg.id !== undefined) {
           if (msg.method === 'session/request_permission') {
             void onPermissionRequest(msg.id as number | string, rec(msg.params) ?? {});
+          } else if (msg.method === 'elicitation/create') {
+            void onElicitation(msg.id as number | string, rec(msg.params) ?? {});
           } else {
             write({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: `Method not found: ${String(msg.method)}` } });
           }
@@ -588,7 +776,7 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
 
         await sendRequest('initialize', {
           protocolVersion: 1,
-          clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+          clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, elicitation: { form: {} } },
         });
         if (aborted) return;
         if (acpOpts.resumeId) {
@@ -707,7 +895,10 @@ export function createAcpQuery(acpOpts: AcpOptions): QueryFn {
       return Promise.resolve();
     };
 
-    return Object.assign(generator, { interrupt });
+    return Object.assign(generator, {
+      interrupt,
+      supportedCommands: async (): Promise<SlashCommandInfo[]> => commands,
+    });
   };
   return fn;
 }

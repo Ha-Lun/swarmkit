@@ -157,6 +157,147 @@ describe('SdkSessions', () => {
     expect(typeof summary.costUsd).toBe('number');
   });
 
+  it('decide with answers on AskUserQuestion resolves allow with updatedInput answers', async () => {
+    interface AskState { decision?: { behavior?: string; updatedInput?: unknown } | null }
+    const askState: AskState = {};
+    const askInput = {
+      questions: [
+        {
+          question: 'Which layout should we ship?',
+          header: 'Layout',
+          multiSelect: false,
+          options: [
+            { label: 'Three tiers', description: 'Classic grid.' },
+            { label: 'Two tiers', description: 'Simpler split.' },
+          ],
+        },
+      ],
+    };
+    const askQuery: QueryFn = (params) => {
+      const options = params.options!;
+      return (async function* generator(): AsyncGenerator<any, void> {
+        yield { type: 'system', subtype: 'init', session_id: options.sessionId, model: 'claude-opus-5-5' };
+        askState.decision = await options.canUseTool!(
+          'AskUserQuestion',
+          askInput,
+          { signal: options.abortController!.signal, toolUseID: 'ask-1', requestId: 'req-ask-1' },
+        );
+        yield { type: 'result', subtype: 'success' };
+      })() as unknown as AsyncIterable<SDKMessage>;
+    };
+    const events: ServerEvent[] = [];
+    const sdk = new SdkSessions(e => events.push(e), askQuery);
+    const id = sdk.start({ prompt: 'ask flow', cwd: homeDir });
+    await vi.waitFor(() => {
+      expect(events.some(e => e.type === 'permission.request')).toBe(true);
+    });
+    const request = (events.find(e => e.type === 'permission.request')! as { request: { id: string; tool: string } }).request;
+    expect(request.tool).toBe('AskUserQuestion');
+    const answers = { 'Which layout should we ship?': 'Three tiers' };
+    expect(sdk.decide(request.id, { allow: true, answers })).toBe(true);
+    await vi.waitFor(() => {
+      expect(askState.decision?.behavior).toBe('allow');
+    });
+    expect(askState.decision).toMatchObject({
+      behavior: 'allow',
+      updatedInput: { questions: askInput.questions, answers },
+    });
+  });
+
+  it('tags requests with a kind: tool, question and plan', async () => {
+    const events: ServerEvent[] = [];
+    const state: FakeState = {};
+    const sdk = new SdkSessions(e => events.push(e), makeFakeQuery(state));
+    sdk.start({ prompt: 'kind tool', cwd: homeDir });
+    await vi.waitFor(() => {
+      expect(events.some(e => e.type === 'permission.request')).toBe(true);
+    });
+    expect((events.find(e => e.type === 'permission.request')! as { request: { kind?: string } }).request.kind).toBe('tool');
+
+    for (const [tool, kind] of [['AskUserQuestion', 'question'], ['ExitPlanMode', 'plan']] as const) {
+      const seen: ServerEvent[] = [];
+      const query: QueryFn = (params) => {
+        const options = params.options!;
+        return (async function* generator(): AsyncGenerator<any, void> {
+          yield { type: 'system', subtype: 'init', session_id: options.sessionId, model: 'claude-opus-5-5' };
+          await options.canUseTool!(tool, { plan: 'p' }, { signal: options.abortController!.signal, toolUseID: 'k1', requestId: 'r-k1' });
+          yield { type: 'result', subtype: 'success' };
+        })() as unknown as AsyncIterable<SDKMessage>;
+      };
+      const s = new SdkSessions(e => seen.push(e), query);
+      const id = s.start({ prompt: `kind ${tool}`, cwd: homeDir });
+      await vi.waitFor(() => {
+        expect(seen.some(e => e.type === 'permission.request')).toBe(true);
+      });
+      expect((seen.find(e => e.type === 'permission.request')! as { request: { kind?: string } }).request.kind).toBe(kind);
+      s.stop(id);
+    }
+  });
+
+  it('ExitPlanMode: allow keeps the input, deny passes a custom message through', async () => {
+    const planInput = { plan: '1. do the thing' };
+    for (const mode of ['allow', 'deny'] as const) {
+      const planState: { decision?: { behavior?: string; updatedInput?: unknown; message?: string } | null } = {};
+      const events: ServerEvent[] = [];
+      const planQuery: QueryFn = (params) => {
+        const options = params.options!;
+        return (async function* generator(): AsyncGenerator<any, void> {
+          yield { type: 'system', subtype: 'init', session_id: options.sessionId, model: 'claude-opus-5-5' };
+          planState.decision = await options.canUseTool!('ExitPlanMode', planInput, { signal: options.abortController!.signal, toolUseID: 'plan-1', requestId: 'r-plan-1' });
+          yield { type: 'result', subtype: 'success' };
+        })() as unknown as AsyncIterable<SDKMessage>;
+      };
+      const sdk = new SdkSessions(e => events.push(e), planQuery);
+      sdk.start({ prompt: `plan ${mode}`, cwd: homeDir });
+      await vi.waitFor(() => {
+        expect(events.some(e => e.type === 'permission.request')).toBe(true);
+      });
+      const request = (events.find(e => e.type === 'permission.request')! as { request: { id: string; tool: string; kind?: string } }).request;
+      expect(request).toMatchObject({ tool: 'ExitPlanMode', kind: 'plan' });
+      expect(sdk.decide(request.id, mode === 'allow' ? { allow: true } : { allow: false, message: 'Add a rollback step first' })).toBe(true);
+      await vi.waitFor(() => {
+        expect(planState.decision?.behavior).toBe(mode);
+      });
+      expect(planState.decision).toEqual(mode === 'allow'
+        ? { behavior: 'allow', updatedInput: planInput }
+        : { behavior: 'deny', message: 'Add a rollback step first' });
+    }
+  });
+
+  it('decide ignores answers for non-AskUserQuestion tools (original input, no answers key)', async () => {
+    const events: ServerEvent[] = [];
+    const state: FakeState = {};
+    const sdk = new SdkSessions(e => events.push(e), makeFakeQuery(state));
+    const id = sdk.start({ prompt: 'bash with stray answers', cwd: homeDir });
+    await vi.waitFor(() => {
+      expect(events.some(e => e.type === 'permission.request')).toBe(true);
+    });
+    const request = (events.find(e => e.type === 'permission.request')! as { request: { id: string } }).request;
+    expect(sdk.decide(request.id, { allow: true, answers: { 'Which layout?': 'Three tiers' } })).toBe(true);
+    await vi.waitFor(() => {
+      expect(state.decision?.behavior).toBe('allow');
+    });
+    expect(state.decision).toEqual({ behavior: 'allow', updatedInput: { command: 'ls' } });
+    expect(state.decision).not.toHaveProperty(['updatedInput', 'answers']);
+  });
+
+  it('deny with a message still resolves a deny (answers never applied)', async () => {
+    const events: ServerEvent[] = [];
+    const state: FakeState = {};
+    const sdk = new SdkSessions(e => events.push(e), makeFakeQuery(state));
+    const id = sdk.start({ prompt: 'deny me', cwd: homeDir });
+    expect(id).toBeTruthy();
+    await vi.waitFor(() => {
+      expect(events.some(e => e.type === 'permission.request')).toBe(true);
+    });
+    const request = (events.find(e => e.type === 'permission.request')! as { request: { id: string } }).request;
+    expect(sdk.decide(request.id, { allow: false, message: 'nope', answers: { q: 'a' } })).toBe(true);
+    await vi.waitFor(() => {
+      expect(state.decision?.behavior).toBe('deny');
+    });
+    expect(state.decision).toEqual({ behavior: 'deny', message: 'nope' });
+  });
+
   it('stop() denies pending permissions and marks the session stopped', async () => {
     const events: ServerEvent[] = [];
     const state: FakeState = {};
@@ -872,6 +1013,52 @@ describe('SdkSessions', () => {
         const entries = existsSync(root) ? readdirSync(root) : [];
         expect(entries).toEqual([]);
       });
+    });
+  });
+
+  describe('commands', () => {
+    it('filters terminal, strips slashes, dedupes and sorts; unknown -> undefined; ended -> []', async () => {
+      const hanging: QueryFn = () => {
+        const gen = (async function* (): AsyncGenerator<any, void> {
+          yield { type: 'system', subtype: 'init', terminal_slash_commands: ['exit'] };
+          await new Promise<void>(() => {});
+        })();
+        return Object.assign(gen, {
+          supportedCommands: async () => [
+            { name: 'zeta', description: 'Z' },
+            { name: 'exit', description: 'quit' },
+            { name: '/alpha', description: 'A' },
+            { name: 'zeta', description: 'dup' },
+            { name: 'beta', argumentHint: '<x>' },
+            { name: '__internal', description: 'hidden' },
+            null,
+          ],
+        }) as unknown as AsyncIterable<SDKMessage>;
+      };
+      const sdk = new SdkSessions(() => {}, hanging);
+      const id = sdk.start({ prompt: 'live commands', cwd: homeDir });
+      await vi.waitFor(async () => {
+        expect(await sdk.commands(id)).toEqual([
+          { name: 'alpha', description: 'A' },
+          { name: 'beta', argumentHint: '<x>' },
+          { name: 'zeta', description: 'Z' },
+        ]);
+      });
+      expect(await sdk.commands('nope')).toBeUndefined();
+      sdk.stop(id);
+      // Without a live query the session (and the terminal lookup) get the last list for its cwd.
+      await vi.waitFor(async () => {
+        expect((await sdk.commands(id))?.map(c => c.name)).toEqual(['alpha', 'beta', 'zeta']);
+      });
+      expect(sdk.cachedCommands('claude', homeDir).map(c => c.name)).toEqual(['alpha', 'beta', 'zeta']);
+      expect(sdk.cachedCommands('opencode', homeDir)).toEqual([]);
+
+      const ended = new SdkSessions(() => {}, makeRecordingQuery([]));
+      const doneId = ended.start({ prompt: 'ended', cwd: homeDir });
+      await vi.waitFor(() => {
+        expect(ended.get(doneId)?.status).toBe('done');
+      });
+      expect(await ended.commands(doneId)).toEqual([]);
     });
   });
 });

@@ -2,6 +2,7 @@
 name: seo-specialist
 description: Technical SEO, structured data, sitemaps, Core Web Vitals and AI-search visibility with free tools. Use proactively for SEO audits or search-visibility work.
 model: sonnet
+effort: high
 tools:
 - Read
 - Write

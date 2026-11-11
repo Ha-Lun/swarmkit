@@ -1,7 +1,7 @@
 // Top-level app: routing state and chrome (the backend is resolved in main.tsx).
 import { Component, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
-import type { PermissionRequest, SessionSummary, WorkerTask } from '../shared/types';
+import type { DecideOptions, GitInfo, PermissionRequest, SessionSummary, WorkerTask } from '../shared/types';
 import { ApiError, authenticate } from './api';
 import type { FleetBackend, Guard } from './api';
 import { Archive } from './Archive';
@@ -9,16 +9,19 @@ import { Composer } from './Composer';
 import { Continue } from './Continue';
 import { AgentTabs } from './AgentTabs';
 import { ChatView } from './ChatView';
-import { agentTabs } from './chat';
+import { agentLabel, agentSubtitle, agentTabs } from './chat';
 import { Drawer } from './Drawer';
-import { Orb } from './Orb';
-import { fmtCost, UNTRUSTED_NOTICE } from './format';
+import { Scanner } from './Scanner';
+import { fmtCost, sessionHint, UNTRUSTED_NOTICE } from './format';
 import { Logo } from './icons';
+import { InfoPanel } from './InfoPanel';
 import { Landing } from './Landing';
 import { NewSession } from './NewSession';
 import { packInstallDone, RestartBanner } from './RestartBanner';
-import { TopBar } from './TopBar';
+import { startPresence } from './presence';
+import { StatusBar } from './StatusBar';
 import { initialState, nodeById, reducer } from './state';
+import { TopBar } from './TopBar';
 import { Tree } from './Tree';
 import { useUsage } from './Usage';
 import { WorkerDrawer } from './WorkerDrawer';
@@ -53,6 +56,8 @@ function useKeyboardInset(): void {
     const apply = () => {
       const kb = Math.max(0, Math.round(window.innerHeight - vv.height));
       document.documentElement.style.setProperty('--kb', `${kb}px`);
+      // the status bar sits below the composer: hide it while the keyboard is up
+      document.documentElement.classList.toggle('kb-open', kb > 0);
     };
     apply();
     vv.addEventListener('resize', apply);
@@ -62,6 +67,13 @@ function useKeyboardInset(): void {
       vv.removeEventListener('scroll', apply);
     };
   }, []);
+}
+
+/** True when an error looks like a stale lazy chunk after a redeploy. */
+export function isStaleChunkError(message: string): boolean {
+  return /dynamically imported module|importing a module script failed|failed to fetch dynamically imported module|error loading dynamically imported module/i.test(
+    message,
+  );
 }
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -74,6 +86,20 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
   }
   render() {
     if (this.state.error) {
+      if (isStaleChunkError(this.state.error.message)) {
+        return (
+          <div className="crash">
+            <div>
+              <Logo size={40} />
+              <p style={{ fontWeight: 600 }}>SwarmKit was updated.</p>
+              <p className="muted" style={{ fontSize: 12.5 }}>Reload to load the new version.</p>
+              <button type="button" className="btn btn-primary" onClick={() => window.location.reload()}>
+                Reload
+              </button>
+            </div>
+          </div>
+        );
+      }
       return (
         <div className="crash">
           <div>
@@ -172,25 +198,196 @@ function readSessionView(): 'chat' | 'map' {
   }
 }
 
+const INFO_KEY = 'fleet.info';
+const INFO_WIDE = '(min-width: 1200px)';
+
+function readInfoPref(): boolean | null {
+  try {
+    const v = localStorage.getItem(INFO_KEY);
+    return v === '1' ? true : v === '0' ? false : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Info panel: open by default on wide screens (remembered in localStorage); on narrow screens it is an overlay that opens per visit. */
+function useInfoPanel(): { open: boolean; overlay: boolean; toggle: () => void; close: () => void } {
+  const [wide, setWide] = useState(() => window.matchMedia(INFO_WIDE).matches);
+  const [pref, setPref] = useState<boolean | null>(readInfoPref);
+  const [narrowOpen, setNarrowOpen] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(INFO_WIDE);
+    const on = () => setWide(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  const open = wide ? (pref ?? true) : narrowOpen;
+  const set = useCallback(
+    (next: boolean) => {
+      if (!wide) {
+        setNarrowOpen(next);
+        return;
+      }
+      setPref(next);
+      try {
+        localStorage.setItem(INFO_KEY, next ? '1' : '0');
+      } catch {
+        // private mode — per pageload then
+      }
+    },
+    [wide],
+  );
+  const toggle = useCallback(() => set(!open), [set, open]);
+  const close = useCallback(() => set(false), [set]);
+  return { open, overlay: !wide, toggle, close };
+}
+
+const RESTART_TEXT =
+  'The new agents are installed and the session was restarted. Continue the task where you left off.';
+
+/** Restart control: asks first while a turn is running, since restart stops it. */
+function RestartControl({
+  active,
+  busy,
+  error,
+  onRestart,
+}: {
+  active: boolean;
+  busy: boolean;
+  error: string | null;
+  onRestart: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const askRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!active) setConfirming(false);
+  }, [active]);
+  const cancel = () => {
+    setConfirming(false);
+    askRef.current?.focus();
+  };
+  return (
+    <div className="restart-ctl">
+      {error && !confirming && (
+        <span className="restart-ctl-error" role="alert" title={error}>
+          Restart failed: {error}
+        </span>
+      )}
+      {confirming ? (
+        <span
+          className="restart-ctl-confirm"
+          role="group"
+          aria-label="Confirm restart"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') cancel();
+          }}
+        >
+          <span>Restart stops the current turn.</span>
+          <button
+            type="button"
+            className="btn btn-sm"
+            autoFocus
+            onClick={() => {
+              setConfirming(false);
+              onRestart();
+            }}
+          >
+            Restart
+          </button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={cancel}>
+            Cancel
+          </button>
+        </span>
+      ) : (
+        <button
+          ref={askRef}
+          type="button"
+          className="btn btn-ghost btn-sm"
+          disabled={busy}
+          aria-label={busy ? 'Restarting session' : 'Restart session'}
+          onClick={() => (active ? setConfirming(true) : onRestart())}
+        >
+          {busy ? 'Restarting…' : 'Restart'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Topbar({
   session,
   sessionView,
   onView,
+  canRestart,
+  restartBusy,
+  restartError,
+  onRestart,
+  infoOpen,
+  onToggleInfo,
+  isLivePage,
+  onStop,
+  onCloseSession,
 }: {
   session: SessionSummary;
   sessionView: 'chat' | 'map';
   onView: (v: 'chat' | 'map') => void;
+  canRestart: boolean;
+  restartBusy: boolean;
+  restartError: string | null;
+  onRestart: () => void;
+  infoOpen: boolean;
+  onToggleInfo: () => void;
+  isLivePage: boolean;
+  onStop: () => void;
+  onCloseSession: () => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmStop, setConfirmStop] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      setConfirmStop(false);
+      return;
+    }
+    const onDown = (e: PointerEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setMenuOpen(false);
+        btnRef.current?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
+
+  const closeMenu = () => {
+    setMenuOpen(false);
+    btnRef.current?.focus();
+  };
+
   return (
     <header className="topbar">
-      <div className="topbar-title">
-        <h1>{session.title || session.project}</h1>
-        <p className="topbar-cwd" title={session.cwd}>
-          {session.cwd}
-        </p>
-      </div>
-      {session.runtime === 'opencode' && <span className="badge rt-opencode">OpenCode</span>}
-      {session.runtime === 'agy' && <span className="badge rt-agy">agy</span>}
+      <h1 className="topbar-title" title={sessionHint(session)}>
+        {session.title || session.project}
+      </h1>
+      <span className={`node-status st-${session.status} topbar-status`} title={`Status ${session.status}`}>
+        <i className="dot" aria-hidden="true" />
+        <span className="sr-only">{session.status}</span>
+      </span>
+      {session.pendingPermissions > 0 && (
+        <span className="pending-chip" title="Waiting on your decision">
+          {session.pendingPermissions}
+        </span>
+      )}
       <div className="view-toggle" role="group" aria-label="Session view">
         <button
           type="button"
@@ -209,17 +406,102 @@ function Topbar({
           Map
         </button>
       </div>
-      <div className="topbar-meta">
-        {session.pendingPermissions > 0 && (
-          <span className="pending-chip" title="Waiting on your decision">
-            {session.pendingPermissions} pending
-          </span>
+      <div className="topbar-menu-wrap" ref={wrapRef}>
+        <button
+          ref={btnRef}
+          type="button"
+          className="topbar-menu-btn"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          aria-label="Session actions"
+          title="Session actions"
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          <span aria-hidden="true">⋯</span>
+        </button>
+        {menuOpen && (
+          <div className="topbar-menu" role="menu" aria-label="Session actions">
+            <button
+              type="button"
+              role="menuitem"
+              className={`topbar-menu-item${infoOpen ? ' is-active' : ''}`}
+              onClick={() => {
+                onToggleInfo();
+                setMenuOpen(false);
+              }}
+            >
+              {infoOpen ? 'Hide session info' : 'Show session info'}
+            </button>
+            {canRestart && (
+              <>
+                <div className="topbar-menu-sep" aria-hidden="true" />
+                <RestartControl
+                  active={session.status === 'running' || session.status === 'waiting'}
+                  busy={restartBusy}
+                  error={restartError}
+                  onRestart={() => {
+                    onRestart();
+                    setMenuOpen(false);
+                  }}
+                />
+              </>
+            )}
+            <div className="topbar-menu-sep" aria-hidden="true" />
+            {isLivePage ? (
+              confirmStop ? (
+                <span
+                  className="restart-ctl-confirm"
+                  role="group"
+                  aria-label="Confirm stop"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setConfirmStop(false);
+                  }}
+                >
+                  <span>Stop this session?</span>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-danger"
+                    autoFocus
+                    onClick={() => {
+                      setConfirmStop(false);
+                      setMenuOpen(false);
+                      onStop();
+                    }}
+                  >
+                    Stop session
+                  </button>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirmStop(false)}>
+                    Cancel
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="topbar-menu-item is-danger"
+                  onClick={() => setConfirmStop(true)}
+                >
+                  Stop session
+                </button>
+              )
+            ) : (
+              <button
+                type="button"
+                role="menuitem"
+                className="topbar-menu-item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onCloseSession();
+                }}
+              >
+                Close
+              </button>
+            )}
+            <div className="topbar-menu-note">
+              {fmtCost(session.costUsd)} · {session.runtime ?? 'claude'}
+            </div>
+          </div>
         )}
-        <span className={`node-status st-${session.status}`}>
-          <i className="dot" aria-hidden="true" />
-          {session.status}
-        </span>
-        <span className="topbar-cost">{fmtCost(session.costUsd)}</span>
       </div>
     </header>
   );
@@ -238,6 +520,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   const [workerDrawerKey, setWorkerDrawerKey] = useState<string | null>(null);
   const [endedDraft, setEndedDraft] = useState<{ id: string; text: string } | null>(null);
   const [restartBusy, setRestartBusy] = useState(false);
+  const [restartError, setRestartError] = useState<string | null>(null);
   const [dismissedRestart, setDismissedRestart] = useState<string[]>(readDismissed);
   const [sessionView, setSessionView] = useState<'chat' | 'map'>(readSessionView);
   const [activeAgentId, setActiveAgentId] = useState('root');
@@ -316,6 +599,9 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
     });
   }, [backend, guardSilent]);
 
+  // Tell the server this tab is visible (gates terminal prompts); the mock backend's presence() is a no-op.
+  useEffect(() => (authNeeded ? undefined : startPresence(backend)), [backend, authNeeded]);
+
   // Load (or retry) the selected session's detail.
   const detail = state.selectedId ? state.details[state.selectedId] : undefined;
   const selected = useMemo(
@@ -341,6 +627,30 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
         .catch(() => setLoadError(true));
     }
   }, [state.selectedId, state.details, backend, guard, retryNonce]);
+
+  // Git state of the open session's cwd: refetched on open, on status changes and every 10 s while visible,
+  // since the lead and its workers change files and branches as it runs.
+  const [git, setGit] = useState<{ id: string; info?: GitInfo } | null>(null);
+  const gitId = view === 'session' ? state.selectedId : null;
+  const gitStatus = selected?.status;
+  useEffect(() => {
+    if (!gitId) return;
+    let live = true;
+    const load = () => {
+      if (document.visibilityState === 'hidden') return;
+      backend.git(gitId).then(
+        (r) => live && setGit({ id: gitId, info: r.git }),
+        () => {},
+      );
+    };
+    load();
+    const t = window.setInterval(load, 10_000);
+    return () => {
+      live = false;
+      window.clearInterval(t);
+    };
+  }, [backend, gitId, gitStatus]);
+  const gitInfo = git && git.id === gitId ? git.info : undefined;
 
   const baseActive =
     detail?.nodes.some((n) => n.status === 'running' || n.status === 'waiting') ||
@@ -392,6 +702,25 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
 
   const openWorker = useCallback((task: WorkerTask) => setWorkerDrawerKey(workerKey(task)), []);
 
+  // Info panel entries: agents open in the chat tab (or the map drawer), workers in the worker drawer.
+  const info = useInfoPanel();
+  const { overlay: infoOverlay, close: closeInfo } = info;
+  const openFromInfo = useCallback(
+    (nodeId: string) => {
+      if (sessionView === 'map') setDrawerNodeId(nodeId);
+      else setActiveAgentId(nodeId);
+      if (infoOverlay) closeInfo();
+    },
+    [sessionView, infoOverlay, closeInfo],
+  );
+  const openWorkerFromInfo = useCallback(
+    (task: WorkerTask) => {
+      openWorker(task);
+      if (infoOverlay) closeInfo();
+    },
+    [openWorker, infoOverlay, closeInfo],
+  );
+
   // Home just clears the selection: the landing page is the home screen, and the
   // reducer never re-selects a session, so later 'detail' events can't pull us
   // back into a session.
@@ -411,8 +740,8 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   );
 
   const decide = useCallback(
-    (p: PermissionRequest, allow: boolean, message?: string) => {
-      void guardSilent(backend.decide(p.id, allow, message));
+    (p: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>, opts?: DecideOptions) => {
+      void guardSilent(backend.decide(p.id, allow, message, answers, opts));
     },
     [backend, guardSilent],
   );
@@ -436,25 +765,27 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
     });
   }, []);
 
-  const restartSession = useCallback(async () => {
-    const id = stateRef.current.selectedId;
-    if (!id || restartBusy) return;
-    setRestartBusy(true);
-    try {
-      await guard(backend.stop(id));
-      await guard(
-        backend.resume(id, {
-          text: 'The new agents are installed and the session was restarted. Continue the task where you left off.',
-        }),
-      );
-      const d = await guard(backend.detail(id));
-      if (d) dispatch({ type: 'detail', detail: d });
-      dismissRestart();
-    } catch {
-      // keep the banner up so the user can retry
-    }
-    setRestartBusy(false);
-  }, [backend, guard, restartBusy, dismissRestart]);
+  useEffect(() => setRestartError(null), [state.selectedId]);
+
+  const restartSession = useCallback(
+    async (text?: string) => {
+      const id = stateRef.current.selectedId;
+      if (!id || restartBusy) return;
+      setRestartBusy(true);
+      setRestartError(null);
+      try {
+        await guard(backend.restart(id, text));
+        const d = await guard(backend.detail(id));
+        if (d) dispatch({ type: 'detail', detail: d });
+        dismissRestart();
+      } catch (e) {
+        // errors go to restartError, shown by the Topbar RestartControl so the user can retry
+        setRestartError(e instanceof Error ? e.message : 'Restart failed');
+      }
+      setRestartBusy(false);
+    },
+    [backend, guard, restartBusy, dismissRestart],
+  );
 
   /** A 409 from message/interrupt means the query is gone: switch the composer to Continue, keeping the text. */
   const callSession = useCallback(
@@ -487,9 +818,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   );
 
   const returnName = activeNode
-    ? activeNode.kind === 'worker' && activeNode.worker
-      ? `${activeNode.worker.lane} · ${activeNode.worker.slug}`
-      : activeNode.agentType
+    ? [agentLabel(activeNode), agentSubtitle(activeNode)].filter(Boolean).join(' — ').slice(0, 80)
     : '';
   // Auto-return only when the viewed agent finishes while we watch it; opening an
   // already finished agent stays put.
@@ -523,156 +852,224 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   const running = selected && !ended ? selected.status === 'running' || selected.status === 'waiting' : false;
   const canContinue = !!selected && !running;
 
+  const isLivePageSession = (s: SessionSummary) =>
+    s.source === 'page' && (s.status === 'running' || s.status === 'waiting');
+
+  /** Close a session tab: stop live page sessions (after the tab's inline confirm),
+      then go home when the closed tab was selected. */
+  const closeSession = useCallback(
+    (id: string) => {
+      const s = stateRef.current.sessions.find((x) => x.id === id);
+      if (s && isLivePageSession(s)) {
+        void guardSilent(backend.stop(id));
+      }
+      if (stateRef.current.selectedId === id) goHome();
+    },
+    [backend, guardSilent, goHome],
+  );
+
+  const stopSelected = useCallback(() => {
+    if (state.selectedId) void guardSilent(backend.stop(state.selectedId));
+  }, [backend, guardSilent, state.selectedId]);
+
   return (
     <div className="app">
-      <div className="main">
-        <TopBar
-          sessions={state.sessions}
-          workers={state.workers}
-          selectedId={state.selectedId}
-          connected={state.connected || mock}
-          usage={usage.report ?? undefined}
-          onHome={goHome}
-          onSelect={selectSession}
-          onOpenWorkers={() => setView('workers')}
-          onOpenArchive={() => setView('archive')}
-          onNew={() => setNewOpen(true)}
-        />
-        {view === 'session' && selected && (
-          <Topbar session={selected} sessionView={sessionView} onView={setSessionView} />
-        )}
-        {view === 'session' && selected?.untrustedProject && (
-          <p className="notice" role="note">
-            {UNTRUSTED_NOTICE}
-          </p>
-        )}
-        {!state.connected && !mock && (
-          <div className="conn-banner" aria-live="polite">
-            Connection lost — reconnecting…
-          </div>
-        )}
+      <TopBar
+        sessions={state.sessions}
+        selectedId={state.selectedId}
+        onHome={goHome}
+        onSelect={selectSession}
+        onNew={() => setNewOpen(true)}
+        onClose={closeSession}
+        isLivePage={isLivePageSession}
+      />
+      <div className="app-body">
+        <div className="main">
+          {view === 'session' && selected && (
+            <Topbar
+              key={selected.id}
+              session={selected}
+              sessionView={sessionView}
+              onView={setSessionView}
+              canRestart={selected.source === 'page' && (selected.runtime ?? 'claude') === 'claude'}
+              restartBusy={restartBusy}
+              restartError={restartError}
+              onRestart={() => void restartSession()}
+              infoOpen={info.open}
+              onToggleInfo={info.toggle}
+              isLivePage={isLivePageSession(selected)}
+              onStop={stopSelected}
+              onCloseSession={goHome}
+            />
+          )}
+          {view === 'session' && selected?.untrustedProject && (
+            <p className="notice" role="note">
+              {UNTRUSTED_NOTICE}
+            </p>
+          )}
+          {!state.connected && !mock && (
+            <div className="conn-banner" aria-live="polite">
+              Connection lost — reconnecting…
+            </div>
+          )}
 
-        {view === 'workers' ? (
-          <WorkersView workers={state.workers} now={now} at={workersAtRef.current} onOpen={openWorker} />
-        ) : view === 'archive' ? (
-          <Archive sessions={state.sessions} now={now} onSelect={selectSession} />
-        ) : !selected ? (
-          <Landing
-            backend={backend}
-            guard={guard}
-            sessions={state.sessions}
-            workers={state.workers}
-            now={now}
-            connected={state.connected || mock}
-            usage={usage.report}
-            usageLoading={usage.loading}
-            onRefreshUsage={usage.refresh}
-            onSelect={selectSession}
-            onOpenWorker={openWorker}
-            onOpenWorkers={() => setView('workers')}
-            onOpenArchive={() => setView('archive')}
-            onStarted={onStarted}
-          />
-        ) : !detail ? (
-          loadError ? (
-            <div className="canvas-empty">
-              <div>
-                <p>Couldn’t load this session.</p>
-                <button type="button" className="btn btn-ghost" onClick={() => setRetryNonce((n) => n + 1)}>
-                  Retry
-                </button>
+          {view === 'workers' ? (
+            <WorkersView workers={state.workers} now={now} at={workersAtRef.current} onOpen={openWorker} />
+          ) : view === 'archive' ? (
+            <Archive sessions={state.sessions} now={now} onSelect={selectSession} />
+          ) : !selected ? (
+            <Landing
+              backend={backend}
+              guard={guard}
+              sessions={state.sessions}
+              workers={state.workers}
+              now={now}
+              connected={state.connected || mock}
+              usage={usage.report}
+              usageLoading={usage.loading}
+              onRefreshUsage={usage.refresh}
+              onSelect={selectSession}
+              onOpenWorker={openWorker}
+              onOpenWorkers={() => setView('workers')}
+              onOpenArchive={() => setView('archive')}
+              onStarted={onStarted}
+            />
+          ) : !detail ? (
+            loadError ? (
+              <div className="canvas-empty">
+                <div>
+                  <p>Couldn’t load this session.</p>
+                  <button type="button" className="btn btn-ghost" onClick={() => setRetryNonce((n) => n + 1)}>
+                    Retry
+                  </button>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="canvas-loading" aria-live="polite">
-              <Orb size={32} state="connecting" color="#d9ccff" />
-              Loading session…
-            </div>
-          )
-        ) : sessionView === 'chat' && activeNode ? (
-          <>
-            {(visibleTabs.length > 0 || activeAgentId !== 'root') && (
-              <AgentTabs
-                tabs={visibleTabs}
-                activeId={activeAgentId}
-                now={now}
+            ) : (
+              <div className="canvas-loading" aria-live="polite">
+                <Scanner size="md" state="connecting" color="#e7e9ee" />
+                Loading session…
+              </div>
+            )
+          ) : sessionView === 'chat' && activeNode ? (
+            <>
+              {(visibleTabs.length > 0 || activeAgentId !== 'root') && (
+                <AgentTabs
+                  tabs={visibleTabs}
+                  activeId={activeAgentId}
+                  now={now}
+                  workers={state.workers}
+                  workersAt={workersAtRef.current}
+                  onSelect={setActiveAgentId}
+                />
+              )}
+              <ChatView
+                key={`${detail.id}:${activeNode.id}`}
+                node={activeNode}
+                nodes={detail.nodes}
+                permissions={detail.permissions}
                 workers={state.workers}
                 workersAt={workersAtRef.current}
-                onSelect={setActiveAgentId}
+                now={now}
+                onOpenAgent={setActiveAgentId}
+                onDecide={decide}
+                untrusted={selected?.untrustedProject === true}
+                onOpenWorkerLog={(task) => setWorkerDrawerKey(workerKey(task))}
               />
-            )}
-            <ChatView
-              key={`${detail.id}:${activeNode.id}`}
-              node={activeNode}
+            </>
+          ) : (
+            <Tree
+              key={`tree:${detail.id}`}
               nodes={detail.nodes}
               permissions={detail.permissions}
               workers={state.workers}
               workersAt={workersAtRef.current}
               now={now}
-              onOpenAgent={setActiveAgentId}
+              openNodeId={drawerNodeId}
+              onOpen={openNode}
               onDecide={decide}
-              onOpenWorkerLog={(task) => setWorkerDrawerKey(workerKey(task))}
+              untrusted={selected?.untrustedProject === true}
             />
-          </>
-        ) : (
-          <Tree
-            key={detail.id}
-            nodes={detail.nodes}
-            permissions={detail.permissions}
-            workers={state.workers}
-            workersAt={workersAtRef.current}
-            now={now}
-            openNodeId={drawerNodeId}
-            onOpen={openNode}
-            onDecide={decide}
-          />
-        )}
+          )}
 
-        {detail && showRestart && (
-          <RestartBanner
-            source={detail.source}
-            busy={restartBusy}
-            onRestart={() => void restartSession()}
-            onDismiss={dismissRestart}
-          />
-        )}
-
-        {view === 'session' && selected && showReturn && !returnStay && (
-          <div className="chat-return" role="status">
-            <span>✓ {returnName} finished — returning to Main</span>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setReturnStay(true)}>
-              Stay
-            </button>
-          </div>
-        )}
-
-        {view === 'session' && selected && (
-          selected.source === 'page' && running ? (
-            <Composer
-              onSend={(text, images) => callSession((id) => backend.send(id, text, images), text)}
-              onInterrupt={() => callSession((id) => backend.interrupt(id))}
-              onStop={() => {
-                if (state.selectedId) void guardSilent(backend.stop(state.selectedId));
-              }}
+          {detail && showRestart && (
+            <RestartBanner
+              source={detail.source}
+              busy={restartBusy}
+              onRestart={() => void restartSession(RESTART_TEXT)}
+              onDismiss={dismissRestart}
             />
-          ) : running ? (
-            <div className="readonly-bar">
-              Read-only — this session is running in a terminal. Continue becomes available when it stops.
+          )}
+
+          {view === 'session' && selected && showReturn && !returnStay && (
+            <div className="chat-return" role="status">
+              <span>✓ {returnName} finished — returning to Main</span>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setReturnStay(true)}>
+                Stay
+              </button>
             </div>
-          ) : canContinue ? (
-            <Continue
-              key={`${selected.id}:${ended ? 'ended' : ''}`}
-              initialText={ended ? endedDraft?.text : undefined}
-              ended={ended}
-              backend={backend}
-              guard={guard}
-              sessionId={selected.id}
-              source={selected.source}
-              onResumed={handleResumed}
-            />
-          ) : null
+          )}
+
+          {view === 'session' && selected && (
+            selected.source === 'page' && running ? (
+              <Composer
+                key={`composer:${selected.id}`}
+                session={selected}
+                git={gitInfo}
+                onSend={(text, images, files) => callSession((id) => backend.send(id, text, images, files), text)}
+                onInterrupt={() => callSession((id) => backend.interrupt(id))}
+                onStop={() => {
+                  if (state.selectedId) void guardSilent(backend.stop(state.selectedId));
+                }}
+                loadCommands={() => backend.commands(selected.id).then((r) => r.commands)}
+              />
+            ) : running ? (
+              <div className="readonly-bar">
+                Read-only — this session is running in a terminal. Continue becomes available when it stops.
+              </div>
+            ) : canContinue ? (
+              <Continue
+                key={`${selected.id}:${ended ? 'ended' : ''}`}
+                initialText={ended ? endedDraft?.text : undefined}
+                ended={ended}
+                backend={backend}
+                guard={guard}
+                session={selected}
+                git={gitInfo}
+                sessionId={selected.id}
+                source={selected.source}
+                onResumed={handleResumed}
+                loadCommands={() => backend.commands(selected.id).then((r) => r.commands)}
+              />
+            ) : null
+          )}
+        </div>
+
+        {view === 'session' && selected && info.open && (
+          <InfoPanel
+            key={selected.id}
+            session={selected}
+            detail={detail}
+            git={gitInfo}
+            workers={state.workers}
+            activeAgentId={sessionView === 'map' ? (drawerNodeId ?? '') : activeAgentId}
+            overlay={info.overlay}
+            onOpenAgent={openFromInfo}
+            onOpenWorker={openWorkerFromInfo}
+            onClose={info.close}
+          />
         )}
       </div>
+
+      <StatusBar
+        sessions={state.sessions}
+        workers={state.workers}
+        connected={state.connected || mock}
+        usage={usage.report ?? undefined}
+        usageLoading={usage.loading}
+        onRefreshUsage={usage.refresh}
+        onOpenWorkers={() => setView('workers')}
+        onOpenArchive={() => setView('archive')}
+      />
 
       {drawerNode && sessionView === 'map' && view === 'session' && (
         <Drawer node={drawerNode} onClose={() => setDrawerNodeId(null)} />

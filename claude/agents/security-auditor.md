@@ -2,6 +2,7 @@
 name: security-auditor
 description: Read-only security review of changes touching auth, secrets, data access or user input.
 model: opus
+effort: high
 tools:
 - Read
 - Glob

@@ -61,10 +61,10 @@ chmod +x "$T/bin/opencode"
 # agy did not run). Its transcript (in the --conversation, else a new one; STUB_CONV overrides) records that call
 # (named STUB_TNAME if set, plus a STUB_EXTRA call), then a STUB_INVALID call whose next step has status
 # $STUB_INVALID_STATUS (INVALID: agy rejected its arguments before the hook); STUB_NOTRANSCRIPT writes none; STUB_ONLYINVALID drops the first call.
-# --version prints $STUB_VERSION (1.4.7).
+# --version prints $STUB_VERSION (1.4.10).
 cat > "$T/bin/agy" <<'S'
 #!/bin/sh
-[ "$1" = --version ] && { echo "agy ${STUB_VERSION:-1.4.7}"; exit 0; }
+[ "$1" = --version ] && { echo "agy ${STUB_VERSION:-1.4.10}"; exit 0; }
 printf '%s\n' "$*" >> "$STUB_ARGS.agy"
 hook=$(jq -r '.[].PreToolUse[0].hooks[0].command' .agents/hooks.json 2>/dev/null)
 call=${STUB_CALL:-"{\"toolCall\":{\"name\":\"write_to_file\",\"args\":{\"TargetFile\":\"$PWD/stub.txt\",\"CodeContent\":\"x\"}}}"}
@@ -96,18 +96,38 @@ mkrepo r1; cd "$T/r1"
 # --- effort per model
 D=opencode-go/muse-spark-1.3-contributor
 "$TASK" start e1 "p" >/dev/null 2>&1 || true
-[ "$(last_model)" = "$D" ] || fail "default model should get no effort suffix, got $(last_model)"
-"$TASK" start e2 --model opencode-go/glm-5.3-flash "p" >/dev/null 2>&1 || true
-[ "$(last_model)" = "opencode-go/glm-5.3-flash" ] || fail "unknown model should get no effort, got $(last_model)"
+[ "$(last_model)" = "$D#high" ] || fail "default model should get its table effort, got $(last_model)"
+"$TASK" start e2 --model opencode-go/mimo-v2.6-flash "p" >/dev/null 2>&1 || true
+[ "$(last_model)" = "opencode-go/mimo-v2.6-flash" ] || fail "model outside the table should get no effort, got $(last_model)"
 "$TASK" start e3 --model "$D" --effort "" "p" >/dev/null 2>&1 || true
 [ "$(last_model)" = "$D" ] || fail "empty --effort should mean none, got $(last_model)"
 "$TASK" start e4 --model opencode-go/glm-5.3-flash --effort high "p" >/dev/null 2>&1 || true
 [ "$(last_model)" = "opencode-go/glm-5.3-flash#high" ] || fail "explicit effort ignored, got $(last_model)"
 "$TASK" resume e1 --effort high "again" >/dev/null 2>&1 || true
-[ "$(last_model)" = "$D" ] || fail "resume must keep start's (empty) effort, got $(last_model)"
+[ "$(last_model)" = "$D#high" ] || fail "resume must keep start's effort, got $(last_model)"
 "$TASK" resume e2 --effort max "again" >/dev/null 2>&1 || true
-[ "$(last_model)" = "opencode-go/glm-5.3-flash" ] || fail "resume must keep start's (empty) effort, got $(last_model)"
+[ "$(last_model)" = "opencode-go/mimo-v2.6-flash" ] || fail "resume must keep start's (empty) effort, got $(last_model)"
 for s in e1 e2 e3 e4; do "$TASK" clean $s --force; done
+# build.py's OPENCODE_EFFORT and agy-task's EFFORT_DEFAULTS must name the same models at the same effort; agy-task is
+# only ast-parsed (never run), build.py is loaded for its tables (its main() sits behind __main__)
+python3 -I - "${TASK%/*}/build.py" "${TASK%/*}/agy-task" <<'PY' || fail "build.py OPENCODE_EFFORT and agy-task EFFORT_DEFAULTS differ (see above)"
+import ast, importlib.util, sys
+build_path, task_path = sys.argv[1], sys.argv[2]
+spec = importlib.util.spec_from_file_location("build", build_path)
+build = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(build)
+with open(task_path, encoding="utf-8") as f:
+    tree = ast.parse(f.read(), task_path)
+defaults = next((ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
+                 and any(isinstance(t, ast.Name) and t.id == "EFFORT_DEFAULTS" for t in n.targets)), None)
+if defaults is None:
+    sys.exit(f"no EFFORT_DEFAULTS dict literal in {task_path}")
+a = build.OPENCODE_EFFORT
+if sorted(a) != sorted(defaults):
+    sys.exit(f"model keys differ: build.py only {sorted(set(a) - set(defaults))}, agy-task only {sorted(set(defaults) - set(a))}")
+if sorted(a.items()) != sorted(defaults.items()):
+    sys.exit(f"effort values differ: build.py {sorted(a.items())}, agy-task {sorted(defaults.items())}")
+PY
 
 # --- worker shell: test files in a subdirectory are allowed, node -e is not (only the default deny covers it)
 "$TASK" start rg1 "p" >/dev/null 2>&1 || true
@@ -153,9 +173,9 @@ echo "$err" | grep -q "^opencode-task ▶ bn1 · model $D · effort high · base
   || fail "start banner: $err"
 echo "$err" | grep -q PROMPT-SECRET && fail "banner leaks the prompt"
 err=$("$TASK" start bn2 "p" 2>&1 >/dev/null) || true
-echo "$err" | grep -q "· effort none ·" || fail "empty effort should print none: $err"
+echo "$err" | grep -q "· effort high ·" || fail "table effort should print high: $err"
 err=$("$TASK" resume bn2 "again" 2>&1 >/dev/null) || true
-echo "$err" | grep -q "▶ bn2 · model $D · effort none .* · resume" || fail "resume banner: $err"
+echo "$err" | grep -q "▶ bn2 · model $D · effort high .* · resume" || fail "resume banner: $err"
 "$TASK" list | grep -q "^bn1 .*muse-spark-1.3-contributor .*[0-9]s " || fail "list lacks model/wall: $("$TASK" list)"
 [ "$("$TASK" list | wc -l)" = 2 ] || fail "list is not one line per task"
 STUB_MODE=slow STUB_SLEEP=6 "$TASK" start bn3 --max-denied 0 "p" >/dev/null 2>&1 &
@@ -545,7 +565,7 @@ ares gp1 '.warnings[]' | grep -q "^gate check failed: agy answered for conversat
 [ "$(git -C "$(adir gp1)/worktree" rev-parse HEAD)" = "$h" ] || fail "resume in another conversation was committed"
 # an agy version other than the probed one is refused unless overridden
 rc=0; out=$(STUB_VERSION=1.5.0 "$AGY_TASK" start gv1 "p" 2>&1) || rc=$?
-[ "$rc" = 2 ] && echo "$out" | grep -q "agy 1.5.0 is not the version the gate was probed on (1.4.7)" || fail "unprobed agy ($rc): $out"
+[ "$rc" = 2 ] && echo "$out" | grep -q "agy 1.5.0 is not the version the gate was probed on (1.4.10)" || fail "unprobed agy ($rc): $out"
 [ ! -e "$AGY_TASK_DIR"/*/gv1 ] || fail "unprobed agy left a task dir"
 STUB_VERSION=1.5.0 AGY_TASK_ALLOW_UNPROBED=1 "$AGY_TASK" start gv1 "p" >/dev/null 2>&1 || fail "override not honoured: $(ares gv1 .warnings)"
 # a launch is refused while the worktree has agy customization entries besides the overlay, or symlinks among them
@@ -742,7 +762,7 @@ jq -es '[.[] | select(.event == "start")] | length == 2 and all(.[]; keys == ["a
   || fail "start lines not the allowlist"
 jq -es '[.[] | select(.event == "finish")] | length == 2 and all(.[]; keys == ["agent","cli","denied","event","model","ok","slug","stopped_by","tokens","ts","wall_s"])' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
   || fail "finish lines not the allowlist"
-jq -es '.[0] | .event == "start" and .cli == "opencode" and .slug == "dl1" and .model == "'"$D"'" and .effort == null' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
+jq -es '.[0] | .event == "start" and .cli == "opencode" and .slug == "dl1" and .model == "'"$D"'" and .effort == "high"' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
   || fail "start log line: $(head -1 "$SWARMKIT_DISPATCH_LOG")"
 jq -es '[.[] | select(.event == "finish")] | .[0] | .cli == "opencode" and .slug == "dl1" and .model == "'"$D"'" and .denied == 0 and .tokens == 116 and .stopped_by == null
         and (.ts | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$")) and (.wall_s | type == "number")' "$SWARMKIT_DISPATCH_LOG" >/dev/null \
@@ -796,10 +816,18 @@ mkagent mres-bad "model: anthropic/claude-x
 [ "$("$TASK" model --agent mres-other)" = "opencode-go/mimo-v2.6-flash none" ] || fail "model --agent: agent model not used"
 mkagent mres-tier "model: opencode-go/glm-5.3-flash  # tier standard
 "
-[ "$("$TASK" model --agent mres-tier)" = "$oc_def none" ] || fail "model --agent: tier-derived model not replaced by lane default"
-[ "$("$TASK" model --agent mres-bad 2>/dev/null)" = "$oc_def none" ] || fail "model --agent: non-allowlisted agent model not replaced by lane default"
+[ "$("$TASK" model --agent mres-tier)" = "$oc_def high" ] || fail "model --agent: tier-derived model not replaced by lane default"
+[ "$("$TASK" model --agent mres-bad 2>/dev/null)" = "$oc_def high" ] || fail "model --agent: non-allowlisted agent model not replaced by lane default"
 "$TASK" model --agent mres-bad 2>&1 >/dev/null | grep -q "not on the worker allowlist" || fail "model: no notice for non-allowlisted agent model"
-[ "$("$TASK" model --model opencode-go/glm-5.3-flash)" = "opencode-go/glm-5.3-flash none" ] || fail "model --model"
+[ "$("$TASK" model --model opencode-go/glm-5.3-flash)" = "opencode-go/glm-5.3-flash high" ] || fail "model --model"
+[ "$("$TASK" model --model opencode-go/mimo-v2.6-flash)" = "opencode-go/mimo-v2.6-flash none" ] || fail "model --model outside the table"
+[ "$("$TASK" model --model opencode-go/glm-5.3-flash --effort "")" = "opencode-go/glm-5.3-flash none" ] || fail "model --effort empty"
+mkagent mres-var "model: opencode-go/glm-5.3-flash#high  # tier standard
+"
+[ "$("$TASK" model --agent mres-var)" = "$oc_def high" ] || fail "model --agent: tier note after #variant counted as a pin"
+mkagent mres-pinvar "model: opencode-go/glm-5.3-flash#high
+"
+[ "$("$TASK" model --agent mres-pinvar)" = "opencode-go/glm-5.3-flash high" ] || fail "model --agent: pinned model with #variant: $("$TASK" model --agent mres-pinvar)"
 "$TASK" model --model nope/x >/dev/null 2>&1 && fail "model accepted a model off the allowlist"
 "$TASK" model --agent no-such-agent >/dev/null 2>&1 && fail "model accepted an unknown agent"
 [ "$("$AGY_TASK" model)" = "gemini-3.8-flash-high none" ] || fail "agy model default"

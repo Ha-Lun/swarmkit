@@ -1,13 +1,42 @@
 // Small pure formatting helpers. No side effects, no React.
-import type { AgentNode, PermissionRequest, WorkerTask } from '../shared/types';
+import type { AgentNode, GoLimit, PermissionRequest, SessionSummary, WorkerTask } from '../shared/types';
 
-/** 'claude-opus-5-5' -> 'Opus 5.5'; 'opencode-go/glm-5.3-flash' -> 'glm-5.3-flash'; missing -> ''. */
+/**
+ * 'claude-opus-5-5' -> 'Opus 5.5'; 'opencode-go/glm-5.3-flash' -> 'GLM 5.3 Flash';
+ * 'gemini-3.8-flash-high' -> 'Gemini 3.8 Flash · high'; missing -> ''.
+ */
 export function modelLabel(model?: string): string {
   if (!model) return '';
-  const m = /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)/.exec(model);
+  const m = /^claude-(fable|opus|sonnet|haiku)-(\d+)-(\d+)/.exec(model);
   if (m) return `${cap(m[1])} ${m[2]}.${m[3]}`;
   if (/^(opus|sonnet|haiku)$/.test(model)) return cap(model);
-  return shortModel(model);
+  return workerModelLabel(model);
+}
+
+const BRANDS: Record<string, string> = {
+  glm: 'GLM',
+  gemini: 'Gemini',
+  deepseek: 'DeepSeek',
+  mimo: 'MiMo',
+  minimax: 'MiniMax',
+};
+/** Effort suffixes that follow the model name, shown after a middle dot. */
+const EFFORTS = new Set(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+/** Trailing words that only name a release channel, not the model. */
+const NOISE = new Set(['contributor', 'preview', 'latest', 'exp']);
+
+/** Short display name for a worker/provider model id; unknown shapes fall back to title case. */
+function workerModelLabel(model: string): string {
+  const tokens = shortModel(model)
+    .split('-')
+    .filter((t) => t !== '' && !NOISE.has(t.toLowerCase()) && !/^\d{8}$/.test(t));
+  let effort = '';
+  if (tokens.length > 1 && EFFORTS.has(tokens[tokens.length - 1].toLowerCase())) effort = tokens.pop()!.toLowerCase();
+  const name = tokens
+    .map((t) => BRANDS[t.toLowerCase()] ?? (/^v?\d/.test(t) ? t.toUpperCase() : cap(t)))
+    .join(' ');
+  if (!name) return shortModel(model);
+  return effort ? `${name} · ${effort}` : name;
 }
 
 function cap(s: string): string {
@@ -167,5 +196,47 @@ export function usageTone(u: number | null): 'teal' | 'amber' | 'fail' | 'idle' 
   return 'teal';
 }
 
+export const GO_WINDOW_LABELS = { rolling: 'Rolling', weekly: 'Weekly', monthly: 'Monthly' } as const;
+
+/** TopBar Go pill model: rolling percent, tone (danger when any window is limited) and an accessible description. */
+export function goPillModel(
+  limits: readonly GoLimit[] | undefined,
+  now = Date.now(),
+): { pct: number | null; tone: ReturnType<typeof usageTone>; label: string } | null {
+  if (!limits || limits.length === 0) return null;
+  const rolling = limits.find((l) => l.window === 'rolling');
+  const u = rolling?.utilization ?? null;
+  const pct = u == null || !Number.isFinite(u) ? null : Math.min(100, Math.max(0, Math.round(u)));
+  const limited = limits.some((l) => l.limited);
+  const parts = limits.map((l) => {
+    const v = l.utilization == null || !Number.isFinite(l.utilization) ? 'n/a' : `${Math.min(100, Math.max(0, Math.round(l.utilization)))}%`;
+    const reset = l.resetsAt ? fmtResetIn(l.resetsAt, now) : '';
+    return `${l.window} ${v}${reset ? ` (resets ${reset})` : ''}`;
+  });
+  return {
+    pct,
+    tone: limited ? 'fail' : usageTone(u),
+    label: `OpenCode Go — ${parts.join(', ')}${limited ? ', rate-limited' : ''}`,
+  };
+}
+
 export const UNTRUSTED_NOTICE =
   'Untrusted folder: project settings and hooks are ignored. Open it once in Claude Code in a terminal to trust it.';
+
+/** Secondary line for a session: `project · agent · model · relTime`, missing parts omitted (no time without `now`). */
+export function sessionSubline(s: SessionSummary, now?: number, withProject = true): string {
+  return [withProject ? s.project : '', s.agent, modelLabel(s.model), now === undefined ? '' : relTime(s.updatedAt, now)].filter(Boolean).join(' · ');
+}
+
+/** Full session description for tooltips and aria-labels: title, cwd, agent, model, short id. */
+export function sessionHint(s: SessionSummary): string {
+  return [
+    s.title || s.project,
+    s.cwd,
+    s.agent ? `agent ${s.agent}` : '',
+    s.model ? `model ${modelLabel(s.model)}` : '',
+    `id ${s.id.slice(0, 8)}`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}

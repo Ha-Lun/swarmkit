@@ -3,6 +3,7 @@
 
   python3 bench/worker_models.py --repeats 3                    scaffold fixture, default arms muse,beam (spends model quota)
   python3 bench/worker_models.py --arms muse                    only the named arms
+  SWARMKIT_BENCH=1 python3 bench/worker_models.py --arms iceman  bench-only candidates (agy-task `bench_only`) need the env
   python3 bench/worker_models.py --fixture hard                 harder fixture (4 modules, 12m per worker)
   python3 bench/worker_models.py --summarize F1 [F2 ...]        one combined table; an arm is taken from the
                                                                 first file (in the order given) that has it
@@ -35,11 +36,13 @@ FIXTURES = {
     'hard': (['ini', 'merge3', 'ratelimit', 'glob'], '12m'),
 }
 MODULES = FIXTURES['scaffold'][0]
-# label -> (model id, effort or None). Effort None = wrapper default ("max"); '' = the model's own default
-# (passed explicitly, which switches the wrapper default off). muse rejects "max" ("Variant unavailable").
+# label -> (model id, effort or None). Effort None = the wrapper's per-model default (EFFORT_DEFAULTS in
+# scripts/agy-task; high where supported); '' = the model's own default (passed explicitly, which switches
+# the wrapper default off). muse rejects "max" ("Variant unavailable").
 ARMS = {
     'muse': ('opencode-go/muse-spark-1.3-contributor', ''),
     'beam': ('opencode-go/beam-free', ''),
+    'iceman': ('opencode-go/iceman-contributor-free', ''),  # bench-only (SWARMKIT_BENCH=1 in agy-task)
 }
 PROMPT = ("You are in a git worktree of a small Node project. Implement `src/{m}.js` so that "
           "`node test/{m}.test.js` passes. Read the test first. Edit only `src/{m}.js`; do not touch "

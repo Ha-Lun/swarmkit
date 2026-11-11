@@ -1,9 +1,9 @@
-import { setImmediate } from 'node:timers/promises';
+import { setImmediate, setTimeout as delay } from 'node:timers/promises';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { closeSync, openSync, readSync, readdirSync, statSync } from 'node:fs';
 import type { Dirent } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import type { ServerEvent, SessionDetail, SessionSummary } from '../../src/shared/types.ts';
+import type { PermissionRequest, ServerEvent, SessionDetail, SessionSummary } from '../../src/shared/types.ts';
 import { applyMessage, createTree, ensureNode, markPlaceholder, setStatus, upsertEvent, type SessionTree } from '../model/reducer.ts';
 import type { LiveHolder } from '../livesessions.ts';
 import { liveHolders } from '../livesessions.ts';
@@ -87,6 +87,8 @@ export class TranscriptWatcher {
   private metaCache = new Map<string, { mtimeMs: number; size: number; data: Record<string, unknown> }>();
   /** Live-registry snapshot (sessionId -> holder), refreshed from liveHolders() at most every 2 s. */
   private holders = new Map<string, LiveHolder>();
+  /** Terminal permission prompts relayed through the Claude Code hook: sessionId -> id -> request. */
+  private terminalPending = new Map<string, Map<string, PermissionRequest>>();
   private timer: ReturnType<typeof setInterval> | undefined;
   private scanning = false;
 
@@ -165,6 +167,7 @@ export class TranscriptWatcher {
   private async evictLive(now: number): Promise<void> {
     const drop: string[] = [];
     for (const [id, live] of [...this.live.entries()]) {
+      if (this.terminalPending.has(id) && !this.skipFn(id)) continue; // a hook holds this session open
       const stale = now - live.mtimeMs > LIVE_MS;
       const unaccessed = now - live.lastAccess > ACCESS_MS;
       if (this.skipFn(id) || (stale && unaccessed)) {
@@ -187,7 +190,7 @@ export class TranscriptWatcher {
   /** Cap-only LRU trim (used after eager parses): no file probing needed. */
   private async trimLiveToCap(): Promise<void> {
     if (this.live.size <= MAX_LIVE) return;
-    const candidates = [...this.live.keys()];
+    const candidates = [...this.live.keys()].filter(id => !this.terminalPending.has(id));
     candidates.sort((a, b) => {
       const la = this.live.get(a)!;
       const lb = this.live.get(b)!;
@@ -195,7 +198,7 @@ export class TranscriptWatcher {
       const kb = Math.max(lb.lastAccess, lb.mtimeMs);
       return ka - kb;
     });
-    const over = candidates.length - MAX_LIVE;
+    const over = Math.min(candidates.length, this.live.size - MAX_LIVE);
     await this.dropLive(candidates.slice(0, over));
   }
 
@@ -207,7 +210,7 @@ export class TranscriptWatcher {
       const head = this.heads.get(id);
       this.emitFn({
         type: 'session.upsert',
-        session: head ? headSummary(head, this.holders) : liveSummary(live, this.holders),
+        session: head ? headSummary(head, this.holders, this.pendingCount(id)) : liveSummary(live, this.holders, this.pendingCount(id)),
       });
       this.live.delete(id);
     }
@@ -219,12 +222,12 @@ export class TranscriptWatcher {
     const out = new Map<string, SessionSummary>();
     for (const [id, head] of this.heads) {
       if (this.skipFn(id)) continue;
-      out.set(id, headSummary(head, this.holders));
+      out.set(id, headSummary(head, this.holders, this.pendingCount(id)));
     }
     for (const [id, live] of this.live) {
       if (this.skipFn(id)) continue;
       const head = this.heads.get(id);
-      const summary = liveSummary(live, this.holders);
+      const summary = liveSummary(live, this.holders, this.pendingCount(id));
       if (!summary.cwd && head) {
         summary.cwd = head.cwd;
         summary.project = basename(head.cwd);
@@ -292,6 +295,57 @@ export class TranscriptWatcher {
     return undefined;
   }
 
+  /** The transcript file followed for a terminal session, when known. */
+  transcriptPath(id: string): string | undefined {
+    return this.live.get(id)?.path ?? this.heads.get(id)?.path;
+  }
+
+  /**
+   * True once the session's transcript is known (parsed and tailed from here on),
+   * polling up to waitMs for a file that is still being created. False for page sessions.
+   */
+  async hasSession(id: string, waitMs = 0): Promise<boolean> {
+    const deadline = Date.now() + waitMs;
+    for (;;) {
+      if (await this.get(id)) return true;
+      if (Date.now() >= deadline) return false;
+      await delay(Math.min(250, Math.max(0, deadline - Date.now())));
+    }
+  }
+
+  /** Pending terminal-prompt requests of a session (relayed from the Claude Code hook). */
+  terminalPermissions(sessionId: string): PermissionRequest[] {
+    return [...(this.terminalPending.get(sessionId)?.values() ?? [])];
+  }
+
+  pendingCount(sessionId: string): number {
+    return this.terminalPending.get(sessionId)?.size ?? 0;
+  }
+
+  /** Registers a terminal prompt and tells the clients (permission.request + the waiting summary). */
+  addTerminalPermission(request: PermissionRequest): void {
+    let map = this.terminalPending.get(request.sessionId);
+    if (!map) this.terminalPending.set(request.sessionId, (map = new Map()));
+    map.set(request.id, request);
+    this.emitFn({ type: 'permission.request', request });
+    this.emitSummary(request.sessionId);
+  }
+
+  /** Withdraws a terminal prompt (decided, timed out or the hook went away). False when unknown. */
+  removeTerminalPermission(sessionId: string, id: string, allow: boolean): boolean {
+    const map = this.terminalPending.get(sessionId);
+    if (!map?.delete(id)) return false;
+    if (map.size === 0) this.terminalPending.delete(sessionId);
+    this.emitFn({ type: 'permission.resolved', sessionId, id, allow });
+    this.emitSummary(sessionId);
+    return true;
+  }
+
+  private emitSummary(sessionId: string): void {
+    const live = this.live.get(sessionId);
+    if (live) this.flushEvents([], live);
+  }
+
   // -------------------------------------------------------------------------
 
   /** Fresh live-registry snapshot (cached in livesessions, at most one dir read per 2 s). */
@@ -301,7 +355,7 @@ export class TranscriptWatcher {
 
   private flushEvents(events: ServerEvent[], live: LiveSession): void {
     for (const e of events) this.emitFn(e);
-    const summary = liveSummary(live, this.holders);
+    const summary = liveSummary(live, this.holders, this.pendingCount(live.id));
     const key = JSON.stringify(summary);
     if (key !== live.lastSummary) {
       live.lastSummary = key;
@@ -446,7 +500,7 @@ export class TranscriptWatcher {
       for (const node of parsed.live.tree.nodes.values()) {
         events.push(upsertEvent(node));
       }
-      events.push({ type: 'session.upsert', session: liveSummary(parsed.live, this.holders) });
+      events.push({ type: 'session.upsert', session: liveSummary(parsed.live, this.holders, this.pendingCount(parsed.live.id)) });
     } catch {
       // file vanished mid-rebuild: the old state stands
     }
@@ -658,7 +712,7 @@ export class TranscriptWatcher {
   }
 
   private detailFor(live: LiveSession): SessionDetail {
-    const summary = liveSummary(live, this.holders);
+    const summary = liveSummary(live, this.holders, this.pendingCount(live.id));
     const head = this.heads.get(live.id);
     if (!summary.cwd && head) summary.cwd = head.cwd;
     if (!summary.title && head) summary.title = head.title;
@@ -666,7 +720,7 @@ export class TranscriptWatcher {
       ...summary,
       project: basename(summary.cwd),
       nodes: [...live.tree.nodes.values()],
-      permissions: [],
+      permissions: this.terminalPermissions(live.id),
     };
   }
 }
@@ -730,7 +784,7 @@ function endedStatus(status: SessionSummary['status']): boolean {
   return status === 'done' || status === 'error' || status === 'stopped';
 }
 
-function liveSummary(live: LiveSession, holders: Map<string, LiveHolder>): SessionSummary {
+function liveSummary(live: LiveSession, holders: Map<string, LiveHolder>, pending: number): SessionSummary {
   const nodes = [...live.tree.nodes.values()];
   const root = nodes.find((n) => n.id === 'root');
   const now = Date.now();
@@ -738,7 +792,7 @@ function liveSummary(live: LiveSession, holders: Map<string, LiveHolder>): Sessi
     now,
     live.mtimeMs,
     live.id,
-    nodes.some((n) => n.status === 'waiting'),
+    pending > 0 || nodes.some((n) => n.status === 'waiting'),
     holders,
   );
   let resumable = false;
@@ -763,7 +817,7 @@ function liveSummary(live: LiveSession, holders: Map<string, LiveHolder>): Sessi
     agent: root && root.agentType !== 'main' ? root.agentType : undefined,
     model: root?.model,
     nodeCount: nodes.length,
-    pendingPermissions: 0,
+    pendingPermissions: pending,
     resumable,
   };
 }
@@ -786,9 +840,9 @@ function terminalStatus(
   return now - mtimeMs < FRESH_MS ? 'running' : 'done';
 }
 
-function headSummary(head: HeadEntry, holders: Map<string, LiveHolder>): SessionSummary {
+function headSummary(head: HeadEntry, holders: Map<string, LiveHolder>, pending: number): SessionSummary {
   const now = Date.now();
-  const status = terminalStatus(now, head.mtimeMs, basename(head.path, '.jsonl'), false, holders);
+  const status = terminalStatus(now, head.mtimeMs, basename(head.path, '.jsonl'), pending > 0, holders);
   let resumable = false;
   if (endedStatus(status)) {
     try {
@@ -810,7 +864,7 @@ function headSummary(head: HeadEntry, holders: Map<string, LiveHolder>): Session
     costUsd: 0,
     agent: head.agent,
     nodeCount: 1,
-    pendingPermissions: 0,
+    pendingPermissions: pending,
     resumable,
   };
 }

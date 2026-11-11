@@ -2,6 +2,7 @@
 name: release-tester
 description: Runs tests, lint, typecheck and build after large changes and reports failures without fixing them.
 model: haiku
+effort: high
 tools:
 - Read
 - Glob

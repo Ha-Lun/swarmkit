@@ -1,6 +1,6 @@
 ---
 description: Swarm architect specialist for designing, extending, and refactoring the SwarmKit workflow. Scaffolds new specialist subagents, wires dual MCP servers, creates modular skills, authors slash commands, and maintains orchestrator routing parity across OpenCode, Antigravity, and Claude Code.
-model: opencode-go/deepseek-v4.1-flash
+model: opencode-go/deepseek-v4.1-flash#high
 mode: subagent
 temperature: 0.2
 permission:
