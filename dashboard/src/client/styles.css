@@ -2700,6 +2700,12 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
   .restart-banner .icon-btn { width: 44px; height: 44px; }
 }
 
+/* Status-bar meters shed detail as the bar narrows instead of being clipped
+   (full ≈780px of meters; details stay in the usage popover). */
+@media (max-width: 1140px) { .meter-reset { display: none; } }
+@media (max-width: 940px) { .meter-bar { display: none; } }
+@media (max-width: 700px) { .status-ver, .status-conn-label, .meter-week, .meter-win { display: none; } }
+
 /* Phones: the status bar keeps dots and numbers, drops the long words. */
 @media (max-width: 600px) {
   .status-ver, .status-conn-label, .meter-reset, .meter-bar, .meter-week, .meter-win { display: none; }
@@ -2710,6 +2716,20 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
 
   .topbar { column-gap: var(--space-1); }
   .topbar .view-toggle button { min-height: 44px; padding: 0 var(--space-2); }
+
+  /* subagent cards: a narrower running scanner leaves room for the agent name */
+  .handoff-main { gap: var(--space-2); }
+  .handoff-mark .scanner.is-sm .scanner-cell { width: 3px; }
+  /* name · time · Open on the first line, the model chip on its own line below */
+  .handoff .handoff-top { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; row-gap: 2px; }
+  .handoff .handoff-top .chip { grid-row: 2; grid-column: 1 / -1; justify-self: start; }
+}
+
+/* Narrow phones (≤400px): all three usage meters still fit beside Workers/Archive. */
+@media (max-width: 400px) {
+  .statusbar { font-size: 11px; gap: 2px; padding-left: calc(var(--space-2) + env(safe-area-inset-left)); padding-right: calc(var(--space-2) + env(safe-area-inset-right)); }
+  .status-btn { padding: 0 4px; }
+  .status-usage { gap: 6px; }
 }
 
 /* Bigger tap targets on touch devices. */

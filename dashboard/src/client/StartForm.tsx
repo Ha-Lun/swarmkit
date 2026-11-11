@@ -321,7 +321,9 @@ export function SetupPopover({ runtime, availability, model, effort, onRuntime, 
 
   useEffect(() => {
     if (!open) return;
-    menuRef.current?.querySelector<HTMLElement>('button[aria-pressed="true"]')?.focus();
+    menuRef.current?.querySelector<HTMLElement>('button[aria-pressed="true"]')?.focus({ preventScroll: true });
+    // short phones: the menu runs past the fold, so bring all of it (model, effort) into view
+    menuRef.current?.scrollIntoView?.({ block: 'nearest' });
     const onDown = (e: PointerEvent) => {
       if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
     };

@@ -20,7 +20,12 @@ export interface PresenceEnv {
 }
 
 function defaultEnv(): PresenceEnv {
-  return { doc: document, win: window, newId: () => crypto.randomUUID() };
+  // randomUUID exists only in secure contexts (https/localhost); plain http on a LAN/tailnet IP lacks it.
+  const newId = () =>
+    typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+  return { doc: document, win: window, newId };
 }
 
 /** Starts the heartbeat for this tab and returns its stop function. Network errors are swallowed. */
