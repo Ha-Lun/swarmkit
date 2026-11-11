@@ -1,4 +1,4 @@
-/* SwarmKit console: cool slate surfaces, teal accent, sans prose with mono for code.
+/* SwarmKit — OpenCode-terminal console: warm charcoal, mono type, flat fills.
    Tokens first; components read only from variables. */
 
 @font-face {
@@ -12,57 +12,57 @@
 :root {
   color-scheme: dark; /* dark native scrollbars and form controls */
   /* surfaces (bg -> panels -> input box / active fill) */
-  --bg: #0f1115;
-  --surface: #161920;
-  --surface-2: #1d2129;
-  --surface-3: #252a34;
+  --bg: #262624;
+  --surface: #2f2d2a;
+  --surface-2: #353230;
+  --surface-3: #3a3733;
 
-  /* ink: --text-3 stays AA on every surface; --faint is decoration only */
-  --ink: #e7e9ee;
-  --ink-hover: #f4f6fa;
-  --text: #e7e9ee;
-  --text-2: #b6bcc8;
-  --text-3: #9aa1ae;
-  --faint: #5b6270;
+  /* ink: --text-3 is the "dim" tone and stays AA on every surface; --faint is decoration only */
+  --ink: #e8e2d6;
+  --ink-hover: #f6f1e7;
+  --text: #e8e2d6;
+  --text-2: #bdb7ab;
+  --text-3: #a8a297;
+  --faint: #6b665e;
 
   /* accent + runtime lanes */
-  --accent: #2dd4bf;
-  --accent-text: #5eead4; /* lighter teal: 4.5:1 on --surface-2 */
-  --accent-2: #a78bfa; /* secondary violet for highlights */
+  --accent: #e5484d;
+  --accent-2: var(--ink); /* secondary highlight (ink in the terminal palette) */
+  --accent-text: #f47c80; /* accent as text on the input fill: 4.5:1 where --accent is only 3:1 */
   --focus: var(--accent);
   --rt-claude: #d97757;
-  --rt-opencode: #f59e0b;
+  --rt-opencode: #e5484d;
   --rt-agy: #4f8cff;
 
-  /* status: green = running/done, amber = waiting, fail = errors (text-safe on cool bg) */
-  --green: #34d399;
-  --amber: #fbbf24;
-  --fail: #f87171;
-  --idle: #7d8695;
+  /* status: green = running/done, amber = waiting, fail = errors (text-safe red) */
+  --green: #7fb069;
+  --amber: #d9a441;
+  --fail: #ee6065;
+  --idle: #7d776d;
 
   /* legacy names, mapped onto the palette so older components follow */
-  --violet: var(--accent-2);
-  --violet-ring: rgba(167, 139, 250, 0.45);
-  --teal: var(--accent);
+  --violet: var(--ink);
+  --violet-ring: rgba(232, 226, 214, 0.45);
+  --teal: var(--green);
 
-  --accent-soft: rgba(45, 212, 191, 0.14);
-  --violet-soft: rgba(167, 139, 250, 0.12);
-  --teal-soft: rgba(45, 212, 191, 0.12);
-  --amber-soft: rgba(251, 191, 36, 0.14);
-  --fail-soft: rgba(248, 113, 113, 0.14);
+  --accent-soft: rgba(229, 72, 77, 0.16);
+  --violet-soft: rgba(255, 245, 230, 0.08);
+  --teal-soft: rgba(127, 176, 105, 0.15);
+  --amber-soft: rgba(217, 164, 65, 0.15);
+  --fail-soft: rgba(238, 96, 101, 0.16);
 
   /* hairlines */
-  --border: rgba(255, 255, 255, 0.08);
-  --border-2: rgba(255, 255, 255, 0.14);
-  --border-3: rgba(255, 255, 255, 0.26);
+  --border: rgba(255, 245, 230, 0.08);
+  --border-2: rgba(255, 245, 230, 0.16);
+  --border-3: rgba(255, 245, 230, 0.3);
 
-  --radius: 10px;
-  --radius-sm: 6px;
-  --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --radius: 4px;
+  --radius-sm: 2px;
+  --shadow-card: none;
   --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.5);
 
-  --font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Inter', sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+  --font: 'JetBrains Mono', ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+  --mono: var(--font);
 
   /* spacing scale: 4px steps to 32, then 48 / 64 */
   --space-1: 4px;
@@ -91,7 +91,7 @@ html, body {
 
 body {
   font-family: var(--font);
-  font-size: 15px;
+  font-size: 13px;
   line-height: 1.5;
   color: var(--text);
   background-color: var(--bg);
@@ -225,8 +225,8 @@ button {
 .dot.st-idle, .dot.st-stopped { background: var(--idle); }
 
 @keyframes dot-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.35); }
-  50% { box-shadow: 0 0 0 4px rgba(45, 212, 191, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(127, 176, 105, 0.35); }
+  50% { box-shadow: 0 0 0 4px rgba(127, 176, 105, 0); }
 }
 
 .node-status {
@@ -500,7 +500,7 @@ button {
   padding: 0 calc(var(--space-3) + env(safe-area-inset-right)) 0 calc(var(--space-3) + env(safe-area-inset-left));
   background: var(--bg);
   border-bottom: 1px solid var(--border);
-  font-size: 13px;
+  font-size: 12px;
   overflow: visible;
 }
 
@@ -512,7 +512,7 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
 }
 .topbar-status { flex: none; display: inline-flex; align-items: center; }
@@ -1250,7 +1250,7 @@ details.collapsible > summary:hover { color: var(--ink); }
   padding: 8px 10px;
   background: var(--surface-2);
 }
-.tl-user { background: var(--violet-soft); border-color: rgba(167, 139, 250, 0.3); }
+.tl-user { background: var(--violet-soft); border-color: rgba(232, 226, 214, 0.3); }
 .tl-error { border-color: var(--fail); background: var(--fail-soft); }
 .tl > details { margin: 0; }
 
@@ -1319,7 +1319,7 @@ details.collapsible > summary:hover { color: var(--ink); }
   font-size: 12.5px;
   line-height: 1.5;
   padding: 10px 12px;
-  border: 1px solid rgba(45, 212, 191, 0.35);
+  border: 1px solid rgba(127, 176, 105, 0.35);
   border-radius: var(--radius);
   background: var(--teal-soft);
   white-space: pre-wrap;
@@ -1334,20 +1334,11 @@ details.collapsible > summary:hover { color: var(--ink); }
   flex-direction: column;
   padding: var(--space-3) calc(var(--space-4) + env(safe-area-inset-right)) calc(var(--space-3) + env(safe-area-inset-bottom) + var(--kb, 0px)) calc(var(--space-4) + env(safe-area-inset-left));
   background: var(--bg);
+  --composer-accent: var(--rt-claude);
 }
-/* Rounded prompt card: 1px hairline on the input fill, accent focus ring. */
-.composer-box {
-  position: relative;
-  background: var(--surface-2);
-  border: 1px solid var(--border-2);
-  border-radius: var(--radius);
-  padding: var(--space-3) var(--space-4) var(--space-2);
-  transition: box-shadow 0.15s ease, border-color 0.15s ease;
-}
-.composer-box:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft);
-}
+.composer[data-runtime='opencode'] { --composer-accent: var(--rt-opencode); }
+.composer[data-runtime='agy'] { --composer-accent: var(--rt-agy); }
+/* One column, as wide as the chat transcript, so input and messages line up. */
 .composer-col {
   position: relative;
   width: 100%;
@@ -1357,7 +1348,16 @@ details.collapsible > summary:hover { color: var(--ink); }
   flex-direction: column;
   gap: var(--space-2);
 }
-/* Prompt card body (single definition lives above). */
+/* The OpenCode input: a lighter fill, a 3px bar in the runtime colour, the meta line inside. */
+.composer-box {
+  position: relative;
+  background: var(--surface-3);
+  border-left: 3px solid var(--composer-accent);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4) var(--space-2);
+  transition: box-shadow 0.15s ease;
+}
+.composer-box:focus-within { box-shadow: inset 0 0 0 1px var(--border-3); }
 .composer-box textarea {
   display: block;
   width: 100%;
@@ -1390,40 +1390,7 @@ details.collapsible > summary:hover { color: var(--ink); }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Meta pills: agent / model / runtime chips inside the prompt card. */
-.meta-pills {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-width: 0;
-}
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 1px 8px;
-  border: 1px solid var(--border-2);
-  border-radius: 999px;
-  background: var(--surface-3);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.6;
-  color: var(--text-2);
-  white-space: nowrap;
-}
-.pill-agent { color: var(--accent-text); border-color: rgba(45, 212, 191, 0.35); }
-.pill-model { color: var(--ink); }
-.pill-runtime { color: var(--text-2); }
-.pill-runtime::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--rt-claude);
-}
-.pill-runtime[data-runtime='opencode']::before { background: var(--rt-opencode); }
-.pill-runtime[data-runtime='agy']::before { background: var(--rt-agy); }
+.meta-agent { color: var(--accent-text); }
 .meta-sep { margin: 0 var(--space-2); }
 .meta-model { color: var(--ink); }
 .meta-provider { margin-left: var(--space-3); color: var(--text-3); }
@@ -1611,7 +1578,7 @@ details.collapsible > summary:hover { color: var(--ink); }
   display: grid;
   place-items: center;
   padding: 16px;
-  background: rgba(5, 7, 12, 0.65);
+  background: rgba(20, 19, 18, 0.65);
   animation: fade-in 0.15s ease both;
 }
 @keyframes fade-in {
@@ -1768,22 +1735,15 @@ details.collapsible > summary:hover { color: var(--ink); }
   align-items: center;
   gap: var(--space-8);
 }
-.landing-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-3);
-  font-family: var(--font);
-  font-size: clamp(28px, 7vw, 40px);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--ink);
-  line-height: 1;
+.wordmark {
+  display: block;
+  height: clamp(40px, 11vw, 70px);
+  width: auto;
+  max-width: 100%;
+  shape-rendering: crispEdges;
 }
-.landing-mark {
-  display: inline-flex;
-  flex: none;
-}
-.landing-word-kit { color: var(--accent); }
+.wordmark-dim { fill: var(--idle); }
+.wordmark-bright { fill: var(--ink); }
 .composer.is-landing { width: 100%; padding: 0; }
 .composer.is-landing .composer-col { max-width: none; }
 .composer.is-landing .composer-box { padding: var(--space-4) var(--space-4) var(--space-3); }
@@ -2222,8 +2182,8 @@ details.collapsible > summary:hover { color: var(--ink); }
 
 /* ---------- workers ---------- */
 
-.badge.lane-agy { background: var(--amber-soft); color: var(--amber); border-color: rgba(251, 191, 36, 0.3); }
-.badge.lane-opencode { background: var(--teal-soft); color: var(--teal); border-color: rgba(45, 212, 191, 0.3); }
+.badge.lane-agy { background: var(--amber-soft); color: var(--amber); border-color: rgba(217, 164, 65, 0.3); }
+.badge.lane-opencode { background: var(--teal-soft); color: var(--teal); border-color: rgba(127, 176, 105, 0.3); }
 
 .wk-view {
   flex: 1;
@@ -2249,7 +2209,7 @@ details.collapsible > summary:hover { color: var(--ink); }
   white-space: nowrap;
 }
 .wk-meta { display: flex; flex-wrap: wrap; gap: 4px 6px; }
-.wk-denied { background: var(--amber-soft); color: var(--amber); border-color: rgba(251, 191, 36, 0.3); }
+.wk-denied { background: var(--amber-soft); color: var(--amber); border-color: rgba(217, 164, 65, 0.3); }
 .wk-stopped { flex: none; font-size: 11px; color: var(--fail); }
 .wk-empty {
   height: 100%;
@@ -2285,7 +2245,7 @@ details.collapsible > summary:hover { color: var(--ink); }
 .wk-response {
   margin: 0;
   padding: 10px;
-  border: 1px solid rgba(45, 212, 191, 0.35);
+  border: 1px solid rgba(127, 176, 105, 0.35);
   border-radius: var(--radius-sm);
   background: var(--teal-soft);
   font-size: 12px;
@@ -2501,7 +2461,7 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
 .status-usage { display: inline-flex; align-items: center; gap: var(--space-4); color: var(--text-2); min-width: 0; overflow: hidden; }
 .meter { display: inline-flex; align-items: center; gap: 6px; }
 .meter-label { color: var(--text-2); }
-.meter-bar { width: 56px; height: 7px; background: rgba(255, 255, 255, 0.16); border-radius: 1px; overflow: hidden; }
+.meter-bar { width: 56px; height: 7px; background: rgba(255, 245, 230, 0.16); border-radius: 1px; overflow: hidden; }
 .meter-fill { display: block; height: 100%; background: var(--green); }
 .meter b { font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
 .meter-reset { color: var(--text-3); }
@@ -2990,7 +2950,7 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
   border-left: 2px solid var(--lane, var(--rt-claude));
   border-radius: var(--radius-sm);
   background: var(--surface-3);
-  font-size: 15px;
+  font-size: 13.5px;
   line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
@@ -3076,7 +3036,7 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
   display: grid;
   place-items: center;
   padding: 16px;
-  background: rgba(5, 7, 12, 0.8);
+  background: rgba(20, 19, 18, 0.8);
   animation: fade-in 0.15s ease both;
 }
 .lightbox-inner {
@@ -3121,7 +3081,7 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
 }
 .prompt-attach-row .attach-error { flex: 1 1 200px; }
 
-.chat-assistant { font-family: var(--font); font-size: 15px; line-height: 1.75; color: var(--ink); }
+.chat-assistant { font-family: var(--font); font-size: 13.5px; line-height: 1.75; color: var(--ink); }
 .chat-assistant p { margin: 0 0 var(--space-2); }
 .chat-assistant p:last-child { margin-bottom: 0; }
 .chat-assistant h3, .chat-assistant h4, .chat-assistant h5 { margin: var(--space-3) 0 var(--space-2); }
@@ -3220,7 +3180,7 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
 .handoff { border: 1px solid var(--border-2); border-radius: var(--radius); background: var(--surface); }
 .handoff.is-waiting { border-color: var(--amber); }
 .handoff.is-running { border-color: var(--border-2); }
-.handoff.is-done { border-color: rgba(45, 212, 191, 0.35); }
+.handoff.is-done { border-color: rgba(127, 176, 105, 0.35); }
 .handoff.is-error { border-color: var(--fail); }
 .handoff-main { display: flex; gap: var(--space-3); padding: var(--space-3); }
 .handoff-mark { flex: none; display: inline-flex; margin-top: 2px; }
@@ -3327,7 +3287,7 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
   gap: var(--space-2);
   padding: var(--space-2) var(--space-4);
   background: var(--teal-soft);
-  border-top: 1px solid rgba(45, 212, 191, 0.35);
+  border-top: 1px solid rgba(127, 176, 105, 0.35);
   font-size: 12.5px;
   color: var(--teal);
 }

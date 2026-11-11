@@ -68,13 +68,19 @@ function agentTitle(agent: string): string {
     .join('-');
 }
 
-/** `Lead-Dev-Hybrid · Opus 5.5 · Claude`: small pills (agent, model, runtime tinted by lane). */
-export function MetaLine({ agent, model, provider, runtime }: { agent?: string; model: string; provider: string; runtime?: Runtime }) {
+/** `Lead-Dev-Hybrid · Opus 5.5  Claude`: agent in the accent, model in ink, provider dim.
+ *  `runtime` is accepted for callers but unused; the composer's left bar carries the lane colour. */
+export function MetaLine({ agent, model, provider }: { agent?: string; model: string; provider: string; runtime?: Runtime }) {
   return (
-    <span className="meta-pills">
-      {agent && <span className="pill pill-agent">{agentTitle(agent)}</span>}
-      {model && <span className="pill pill-model">{model}</span>}
-      <span className="pill pill-runtime" {...(runtime ? { 'data-runtime': runtime } : {})}>{provider}</span>
+    <span className="meta-line">
+      {agent && (
+        <>
+          <span className="meta-agent">{agentTitle(agent)}</span>
+          <span className="meta-sep" aria-hidden="true">·</span>
+        </>
+      )}
+      <span className="meta-model">{model}</span>
+      <span className="meta-provider">{provider}</span>
     </span>
   );
 }
