@@ -3342,3 +3342,89 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
   font-size: 12px;
   color: var(--text-3);
 }
+
+/* ---------- remote-control rail (pinned tmux `claude remote-control` panes) ---------- */
+
+.rc-rail {
+  flex: none;
+  width: 210px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  font-size: 12px;
+}
+.rc-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-3);
+}
+.rc-count { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.rc-list { list-style: none; margin: 0; padding: var(--space-1) 0; }
+.rc-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-right: var(--space-2);
+}
+.rc-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text);
+  text-decoration: none;
+}
+a.rc-main:hover { background: var(--surface-2); }
+.rc-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--idle);
+}
+.rc-dot.is-live { background: var(--green); box-shadow: 0 0 0 3px var(--teal-soft); }
+.rc-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.rc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-meta { display: flex; flex-direction: column; color: var(--text-3); font-size: 11px; }
+.rc-cwd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-item.is-stopped .rc-name { color: var(--text-2); }
+.rc-restart { flex: none; min-height: 28px; padding: 2px 8px; font-size: 11px; }
+.rc-error { margin: var(--space-2) var(--space-3); color: var(--fail); font-size: 11px; }
+
+/* Narrow screens: a horizontal chip strip above the content instead of a column. */
+@media (max-width: 1199px) {
+  .app-body { flex-direction: column; }
+  .rc-rail {
+    width: auto;
+    flex-direction: row;
+    align-items: center;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .rc-head { position: static; gap: var(--space-2); border-bottom: none; padding-right: var(--space-2); white-space: nowrap; }
+  .rc-list { display: flex; gap: var(--space-1); padding: 0 var(--space-2) 0 0; }
+  .rc-item { flex: none; border: 1px solid var(--border); border-radius: var(--radius); padding-right: var(--space-1); }
+  .rc-main { padding: var(--space-1) var(--space-2); align-items: center; }
+  .rc-dot { margin-top: 0; }
+  .rc-meta { display: none; }
+  .rc-restart { min-height: 24px; }
+  .rc-error { white-space: nowrap; margin: 0 var(--space-2); }
+}
+@media (pointer: coarse) {
+  .rc-main, .rc-restart { min-height: 44px; }
+}

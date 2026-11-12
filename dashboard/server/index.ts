@@ -36,6 +36,7 @@ import { staticPolicy } from './static.ts';
 import { abortUsageProbe, getUsage } from './usage.ts';
 import { freshTranscriptMtimeMs, holderMessage, liveHolder } from './livesessions.ts';
 import { TranscriptWatcher } from './watch/transcripts.ts';
+import { createRemoteControls } from './remotecontrol.ts';
 import { ClaudeHookBridge, Presence, removeClaudeHookFile, startClaudeHookServer, writeClaudeHookFile } from './claudehook.ts';
 import type { HookSocketServer } from './claudehook.ts';
 import { isLoopback } from './hookauth.ts';
@@ -254,6 +255,7 @@ async function main(): Promise<void> {
     dashboardOpen: () => presence.anyVisible(),
   });
 
+  const remoteControls = createRemoteControls();
   const registry = new WorkerRegistry({
     emit: broadcast,
     link: (lane, slug) => sdk.findWorkerNode(lane, slug) ?? watcher.findWorkerNode(lane, slug),
@@ -730,6 +732,18 @@ async function main(): Promise<void> {
       const lines = await registry.log(seg(2), seg(3), seg(4));
       if (!lines) return sendJson(res, 404, { error: 'worker log not found' });
       return sendJson(res, 200, { lines });
+    }
+
+    if (url.pathname === '/api/remote-control') {
+      if (method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+      return sendJson(res, 200, await remoteControls.list());
+    }
+
+    if (parts[1] === 'remote-control' && parts.length === 4 && parts[3] === 'restart') {
+      if (method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+      return (await remoteControls.restart(parts[2] ?? ''))
+        ? sendJson(res, 200, { ok: true })
+        : sendJson(res, 404, { error: 'no stopped remote-control pane with that id' });
     }
 
     if (url.pathname === '/api/dirs') {

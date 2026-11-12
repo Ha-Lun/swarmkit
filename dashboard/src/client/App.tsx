@@ -15,6 +15,7 @@ import { Scanner } from './Scanner';
 import { fmtCost, sessionHint, UNTRUSTED_NOTICE } from './format';
 import { Logo } from './icons';
 import { InfoPanel } from './InfoPanel';
+import { RemoteRail } from './RemoteRail';
 import { Landing } from './Landing';
 import { NewSession } from './NewSession';
 import { packInstallDone, RestartBanner } from './RestartBanner';
@@ -884,6 +885,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
         isLivePage={isLivePageSession}
       />
       <div className="app-body">
+        <RemoteRail backend={backend} guard={guard} now={now} />
         <div className="main">
           {view === 'session' && selected && (
             <Topbar

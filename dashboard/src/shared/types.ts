@@ -348,3 +348,23 @@ export interface UsageReport {
   opencode: UsageSource & { windows: UsageWindow[]; limits?: GoLimit[]; limitsError?: string };   // days 1, 7, 30: tokens + costUsd (estimated); Go plan limits from opencode.ai (server-side key)
   agy: UsageSource & { windows: UsageWindow[]; limits?: { group: string; window: '5h' | 'weekly'; utilization: number | null; resetsAt: string | null }[] };        // days 1, 7: tokens, runs, stopped + plan limits from `agy -p /usage`
 }
+
+// GET  /api/remote-control              -> RemoteControl[]
+// POST /api/remote-control/:id/restart  -> { ok: true }   (respawns a dead pane only)
+
+/** A `claude remote-control` / `claude rc` process kept in a tmux pane; `id` is the pane number. */
+export interface RemoteControl {
+  id: string;
+  name: string;
+  cwd?: string;
+  /** tmux `session:window`, for attaching by hand. */
+  target: string;
+  alive: boolean;
+  stoppedAt?: number;
+  activityAt?: number;
+  /** Remote sessions currently served, from the pane's "Capacity: n/m" line. */
+  sessions?: number;
+  capacity?: number;
+  /** The claude.ai/code environment link the pane printed. */
+  url?: string;
+}
