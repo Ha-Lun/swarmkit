@@ -677,12 +677,24 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
       visibleTabs.push({ node: kept, phase });
     }
   }
-  const activeNode = detail
+  const pickedNode = detail
     ? (nodeById(detail, activeAgentId) ??
       detail.nodes.find((n) => n.kind === 'main') ??
       detail.nodes.find((n) => n.id === 'root') ??
       detail.nodes[0])
     : undefined;
+  // A terminal transcript never ends its root node; the session status (live holder or
+  // file age) says whether it is still working, so an idle/done session shows no
+  // "Writing…" line.
+  const sessionStatus = selected?.status;
+  const activeNode =
+    pickedNode?.id === 'root' &&
+    (pickedNode.status === 'running' || pickedNode.status === 'waiting') &&
+    sessionStatus &&
+    sessionStatus !== 'running' &&
+    sessionStatus !== 'waiting'
+      ? { ...pickedNode, status: sessionStatus }
+      : pickedNode;
 
   const drawerNode = detail && drawerNodeId ? nodeById(detail, drawerNodeId) : undefined;
   const drawerTask = workerDrawerKey
