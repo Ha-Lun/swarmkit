@@ -89,8 +89,8 @@ function toHead(n: AgentNode): AgentNodeHead {
 }
 
 const mockRemoteControls: RemoteControl[] = [
-  { id: '2', name: 'milknet', cwd: '~/projects/milknet', target: 'claude-rc:2', activityAt: Date.now() - 40 * 60_000, sessions: 0, capacity: 32, url: 'https://claude.ai/code?environment=env_demo' },
-  { id: '6', name: 'Server-Admin', cwd: '/', target: 'claude-rc:6', activityAt: Date.now() - 4 * 60_000, url: 'https://claude.ai/code/session_demo' },
+  { id: '2', name: 'milknet', cwd: '~/projects/milknet', target: 'claude-rc:2', activityAt: Date.now() - 40 * 60_000, sessions: 0, capacity: 32 },
+  { id: '6', name: 'Server-Admin', cwd: '/', target: 'claude-rc:6', activityAt: Date.now() - 4 * 60_000, sessionId: 'mock-term-1' },
 ];
 
 export function createMockBackend(): FleetBackend {

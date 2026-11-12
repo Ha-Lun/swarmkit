@@ -1,8 +1,8 @@
 // Long-running `claude remote-control` / `claude rc` processes kept in tmux panes.
-// The dashboard pins the live ones in a side rail: how many sessions they serve and a
-// link to claude.ai. A `remote-control` server prints its environment URL; a `claude rc`
-// TUI prints nothing, so its link comes from its ~/.claude/sessions/<pid>.json
-// (`tmux` names the pane, `bridgeSessionId` the claude.ai session).
+// The dashboard pins the live ones in a side rail: how many sessions they serve, and
+// which dashboard session to open for them. That comes from the Claude process's
+// ~/.claude/sessions/<pid>.json, whose `tmux` field names the pane.
+// (`claude rc` has one; a `remote-control` server's spawned sessions don't.)
 import { execFile } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
 import os from 'node:os';
@@ -31,7 +31,6 @@ const FORMAT = FIELDS.map((f) => `#{${f}}`).join(SEP);
 
 /** `claude remote-control …` or `claude rc …`, possibly quoted by tmux. */
 const RC_COMMAND = /(?:^|[\s"'/])claude\s+(?:remote-control|rc)\b/;
-const ENV_URL = /https:\/\/claude\.ai\/code\?environment=[A-Za-z0-9_]+/g;
 const CAPACITY = /Capacity:\s*(\d+)\s*\/\s*(\d+)/g;
 
 /** `--name X` / `--name=X` from the start command, unquoted. */
@@ -47,26 +46,26 @@ function lastMatch(re: RegExp, text: string): RegExpExecArray | undefined {
   return last;
 }
 
-/** pane id (`%7`) -> claude.ai session URL, from live Claude processes' session files. */
-async function sessionUrls(dir: string): Promise<Map<string, string>> {
-  const urls = new Map<string, string>();
+/** pane id (`%7`) -> Claude session id, from live Claude processes' session files. */
+async function paneSessions(dir: string): Promise<Map<string, string>> {
+  const ids = new Map<string, string>();
   const files = await readdir(dir).catch(() => [] as string[]);
   await Promise.all(
     files
       .filter((f) => f.endsWith('.json'))
       .map(async (f) => {
         try {
-          const s = JSON.parse(await readFile(path.join(dir, f), 'utf8')) as { pid?: number; tmux?: string; bridgeSessionId?: string };
+          const s = JSON.parse(await readFile(path.join(dir, f), 'utf8')) as { pid?: number; tmux?: string; sessionId?: string };
           const pane = /%\d+$/.exec(s.tmux ?? '')?.[0];
-          if (!pane || !s.bridgeSessionId || !/^session_[A-Za-z0-9]+$/.test(s.bridgeSessionId)) return;
+          if (!pane || !s.sessionId || !/^[0-9a-f-]{36}$/.test(s.sessionId)) return;
           if (s.pid) process.kill(s.pid, 0); // throws for a stale file
-          urls.set(pane, `https://claude.ai/code/${s.bridgeSessionId}`);
+          ids.set(pane, s.sessionId);
         } catch {
           // unreadable, half-written or stale
         }
       }),
   );
-  return urls;
+  return ids;
 }
 
 function epochMs(s: string | undefined): number | undefined {
@@ -105,7 +104,7 @@ export function createRemoteControls({
       .filter(Boolean)
       .map((line) => Object.fromEntries(line.split(SEP).map((v, i) => [FIELDS[i], v])) as Record<(typeof FIELDS)[number], string>)
       .filter((r) => r.pane_dead !== '1' && RC_COMMAND.test(r.pane_start_command ?? ''));
-    const sessions = await sessionUrls(sessionsDir);
+    const sessions = await paneSessions(sessionsDir);
 
     const list = await Promise.all(
       rows.map(async (r): Promise<RemoteControl> => {
@@ -116,7 +115,7 @@ export function createRemoteControls({
           // pane vanished between the two calls
         }
         const cap = lastMatch(CAPACITY, text);
-        const url = lastMatch(ENV_URL, text)?.[0] ?? sessions.get(r.pane_id);
+        const sessionId = sessions.get(r.pane_id);
         return {
           id: r.pane_id.replace(/^%/, ''),
           name: nameFrom(r.pane_start_command) ?? r.window_name,
@@ -124,7 +123,7 @@ export function createRemoteControls({
           target: `${r.session_name}:${r.window_index}`,
           activityAt: epochMs(r.window_activity),
           ...(cap ? { sessions: Number(cap[1]), capacity: Number(cap[2]) } : {}),
-          ...(url ? { url } : {}),
+          ...(sessionId ? { sessionId } : {}),
         };
       }),
     );

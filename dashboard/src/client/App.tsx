@@ -885,7 +885,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
         isLivePage={isLivePageSession}
       />
       <div className="app-body">
-        <RemoteRail backend={backend} guard={guard} />
+        <RemoteRail backend={backend} guard={guard} selectedId={state.selectedId} onSelect={selectSession} />
         <div className="main">
           {view === 'session' && selected && (
             <Topbar

@@ -362,6 +362,6 @@ export interface RemoteControl {
   /** Remote sessions currently served, from the pane's "Capacity: n/m" line. */
   sessions?: number;
   capacity?: number;
-  /** claude.ai link: the environment URL the pane printed, else its session URL. */
-  url?: string;
+  /** The pane's Claude session, to open in the dashboard (absent for a `remote-control` server). */
+  sessionId?: string;
 }

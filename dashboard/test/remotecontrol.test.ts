@@ -26,11 +26,11 @@ const panes = [
   row('%9', 'other', '1', 'vim', '0', 'vim notes-about-claude-rc.md', '/tmp', '1'),
 ];
 
-/** A sessions dir with a live session file for pane %6 and a stale one for %0. */
+/** A sessions dir with a live session file for pane %6 and a stale one for %2. */
 function sessionsDir() {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'rc-sessions-'));
-  writeFileSync(path.join(dir, '1.json'), JSON.stringify({ pid: process.pid, tmux: 'claude-rc:@6.%6', bridgeSessionId: 'session_01Abc' }));
-  writeFileSync(path.join(dir, '2.json'), JSON.stringify({ pid: 2 ** 30, tmux: 'claude-rc:@0.%0', bridgeSessionId: 'session_01Old' }));
+  writeFileSync(path.join(dir, '1.json'), JSON.stringify({ pid: process.pid, tmux: 'claude-rc:@6.%6', sessionId: '8bb5de59-103b-443e-8cbf-86547e16eb8f' }));
+  writeFileSync(path.join(dir, '2.json'), JSON.stringify({ pid: 2 ** 30, tmux: 'claude-rc:@2.%2', sessionId: '00000000-0000-0000-0000-000000000000' }));
   writeFileSync(path.join(dir, '3.json'), '{not json');
   return dir;
 }
@@ -46,13 +46,13 @@ describe('remote-control panes', () => {
     expect(nameFrom('claude rc')).toBeUndefined();
   });
 
-  it('lists only live claude remote-control panes, with the latest capacity and a link', async () => {
+  it('lists only live claude remote-control panes, with the latest capacity and their session', async () => {
     const { exec, calls } = fakeTmux(panes, captures);
     const list = await createRemoteControls({ exec, ttlMs: 0, sessionsDir: sessionsDir() }).list();
     expect(list.map((r) => r.name)).toEqual(['milknet', 'Server-Admin']);
-    expect(list[0]).toMatchObject({ id: '2', sessions: 2, capacity: 32, url: 'https://claude.ai/code?environment=env_018Edx', target: 'claude-rc:2' });
-    // `claude rc` prints no URL; the link comes from its session file.
-    expect(list[1]).toMatchObject({ id: '6', url: 'https://claude.ai/code/session_01Abc' });
+    expect(list[0]).toMatchObject({ id: '2', sessions: 2, capacity: 32, target: 'claude-rc:2' });
+    expect(list[0]!.sessionId).toBeUndefined(); // only a stale session file points at %2
+    expect(list[1]).toMatchObject({ id: '6', sessionId: '8bb5de59-103b-443e-8cbf-86547e16eb8f' });
     expect(list[1]!.sessions).toBeUndefined();
     expect(calls.some((c) => c[0] === 'capture-pane' && c.includes('%5'))).toBe(false);
   });

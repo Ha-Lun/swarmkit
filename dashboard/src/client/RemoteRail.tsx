@@ -1,5 +1,6 @@
 // RemoteRail: pinned list of the running `claude remote-control` tmux panes. A column on
-// the left on wide screens, a chip strip on narrow ones. Each opens its claude.ai link.
+// the left on wide screens, a chip strip on narrow ones. A pane with a Claude session
+// opens that session in the dashboard.
 import { useCallback, useEffect, useState } from 'react';
 import type { RemoteControl } from '../shared/types';
 import type { FleetBackend, Guard } from './api';
@@ -9,9 +10,11 @@ const POLL_MS = 15_000;
 interface Props {
   backend: FleetBackend;
   guard: Guard;
+  selectedId: string | null;
+  onSelect: (sessionId: string) => void;
 }
 
-export function RemoteRail({ backend, guard }: Props) {
+export function RemoteRail({ backend, guard, selectedId, onSelect }: Props) {
   const [list, setList] = useState<RemoteControl[] | null>(null);
 
   const load = useCallback(async () => {
@@ -54,10 +57,16 @@ export function RemoteRail({ backend, guard }: Props) {
           );
           return (
             <li key={r.id} className="rc-item">
-              {r.url ? (
-                <a className="rc-main" href={r.url} target="_blank" rel="noreferrer" title={`${title}\nOpen in claude.ai`}>
+              {r.sessionId ? (
+                <button
+                  type="button"
+                  className="rc-main"
+                  title={title}
+                  aria-current={r.sessionId === selectedId ? 'true' : undefined}
+                  onClick={() => onSelect(r.sessionId!)}
+                >
                   {body}
-                </a>
+                </button>
               ) : (
                 <span className="rc-main" title={title}>
                   {body}
