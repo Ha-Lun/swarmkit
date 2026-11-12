@@ -91,7 +91,6 @@ export interface FleetBackend {
   usage(refresh?: boolean): Promise<UsageReport>;
   runtimes(): Promise<RuntimesResponse>;
   remoteControls(): Promise<RemoteControl[]>;
-  restartRemoteControl(id: string): Promise<unknown>;
   commands(sessionId: string): Promise<CommandsResponse>;
   git(sessionId: string): Promise<GitResponse>;
   /** Tab heartbeat; `keepalive` lets the final hidden report survive page unload. */
@@ -162,8 +161,6 @@ export const apiBackend: FleetBackend = {
   usage: (refresh) => request(refresh ? '/api/usage?refresh=1' : '/api/usage'),
   runtimes: () => request('/api/runtimes'),
   remoteControls: () => request('/api/remote-control'),
-  restartRemoteControl: (id) =>
-    request(`/api/remote-control/${encodeURIComponent(id)}/restart`, { method: 'POST' }),
   commands: (sessionId) => request(`/api/sessions/${encodeURIComponent(sessionId)}/commands`),
   git: (sessionId) => request(`/api/sessions/${encodeURIComponent(sessionId)}/git`),
   connect(onEvent, onStatus) {

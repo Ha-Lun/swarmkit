@@ -739,13 +739,6 @@ async function main(): Promise<void> {
       return sendJson(res, 200, await remoteControls.list());
     }
 
-    if (parts[1] === 'remote-control' && parts.length === 4 && parts[3] === 'restart') {
-      if (method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
-      return (await remoteControls.restart(parts[2] ?? ''))
-        ? sendJson(res, 200, { ok: true })
-        : sendJson(res, 404, { error: 'no stopped remote-control pane with that id' });
-    }
-
     if (url.pathname === '/api/dirs') {
       if (method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
       const target = url.searchParams.get('path') ?? undefined;

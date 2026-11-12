@@ -1,9 +1,12 @@
 // Long-running `claude remote-control` / `claude rc` processes kept in tmux panes.
-// The dashboard pins them in a side rail: live or stopped, how many sessions they
-// serve, a link to their claude.ai environment, and a restart for a dead pane
-// (`tmux respawn-pane` reruns the pane's original command; never on a live pane).
+// The dashboard pins the live ones in a side rail: how many sessions they serve and a
+// link to claude.ai. A `remote-control` server prints its environment URL; a `claude rc`
+// TUI prints nothing, so its link comes from its ~/.claude/sessions/<pid>.json
+// (`tmux` names the pane, `bridgeSessionId` the claude.ai session).
 import { execFile } from 'node:child_process';
+import { readFile, readdir } from 'node:fs/promises';
 import os from 'node:os';
+import path from 'node:path';
 import { promisify } from 'node:util';
 import type { RemoteControl } from '../src/shared/types.ts';
 
@@ -20,7 +23,6 @@ const FIELDS = [
   'window_index',
   'window_name',
   'pane_dead',
-  'pane_dead_time',
   'pane_start_command',
   'pane_start_path',
   'window_activity',
@@ -45,6 +47,28 @@ function lastMatch(re: RegExp, text: string): RegExpExecArray | undefined {
   return last;
 }
 
+/** pane id (`%7`) -> claude.ai session URL, from live Claude processes' session files. */
+async function sessionUrls(dir: string): Promise<Map<string, string>> {
+  const urls = new Map<string, string>();
+  const files = await readdir(dir).catch(() => [] as string[]);
+  await Promise.all(
+    files
+      .filter((f) => f.endsWith('.json'))
+      .map(async (f) => {
+        try {
+          const s = JSON.parse(await readFile(path.join(dir, f), 'utf8')) as { pid?: number; tmux?: string; bridgeSessionId?: string };
+          const pane = /%\d+$/.exec(s.tmux ?? '')?.[0];
+          if (!pane || !s.bridgeSessionId || !/^session_[A-Za-z0-9]+$/.test(s.bridgeSessionId)) return;
+          if (s.pid) process.kill(s.pid, 0); // throws for a stale file
+          urls.set(pane, `https://claude.ai/code/${s.bridgeSessionId}`);
+        } catch {
+          // unreadable, half-written or stale
+        }
+      }),
+  );
+  return urls;
+}
+
 function epochMs(s: string | undefined): number | undefined {
   const n = Number(s);
   return Number.isFinite(n) && n > 0 ? n * 1000 : undefined;
@@ -58,9 +82,14 @@ function tildify(p: string, home = os.homedir()): string {
 export interface RemoteControlOptions {
   exec?: TmuxExec;
   ttlMs?: number;
+  sessionsDir?: string;
 }
 
-export function createRemoteControls({ exec = defaultExec, ttlMs = 5_000 }: RemoteControlOptions = {}) {
+export function createRemoteControls({
+  exec = defaultExec,
+  ttlMs = 5_000,
+  sessionsDir = path.join(os.homedir(), '.claude', 'sessions'),
+}: RemoteControlOptions = {}) {
   let cache: { at: number; list: RemoteControl[] } | undefined;
 
   async function list(): Promise<RemoteControl[]> {
@@ -75,7 +104,8 @@ export function createRemoteControls({ exec = defaultExec, ttlMs = 5_000 }: Remo
       .split('\n')
       .filter(Boolean)
       .map((line) => Object.fromEntries(line.split(SEP).map((v, i) => [FIELDS[i], v])) as Record<(typeof FIELDS)[number], string>)
-      .filter((r) => RC_COMMAND.test(r.pane_start_command ?? ''));
+      .filter((r) => r.pane_dead !== '1' && RC_COMMAND.test(r.pane_start_command ?? ''));
+    const sessions = await sessionUrls(sessionsDir);
 
     const list = await Promise.all(
       rows.map(async (r): Promise<RemoteControl> => {
@@ -85,37 +115,24 @@ export function createRemoteControls({ exec = defaultExec, ttlMs = 5_000 }: Remo
         } catch {
           // pane vanished between the two calls
         }
-        const alive = r.pane_dead !== '1';
-        const cap = alive ? lastMatch(CAPACITY, text) : undefined;
-        const url = lastMatch(ENV_URL, text)?.[0];
+        const cap = lastMatch(CAPACITY, text);
+        const url = lastMatch(ENV_URL, text)?.[0] ?? sessions.get(r.pane_id);
         return {
           id: r.pane_id.replace(/^%/, ''),
           name: nameFrom(r.pane_start_command) ?? r.window_name,
           cwd: r.pane_start_path ? tildify(r.pane_start_path) : undefined,
           target: `${r.session_name}:${r.window_index}`,
-          alive,
-          ...(alive ? {} : { stoppedAt: epochMs(r.pane_dead_time) }),
           activityAt: epochMs(r.window_activity),
           ...(cap ? { sessions: Number(cap[1]), capacity: Number(cap[2]) } : {}),
           ...(url ? { url } : {}),
         };
       }),
     );
-    list.sort((a, b) => Number(b.alive) - Number(a.alive) || a.name.localeCompare(b.name));
+    list.sort((a, b) => a.name.localeCompare(b.name));
     cache = { at: Date.now(), list };
     return list;
   }
 
-  /** Respawn a dead remote-control pane. Returns false when the id is unknown or the pane is live. */
-  async function restart(id: string): Promise<boolean> {
-    if (!/^\d{1,6}$/.test(id)) return false;
-    cache = undefined;
-    const target = (await list()).find((r) => r.id === id);
-    if (!target || target.alive) return false;
-    await exec(['respawn-pane', '-t', `%${id}`]); // no -k: never kills a running process
-    cache = undefined;
-    return true;
-  }
 
-  return { list, restart };
+  return { list };
 }

@@ -89,9 +89,8 @@ function toHead(n: AgentNode): AgentNodeHead {
 }
 
 const mockRemoteControls: RemoteControl[] = [
-  { id: '6', name: 'Server-Admin', cwd: '/', target: 'claude-rc:6', alive: true, activityAt: Date.now() - 4 * 60_000, sessions: 1, capacity: 32 },
-  { id: '2', name: 'milknet', cwd: '~/projects/milknet', target: 'claude-rc:2', alive: true, activityAt: Date.now() - 40 * 60_000, sessions: 0, capacity: 32, url: 'https://claude.ai/code?environment=env_demo' },
-  { id: '5', name: 'wine-cellar-app', cwd: '~/projects/wine-cellar-app', target: 'claude-rc:5', alive: false, stoppedAt: Date.now() - 3 * 86_400_000 },
+  { id: '2', name: 'milknet', cwd: '~/projects/milknet', target: 'claude-rc:2', activityAt: Date.now() - 40 * 60_000, sessions: 0, capacity: 32, url: 'https://claude.ai/code?environment=env_demo' },
+  { id: '6', name: 'Server-Admin', cwd: '/', target: 'claude-rc:6', activityAt: Date.now() - 4 * 60_000, url: 'https://claude.ai/code/session_demo' },
 ];
 
 export function createMockBackend(): FleetBackend {
@@ -1405,15 +1404,6 @@ A claim with a footnote.[^1]
     usage: () => Promise.resolve<UsageReport>(mockUsage),
     runtimes: () => Promise.resolve({ claude: true, opencode: true, agy: true }),
     remoteControls: () => Promise.resolve(mockRemoteControls.map((r) => ({ ...r }))),
-    restartRemoteControl: (id) => {
-      const r = mockRemoteControls.find((x) => x.id === id && !x.alive);
-      if (!r) return Promise.reject(new ApiError(404, 'no stopped remote-control pane with that id'));
-      r.alive = true;
-      delete r.stoppedAt;
-      r.sessions = 0;
-      r.capacity = 32;
-      return Promise.resolve({ ok: true });
-    },
     presence: () => Promise.resolve({ ok: true }),
     commands: () =>
       Promise.resolve<CommandsResponse>({
