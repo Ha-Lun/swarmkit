@@ -36,9 +36,12 @@ Bind to `0.0.0.0` (e.g. `vite --host 0.0.0.0`); report them as
 
 - Large or risky work: call `EnterPlanMode` first; `ExitPlanMode` is the
   approval request. Before `ExitPlanMode` on a plan touching ~3+ files, or
-  auth, data, CI or infra, have a Hydrogen worker critique it:
-  `agy-task start plan-<slug> --review --model hydrogen --effort xhigh - < <plan file>`
-  (read-only; weigh its findings, then ask for approval).
+  auth, data, CI or infra, have a Hydrogen worker critique it: pipe a short
+  ask ("critique this plan: gaps, risks, wrong assumptions; file read tools
+  only, no shell; read <files>") plus the plan into
+  `agy-task start plan-<slug> --review --model hydrogen --effort xhigh -`.
+  Weigh its findings, ask for approval, then `agy-task clean plan-<slug> --force`.
+  Skip it for client repos the user hasn't cleared for Google.
 - After an approved plan, hand implementation to agy or OpenCode
   (`delegate-implementation`); do small, context-heavy or security
   edits yourself.

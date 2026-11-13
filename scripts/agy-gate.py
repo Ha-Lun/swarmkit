@@ -34,6 +34,7 @@ EDIT = {"write_to_file": (("TargetFile",), ("CodeContent", "Description", "Overw
         "replace_file_content": (("TargetFile",), ("TargetContent", "ReplacementContent", "StartLine", "EndLine",
                                                    "AllowMultiple", "Instruction", "Description"))}
 SHELL = {"run_command": (("Cwd",), ("CommandLine", "WaitMsBeforeAsync"))}  # Cwd may be absent: then root
+NUMERIC = {"StartLine", "EndLine", "ByteOffset"}  # line numbers and offsets: plain non-negative integers only
 GUARDED = {".git", ".agents", ".agent", "_agents", "_agent", ".gemini"}
 RULES = {"agents.md", "gemini.md"}  # agy loads these from the worktree root as rules: read-only for the worker
 PATHY_KEY = re.compile(r"path|file|dir", re.I)
@@ -124,6 +125,8 @@ def decide(call, cfg):
             continue
         if k not in other + COMMON:
             raise ValueError(f"unexpected argument {k}")
+        if k in NUMERIC and (not isinstance(v, int) or isinstance(v, bool) or v < 0):
+            raise ValueError(f"{k} must be a non-negative integer")
         if isinstance(v, (list, dict)) and pathlike(v):
             raise ValueError(f"path-like value in {k}")
         if name == "find_by_name" and k == "Pattern" and isinstance(v, str):  # a glob under SearchDirectory, not a path

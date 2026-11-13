@@ -20,7 +20,7 @@ agy is the default worker lane. Use `opencode-task` instead only when the worker
 
 A branch Hydrogen wrote is reviewed by `opencode-task --review` (its lane default). Run 2-3 independent tasks at once, never more: the box has 8 cores and little spare RAM.
 
-Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'): on agy, Argon low/medium/high and Hydrogen low/medium/high/xhigh, chosen by the table above. Never add a model without the owner's OK. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`); agy's only the read-only ones (no test runner). Give an opencode worker a verify command from that list; for agy, run the verify yourself after it lands.
+Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'): on agy, Argon low/medium/high and Hydrogen low/medium/high/xhigh, chosen by the table above. Never add a model without the owner's OK. agy workers have no shell, so run the verify yourself after an agy task lands; only `opencode-task` workers get the test/build runners in `RUNNERS` (`scripts/agy-task`).
 
 Skip it for small edits (do them inline), for anything that depends on conversation context, and for the same work a Claude subagent already does. agy starts cold: the prompt must carry the goal, the files, the constraints and what "done" looks like. Say "use your file read and edit tools, not the shell" in every prompt, reviews included, and list the files to read: a model that reaches for a shell command (often `cat -n` for line numbers) is denied and returns nothing. If that happens, `resume` it with that instruction; in testing the retry succeeded.
 

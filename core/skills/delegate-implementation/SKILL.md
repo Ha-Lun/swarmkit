@@ -65,7 +65,7 @@ For each finished task:
 
 1. `ok` in `result.json`, then read `git diff <base>..<cli>/<slug>`. The diff is the truth.
 2. Run the verify command yourself in the worktree.
-3. If something is wrong, `resume` once with concrete feedback (file, line, expected behaviour). If it fails again, do that part yourself.
+3. If something is wrong, `resume` once with concrete feedback (file, line, expected behaviour). If it fails again: an Argon task starts fresh on Hydrogen; otherwise do that part yourself.
 4. `git merge <cli>/<slug>`, then `<cli>-task clean <slug>`.
 
 After the last merge, run the full test suite, then the usual review (`code-proofreader`, `security-auditor`, `release-tester`) as the change requires. Tell the user which parts were delegated and to which worker.

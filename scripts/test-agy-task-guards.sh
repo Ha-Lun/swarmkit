@@ -641,7 +641,7 @@ STUB_CALL=$(call view_file '{"AbsolutePath":"/etc/hostname"}') "$AGY_TASK" start
   && fail "outside read reported ok"
 [ "$(ares ga2 '.denied_actions[0]')" = "view_file /etc/hostname" ] || fail "gate denial not in denied_actions"
 "$AGY_TASK" start ga3 --agent frontend-specialist --review "p" >/dev/null 2>&1 || true
-grep -q 'write_to_file' "$(adir ga3)/worktree/.agents/agents/frontend-specialist/agent.md" && fail "--review agent can edit"
+grep -Eq '^  - (write_file|edit_file|write_to_file|replace_file_content)$' "$(adir ga3)/worktree/.agents/agents/frontend-specialist/agent.md" && fail "--review agent can edit"
 jq -e '.edit == false' "$(adir ga3)/gate.json" >/dev/null || fail "--review gate allows edits"
 # the gate itself (W = ga1's worktree)
 G="${TASK%/*}/agy-gate.py"; ln -s /etc "$W/out"; mkdir -p "$W/sub/x"
@@ -662,6 +662,8 @@ gate allow "$(call write_to_file "{\"TargetFile\":\"$W/sub/AGENTS.md\",\"CodeCon
 gate allow "$(call view_file "{\"AbsolutePath\":\"$W/stub.txt\",\"StartLine\":1,\"EndLine\":2,\"toolSummary\":\"s\"}")"
 gate allow "$(call read_file "{\"Path\":\"$W/stub.txt\",\"ByteOffset\":10}")"                   # agy 1.5.8's read_file
 gate deny "$(call read_file "{\"Path\":\"$W/stub.txt\",\"ByteOffset\":[\"/etc/hostname\"]}")"     # path-like value
+gate deny "$(call read_file "{\"Path\":\"$W/stub.txt\",\"ByteOffset\":\"/etc/hostname\"}")"       # numbers only
+gate deny "$(call view_file "{\"AbsolutePath\":\"$W/stub.txt\",\"StartLine\":-1}")"
 # only each tool's own argument keys (M3)
 gate deny "$(call view_file "{\"AbsolutePath\":\"$W/stub.txt\",\"Foo\":\"x\"}")"
 gate deny "$(call find_by_name "{\"SearchDirectory\":\"$W\",\"Pattern\":\"*\",\"Root\":true}")"

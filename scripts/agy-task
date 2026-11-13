@@ -259,7 +259,7 @@ def agent_edits_git(agent):
 
 
 HEADLESS_NOTE = ("Headless worker: there is no browser or MCP here, so skip Playwright/screenshot steps;"
-                 " the orchestrator verifies visually. Only files inside this worktree are reachable: skills, rules,"
+                 " the orchestrator verifies visually. Pass absolute paths under this worktree to file tools. Only files inside this worktree are reachable: skills, rules,"
                  " plugin and other folders are not available here, so don't look for them.")
 
 
@@ -277,12 +277,14 @@ def agy_agents_dir():
 # --agent, else the reserved swarmkit-worker. The commit skips both; the user's agy settings stay untouched.
 # agy 1.5.8 names: view_file, write_to_file and replace_file_content are now aliases of read_file, write_file and
 # edit_file, and listing a name next to its alias fails the whole run ("tool name conflict").
+# list_dir, grep_search and find_by_name resolve in 1.5.8 but are not offered to the model; kept (the gate allows them)
+# so they work again if agy re-exposes them.
 AGY_TOOLS = ("read_file", "list_dir", "grep_search", "find_by_name")
 AGY_EDIT_TOOLS = ("write_file", "edit_file")
 AGY_ROOTS = (".agents", ".agent", "_agents", "_agent", ".gemini")  # agy's customization roots; the gate denies them
 AGY_WORKER = "swarmkit-worker"  # the plain run's overlay agent; reserved, `--agent swarmkit-worker` is refused
 WORKER_NOTE = ("Headless worker: use your file tools (read_file, edit_file, write_file); there is no shell and no"
-               " search or directory listing, so work from the files the task names. Only files inside this worktree"
+               " search or directory listing, so work from the files the task names, by absolute path under this worktree. Only files inside this worktree"
                " are reachable: skills, rules, plugin and other folders are not available here, so don't look for them.")
 PLAIN = re.compile(r"[^\s'\"#&*!|>%@`\[\]{},-][^#]*")  # a plain YAML scalar on one line: no indicator start, no comment
 QUOTED = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"\\]|\\.)*\"")

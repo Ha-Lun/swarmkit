@@ -108,7 +108,7 @@ export function useStartForm(
         cwd: c,
         agent: LEAD_AGENT,
         ...(model ? { model } : {}),
-        ...(runtime === 'opencode' ? {} : { effort }),
+        ...(runtime === 'claude' ? { effort } : {}),
         runtime,
         ...(images.length > 0 ? { images } : {}),
         ...(files.length > 0 ? { files } : {}),
@@ -183,7 +183,7 @@ export function AgentModelFields({
   const summary =
     runtime === 'claude'
       ? `${LEAD_AGENT} · ${modelLabel(modelShown)} · ${effort ? `${effort} effort` : 'default effort'}`
-      : `${SETUP_LABEL[runtime]} · ${modelShown}${runtime === 'agy' && effort ? ` · ${effort} effort` : ''}`;
+      : `${SETUP_LABEL[runtime]} · ${modelLabel(modelShown)}`;
   const setupField = (
     <div className="amf-setup">
       <div className="view-toggle setup-seg" role="group" aria-label="Setup">
@@ -277,14 +277,14 @@ export function AgentModelFields({
             <div className="land-row">
               <div className="land-field">{agentField}</div>
               <div className="land-field">{modelField}</div>
-              {runtime !== 'opencode' && <div className="land-field">{effortField}</div>}
+              {runtime === 'claude' && <div className="land-field">{effortField}</div>}
             </div>
           </div>
         ) : (
           <div id={panelId} className="amf-stack">
             {agentField}
             {modelField}
-            {runtime !== 'opencode' && effortField}
+            {runtime === 'claude' && effortField}
           </div>
         ))}
     </div>
@@ -401,7 +401,7 @@ export function SetupPopover({ runtime, availability, model, effort, onRuntime, 
               ))}
             </select>
           )}
-          {runtime !== 'opencode' && (
+          {runtime === 'claude' && (
             <>
               <label className="setup-menu-h" htmlFor="land-effort">effort</label>
               <select id="land-effort" value={effort} onChange={(e) => onEffort(e.target.value as EffortValue)}>

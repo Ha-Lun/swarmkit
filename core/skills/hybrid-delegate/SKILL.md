@@ -39,7 +39,7 @@ Everything else in the approved plan goes to a worker.
 
    Cross-review: Hydrogen (`agy-task --review --model hydrogen`) reviews every branch except one Hydrogen wrote, which `opencode-task --review` (its lane default) reviews instead.
 
-   Before announcing a worker, run `<cli>-task model [--agent NAME] [--model M]` with the start's flags (read-only, starts nothing); it prints `<model> <effort|none>`, the model the worker will actually run on. Announce that, not a guessed lane default.
+   Before announcing a worker, run `<cli>-task model [--agent NAME] [--model M] [--effort E]` with the start's flags (read-only, starts nothing); it prints `<model> <effort|none>`, the model the worker will actually run on. Announce that, not a guessed lane default.
 
    The wrapper prints a start banner (slug, model, effort, base, log) on stderr, and `list` shows each task's model, elapsed time and live denied count.
 

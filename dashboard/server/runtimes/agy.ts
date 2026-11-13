@@ -262,7 +262,7 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
       const args = ['-p', text, '--output-format', 'stream-json', '--agent', opts.agent ?? 'lead-dev-hybrid'];
       const turnModel = opts.currentModel?.() ?? opts.model;
       if (turnModel) args.push('--model', turnModel);
-      if (opts.effort) args.push('--effort', opts.effort);
+      // no --effort: Gemini 4 model ids carry it (gemini-4-hydrogen-xhigh), a second one would conflict
       if (conv) args.push('--conversation', conv);
       const imagesDir = opts.imagesDir?.();
       if (imagesDir) args.push('--add-dir', imagesDir);
