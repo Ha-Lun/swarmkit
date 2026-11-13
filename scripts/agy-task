@@ -14,7 +14,7 @@ response", not "files changed". --setup CMD runs in the worktree before agy (e.g
 or linking dependencies; a fresh worktree has tracked files only). At most $AGY_TASK_MAX
 (default 3) tasks run at once; --wait queues for a free slot instead of refusing.
 Gated by default (see "agy gate" below): agy reads and edits worktree files only, and has no shell (plain or
---agent; grep_search / find_by_name search), so run tests and builds yourself on the branch.
+--agent; agy 1.5.8 has no search or listing tool either, so the prompt names every file), so run tests and builds yourself on the branch.
 --yolo auto-approves every tool and is NOT sandboxed (agy can then write outside the worktree and
 reach the network); use it only for trusted work.
 Everything lands under $AGY_TASK_DIR (default ~/.agy-tasks/<repo>/<slug>): the worktree,
@@ -30,11 +30,11 @@ through file edits. It is not a sandbox: the runner allowlist (npm test etc.) ru
 the host. An OS-level sandbox (bubblewrap/landlock) is the real long-term control.
 agy gate: agy itself lets a plain accept-edits run write anywhere by absolute path, so every agy run
 (plain and --agent; not --yolo) gets a PreToolUse hook in <wt>/.agents/hooks.json (never committed):
-scripts/agy-gate.py allows view_file, read_file, list_dir, grep_search, find_by_name and (not under --review)
-write_to_file, write_file, edit_file, replace_file_content on absolute paths that resolve inside the
+scripts/agy-gate.py allows read_file, write_file and edit_file (the edits not under --review; agy 1.5.8 exposes no
+list_dir, grep_search or find_by_name, and older names such as view_file are accepted too) on absolute paths that resolve inside the
 worktree, outside any .git or .agents-style component (.gemini too), never the root AGENTS.md or GEMINI.md; no agy run gets a shell
 (agy 1.4.7 headless ignores the gate's permission grants, so a gated run_command could not run anyway): workers
-search with grep_search / find_by_name, and you run tests yourself. Everything else is denied (MCP, browser, web),
+read the files the prompt names, and you run tests yourself. Everything else is denied (MCP, browser, web),
 and every decision is logged into task/gate.log; denials land in denied_actions (reads of .git or .agents are
 denied quietly: counted in quiet_denials, a warning above 3). agy runs a hook that crashes or prints nothing as
 an allow, so before the commit the tool names in agy's transcript of this run are matched one by one against
@@ -42,7 +42,7 @@ the gate log (a call agy rejected as INVALID before the hook, the next step's st
 resume that answered for another conversation is NOT ok and not committed. A base that tracks anything under
 .agents/.agent/_agents/_agent/.gemini is refused, and so is a launch (start after --setup, resume) while the worktree
 has any such entry besides the wrapper's own overlay, or a symlink among them.
-The gate's schema (tool names, argument keys, transcript format) was probed on agy 1.4.2, 1.4.7 and 1.4.10 (AGY_PROBED): another
+The gate's schema (tool names, argument keys, transcript format) was probed on agy 1.4.2, 1.4.7, 1.4.10 and 1.5.8 (AGY_PROBED): another
 agy version is refused unless AGY_TASK_ALLOW_UNPROBED=1. Re-probe before bumping it: in a scratch repo, run one
 plain and one --agent task that reads, edits and searches; compare the tool names and argument keys in
 ~/.gemini/antigravity-cli/brain/<conversation>/.system_generated/logs/transcript_full.jsonl and the gate log
@@ -59,9 +59,12 @@ commands (a worker that keeps trying shell workarounds) or --max-tool-errors fai
 group is killed, its edits are kept and committed, and result.json gets ok false, a "stopped: ..." warning
 and "stopped_by": "max-denied" | "max-tool-errors" (also "timeout" on a timeout). Resume a
 stopped worker at most once (only if its edits are worth keeping); then take the task over. 0 disables a limit; agy is not watched.
---effort sets the model variant (opencode: "provider/model#effort"). Left out, a model gets its default
+--effort sets the model variant. opencode: "provider/model#effort"; left out, a model gets its default
 from a small table (high for the models that accept it); a model not in the table gets no effort suffix, since a variant
-a model lacks fails the whole run (muse rejects `max`). --effort "" forces none. Resume reuses the model and effort of start.
+a model lacks fails the whole run (muse rejects `max`). --effort "" forces none. agy: the effort is the model ID's
+suffix (gemini-4-argon-high); --model argon|hydrogen (or gemini-4-argon) takes --effort as that suffix, default high,
+and a full ID with a different --effort is refused. Argon goes up to high, Hydrogen to xhigh. Resume reuses the model
+and effort of start.
 
 A worker can run as a named specialist with --agent NAME (start only, rejected on resume, which reuses it). On opencode
 without --model the worker uses the lane default, unless the agent pins its own `opencode.model` (a generated
@@ -115,7 +118,7 @@ def agy_cmd(task, prompt, a, resume_id, _p=None):
     if resume_id:
         cmd += ["--conversation", resume_id]
     else:
-        cmd += ["--model", a.model] + (["--effort", a.effort] if a.effort else [])
+        cmd += ["--model", a.model]  # the effort is the model ID's suffix (agy_model)
     if a.yolo:
         cmd.append("--dangerously-skip-permissions")
         print("agy-task: --yolo, agy is unsandboxed", file=sys.stderr)
@@ -141,6 +144,26 @@ EFFORT_DEFAULTS = {  # probed 2026-10-29 on opencode 2.1.3: these accept #high; 
     "opencode-go/muse-spark-1.3-contributor": "high",
     "opencode-go/beam-free": "high",
 }
+
+
+AGY_FAMILIES = {"argon": "gemini-4-argon", "hydrogen": "gemini-4-hydrogen"}
+AGY_LEVELS = ("low", "medium", "high", "xhigh", "max")
+
+
+def agy_model(model, effort):
+    """(full agy model ID, effort). agy models carry the effort as an ID suffix: a family (`argon`, `gemini-4-hydrogen`)
+    takes --effort as that suffix, default high; a full ID keeps its own, and a different --effort is an error."""
+    fam = AGY_FAMILIES.get(model, model)
+    if fam in AGY_FAMILIES.values():
+        return f"{fam}-{effort or 'high'}", effort or "high"
+    level = model.rsplit("-", 1)[-1]
+    if level not in AGY_LEVELS:
+        return model, effort or ""
+    if effort and effort != level:
+        print(f"{PROG}: --effort {effort} conflicts with {model}; pass the family ({fam.rsplit('-', 1)[0]}) with --effort",
+              file=sys.stderr)
+        sys.exit(2)
+    return model, level
 
 
 def remembered_opts(task, a, resume_id):
@@ -252,13 +275,15 @@ def agy_agents_dir():
 # tools its frontmatter lists, and headless agy auto-denies even reads under it, so every non-yolo run launches
 # an overlay agent with an explicit tool list (no run_command, no MCP) next to the hook: the plugin agent for
 # --agent, else the reserved swarmkit-worker. The commit skips both; the user's agy settings stay untouched.
-AGY_TOOLS = ("view_file", "list_dir", "grep_search", "find_by_name")
-AGY_EDIT_TOOLS = ("write_to_file", "edit_file", "replace_file_content")
+# agy 1.5.8 names: view_file, write_to_file and replace_file_content are now aliases of read_file, write_file and
+# edit_file, and listing a name next to its alias fails the whole run ("tool name conflict").
+AGY_TOOLS = ("read_file", "list_dir", "grep_search", "find_by_name")
+AGY_EDIT_TOOLS = ("write_file", "edit_file")
 AGY_ROOTS = (".agents", ".agent", "_agents", "_agent", ".gemini")  # agy's customization roots; the gate denies them
 AGY_WORKER = "swarmkit-worker"  # the plain run's overlay agent; reserved, `--agent swarmkit-worker` is refused
-WORKER_NOTE = ("Headless worker: use your file tools (grep_search / find_by_name to search, view_file, edit_file);"
-               " there is no shell. Only files inside this worktree are reachable: skills, rules, plugin and other"
-               " folders are not available here, so don't look for them.")
+WORKER_NOTE = ("Headless worker: use your file tools (read_file, edit_file, write_file); there is no shell and no"
+               " search or directory listing, so work from the files the task names. Only files inside this worktree"
+               " are reachable: skills, rules, plugin and other folders are not available here, so don't look for them.")
 PLAIN = re.compile(r"[^\s'\"#&*!|>%@`\[\]{},-][^#]*")  # a plain YAML scalar on one line: no indicator start, no comment
 QUOTED = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"\\]|\\.)*\"")
 
@@ -308,7 +333,7 @@ def agy_agent_problem(agent):
     return agy_agent_parts(agent)[0]
 
 
-AGY_PROBED = "1.4.10"  # the agy version the gate schema and transcript check were probed on
+AGY_PROBED = "1.5.8"  # the agy version the gate schema and transcript check were probed on
 
 
 def refuse(task, msg):
@@ -526,8 +551,10 @@ def opencode_parse(out, err):
 
 BACKENDS = {
     "agy-task": {"cli": "agy", "env": "AGY_TASK", "home": ".agy-tasks",
-                 "model": "gemini-3.8-flash-high", "cmd": agy_cmd, "parse": agy_parse, "grace": 30,
-                 "allowed": ("gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low")},
+                 "model": "gemini-4-argon-high", "cmd": agy_cmd, "parse": agy_parse, "grace": 30,
+                 "allowed": ("gemini-4-argon-low", "gemini-4-argon-medium", "gemini-4-argon-high",
+                             "gemini-4-hydrogen-low", "gemini-4-hydrogen-medium", "gemini-4-hydrogen-high",
+                             "gemini-4-hydrogen-xhigh")},
     "opencode-task": {"cli": "opencode", "env": "OPENCODE_TASK", "home": ".opencode-tasks",
                       "model": "opencode-go/muse-spark-1.3-contributor", "cmd": opencode_cmd,
                       "parse": opencode_parse, "grace": 0, "proc_env": opencode_env, "watch": tool_failure,
@@ -947,7 +974,7 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     tokens = u.get("total_tokens", sum(v for v in u.values() if isinstance(v, int))) if isinstance(u, dict) and u else None
     dispatch_log("finish", task.name, o.get("model"), ok=ok, denied=len(denied), tokens=tokens,
                  wall_s=round(wall), stopped_by=stopped_by, agent=o.get("agent"))
-    hint = " (resume it: file tools on worktree files only, no shell; grep_search / find_by_name to search)" if CLI == "agy" else ""
+    hint = " (resume it: file tools on worktree files only, no shell or search; name the files to read)" if CLI == "agy" else ""
     note = (f" DENIED: {', '.join(denied)}{hint}" if denied else "") \
         + "".join(f" WARNING: {w}" for w in warnings)
     print(f"{PROG} {task.name}: {'ok' if ok else 'NOT ok'} ({changed}){note} -> {task}/result.json")
@@ -959,6 +986,8 @@ def resolve(a):
     from_agent = a.model is None and a.agent and CLI == "opencode"
     if a.model is None:
         a.model = BACKEND["model"]
+    if CLI == "agy":
+        a.model, a.effort = agy_model(a.model, a.effort)
     bench = os.environ.get("SWARMKIT_BENCH") == "1" and a.model in BACKEND.get("bench_only", ())
     if a.model not in BACKEND["allowed"] and not bench:
         print(f"{PROG}: model not on the worker allowlist: {a.model} (allowed: {', '.join(BACKEND['allowed'])})", file=sys.stderr)

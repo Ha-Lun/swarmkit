@@ -9,13 +9,20 @@ description: Use when handing a self-contained task to a headless Antigravity (a
 
 ## When
 
-- Independent review by a different model family: your own diff, or an opencode-written branch (`--review` on the agy lane default). An agy-written branch is reviewed by `opencode-task --review` (its lane default) instead. No --model flag.
-- Bulk mechanical edits or test writing, on agy's quota instead of yours (default `gemini-3.8-flash-high`).
-- 2-3 independent tasks at once. Never more: the box has 8 cores and little spare RAM.
+agy is the default worker lane. Use `opencode-task` instead only when the worker must run tests itself (agy has no shell). Pick the model by the task:
 
-Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'); use the lane default unless the owner names a model (also with `--agent` on the opencode lane unless the agent pins an allowlisted `opencode.model`), and never add a model without the owner's OK. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`); agy's only the read-only ones (no test runner). Give an opencode worker a verify command from that list; for agy, run the verify yourself after it lands.
+| Model | For |
+|---|---|
+| `--model argon` (`gemini-4-argon-high`, the default) | implementation from an approved plan, `--agent <specialist>` work, writing tests, surveys and briefs (`--review`) |
+| `--model argon --effort medium` or `low` | trivial bulk or mechanical edits |
+| `--model hydrogen` (`gemini-4-hydrogen-high`) | review of your own diff, cross-review of a worker's branch, hard implementation (tricky logic, multi-file refactors), the retry after an Argon task failed its one resume (a fresh start) |
+| `--model hydrogen --effort xhigh` | slow: diffs over ~300 lines or with concurrency or algorithmic risk, and the plan critic (`--review`, the plan on stdin) |
 
-Skip it for small edits (do them inline), for anything that depends on conversation context, and for the same work a Claude subagent already does. agy starts cold: the prompt must carry the goal, the files, the constraints and what "done" looks like. Say "use your file view, search and edit tools, not the shell" in every prompt, reviews included: a model that reaches for a shell command (often `cat -n` for line numbers) is denied and returns nothing. If that happens, `resume` it with that instruction; in testing the retry succeeded.
+A branch Hydrogen wrote is reviewed by `opencode-task --review` (its lane default). Run 2-3 independent tasks at once, never more: the box has 8 cores and little spare RAM.
+
+Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'): on agy, Argon low/medium/high and Hydrogen low/medium/high/xhigh, chosen by the table above. Never add a model without the owner's OK. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`); agy's only the read-only ones (no test runner). Give an opencode worker a verify command from that list; for agy, run the verify yourself after it lands.
+
+Skip it for small edits (do them inline), for anything that depends on conversation context, and for the same work a Claude subagent already does. agy starts cold: the prompt must carry the goal, the files, the constraints and what "done" looks like. Say "use your file read and edit tools, not the shell" in every prompt, reviews included, and list the files to read: a model that reaches for a shell command (often `cat -n` for line numbers) is denied and returns nothing. If that happens, `resume` it with that instruction; in testing the retry succeeded.
 
 ## Run
 
@@ -26,7 +33,7 @@ agy-task list                                       # running and finished tasks
 agy-task clean <slug> [--force]                     # remove worktree and branch once merged or discarded
 ```
 
-Options: `--model`, `--effort low|medium|high|xhigh|max`, `--timeout 20m`, `--base REF`. Use `-` as the prompt to read it from stdin.
+Options: `--model argon|hydrogen` (or a full ID such as `gemini-4-hydrogen-xhigh`), `--effort low|medium|high` (Hydrogen also `xhigh`; it becomes the ID's suffix, default high), `--timeout 20m`, `--base REF`. `agy-task model --model hydrogen --effort xhigh` prints the ID a start would use. Use `-` as the prompt to read it from stdin.
 
 - `--review` for tasks that answer in text (a review, an analysis): `ok` then means a non-empty response with no tool denied, instead of "files changed". Without it a review reports NOT ok.
 - `--setup "<cmd>"` runs in the worktree before agy. A fresh worktree has tracked files only, so use it for dependencies, e.g. `--setup "ln -s $PWD/node_modules node_modules"`. Never copy `.env` or other secrets into it.
@@ -40,7 +47,7 @@ The background run exits when agy does and prints one line. Read `result.json` n
 ## Read the result
 
 - agy reports `SUCCESS` even when it was blocked. Trust only `ok` in `result.json`; `denied_actions` lists what was refused, `warnings` lists a timeout (partial output), an interruption or a failed commit. `usage` shows the tokens spent. Slugs are lowercase letters, digits, `.`, `_`, `-`.
-- Gated by default, plain runs and `--agent` alike: a PreToolUse hook in the worktree (`scripts/agy-gate.py`, never committed) allows the file tools on worktree paths only, never `.git`, `.agents` or `.gemini`, and never edits the root `AGENTS.md` or `GEMINI.md` (agy loads them as rules), and denies MCP, the browser and the web. No agy run gets a shell, plain or `--agent <specialist>` (start only; resume reuses it): workers search with `grep_search` and `find_by_name`. Plain runs launch as the reserved overlay agent `swarmkit-worker`. Run tests, builds and installs yourself in `worktree` before you merge. Gate denials show up in `denied_actions`. A run marked `gate hook inactive` or `gate check unavailable` was not (provably) gated and is not committed: treat its worktree, and anything agy could reach, as untrusted. A base that tracks `.agents/` (or `.agent`, `_agents`, `_agent`, `.gemini`) is refused, and so is a launch while the worktree has such an entry besides the wrapper's overlay (e.g. made by `--setup`). An agy version other than the probed one exits 2; re-probe as `agy-task --help` describes before setting `AGY_TASK_ALLOW_UNPROBED=1`.
+- Gated by default, plain runs and `--agent` alike: a PreToolUse hook in the worktree (`scripts/agy-gate.py`, never committed) allows the file tools on worktree paths only, never `.git`, `.agents` or `.gemini`, and never edits the root `AGENTS.md` or `GEMINI.md` (agy loads them as rules), and denies MCP, the browser and the web. No agy run gets a shell, plain or `--agent <specialist>` (start only; resume reuses it): agy 1.5.8 also offers no search or directory listing, so the prompt names every file the worker reads or changes. Plain runs launch as the reserved overlay agent `swarmkit-worker`. Run tests, builds and installs yourself in `worktree` before you merge. Gate denials show up in `denied_actions`. A run marked `gate hook inactive` or `gate check unavailable` was not (provably) gated and is not committed: treat its worktree, and anything agy could reach, as untrusted. A base that tracks `.agents/` (or `.agent`, `_agents`, `_agent`, `.gemini`) is refused, and so is a launch while the worktree has such an entry besides the wrapper's overlay (e.g. made by `--setup`). An agy version other than the probed one exits 2; re-probe as `agy-task --help` describes before setting `AGY_TASK_ALLOW_UNPROBED=1`.
 - Check `response` against `git diff <base>..agy/<slug>`; the diff is the truth, the prose is a claim.
 - Review notes from agy are advisory. Verify each against the code before acting on it.
 

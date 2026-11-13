@@ -26,20 +26,22 @@ Everything else in the plan goes to a worker.
 
 | Task | Worker |
 |---|---|
-| Well-specified implementation (default lane; you run the verify) | `agy-task` (default `gemini-3.8-flash-high`), `--agent <specialist>` when a specialty applies, see `agy-delegate` |
+| Well-specified implementation, tests to write (default; you run the verify) | `agy-task --model argon`, `--agent <specialist>` when a specialty applies, see `agy-delegate` |
+| Trivial bulk or mechanical edits | `agy-task --model argon --effort low` |
+| Hard implementation (tricky logic, multi-file refactor), or the retry after Argon failed | `agy-task --model hydrogen` |
 | Implementation where the worker must iterate on a test run itself (failing test, TDD, debugging) | `opencode-task` (free `opencode-go/` model), `--agent <specialist>` when a specialty applies (lane model, never `lead-dev-hybrid`), see `opencode-delegate` |
-| Second opinion on your own diff | `agy-task --review --model gemini-3.8-flash-high` |
-| Cross-review of a worker's branch | the other family's worker, see below |
+| Second opinion on your own diff | `agy-task --review --model hydrogen` (`--effort xhigh` over ~300 lines) |
+| Cross-review of a worker's branch | see below |
 
-In Claude Code, UI, styling, motion and 3D work never goes to a worker: it goes to the Claude `frontend-specialist` / `animation-specialist` subagent (Sonnet). When a task fits both lanes, alternate, aiming for roughly even use across a batch; agy when in doubt.
+In Claude Code, UI, styling, motion and 3D work never goes to a worker: it goes to the Claude `frontend-specialist` / `animation-specialist` subagent (Sonnet). agy first: a task goes to `opencode-task` only when the worker must run tests itself.
 
 Claude Code runs both lanes. From OpenCode use only `agy-task` (`opencode-task` refuses under OpenCode). Antigravity runs no workers.
 
-Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'); use the lane default unless the owner names a model (also with `--agent` on the opencode lane unless the agent pins an allowlisted `opencode.model`), and never add a model without the owner's OK. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`). Give it a verify command from that list, or run the verify yourself after it lands. For a project in a subdirectory, give the worker `npm --prefix <dir> test` or `npm --prefix <dir> run typecheck` as verify, and pass `--setup 'ln -s <main checkout>/<dir>/node_modules <dir>/node_modules'` so its dependencies exist (setup artifacts are not committed).
+Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'); pick the agy model from the tiers in `agy-delegate`, use the opencode lane default unless the owner names a model (also with `--agent` unless the agent pins an allowlisted `opencode.model`), and never add a model without the owner's OK. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`). Give it a verify command from that list, or run the verify yourself after it lands. For a project in a subdirectory, give the worker `npm --prefix <dir> test` or `npm --prefix <dir> run typecheck` as verify, and pass `--setup 'ln -s <main checkout>/<dir>/node_modules <dir>/node_modules'` so its dependencies exist (setup artifacts are not committed).
 
-Cross-review runs on the other lane's default model (agy reviews opencode-written branches, opencode-task reviews agy-written ones). No --model flag.
+Cross-review: Hydrogen (`agy-task --review --model hydrogen`) reviews every branch except one Hydrogen wrote, which `opencode-task --review` (its lane default) reviews instead.
 
-If the preferred worker fails twice on the same kind of task, use another one. If none is available, Claude's own `junior-dev` (mechanical edits) and `test-writer` (tests) subagents are the fallback.
+If an Argon task fails after its one resume, start it fresh on Hydrogen. If the preferred worker fails twice on the same kind of task, use another one. If none is available, Claude's own `junior-dev` (mechanical edits) and `test-writer` (tests) subagents are the fallback.
 
 ## 3. Write the prompt
 
@@ -51,7 +53,7 @@ The worker starts cold. Each prompt states:
 - the verify command (`npm test -- src/api`, `python3 -m pytest tests/test_x.py`);
 - "done when": the observable result.
 
-For agy, add "use your file view, search and edit tools, not the shell": every agy run is gated to worktree files and has no shell (`grep_search` and `find_by_name` search), so you run its verify.
+For agy, add "use your file read and edit tools, not the shell", and name every file it must read or change: every agy run is gated to worktree files and has no shell, and agy 1.5.8 offers no search or directory listing, so you run its verify.
 
 ## 4. Run
 

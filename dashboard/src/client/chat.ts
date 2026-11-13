@@ -164,7 +164,7 @@ export function agentHint(node: AgentNode, task?: WorkerTask): string {
   return [agentLabel(node), agentSubtitle(node, task), modelLabel(task?.model ?? node.model)].filter(Boolean).join(' · ');
 }
 
-/** Shell label a worker node gets when nothing better is known: "agy worker probe-plain (gemini-3.8-flash)". */
+/** Shell label a worker node gets when nothing better is known: "agy worker probe-plain (gemini-4-argon-high)". */
 const SHELL_LABEL = /^(agy|opencode) worker \S+( \(.*\))?$/;
 /** A prompt line that is just the delegation command, not a task description. */
 const SHELL_COMMAND = /^\$?\s*(agy|opencode)-task\b/;

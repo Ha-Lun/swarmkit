@@ -61,10 +61,10 @@ chmod +x "$T/bin/opencode"
 # agy did not run). Its transcript (in the --conversation, else a new one; STUB_CONV overrides) records that call
 # (named STUB_TNAME if set, plus a STUB_EXTRA call), then a STUB_INVALID call whose next step has status
 # $STUB_INVALID_STATUS (INVALID: agy rejected its arguments before the hook); STUB_NOTRANSCRIPT writes none; STUB_ONLYINVALID drops the first call.
-# --version prints $STUB_VERSION (1.4.10).
+# --version prints $STUB_VERSION (1.5.8).
 cat > "$T/bin/agy" <<'S'
 #!/bin/sh
-[ "$1" = --version ] && { echo "agy ${STUB_VERSION:-1.4.10}"; exit 0; }
+[ "$1" = --version ] && { echo "agy ${STUB_VERSION:-1.5.8}"; exit 0; }
 printf '%s\n' "$*" >> "$STUB_ARGS.agy"
 hook=$(jq -r '.[].PreToolUse[0].hooks[0].command' .agents/hooks.json 2>/dev/null)
 call=${STUB_CALL:-"{\"toolCall\":{\"name\":\"write_to_file\",\"args\":{\"TargetFile\":\"$PWD/stub.txt\",\"CodeContent\":\"x\"}}}"}
@@ -565,7 +565,7 @@ ares gp1 '.warnings[]' | grep -q "^gate check failed: agy answered for conversat
 [ "$(git -C "$(adir gp1)/worktree" rev-parse HEAD)" = "$h" ] || fail "resume in another conversation was committed"
 # an agy version other than the probed one is refused unless overridden
 rc=0; out=$(STUB_VERSION=1.5.0 "$AGY_TASK" start gv1 "p" 2>&1) || rc=$?
-[ "$rc" = 2 ] && echo "$out" | grep -q "agy 1.5.0 is not the version the gate was probed on (1.4.10)" || fail "unprobed agy ($rc): $out"
+[ "$rc" = 2 ] && echo "$out" | grep -q "agy 1.5.0 is not the version the gate was probed on (1.5.8)" || fail "unprobed agy ($rc): $out"
 [ ! -e "$AGY_TASK_DIR"/*/gv1 ] || fail "unprobed agy left a task dir"
 STUB_VERSION=1.5.0 AGY_TASK_ALLOW_UNPROBED=1 "$AGY_TASK" start gv1 "p" >/dev/null 2>&1 || fail "override not honoured: $(ares gv1 .warnings)"
 # a launch is refused while the worktree has agy customization entries besides the overlay, or symlinks among them
@@ -660,6 +660,8 @@ gate allow "$(call grep_search "{\"SearchPath\":\"$W\",\"Query\":\"BUG\",\"Match
 gate allow "$(call view_file "{\"AbsolutePath\":\"$W/AGENTS.md\"}")"                         # rules: read-only, root only
 gate allow "$(call write_to_file "{\"TargetFile\":\"$W/sub/AGENTS.md\",\"CodeContent\":\"x\"}")"
 gate allow "$(call view_file "{\"AbsolutePath\":\"$W/stub.txt\",\"StartLine\":1,\"EndLine\":2,\"toolSummary\":\"s\"}")"
+gate allow "$(call read_file "{\"Path\":\"$W/stub.txt\",\"ByteOffset\":10}")"                   # agy 1.5.8's read_file
+gate deny "$(call read_file "{\"Path\":\"$W/stub.txt\",\"ByteOffset\":[\"/etc/hostname\"]}")"     # path-like value
 # only each tool's own argument keys (M3)
 gate deny "$(call view_file "{\"AbsolutePath\":\"$W/stub.txt\",\"Foo\":\"x\"}")"
 gate deny "$(call find_by_name "{\"SearchDirectory\":\"$W\",\"Pattern\":\"*\",\"Root\":true}")"
@@ -830,6 +832,12 @@ mkagent mres-pinvar "model: opencode-go/glm-5.3-flash#high
 [ "$("$TASK" model --agent mres-pinvar)" = "opencode-go/glm-5.3-flash high" ] || fail "model --agent: pinned model with #variant: $("$TASK" model --agent mres-pinvar)"
 "$TASK" model --model nope/x >/dev/null 2>&1 && fail "model accepted a model off the allowlist"
 "$TASK" model --agent no-such-agent >/dev/null 2>&1 && fail "model accepted an unknown agent"
-[ "$("$AGY_TASK" model)" = "gemini-3.8-flash-high none" ] || fail "agy model default"
+[ "$("$AGY_TASK" model)" = "gemini-4-argon-high high" ] || fail "agy model default"
+[ "$("$AGY_TASK" model --model hydrogen --effort xhigh)" = "gemini-4-hydrogen-xhigh xhigh" ] || fail "agy family + effort"
+[ "$("$AGY_TASK" model --model gemini-4-hydrogen)" = "gemini-4-hydrogen-high high" ] || fail "agy family default effort"
+[ "$("$AGY_TASK" model --model gemini-4-argon-low)" = "gemini-4-argon-low low" ] || fail "agy full ID effort"
+"$AGY_TASK" model --model argon --effort xhigh >/dev/null 2>&1 && fail "agy accepted argon xhigh"
+"$AGY_TASK" model --model gemini-3.8-flash-high >/dev/null 2>&1 && fail "agy accepted the removed 3.8 Flash"
+"$AGY_TASK" model --model gemini-4-argon-high --effort low >/dev/null 2>&1 && fail "agy accepted a full ID with a conflicting effort"
 unset SWARMKIT_OPENCODE_AGENTS_DIR
 echo "ok"

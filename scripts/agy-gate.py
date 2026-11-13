@@ -17,15 +17,17 @@ denied, but agy-task does not count it as a denied action.
 """
 import fnmatch, json, os, re, stat, sys
 
-# tool -> (its path keys, all required; every other key it may have), from live probes of agy 1.4.2, 1.4.7 and 1.4.10 (hook
-# input and transcripts; 1.4.7 offers read_file/write_file and a Cwd-less run_command by default, the old names under
-# --agent). A key outside both is denied: an unknown one could name a path (run_command's BypassSandbox).
+# tool -> (its path keys, all required; every other key it may have), from live probes of agy 1.4.2, 1.4.7, 1.4.10 and
+# 1.5.8 (hook input and transcripts; 1.4.7 offers read_file/write_file and a Cwd-less run_command by default, the old
+# names under --agent; 1.5.8 makes the old names aliases, reports the new ones, adds read_file's ByteOffset and exposes
+# no list_dir, grep_search or find_by_name). A key outside both is denied: an unknown one could name a path
+# (run_command's BypassSandbox).
 COMMON = ("toolAction", "toolSummary")
 READ = {"view_file": (("AbsolutePath",), ("StartLine", "EndLine")),
         "list_dir": (("DirectoryPath",), ()),
         "grep_search": (("SearchPath",), ("Query", "IsRegex", "MatchPerLine", "CaseInsensitive")),
         "find_by_name": (("SearchDirectory",), ("Pattern",)),
-        "read_file": (("Path",), ("StartLine", "EndLine"))}
+        "read_file": (("Path",), ("StartLine", "EndLine", "ByteOffset"))}
 EDIT = {"write_to_file": (("TargetFile",), ("CodeContent", "Description", "Overwrite")),
         "edit_file": (("Path",), ("Target", "Replacement")),
         "write_file": (("Path",), ("Content", "Overwrite", "Append")),

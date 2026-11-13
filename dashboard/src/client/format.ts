@@ -3,7 +3,7 @@ import type { AgentNode, GoLimit, PermissionRequest, SessionSummary, WorkerTask 
 
 /**
  * 'claude-opus-5-5' -> 'Opus 5.5'; 'opencode-go/glm-5.3-flash' -> 'GLM 5.3 Flash';
- * 'gemini-3.8-flash-high' -> 'Gemini 3.8 Flash · high'; missing -> ''.
+ * 'gemini-4-hydrogen-xhigh' -> 'Gemini 4 Hydrogen · xhigh'; missing -> ''.
  */
 export function modelLabel(model?: string): string {
   if (!model) return '';

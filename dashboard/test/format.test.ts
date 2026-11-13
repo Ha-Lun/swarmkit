@@ -99,6 +99,8 @@ describe('modelLabel', () => {
 
   it('shortens worker model ids', () => {
     expect(modelLabel('gemini-3.8-flash-high')).toBe('Gemini 3.8 Flash · high');
+    expect(modelLabel('gemini-4-argon-high')).toBe('Gemini 4 Argon · high');
+    expect(modelLabel('gemini-4-hydrogen-xhigh')).toBe('Gemini 4 Hydrogen · xhigh');
     expect(modelLabel('opencode-go/muse-spark-1.3-contributor')).toBe('Muse Spark 1.3');
     expect(modelLabel('opencode-go/glm-5.3-flash')).toBe('GLM 5.3 Flash');
     expect(modelLabel('opencode-go/deepseek-v4.1-flash')).toBe('DeepSeek V4.1 Flash');
