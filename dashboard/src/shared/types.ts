@@ -236,12 +236,12 @@ export const RUNTIME_MODELS: Record<Exclude<Runtime, 'claude'>, string[]> = {
     'opencode-go/muse-spark-1.3-contributor',
   ],
   agy: [
-    'gemini-4-hydrogen-high',
-    'gemini-4-hydrogen-xhigh',
-    'gemini-4-hydrogen-medium',
     'gemini-4-argon-high',
     'gemini-4-argon-medium',
-    'gemini-4-argon-low',
+    'gemini-4-hydrogen-xhigh',
+    'gemini-4-hydrogen-high',
+    'gemini-4-hydrogen-medium',
+    'gemini-4-hydrogen-low',
   ],
 };
 

@@ -2,10 +2,10 @@
 
 - Large or risky work: call `EnterPlanMode` first; `ExitPlanMode` is the
   approval request. Before `ExitPlanMode` on a plan touching ~3+ files, or
-  auth, data, CI or infra, have a Hydrogen worker critique it: pipe a short
+  auth, data, CI or infra, have an Argon worker critique it: pipe a short
   ask ("critique this plan: gaps, risks, wrong assumptions; file read tools
   only, no shell; read <files>") plus the plan into
-  `agy-task start plan-<slug> --review --model hydrogen --effort xhigh -`.
+  `agy-task start plan-<slug> --review --model argon -`.
   Weigh its findings, ask for approval, then `agy-task clean plan-<slug> --force`.
   Skip it for client repos the user hasn't cleared for Google.
 - After an approved plan, hand implementation to agy or OpenCode
@@ -17,19 +17,19 @@
   `agy-task` (Gemini 4) is the default lane, `opencode-task` only when the
   worker must run tests itself (TDD, debugging a failing run). agy has no
   shell, so you run the verify after an agy task lands.
-  - Argon (`--model argon`, high by default): implementation from an
+  - Hydrogen (`--model hydrogen`, high by default): implementation from an
     approved plan, including domain work (a specialist's "use proactively"
     means `agy-task --agent <name>`, not the Claude subagent); writing tests;
     a codebase survey that can wait a few minutes (`--review`, returns a
     brief). `--effort medium|low` for trivial bulk or mechanical edits
-    instead of `junior-dev`.
-  - Hydrogen (`--model hydrogen`, high by default): a second-opinion review
+    instead of `junior-dev`; `--effort xhigh` for a harder self-contained
+    task before you escalate to Argon.
+  - Argon (`--model argon`, high by default): a second-opinion review
     of a large diff instead of `code-proofreader`; cross-review of a worker's
     branch; hard implementation (tricky logic, a multi-file refactor); and the
-    retry when an Argon task fails after its one resume (a fresh start on
-    Hydrogen). `--effort xhigh` (slow) for diffs over ~300 lines or with
-    concurrency or algorithmic risk, and for the plan critic above.
-  - A branch Hydrogen wrote is cross-reviewed by `opencode-task --review`.
+    retry when a Hydrogen task fails after its one resume (a fresh start on
+    Argon); the plan critic above. Argon's top effort is high, its default.
+  - A branch Argon wrote is cross-reviewed by `opencode-task --review`.
   - Delegated agents a skill asks for (e.g. `security-audit`'s research and
     general agents): `--review` workers, with the main session as the only
     writer of the skill's files.

@@ -834,7 +834,7 @@ mkagent mres-pinvar "model: opencode-go/glm-5.3-flash#high
 [ "$("$TASK" model --agent mres-pinvar)" = "opencode-go/glm-5.3-flash high" ] || fail "model --agent: pinned model with #variant: $("$TASK" model --agent mres-pinvar)"
 "$TASK" model --model nope/x >/dev/null 2>&1 && fail "model accepted a model off the allowlist"
 "$TASK" model --agent no-such-agent >/dev/null 2>&1 && fail "model accepted an unknown agent"
-[ "$("$AGY_TASK" model)" = "gemini-4-argon-high high" ] || fail "agy model default"
+[ "$("$AGY_TASK" model)" = "gemini-4-hydrogen-high high" ] || fail "agy model default"
 [ "$("$AGY_TASK" model --model hydrogen --effort xhigh)" = "gemini-4-hydrogen-xhigh xhigh" ] || fail "agy family + effort"
 [ "$("$AGY_TASK" model --model gemini-4-hydrogen)" = "gemini-4-hydrogen-high high" ] || fail "agy family default effort"
 [ "$("$AGY_TASK" model --model gemini-4-argon-low)" = "gemini-4-argon-low low" ] || fail "agy full ID effort"

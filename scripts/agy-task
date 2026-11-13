@@ -62,7 +62,7 @@ stopped worker at most once (only if its edits are worth keeping); then take the
 --effort sets the model variant. opencode: "provider/model#effort"; left out, a model gets its default
 from a small table (high for the models that accept it); a model not in the table gets no effort suffix, since a variant
 a model lacks fails the whole run (muse rejects `max`). --effort "" forces none. agy: the effort is the model ID's
-suffix (gemini-4-argon-high); --model argon|hydrogen (or gemini-4-argon) takes --effort as that suffix, default high,
+suffix (gemini-4-hydrogen-high, the default); --model hydrogen|argon (or gemini-4-argon) takes --effort as that suffix, default high,
 and a full ID with a different --effort is refused. Argon goes up to high, Hydrogen to xhigh. Resume reuses the model
 and effort of start.
 
@@ -553,7 +553,7 @@ def opencode_parse(out, err):
 
 BACKENDS = {
     "agy-task": {"cli": "agy", "env": "AGY_TASK", "home": ".agy-tasks",
-                 "model": "gemini-4-argon-high", "cmd": agy_cmd, "parse": agy_parse, "grace": 30,
+                 "model": "gemini-4-hydrogen-high", "cmd": agy_cmd, "parse": agy_parse, "grace": 30,
                  "allowed": ("gemini-4-argon-low", "gemini-4-argon-medium", "gemini-4-argon-high",
                              "gemini-4-hydrogen-low", "gemini-4-hydrogen-medium", "gemini-4-hydrogen-high",
                              "gemini-4-hydrogen-xhigh")},

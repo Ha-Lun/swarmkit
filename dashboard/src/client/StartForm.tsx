@@ -28,7 +28,7 @@ const SETUP_DESC: Record<Runtime, string> = {
 const SETUP_MODEL: Record<Runtime, string> = {
   claude: 'opus',
   opencode: RUNTIME_MODELS.opencode[0] ?? 'opencode-go/mimo-v2.6-pro',
-  agy: RUNTIME_MODELS.agy[0] ?? 'gemini-4-hydrogen-high',
+  agy: RUNTIME_MODELS.agy[0] ?? 'gemini-4-argon-high',
 };
 
 /** The only agent any setup starts with. */

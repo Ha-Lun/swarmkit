@@ -14,7 +14,7 @@ The start form offers three setups (remembered in `localStorage` as `fleet.setup
 |---|---|---|
 | **Claude + workers** — "Claude lead · opencode + agy workers" | Claude Code | The Claude Agent SDK, as before; `opus` / `sonnet` / `haiku` models, fixed `lead-dev-hybrid` agent, effort levels |
 | **OpenCode + agy** — "OpenCode lead · agy worker" | `opencode acp` | The dashboard drives `opencode acp` over stdio and renders its stream like SDK messages; always the `lead-dev-hybrid` agent, `opencode-go/*` models, no effort |
-| **agy only** — "Antigravity lead, no workers" | `agy` | One `agy -p --output-format stream-json` process per turn with the `lead-dev-hybrid` agent; Gemini 4 Hydrogen and Argon models, effort levels |
+| **agy only** — "Antigravity lead, no workers" | `agy` | One `agy -p --output-format stream-json` process per turn with the `lead-dev-hybrid` agent; Gemini 4 Argon and Hydrogen models, effort levels |
 
 Setups whose binary is missing from `PATH` are disabled in the form with a
 "`<name>` not found on PATH" title; `GET /api/runtimes` reports the same

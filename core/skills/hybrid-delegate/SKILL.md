@@ -27,17 +27,17 @@ Everything else in the approved plan goes to a worker.
 
    | Task | Backend |
    |---|---|
-   | Well-specified implementation, tests to write (default; you run the verify) | `agy-task --model argon`, `--agent <specialist>` when a specialty applies (file tools only) |
-   | Trivial bulk or mechanical edits | `agy-task --model argon --effort low` |
-   | Hard implementation (tricky logic, multi-file refactor), or the retry after Argon failed | `agy-task --model hydrogen` |
+   | Well-specified implementation, tests to write (default; you run the verify) | `agy-task --model hydrogen`, `--agent <specialist>` when a specialty applies (file tools only) |
+   | Trivial bulk or mechanical edits | `agy-task --model hydrogen --effort low` |
+   | Hard implementation (tricky logic, multi-file refactor), or the retry after Hydrogen failed | `agy-task --model argon` |
    | Implementation where the worker must iterate on a test run itself (failing test, TDD, debugging) | `opencode-task` (free `opencode-go/` model), `--agent <specialist>` when a specialty applies (lane model, never `lead-dev-hybrid`) |
    | UI, styling, motion, 3D | never a worker: the Claude `frontend-specialist` / `animation-specialist` subagent (Sonnet) |
-   | Second opinion on your own diff | `agy-task --review --model hydrogen` (`--effort xhigh` over ~300 lines) |
+   | Second opinion on your own diff | `agy-task --review --model argon` |
    | Context-dependent work that cannot be handed off cold | Your own `Agent` subagents (Claude lane) |
 
    Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'); pick the agy model from the tiers in `agy-delegate`, use the opencode lane default unless the owner names a model (also with `--agent` unless the agent pins an allowlisted `opencode.model`), and never add a model without the owner's OK. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`). Give it a verify command from that list, or run the verify yourself after it lands. For a project in a subdirectory, give the worker `npm --prefix <dir> test` or `npm --prefix <dir> run typecheck` as verify, and pass `--setup 'ln -s <main checkout>/<dir>/node_modules <dir>/node_modules'` so its dependencies exist (setup artifacts are not committed).
 
-   Cross-review: Hydrogen (`agy-task --review --model hydrogen`) reviews every branch except one Hydrogen wrote, which `opencode-task --review` (its lane default) reviews instead.
+   Cross-review: Argon (`agy-task --review --model argon`) reviews every branch except one Argon wrote, which `opencode-task --review` (its lane default) reviews instead.
 
    Before announcing a worker, run `<cli>-task model [--agent NAME] [--model M] [--effort E]` with the start's flags (read-only, starts nothing); it prints `<model> <effort|none>`, the model the worker will actually run on. Announce that, not a guessed lane default.
 
@@ -51,7 +51,7 @@ Everything else in the approved plan goes to a worker.
    - Rerun the verify command in the worktree yourself.
    - If something is wrong, `resume` once with concrete feedback (file, line, expected behaviour). `opencode-task` kills a worker at `--max-denied` (10) denied commands or `--max-tool-errors` (20) failed tool calls and records `stopped_by` in `result.json` (`max-denied`, `max-tool-errors`, `timeout`). One resume is allowed after any stop, `max-denied` included, when the worker's edits are worth keeping: the prompt lists the exact problems to fix and forbids the shell commands that were denied (only the plan's test command allowed). If the resumed worker fails or is stopped again, take the task over yourself (a subagent or another lane); never resume twice.
    - `git merge <cli>/<slug>`, then `<cli>-task clean <slug>`.
-7. **Cheap second opinion before you report.** Your own review reads diffs on Claude quota; a different model catches different mistakes on other quota. For merged logic of more than ~50 lines, run a cross-review on the merged diff (`agy-task --review --model hydrogen`, or `opencode-task --review` for code Hydrogen wrote) and read only its findings. Skip it for boilerplate and renames.
+7. **Cheap second opinion before you report.** Your own review reads diffs on Claude quota; a different model catches different mistakes on other quota. For merged logic of more than ~50 lines, run a cross-review on the merged diff (`agy-task --review --model argon`, or `opencode-task --review` for code Argon wrote) and read only its findings. Skip it for boilerplate and renames.
 8. **After the last merge:** run the full test suite, then apply the usual quality gate (`security-auditor`, `code-proofreader`, `release-tester` as the change requires). Report to the user which parts went to which worker/backend.
 
 ## Safety facts

@@ -13,14 +13,14 @@ agy is the default worker lane. Use `opencode-task` instead only when the worker
 
 | Model | For |
 |---|---|
-| `--model argon` (`gemini-4-argon-high`, the default) | implementation from an approved plan, `--agent <specialist>` work, writing tests, surveys and briefs (`--review`) |
-| `--model argon --effort medium` or `low` | trivial bulk or mechanical edits |
-| `--model hydrogen` (`gemini-4-hydrogen-high`) | review of your own diff, cross-review of a worker's branch, hard implementation (tricky logic, multi-file refactors), the retry after an Argon task failed its one resume (a fresh start) |
-| `--model hydrogen --effort xhigh` | slow: diffs over ~300 lines or with concurrency or algorithmic risk, and the plan critic (`--review`, the plan on stdin) |
+| `--model hydrogen` (`gemini-4-hydrogen-high`, the default) | implementation from an approved plan, `--agent <specialist>` work, writing tests, surveys and briefs (`--review`) |
+| `--model hydrogen --effort medium` or `low` | trivial bulk or mechanical edits |
+| `--model hydrogen --effort xhigh` | a harder self-contained task, before escalating to Argon |
+| `--model argon` (`gemini-4-argon-high`, its top effort) | review of your own diff, cross-review of a worker's branch, hard implementation (tricky logic, multi-file refactors), the retry after a Hydrogen task failed its one resume (a fresh start), and the plan critic (`--review`, the plan on stdin) |
 
-A branch Hydrogen wrote is reviewed by `opencode-task --review` (its lane default). Run 2-3 independent tasks at once, never more: the box has 8 cores and little spare RAM.
+A branch Argon wrote is reviewed by `opencode-task --review` (its lane default). Run 2-3 independent tasks at once, never more: the box has 8 cores and little spare RAM.
 
-Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'): on agy, Argon low/medium/high and Hydrogen low/medium/high/xhigh, chosen by the table above. Never add a model without the owner's OK. agy workers have no shell, so run the verify yourself after an agy task lands; only `opencode-task` workers get the test/build runners in `RUNNERS` (`scripts/agy-task`).
+Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'): on agy, Hydrogen low/medium/high/xhigh and Argon low/medium/high, chosen by the table above. Never add a model without the owner's OK. agy workers have no shell, so run the verify yourself after an agy task lands; only `opencode-task` workers get the test/build runners in `RUNNERS` (`scripts/agy-task`).
 
 Skip it for small edits (do them inline), for anything that depends on conversation context, and for the same work a Claude subagent already does. agy starts cold: the prompt must carry the goal, the files, the constraints and what "done" looks like. Say "use your file read and edit tools, not the shell" in every prompt, reviews included, and list the files to read: a model that reaches for a shell command (often `cat -n` for line numbers) is denied and returns nothing. If that happens, `resume` it with that instruction; in testing the retry succeeded.
 
@@ -33,7 +33,7 @@ agy-task list                                       # running and finished tasks
 agy-task clean <slug> [--force]                     # remove worktree and branch once merged or discarded
 ```
 
-Options: `--model argon|hydrogen` (or a full ID such as `gemini-4-hydrogen-xhigh`), `--effort low|medium|high` (Hydrogen also `xhigh`; it becomes the ID's suffix, default high), `--timeout 20m`, `--base REF`. `agy-task model --model hydrogen --effort xhigh` prints the ID a start would use. Use `-` as the prompt to read it from stdin.
+Options: `--model hydrogen|argon` (or a full ID such as `gemini-4-hydrogen-xhigh`), `--effort low|medium|high` (Hydrogen also `xhigh`; it becomes the ID's suffix, default high), `--timeout 20m`, `--base REF`. `agy-task model --model hydrogen --effort xhigh` prints the ID a start would use. Use `-` as the prompt to read it from stdin.
 
 - `--review` for tasks that answer in text (a review, an analysis): `ok` then means a non-empty response with no tool denied, instead of "files changed". Without it a review reports NOT ok.
 - `--setup "<cmd>"` runs in the worktree before agy. A fresh worktree has tracked files only, so use it for dependencies, e.g. `--setup "ln -s $PWD/node_modules node_modules"`. Never copy `.env` or other secrets into it.
