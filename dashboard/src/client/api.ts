@@ -8,6 +8,11 @@ import type {
   FileAttachment, ImageAttachment,
   PermissionDecisionBody,
   PresenceBody,
+  PushEndpointBody,
+  PushKeyResponse,
+  PushStatusResponse,
+  PushSubscribeBody,
+  PushSendResult,
   RemoteControl,
   RuntimesResponse,
   ServerEvent,
@@ -95,6 +100,12 @@ export interface FleetBackend {
   git(sessionId: string): Promise<GitResponse>;
   /** Tab heartbeat; `keepalive` lets the final hidden report survive page unload. */
   presence(body: PresenceBody, keepalive?: boolean): Promise<unknown>;
+  /** Web Push: the server's VAPID key, this device's subscription state, and its changes. */
+  pushKey(): Promise<PushKeyResponse>;
+  pushStatus(body: PushEndpointBody): Promise<PushStatusResponse>;
+  pushSubscribe(body: PushSubscribeBody): Promise<unknown>;
+  pushUnsubscribe(body: PushEndpointBody): Promise<unknown>;
+  pushTest(body: PushEndpointBody): Promise<{ ok: boolean; result: PushSendResult }>;
   connect(
     onEvent: (ev: ServerEvent) => void,
     onStatus: (connected: boolean) => void,
@@ -163,6 +174,11 @@ export const apiBackend: FleetBackend = {
   remoteControls: () => request('/api/remote-control'),
   commands: (sessionId) => request(`/api/sessions/${encodeURIComponent(sessionId)}/commands`),
   git: (sessionId) => request(`/api/sessions/${encodeURIComponent(sessionId)}/git`),
+  pushKey: () => request('/api/push'),
+  pushStatus: (body) => request('/api/push/status', { method: 'POST', body: JSON.stringify(body) }),
+  pushSubscribe: (body) => request('/api/push/subscribe', { method: 'POST', body: JSON.stringify(body) }),
+  pushUnsubscribe: (body) => request('/api/push/unsubscribe', { method: 'POST', body: JSON.stringify(body) }),
+  pushTest: (body) => request('/api/push/test', { method: 'POST', body: JSON.stringify(body) }),
   connect(onEvent, onStatus) {
     // EventSource reconnects on its own with backoff; we surface the state and
     // let App refetch the selected detail when the stream reopens.

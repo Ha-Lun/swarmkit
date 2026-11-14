@@ -3,9 +3,12 @@
 // pending count, close button) and a final "+ New session" tab. Workers, Archive,
 // usage and the connection state live in the StatusBar. On phones the tab row
 // scrolls horizontally; close buttons are always visible on touch/narrow screens.
+// The notifications bell sits after the tab row, outside it, so its popover is not clipped.
 import { useEffect, useRef, useState } from 'react';
 import type { SessionSummary } from '../shared/types';
+import type { FleetBackend, Guard } from './api';
 import { sessionHint } from './format';
+import { PushBell } from './PushBell';
 
 interface Props {
   sessions: SessionSummary[];
@@ -16,6 +19,10 @@ interface Props {
   onClose: (id: string) => void;
   /** True while the tab's session has a live turn that needs a stop confirm. */
   isLivePage?: (s: SessionSummary) => boolean;
+  /** Notifications bell; hidden when `pushEnabled` is false (mock/demo) or push is unsupported. */
+  backend: FleetBackend;
+  guard: Guard;
+  pushEnabled: boolean;
 }
 
 function CloseConfirm({
@@ -54,7 +61,7 @@ function CloseConfirm({
   );
 }
 
-export function TopBar({ sessions, selectedId, onHome, onSelect, onNew, onClose, isLivePage }: Props) {
+export function TopBar({ sessions, selectedId, onHome, onSelect, onNew, onClose, isLivePage, backend, guard, pushEnabled }: Props) {
   const tabs = sessions.filter(
     (s) => s.status === 'running' || s.status === 'waiting' || s.id === selectedId,
   );
@@ -146,6 +153,8 @@ export function TopBar({ sessions, selectedId, onHome, onSelect, onNew, onClose,
           <span className="top-tab-new-label">New session</span>
         </button>
       </nav>
+
+      <PushBell backend={backend} guard={guard} enabled={pushEnabled} />
     </header>
   );
 }

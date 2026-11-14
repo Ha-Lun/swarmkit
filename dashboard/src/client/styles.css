@@ -432,6 +432,77 @@ button {
 }
 .top-tab-new:hover { color: var(--text); background: var(--violet-soft); }
 
+/* ---------- notifications bell (top strip, outside the scrolling tab row) ---------- */
+
+.push-wrap {
+  flex: none;
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+.push-bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.push-bell:hover,
+.push-bell[aria-expanded='true'] { color: var(--text); background: var(--violet-soft); }
+.push-bell:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.push-bell.is-on::after {
+  content: '';
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+}
+.push-pop {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: min(300px, calc(100vw - var(--space-4)));
+  padding: var(--space-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+  color: var(--text);
+  font-size: 12px;
+}
+.push-text { margin: 0; color: var(--text-2); line-height: 1.5; }
+.push-events { margin: 0; padding: 0; border: 0; min-width: 0; }
+.push-legend { padding: 0; margin-bottom: var(--space-1); color: var(--text-3); }
+.push-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 32px;
+  cursor: pointer;
+}
+.push-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--ink); }
+.push-check input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.push-actions { display: flex; flex-direction: column; gap: var(--space-2); }
+.push-note { margin: 0; line-height: 1.5; }
+.push-note:empty { display: none; }
+.push-note.is-ok { color: var(--green); }
+.push-note.is-error { color: var(--fail); }
+@media (pointer: coarse), (max-width: 768px) {
+  .push-bell { width: 44px; }
+  .push-check { min-height: 44px; }
+}
+
 .sess {
   display: flex;
   flex-direction: column;

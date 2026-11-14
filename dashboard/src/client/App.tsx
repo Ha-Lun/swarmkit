@@ -20,6 +20,8 @@ import { Landing } from './Landing';
 import { NewSession } from './NewSession';
 import { packInstallDone, RestartBanner } from './RestartBanner';
 import { startPresence } from './presence';
+import { parseDeepLink, pushSupported, registerWorker, stripDeepLink } from './push';
+import type { DeepLink } from './push';
 import { StatusBar } from './StatusBar';
 import { initialState, nodeById, reducer } from './state';
 import { TopBar } from './TopBar';
@@ -527,6 +529,9 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   const [activeAgentId, setActiveAgentId] = useState('root');
   const [returnStay, setReturnStay] = useState(false);
   const workersAtRef = useRef(Date.now());
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
+  // A notification deep link (?session=<id> / ?workers=1) waits here until auth and the session list are in.
+  const [pendingLink, setPendingLink] = useState<DeepLink | null>(() => parseDeepLink(location.search));
 
   useEffect(() => {
     try {
@@ -586,9 +591,41 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   // Initial session list (the hello event also refreshes it).
   useEffect(() => {
     guardSilent(backend.sessions()).then((sessions) => {
-      if (sessions) dispatch({ type: 'ev', ev: { type: 'hello', sessions } });
+      if (sessions) {
+        dispatch({ type: 'ev', ev: { type: 'hello', sessions } });
+        setSessionsLoaded(true);
+      }
     });
   }, [backend, guardSilent]);
+
+  // Web Push: register the service worker once (not in mock/demo), and take taps on a
+  // notification that focused this already-open window.
+  useEffect(() => {
+    if (mock || !pushSupported()) return;
+    void registerWorker();
+    const onMessage = (e: MessageEvent) => {
+      const data: unknown = e.data;
+      if (typeof data !== 'object' || data === null) return;
+      const { type, url } = data as { type?: unknown; url?: unknown };
+      if (type !== 'swarmkit-open' || typeof url !== 'string') return;
+      const link = parseDeepLink(url);
+      if (link) setPendingLink(link);
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, [mock]);
+
+  useEffect(() => {
+    if (!pendingLink || authNeeded || !sessionsLoaded) return;
+    if (pendingLink.session) {
+      dispatch({ type: 'select', sessionId: pendingLink.session });
+      setView('session');
+    } else if (pendingLink.workers) {
+      setView('workers');
+    }
+    setPendingLink(null);
+    history.replaceState(null, '', `${location.pathname}${stripDeepLink(location.search)}${location.hash}`);
+  }, [pendingLink, authNeeded, sessionsLoaded]);
 
   // Initial worker list (the workers.update event right after connect also refreshes it).
   useEffect(() => {
@@ -895,6 +932,9 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
         onNew={() => setNewOpen(true)}
         onClose={closeSession}
         isLivePage={isLivePageSession}
+        backend={backend}
+        guard={guard}
+        pushEnabled={!mock}
       />
       <div className="app-body">
         <RemoteRail backend={backend} guard={guard} selectedId={state.selectedId} onSelect={selectSession} />

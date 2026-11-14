@@ -1405,6 +1405,12 @@ A claim with a footnote.[^1]
     runtimes: () => Promise.resolve({ claude: true, opencode: true, agy: true }),
     remoteControls: () => Promise.resolve(mockRemoteControls.map((r) => ({ ...r }))),
     presence: () => Promise.resolve({ ok: true }),
+    // Push is hidden in mock/demo mode; these only keep the FleetBackend surface complete.
+    pushKey: () => Promise.resolve({ publicKey: '' }),
+    pushStatus: () => Promise.resolve({ subscribed: false }),
+    pushSubscribe: () => Promise.resolve({ ok: true }),
+    pushUnsubscribe: () => Promise.resolve({ ok: true }),
+    pushTest: () => Promise.resolve({ ok: true, result: 'ok' }),
     commands: () =>
       Promise.resolve<CommandsResponse>({
         commands: [
