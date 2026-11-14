@@ -221,6 +221,11 @@ export interface WorkerTask {
 // POST /api/stars                       SetStarBody -> string[]
 // GET  /api/runtimes                    -> RuntimesResponse
 // POST /api/agy-hook/:id                -> hook callback from the agy plugin (loopback + x-swarmkit-hook only, no token)
+// GET  /api/push                       -> PushKeyResponse  (the server's VAPID public key)
+// POST /api/push/status                PushEndpointBody -> PushStatusResponse
+// POST /api/push/subscribe             PushSubscribeBody -> { ok: true }
+// POST /api/push/unsubscribe           PushEndpointBody -> { ok: true }
+// POST /api/push/test                  PushEndpointBody -> { ok: boolean; result: PushSendResult }
 // GET  /events                          -> text/event-stream of ServerEvent
 
 /** Which lead runtime drives a page session: the Claude Agent SDK, `opencode acp`, or `agy -p`. */
@@ -371,4 +376,57 @@ export interface RemoteControl {
   capacity?: number;
   /** The pane's Claude session, to open in the dashboard (absent for a `remote-control` server). */
   sessionId?: string;
+}
+
+/** Which notifications a subscribed device wants. */
+export interface PushEvents {
+  /** A session needs you: a permission, question or plan approval. */
+  waiting: boolean;
+  /** A session finished its turn (running/waiting -> idle/done). */
+  finished: boolean;
+  /** A session errored. */
+  error: boolean;
+  /** An agy/opencode worker finished (ok, not ok or died). */
+  workers: boolean;
+}
+
+/** PushSubscription.toJSON() as the browser hands it over (expirationTime ignored). */
+export interface PushSubscriptionBody {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}
+
+export interface PushKeyResponse {
+  /** base64url, uncompressed P-256 point (65 bytes): the applicationServerKey. */
+  publicKey: string;
+}
+
+export interface PushEndpointBody {
+  endpoint: string;
+}
+
+export interface PushStatusResponse {
+  subscribed: boolean;
+  events?: PushEvents;
+}
+
+export interface PushSubscribeBody {
+  subscription: PushSubscriptionBody;
+  events: PushEvents;
+  /** Short device label, e.g. "Android Chrome" (at most 60 chars). */
+  label?: string;
+}
+
+export type PushSendResult = 'ok' | 'gone' | 'error';
+
+/** The JSON a push carries to the service worker (public/sw.js). */
+export interface PushPayload {
+  title: string;
+  body: string;
+  /** Notification tag: session id, `worker:<lane>/<repo>/<slug>` or `test`. Same tag replaces. */
+  tag: string;
+  /** Where a tap goes: `/?session=<id>`, `/?workers=1` or `/`. */
+  url: string;
+  /** A "Send test" push: the service worker always shows it. */
+  test?: boolean;
 }
