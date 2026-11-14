@@ -9,6 +9,16 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+// Same-origin path only: '//evil.example' or a backslash path would otherwise open another site.
+function safeUrl(raw) {
+  try {
+    const u = new URL(raw, self.location.origin);
+    return u.origin === self.location.origin ? u.pathname + u.search + u.hash : '/';
+  } catch {
+    return '/';
+  }
+}
+
 function parsePayload(event) {
   let data = null;
   try {
@@ -21,7 +31,7 @@ function parsePayload(event) {
     title: typeof data.title === 'string' && data.title ? data.title : 'SwarmKit',
     body: typeof data.body === 'string' ? data.body : '',
     tag: typeof data.tag === 'string' && data.tag ? data.tag : 'swarmkit',
-    url: typeof data.url === 'string' && data.url.startsWith('/') ? data.url : '/',
+    url: typeof data.url === 'string' ? safeUrl(data.url) : '/',
     test: data.test === true,
   };
 }
@@ -56,7 +66,7 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const raw = event.notification.data && event.notification.data.url;
-  const url = typeof raw === 'string' && raw.startsWith('/') ? raw : '/';
+  const url = typeof raw === 'string' ? safeUrl(raw) : '/';
   event.waitUntil(
     (async () => {
       const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });

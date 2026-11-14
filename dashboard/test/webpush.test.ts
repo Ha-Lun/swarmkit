@@ -277,4 +277,11 @@ describe('encrypt round trip', () => {
     expect(padded.subarray(padded.length - 1)).toEqual(Buffer.from([0x02]));
     expect(Buffer.from(padded.subarray(0, padded.length - 1)).toString('utf8')).toBe('hello push 🌊');
   });
+  it('generateVapidKeys always yields a 32-byte private key (leading zero bytes padded)', () => {
+    for (let i = 0; i < 2000; i++) {
+      const k = generateVapidKeys();
+      expect(Buffer.from(k.privateKey, 'base64url').length).toBe(32);
+      expect(Buffer.from(k.publicKey, 'base64url').length).toBe(65);
+    }
+  });
 });

@@ -82,7 +82,8 @@ export function generateVapidKeys(): VapidKeys {
   ecdh.generateKeys();
   return {
     publicKey: b64uEncode(ecdh.getPublicKey()),
-    privateKey: b64uEncode(ecdh.getPrivateKey()),
+    // getPrivateKey() drops leading zero bytes (about 1 key in 256): pad d to 32 bytes.
+    privateKey: b64uEncode(Buffer.concat([Buffer.alloc(32), ecdh.getPrivateKey()]).subarray(-32)),
   };
 }
 

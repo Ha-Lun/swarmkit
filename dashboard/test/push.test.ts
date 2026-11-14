@@ -443,7 +443,7 @@ describe('createPushNotifier', () => {
     expect(rec.calls).toHaveLength(2);
     expect(rec.calls[1]?.payload).toEqual({
       title: 'Needs you: plan approval',
-      body: 'myproj: Refactor — Approve plan',
+      body: 'myproj: Refactor',
       tag: 's1',
       url: '/?session=s1',
     });
@@ -457,7 +457,7 @@ describe('createPushNotifier', () => {
     expect(rec.calls).toHaveLength(3);
     expect(rec.calls[2]?.payload).toEqual({
       title: 'Needs you: question',
-      body: 'a session — Pick one',
+      body: 'a session',
       tag: 's-unknown',
       url: '/?session=s-unknown',
     });
@@ -542,6 +542,13 @@ describe('createPushNotifier', () => {
     });
     await flush();
 
+    // w-stop's first 'unfinished' only arms the stopped notice (it may be a worker mid-exit).
+    expect(rec.calls).toHaveLength(3);
+    notifier.observe({
+      type: 'workers.update',
+      workers: [makeWorker({ slug: 'w-stop', state: 'unfinished' })],
+    });
+    await flush();
     expect(rec.calls).toHaveLength(4);
     expect(rec.calls[0]?.payload).toEqual({
       title: 'Worker ok',
@@ -551,13 +558,13 @@ describe('createPushNotifier', () => {
     });
     expect(rec.calls[1]?.payload.title).toBe('Worker NOT ok');
     expect(rec.calls[1]?.payload.body).toBe('opencode/w-fail');
-    expect(rec.calls[2]?.payload.title).toBe('Worker stopped');
-    expect(rec.calls[3]?.payload).toEqual({
+    expect(rec.calls[2]?.payload).toEqual({
       title: 'Worker ok',
       body: 'opencode/w-fast · opus',
       tag: 'worker:opencode/repo-1/w-fast',
       url: '/?workers=1',
     });
+    expect(rec.calls[3]?.payload.title).toBe('Worker stopped');
   });
 
   it('caps notifications at 30 per rolling 60 s across multiple subscriptions', async () => {
@@ -632,8 +639,8 @@ describe('createPushNotifier', () => {
     notifier.baseline([makeSession({ id: 's1', status: 'running' })], []);
     notifier.observe({ type: 'hello', sessions: [makeSession({ id: 's2', status: 'done' })] });
     notifier.observe({ type: 'session.removed', sessionId: 's1' });
-    // After removal, seeing s1 as done is first sight -> does not send.
-    notifier.observe({ type: 'session.upsert', session: makeSession({ id: 's1', status: 'done' }) });
+    // After removal, seeing s1 as done is first sight; last active long ago -> does not send.
+    notifier.observe({ type: 'session.upsert', session: makeSession({ id: 's1', status: 'done', updatedAt: 10_000 - 120_000 }) });
     await flush();
     expect(warn).not.toHaveBeenCalled();
 
@@ -672,5 +679,45 @@ describe('createPushNotifier', () => {
 
     expect(await notifier.sendTest('https://push.example/gone')).toBe('gone');
     expect(await store.get('https://push.example/gone')).toBeUndefined();
+  });
+  it('review fixes: recent first sight, finished cooldown, unfinished then ok, resume re-end, muted kinds skip the rate limit', async () => {
+    let clock = 1_000_000;
+    const store = makeFakeStore([{ ...makeSub('https://push.example/1'), events: { waiting: true, finished: true, error: true, workers: false } }]);
+    const rec = makeRecorder();
+    const notifier = createPushNotifier({ store, send: rec.send, subject: 'mailto:t@example.com', now: () => clock, warmupMs: 0 });
+
+    // First sight of a session active 5 s ago, now done -> Finished.
+    notifier.observe({ type: 'session.upsert', session: makeSession({ id: 'a', status: 'done', updatedAt: clock - 5_000 }) });
+    // Terminal exit re-reports the same turn within 45 s -> no second Finished.
+    notifier.observe({ type: 'session.upsert', session: makeSession({ id: 'a', status: 'running', updatedAt: clock }) });
+    clock += 20_000;
+    notifier.observe({ type: 'session.upsert', session: makeSession({ id: 'a', status: 'done', updatedAt: clock }) });
+    await flush();
+    expect(rec.calls.map(c => c.payload.title)).toEqual(['Finished']);
+
+    // 40 worker notifications for a muted kind must not use up the rate limit.
+    for (let i = 0; i < 40; i++) {
+      notifier.observe({ type: 'workers.update', workers: [makeWorker({ slug: `w${i}`, state: 'ok', endedAt: clock - 1_000 })] });
+    }
+    notifier.observe({ type: 'session.upsert', session: makeSession({ id: 'b', status: 'running', updatedAt: clock }) });
+    notifier.observe({ type: 'session.upsert', session: makeSession({ id: 'b', status: 'error', updatedAt: clock }) });
+    await flush();
+    expect(rec.calls.map(c => c.payload.title)).toEqual(['Finished', 'Error']);
+  });
+
+  it('workers: unfinished then ok notifies ok once; a resume ending between scans notifies again', async () => {
+    let clock = 1_000_000;
+    const store = makeFakeStore([makeSub('https://push.example/1')]);
+    const rec = makeRecorder();
+    const notifier = createPushNotifier({ store, send: rec.send, subject: 'mailto:t@example.com', now: () => clock, warmupMs: 0 });
+    notifier.baseline([], [makeWorker({ slug: 'w', state: 'running' })]);
+    notifier.observe({ type: 'workers.update', workers: [makeWorker({ slug: 'w', state: 'unfinished' })] });
+    notifier.observe({ type: 'workers.update', workers: [makeWorker({ slug: 'w', state: 'ok', endedAt: clock })] });
+    await flush();
+    expect(rec.calls.map(c => c.payload.title)).toEqual(['Worker ok']);
+    clock += 60_000;
+    notifier.observe({ type: 'workers.update', workers: [makeWorker({ slug: 'w', state: 'not-ok', endedAt: clock })] });
+    await flush();
+    expect(rec.calls.map(c => c.payload.title)).toEqual(['Worker ok', 'Worker NOT ok']);
   });
 });

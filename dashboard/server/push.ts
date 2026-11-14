@@ -13,6 +13,19 @@ const RECENT_WORKER_MS = 60_000;
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX_NOTIFICATIONS = 30;
 const PUSH_TTL_S = 3600;
+/** A first-seen session counts as just changed when it was active this recently. */
+const RECENT_SESSION_MS = 60_000;
+/** One "Finished" per session per this long (a terminal exit right after a turn re-reports it). */
+const FINISHED_COOLDOWN_MS = 45_000;
+/** State kept per session/worker is capped; the oldest entries go first. */
+const MAX_TRACKED = 2000;
+
+function capMap<K, V>(m: Map<K, V>): void {
+  for (const k of m.keys()) {
+    if (m.size <= MAX_TRACKED) break;
+    m.delete(k);
+  }
+}
 
 /** Serialises concurrent writers so overlapping updates cannot clobber each other. */
 let writeChain: Promise<void> = Promise.resolve();
@@ -29,7 +42,7 @@ function enqueueWrite<T>(fn: () => Promise<T>): Promise<T> {
 
 function configBase(): string {
   const xdg = process.env.XDG_CONFIG_HOME?.trim();
-  return xdg ? path.resolve(xdg) : path.join(os.homedir(), '.config');
+  return xdg && path.isAbsolute(xdg) ? path.resolve(xdg) : path.join(os.homedir(), '.config');
 }
 
 export interface StoredSubscription extends PushTarget {
@@ -300,6 +313,9 @@ export function createPushNotifier(deps: NotifierDeps): PushNotifier {
   const lastStatus = new Map<string, Status>();
   const workerStates = new Map<string, WorkerTask['state']>();
   const openWaits = new Set<string>();
+  const lastFinished = new Map<string, number>();
+  const workerEnded = new Map<string, number | undefined>();
+  const pendingStopped = new Set<string>();
   const sentTimestamps: number[] = [];
   let startedAt = now();
 
@@ -320,7 +336,7 @@ export function createPushNotifier(deps: NotifierDeps): PushNotifier {
   async function fanOut(kind: keyof PushEvents, payload: PushPayload): Promise<void> {
     const subs = await deps.store.list();
     const targets = subs.filter(sub => sub.events[kind]);
-    if (targets.length === 0) return;
+    if (targets.length === 0 || !allowNotification()) return;
     const keys = await deps.store.keys();
     const body = JSON.stringify(payload);
     const opts: SendOptions = { subject: deps.subject, urgency: 'high', ttl: PUSH_TTL_S };
@@ -340,16 +356,19 @@ export function createPushNotifier(deps: NotifierDeps): PushNotifier {
 
   function notify(kind: keyof PushEvents, payload: PushPayload): void {
     if (inWarmup()) return;
-    if (!allowNotification()) return;
     void fanOut(kind, payload).catch((err) => {
       console.warn('push notify failed:', err);
     });
   }
 
   function handleSessionUpsert(session: SessionSummary): void {
-    const prev = lastStatus.get(session.id);
+    const seen = lastStatus.get(session.id);
     const next = session.status;
+    lastStatus.delete(session.id); // re-insert: Map order = recency, for capMap
     lastStatus.set(session.id, next);
+    capMap(lastStatus);
+    // First sight is the baseline, unless the session was active just now (seen mid-turn).
+    const prev = seen ?? (now() - session.updatedAt < RECENT_SESSION_MS ? 'running' : undefined);
     if (prev === undefined || prev === next) return;
 
     const tag = session.id;
@@ -367,6 +386,11 @@ export function createPushNotifier(deps: NotifierDeps): PushNotifier {
     openWaits.delete(session.id);
 
     if ((prev === 'running' || prev === 'waiting') && (next === 'idle' || next === 'done')) {
+      if (inWarmup()) return; // a suppressed one must not start the cooldown
+      const last = lastFinished.get(session.id);
+      if (last !== undefined && now() - last < FINISHED_COOLDOWN_MS) return;
+      lastFinished.set(session.id, now());
+      capMap(lastFinished);
       notify('finished', makePayload('Finished', body, tag, url));
     } else if (next === 'error') {
       notify('error', makePayload('Error', body, tag, url));
@@ -381,7 +405,8 @@ export function createPushNotifier(deps: NotifierDeps): PushNotifier {
     const suffix = req.kind === 'question' ? ': question' : req.kind === 'plan' ? ': plan approval' : '';
     const title = `Needs you${suffix}`;
     const who = formatSessionLabel(deps.sessionInfo?.(req.sessionId)) ?? 'a session';
-    const body = who + (req.title ? ` — ${req.title}` : '');
+    // Not req.title: it can hold a command line or file path, shown on the lock screen.
+    const body = who;
     const url = `/?session=${encodeURIComponent(req.sessionId)}`;
     notify('waiting', makePayload(title, body, req.sessionId, url));
   }
@@ -391,21 +416,32 @@ export function createPushNotifier(deps: NotifierDeps): PushNotifier {
     for (const worker of workers) {
       const key = workerKey(worker);
       const prev = workerStates.get(key);
+      const prevEnded = workerEnded.get(key);
       const next = worker.state;
       workerStates.set(key, next);
-      if (next === 'running') continue;
-
-      const fromRunning = prev === 'running';
-      const freshEnded =
-        prev === undefined &&
-        !inWarmup() &&
-        (next === 'ok' || next === 'not-ok') &&
-        worker.endedAt !== undefined &&
-        t - worker.endedAt <= RECENT_WORKER_MS;
-
-      if (!fromRunning && !freshEnded) continue;
+      workerEnded.set(key, worker.endedAt);
+      capMap(workerStates);
+      capMap(workerEnded);
+      if (next === 'running') {
+        pendingStopped.delete(key);
+        continue;
+      }
+      let notifyAs: 'ok' | 'not-ok' | 'unfinished' | undefined;
+      if (next === 'unfinished') {
+        // A worker read between its exit and result.json looks unfinished for one scan: wait for a second.
+        if (prev === 'running') pendingStopped.add(key);
+        else if (prev === 'unfinished' && pendingStopped.delete(key)) notifyAs = 'unfinished';
+      } else {
+        pendingStopped.delete(key);
+        const fromLive = prev === 'running' || prev === 'unfinished';
+        // A resume that started and ended between two scans: same state, new endedAt.
+        const reEnded = (prev === 'ok' || prev === 'not-ok') && worker.endedAt !== undefined && worker.endedAt !== prevEnded;
+        const freshEnded = prev === undefined && !inWarmup() && worker.endedAt !== undefined && t - worker.endedAt <= RECENT_WORKER_MS;
+        if (fromLive || reEnded || freshEnded) notifyAs = next;
+      }
+      if (!notifyAs) continue;
       const body = `${worker.lane}/${worker.slug}` + (worker.model ? ` · ${worker.model}` : '');
-      notify('workers', makePayload(workerTitle(next), body, `worker:${key}`, '/?workers=1'));
+      notify('workers', makePayload(workerTitle(notifyAs), body, `worker:${key}`, '/?workers=1'));
     }
   }
 
@@ -419,6 +455,7 @@ export function createPushNotifier(deps: NotifierDeps): PushNotifier {
           case 'session.removed':
             lastStatus.delete(event.sessionId);
             openWaits.delete(event.sessionId);
+            lastFinished.delete(event.sessionId);
             break;
           case 'permission.request':
             handlePermissionRequest(event);
@@ -448,6 +485,7 @@ export function createPushNotifier(deps: NotifierDeps): PushNotifier {
       }
       for (const w of workers) {
         workerStates.set(workerKey(w), w.state);
+        workerEnded.set(workerKey(w), w.endedAt);
       }
       startedAt = now();
     },
