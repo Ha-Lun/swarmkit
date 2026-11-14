@@ -93,12 +93,22 @@ export function buildChat(node: AgentNode, children: AgentNode[]): ChatItem[] {
     } else if (e.kind === 'permission') {
       out.push({ type: 'permission', id: e.id, ts: e.ts, event: e });
     } else if (e.kind === 'result' || e.kind === 'system') {
+      // A successful result's summary is the first line of the reply just shown: skip the echo.
+      const prev = out[out.length - 1];
+      if (e.kind === 'result' && !e.isError && prev?.type === 'assistant' && echoesFirstLine(prev.text, e.summary)) continue;
       out.push({ type: 'note', id: e.id, ts: e.ts, text: e.summary, isError: e.isError });
     }
   }
   // A tools group with no tool_use (only orphan results) would render as a
   // bare "Tools" row with nothing inside — drop it entirely.
   return out.filter((item) => item.type !== 'tools' || item.events.some((x) => x.kind === 'tool_use'));
+}
+
+/** True when `summary` is (a prefix of) the first non-empty line of `text`. */
+function echoesFirstLine(text: string, summary: string): boolean {
+  const first = text.split('\n').find((l) => l.trim() !== '')?.trim() ?? '';
+  const sum = summary.trim();
+  return sum !== '' && first.startsWith(sum);
 }
 
 /** The server appends one `🖼 image` line per stored image to the user text. */

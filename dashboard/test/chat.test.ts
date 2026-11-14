@@ -118,6 +118,21 @@ describe('buildChat handoff', () => {
 });
 
 describe('buildChat text mapping', () => {
+  it('drops a successful result note that echoes the reply above it', () => {
+    const items = buildChat(node({
+      events: [
+        ev({ id: 'a1', ts: 1, kind: 'text', summary: "/resume isn't available in this environment." }),
+        ev({ id: 'r1', ts: 2, kind: 'result', summary: "/resume isn't available in this environment." }),
+        ev({ id: 'a2', ts: 3, kind: 'text', summary: 'x', detail: '\nDone: two files.\n\nMore below.' }),
+        ev({ id: 'r2', ts: 4, kind: 'result', summary: 'Done: two files.' }),
+        ev({ id: 'a3', ts: 5, kind: 'text', summary: 'Partial answer' }),
+        ev({ id: 'r3', ts: 6, kind: 'result', summary: 'Partial answer', isError: true }),
+        ev({ id: 'r4', ts: 7, kind: 'result', summary: 'Something else' }),
+      ],
+    }), []);
+    expect(items.map((i) => i.id)).toEqual(['a1', 'a2', 'a3', 'r3', 'r4']);
+  });
+
   it('uses detail with summary fallback; permission/result/system map', () => {
     const n = node({
       events: [
