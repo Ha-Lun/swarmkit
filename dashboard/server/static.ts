@@ -21,6 +21,8 @@ export function staticPolicy(pathname: string, exists: boolean): StaticDecision 
   const normalized = pathname === '/' ? '/index.html' : pathname;
   const isIndex = normalized === '/index.html';
   const isAssets = isAssetsPath(normalized);
+  // The service worker must never be cached long, nor fall back to index.html when missing.
+  if (normalized === '/sw.js') return exists ? { status: 200, file: 'requested', cacheControl: INDEX_CACHE_CONTROL } : { status: 404 };
   if (exists) {
     if (isIndex) return { status: 200, file: 'requested', cacheControl: INDEX_CACHE_CONTROL };
     if (isAssets) return { status: 200, file: 'requested', cacheControl: ASSETS_CACHE_CONTROL };

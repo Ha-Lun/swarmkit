@@ -27,6 +27,8 @@ import { listAgents } from './agents.ts';
 import { DirError, listDirs } from './dirs.ts';
 import { gitInfo } from './git.ts';
 import { listStars, setStar } from './stars.ts';
+import { createPushNotifier, createPushStore } from './push.ts';
+import { sendPush, validatePushTarget } from './webpush.ts';
 import { WorkerRegistry } from './registry.ts';
 import { SdkSessions, SessionError } from './sdk/sessions.ts';
 import { validAttachmentTotals, validFiles, validImages, validMessageText, validRuntime, validRuntimeAgent, validRuntimeEffort, validRuntimeModel, ValidationError } from './validate.ts';
@@ -40,7 +42,7 @@ import { createRemoteControls } from './remotecontrol.ts';
 import { ClaudeHookBridge, Presence, removeClaudeHookFile, startClaudeHookServer, writeClaudeHookFile } from './claudehook.ts';
 import type { HookSocketServer } from './claudehook.ts';
 import { isLoopback } from './hookauth.ts';
-import type { AgentNode, PermissionDecisionBody, ResumeSessionBody, RuntimesResponse, SendMessageBody, ServerEvent, SessionSummary, StartSessionBody } from '../src/shared/types.ts';
+import type { AgentNode, PermissionDecisionBody, PushEvents, ResumeSessionBody, RuntimesResponse, SendMessageBody, ServerEvent, SessionSummary, StartSessionBody } from '../src/shared/types.ts';
 
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT) || 4317;
@@ -71,6 +73,7 @@ const CONTENT_TYPES: Record<string, string> = {
   '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.map': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
@@ -221,7 +224,18 @@ async function main(): Promise<void> {
     client.destroy();
   };
 
+  // Web Push: every broadcast event also goes to the notifier (server/push.ts); it sends in the background.
+  const pushStore = createPushStore();
+  let sessionLookup: (id: string) => SessionSummary | undefined = () => undefined;
+  const notifier = createPushNotifier({
+    store: pushStore,
+    send: sendPush,
+    subject: process.env.PUSH_SUBJECT?.trim() || 'mailto:swarmkit@example.com',
+    sessionInfo: id => sessionLookup(id),
+  });
+
   function broadcast(event: ServerEvent): void {
+    notifier.observe(event);
     // Serialise each event once, no matter how many clients receive it.
     const data = `data: ${JSON.stringify(event)}\n\n`;
     for (const client of [...clients]) {
@@ -368,6 +382,7 @@ async function main(): Promise<void> {
     res.end(req.method === 'HEAD' ? undefined : image.data);
   }
 
+  sessionLookup = id => mergedSessions().find(s => s.id === id);
   const mergedSessions = (): SessionSummary[] =>
     [...sdk.list(), ...watcher.list()].sort((a, b) => b.updatedAt - a.updatedAt);
 
@@ -746,6 +761,8 @@ async function main(): Promise<void> {
       return sendJson(res, 200, await listDirs(target, hidden));
     }
 
+    if (parts[1] === 'push') return handlePush(req, res, parts, method);
+
     if (url.pathname === '/api/stars') {
       if (method === 'GET') return sendJson(res, 200, await listStars());
       if (method === 'POST') {
@@ -757,6 +774,50 @@ async function main(): Promise<void> {
     }
 
     return sendJson(res, 404, { error: 'not found' });
+  }
+
+  /** /api/push[/status|subscribe|unsubscribe|test]: Web Push subscriptions for this browser. */
+  async function handlePush(req: IncomingMessage, res: ServerResponse, parts: string[], method: string): Promise<void> {
+    const action = parts[2];
+    if (parts.length > 3) return sendJson(res, 404, { error: 'not found' });
+    if (action === undefined) {
+      if (method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+      return sendJson(res, 200, { publicKey: (await pushStore.keys()).publicKey });
+    }
+    if (!['status', 'subscribe', 'unsubscribe', 'test'].includes(action)) return sendJson(res, 404, { error: 'not found' });
+    if (method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+    const body = requireObject(await readJson(req, 8192));
+    if (action === 'subscribe') {
+      let target;
+      try {
+        target = validatePushTarget(body.subscription);
+      } catch (err) {
+        throw new HttpError(400, err instanceof Error ? err.message : 'invalid subscription');
+      }
+      const raw = body.events;
+      const keys = ['waiting', 'finished', 'error', 'workers'] as const;
+      if (typeof raw !== 'object' || raw === null || keys.some(k => typeof (raw as Record<string, unknown>)[k] !== 'boolean')) {
+        throw new HttpError(400, 'events must have boolean waiting, finished, error and workers');
+      }
+      const events = Object.fromEntries(keys.map(k => [k, (raw as Record<string, boolean>)[k]])) as unknown as PushEvents;
+      const label = typeof body.label === 'string' ? body.label.replace(/[^\w .,()/-]/g, '').slice(0, 60) : '';
+      await pushStore.upsert({ ...target, events, label, createdAt: Date.now() });
+      return sendJson(res, 200, { ok: true });
+    }
+    const endpoint = body.endpoint;
+    if (typeof endpoint !== 'string' || endpoint.length === 0 || endpoint.length > 2048) {
+      throw new HttpError(400, 'endpoint must be a string');
+    }
+    if (action === 'status') {
+      const sub = await pushStore.get(endpoint);
+      return sendJson(res, 200, sub ? { subscribed: true, events: sub.events } : { subscribed: false });
+    }
+    if (action === 'unsubscribe') {
+      await pushStore.remove(endpoint);
+      return sendJson(res, 200, { ok: true });
+    }
+    const result = await notifier.sendTest(endpoint);
+    return sendJson(res, 200, { ok: result === 'ok', result });
   }
 
   let viteReady: Promise<void> | undefined;

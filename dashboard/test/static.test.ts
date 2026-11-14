@@ -45,4 +45,8 @@ describe('staticPolicy', () => {
     expect(staticPolicy('/manifest.webmanifest', true)).toEqual({ status: 200, file: 'requested' });
     expect(staticPolicy('/fonts/inter.woff2', true)).toEqual({ status: 200, file: 'requested' });
   });
+  it('serves /sw.js with no-cache and never falls back to index.html', () => {
+    expect(staticPolicy('/sw.js', true)).toEqual({ status: 200, file: 'requested', cacheControl: 'no-cache' });
+    expect(staticPolicy('/sw.js', false)).toEqual({ status: 404 });
+  });
 });

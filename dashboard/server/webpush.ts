@@ -230,6 +230,7 @@ export async function sendPush(target: PushTarget, payload: string, keys: VapidK
       signal: AbortSignal.timeout(opts.timeoutMs ?? 10000),
     });
     const status = res.status;
+    await res.body?.cancel().catch(() => {}); // free the connection; the body is not needed
     if (status >= 200 && status < 300) return { result: 'ok', status };
     if (status === 404 || status === 410) return { result: 'gone', status };
     return { result: 'error', status };
