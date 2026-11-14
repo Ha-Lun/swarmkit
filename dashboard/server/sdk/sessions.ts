@@ -20,6 +20,7 @@ import { AgyHookBridge, createAgyQuery } from '../runtimes/agy.ts';
 import { listAgyCommands } from '../runtimes/agy-commands.ts';
 import type { AgyHookResponse, AgyOptions } from '../runtimes/agy.ts';
 import { claudeConfigDir, resolveDirInHome } from '../paths.ts';
+import { CommandCache } from '../commandcache.ts';
 import { deleteImages, imageDir, pruneOrphanImages, saveFiles, saveImages } from '../images.ts';
 
 /** Main-thread agent names must start alphanumerically and stay short (no '../', no path tricks). */
@@ -281,8 +282,9 @@ export class SdkSessions {
   constructor(
     private emit: (e: ServerEvent) => void,
     private queryFn: QueryFn = query,
-    runtimes?: { acp?: (o: AcpOptions) => QueryFn; agy?: (o: AgyOptions) => QueryFn; hookBase?: () => string },
+    runtimes?: { acp?: (o: AcpOptions) => QueryFn; agy?: (o: AgyOptions) => QueryFn; hookBase?: () => string; commandCacheFile?: string },
   ) {
+    this.commandCache = new CommandCache(runtimes?.commandCacheFile ?? null);
     this.acpFactory = runtimes?.acp ?? createAcpQuery;
     this.agyFactory = runtimes?.agy ?? createAgyQuery;
     this.hookBase = runtimes?.hookBase ?? (() => 'http://127.0.0.1:4317');
@@ -520,6 +522,10 @@ export class SdkSessions {
           session.terminalCommands = new Set(
             init.terminal_slash_commands.filter((v): v is string => typeof v === 'string'),
           );
+        }
+        // Seed the per-cwd command list once, so terminal and ended sessions there get a menu too.
+        if (init.type === 'system' && init.subtype === 'init' && !this.commandCache.has(session.runtime, session.cwd)) {
+          void this.commands(session.id).catch(() => {});
         }
         for (const event of applyMessage(session.tree, message)) this.emit(event);
         this.scheduleUpsert(session);
@@ -964,11 +970,11 @@ export class SdkSessions {
   }
 
   /** Last live command list per runtime + cwd, served while no query of that kind is live. */
-  private commandCache = new Map<string, SlashCommandInfo[]>();
+  private commandCache: CommandCache;
 
-  /** The last live command list seen for this runtime and cwd ([] when none yet). */
+  /** The last live command list seen for this runtime and cwd, else for the runtime anywhere ([] when none yet). */
   cachedCommands(runtime: Runtime, cwd: string): SlashCommandInfo[] {
-    return this.commandCache.get(`${runtime}\0${cwd}`) ?? [];
+    return this.commandCache.get(runtime, cwd);
   }
 
   /**
@@ -982,7 +988,7 @@ export class SdkSessions {
       return session.runtime === 'agy' ? listAgyCommands(session.cwd) : this.cachedCommands(session.runtime, session.cwd);
     }
     const live = await this.liveCommands(session);
-    if (live.length > 0) this.commandCache.set(`${session.runtime}\0${session.cwd}`, live);
+    if (live.length > 0) this.commandCache.set(session.runtime, session.cwd, live);
     return live.length > 0 ? live : this.cachedCommands(session.runtime, session.cwd);
   }
 

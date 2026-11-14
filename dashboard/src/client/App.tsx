@@ -896,8 +896,6 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
     return () => window.clearTimeout(t);
   }, [showReturn, returnStay, activeAgentId, detail?.id]);
 
-  if (authNeeded) return <TokenScreen />;
-
   const ended = !!selected && endedDraft?.id === selected.id;
   const running = selected && !ended ? selected.status === 'running' || selected.status === 'waiting' : false;
   const canContinue = !!selected && !running;
@@ -921,6 +919,9 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   const stopSelected = useCallback(() => {
     if (state.selectedId) void guardSilent(backend.stop(state.selectedId));
   }, [backend, guardSilent, state.selectedId]);
+
+  // After every hook: an early return above them changes the hook count (React #300).
+  if (authNeeded) return <TokenScreen />;
 
   return (
     <div className="app">

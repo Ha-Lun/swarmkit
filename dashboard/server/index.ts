@@ -28,6 +28,7 @@ import { DirError, listDirs } from './dirs.ts';
 import { gitInfo } from './git.ts';
 import { listStars, setStar } from './stars.ts';
 import { createPushNotifier, createPushStore } from './push.ts';
+import { commandCacheFilePath } from './commandcache.ts';
 import { sendPush, validatePushTarget } from './webpush.ts';
 import { WorkerRegistry } from './registry.ts';
 import { SdkSessions, SessionError } from './sdk/sessions.ts';
@@ -254,7 +255,10 @@ async function main(): Promise<void> {
   // The agy plugin calls back per tool use: the hook URL must stay reachable from
   // loopback even when HOST binds all interfaces (bracket bare IPv6 hosts).
   const hookHost = HOST === '0.0.0.0' || HOST === '::' || HOST === '' ? '127.0.0.1' : HOST.includes(':') ? `[${HOST}]` : HOST;
-  const sdk = new SdkSessions(broadcast, undefined, { hookBase: () => `http://${hookHost}:${PORT}` });
+  const sdk = new SdkSessions(broadcast, undefined, {
+    hookBase: () => `http://${hookHost}:${PORT}`,
+    commandCacheFile: commandCacheFilePath(),
+  });
   const watcher = new TranscriptWatcher({ emit: broadcast, skip: id => sdk.owns(id) });
   watcher.start();
 
