@@ -43,7 +43,7 @@ Everything else in the approved plan goes to a worker.
 
    The wrapper prints a start banner (slug, model, effort, base, log) on stderr, and `list` shows each task's model, elapsed time and live denied count.
 
-   Prompt additions that avoid wasted resumes: tell opencode workers "you are already in the worktree; do not `cd`", give them the exact verify command (`node test/x.test.js`, `npm test -- src/x`), and tell agy workers "file read and edit tools only, no shell", listing every file they must read (agy 1.5.8 has no search or listing tool).
+   Prompt additions that avoid wasted resumes: tell opencode workers "you are already in the worktree; do not `cd`", give them the exact verify command (`node test/x.test.js`, `npm test -- src/x`), and tell agy workers "file read and edit tools only, no shell", listing every file they must read (agy has had no search or listing tool since 1.5.8).
 5. **Keep slots full.** Start workers with a background Bash call. The running-task limit is **shared across all backends**; the wrapper reads it from the invoked backend's `*_TASK_MAX` (default 3). Do not treat it as 3 per backend. When a task lands and is merged or discarded, immediately start the next queued task so both quotas stay busy. agy first: a task goes to `opencode-task` only when the worker must run tests itself.
 6. **Review and merge as results land.** For each finished task:
    - Trust only `ok` in `result.json`; `agy` reports `SUCCESS` even when blocked.
