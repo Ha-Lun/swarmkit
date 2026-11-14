@@ -259,6 +259,8 @@ async function main(): Promise<void> {
     hookBase: () => `http://${hookHost}:${PORT}`,
     commandCacheFile: commandCacheFilePath(),
   });
+  // A fresh install or a lost cache: fetch the Claude command list once so the `/` menu works.
+  void sdk.primeCommands(os.homedir()).catch(() => {});
   const watcher = new TranscriptWatcher({ emit: broadcast, skip: id => sdk.owns(id) });
   watcher.start();
 

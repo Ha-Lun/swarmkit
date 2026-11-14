@@ -1017,6 +1017,33 @@ describe('SdkSessions', () => {
   });
 
   describe('commands', () => {
+    it('primeCommands fills an empty cache from a promptless query, then aborts it', async () => {
+      let aborted = false;
+      let promptSeen: unknown;
+      const fake: QueryFn = ({ prompt, options }) => {
+        promptSeen = prompt;
+        options?.abortController?.signal.addEventListener('abort', () => { aborted = true; });
+        const gen = (async function* (): AsyncGenerator<any, void> {
+          await new Promise<void>(() => {});
+        })();
+        return Object.assign(gen, {
+          supportedCommands: async () => [{ name: 'gamma', description: 'G' }, { name: '/alpha' }],
+        }) as unknown as AsyncIterable<SDKMessage>;
+      };
+      const sdk = new SdkSessions(() => {}, fake);
+      await sdk.primeCommands(homeDir);
+      expect(typeof promptSeen).not.toBe('string'); // no prompt sent: an input queue that stays empty
+      expect(aborted).toBe(true);
+      expect(sdk.cachedCommands('claude', homeDir).map(c => c.name)).toEqual(['alpha', 'gamma']);
+      // Already filled: no second query.
+      let calls = 0;
+      const counting: QueryFn = (p) => { calls += 1; return fake(p); };
+      const again = new SdkSessions(() => {}, counting);
+      await again.primeCommands(homeDir); // fresh instance, empty cache -> queries once
+      await again.primeCommands(homeDir); // now cached -> no query
+      expect(calls).toBe(1);
+    });
+
     it('filters terminal, strips slashes, dedupes and sorts; unknown -> undefined; ended -> []', async () => {
       const hanging: QueryFn = () => {
         const gen = (async function* (): AsyncGenerator<any, void> {

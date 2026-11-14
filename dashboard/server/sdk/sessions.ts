@@ -992,6 +992,36 @@ export class SdkSessions {
     return live.length > 0 ? live : this.cachedCommands(session.runtime, session.cwd);
   }
 
+  /**
+   * Fills an empty command cache from a promptless Claude query: the CLI answers
+   * supportedCommands without a turn (no tokens), then it is aborted. No init arrives, so
+   * terminal-only commands are not filtered out; the first page session's list replaces it.
+   */
+  async primeCommands(cwd: string): Promise<void> {
+    if (this.commandCache.get('claude', cwd).length > 0) return;
+    const abort = new AbortController();
+    const queue = new InputQueue();
+    const q = this.queryFn({
+      prompt: queue,
+      options: { cwd, abortController: abort, settingSources: isProjectTrusted(cwd) ? ['user', 'project', 'local'] : ['user'], permissionMode: 'default' },
+    });
+    // Drain the stream so the SDK's reader never blocks; it ends when aborted.
+    void (async () => {
+      try {
+        for await (const _ of q) void _;
+      } catch {
+        // aborted
+      }
+    })();
+    try {
+      const live = await this.liveCommands({ query: q } as unknown as PageSession);
+      if (live.length > 0 && !this.commandCache.has('claude', cwd)) this.commandCache.set('claude', cwd, live);
+    } finally {
+      queue.close();
+      abort.abort();
+    }
+  }
+
   private async liveCommands(session: PageSession): Promise<SlashCommandInfo[]> {
     const fn = (session.query as unknown as { supportedCommands?: () => Promise<unknown> }).supportedCommands;
     if (!fn) return [];
