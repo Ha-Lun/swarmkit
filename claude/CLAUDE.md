@@ -75,6 +75,12 @@ Bind to `0.0.0.0` (e.g. `vite --host 0.0.0.0`); report them as
   subagent only when the task needs Claude (`security-auditor`), when you need
   the answer before a worker could return, or when workers fail or are at the
   limit.
+- **Context is the cost.** Every main-session tool call re-reads the whole
+  conversation, so usage grows with context size times the number of calls,
+  not with the work done. Batch shell work into one call instead of many small
+  ones. Once the context passes ~150k tokens, hand investigation and debugging
+  to a worker (`--review` returns a brief), and suggest a fresh session
+  (`/clear`) when the topic changes.
 - Delegate with the Agent tool, the specialist's name as subagent type. Packs
   (`install.sh --pack`) add domain specialists.
 - Structural questions (who calls X, the shape of a big file, what a change
