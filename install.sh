@@ -393,6 +393,47 @@ PY
   rm -f "$tmp"
 }
 
+# Add (or with "remove", drop) the usage-steer UserPromptSubmit hook in ~/.claude/settings.json.
+# Same rules as dashboard_ask_settings: replaced in place, backup and write only on change.
+usage_steer_settings() {
+  local settings="$CLAUDE_DIR/settings.json" tmp
+  tmp="$(mktemp)"
+  if python3 - "$settings" "$tmp" "$1" <<'PY'
+import json, os, sys
+path, out, mode = sys.argv[1:]
+entry = {'hooks': [{'type': 'command', 'command': 'python3 -I ~/.claude/hooks/usage-steer.py', 'timeout': 5}]}
+try:
+    s = json.load(open(path)) if os.path.exists(path) else {}
+except ValueError as e:
+    sys.exit(f'  ! {path} is not valid JSON ({e}); usage-steer hook not changed.\n'
+             f'    Add it by hand under hooks.UserPromptSubmit: {json.dumps(entry)}')
+hooks = s.get('hooks', {})
+old = hooks.get('UserPromptSubmit', [])
+mine = lambda e: any('usage-steer.py' in h.get('command', '') for h in e.get('hooks', []))
+new = [e for e in old if not mine(e)]
+if mode != 'remove':
+    i = next((i for i, e in enumerate(old) if mine(e)), len(new))
+    new.insert(i, entry)
+if new == old:
+    sys.exit(1)
+if new:
+    hooks['UserPromptSubmit'] = new
+else:
+    hooks.pop('UserPromptSubmit', None)
+if hooks:
+    s['hooks'] = hooks
+else:
+    s.pop('hooks', None)
+with open(out, 'w') as f:
+    json.dump(s, f, indent=2, ensure_ascii=False)
+    f.write('\n')
+PY
+  then
+    write_settings "$settings" "$tmp" && echo "  settings.json: usage-steer hook ($1)"
+  fi
+  rm -f "$tmp"
+}
+
 if [ -n "$PACK" ]; then
   if [ "$UNINSTALL_MODE" = true ]; then pack_cmd "$PACK" remove; else pack_cmd "$PACK" add; fi
   exit 0
@@ -410,6 +451,7 @@ if [ "$UNINSTALL_MODE" = true ]; then
   done
   plan_gate_settings remove
   dashboard_ask_settings remove
+  usage_steer_settings remove
   # only links into this repo (our shims): ~/.local/bin also holds other tools' links
   remove_repo_links "$HOME/.local/bin"
   rm -f "$GEMINI_DIR/mcp_config.json"
@@ -520,10 +562,12 @@ install_claude() {
   fi
   link "$REPO_DIR/claude/hooks/guard.py" "$CLAUDE_DIR/hooks/guard.py"
   link "$REPO_DIR/claude/hooks/dashboard-ask.py" "$CLAUDE_DIR/hooks/dashboard-ask.py"
+  link "$REPO_DIR/claude/hooks/usage-steer.py" "$CLAUDE_DIR/hooks/usage-steer.py"
   # plan-gate.py was dropped; clean up its link and settings entry from old installs.
   prune_dead_repo_links "$CLAUDE_DIR/hooks"
   plan_gate_settings remove
   dashboard_ask_settings add
+  usage_steer_settings add
   local skills="$CLAUDE_SKILLS"
   command -v opencode &>/dev/null && skills+=" opencode-delegate"  # only for CLIs that are installed
   if [ "$PROFILE" != hybrid ]; then  # the orchestration skills only matter with lead-dev-hybrid
@@ -704,7 +748,7 @@ echo "========================================"
 echo "CLIs found:  ${FOUND:-none}"
 echo "Profile:     $profile_note"
 echo "Run:         $run"
-[ "$INSTALL_CLAUDE" != true ] || echo "Hooks:       guard.py, dashboard-ask.py (PermissionRequest in ~/.claude/settings.json)"
+[ "$INSTALL_CLAUDE" != true ] || echo "Hooks:       guard.py, dashboard-ask.py (PermissionRequest), usage-steer.py (UserPromptSubmit) in ~/.claude/settings.json"
 [ -z "$workers" ] || echo "Workers:     $workers"
 if [ "$MCP" = true ]; then
   echo "MCP servers: installed ($MCP_NAMES)"
