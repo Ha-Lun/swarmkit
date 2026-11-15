@@ -6,13 +6,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { Options, PermissionResult, SDKMessage, SDKRateLimitEvent, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { applyMessage, createTree, ownerOf, setStatus } from '../model/reducer.ts';
+import { applyMessage, createTree, ownerOf, setStatus, upsertEvent } from '../model/reducer.ts';
 import type { SessionTree } from '../model/reducer.ts';
 import { pollWorkers } from '../model/workers.ts';
 import { noteRateLimit } from '../usage.ts';
 import { DASHBOARD_ENTRYPOINTS, holderMessage, liveHolder } from '../livesessions.ts';
 import { MAX_EVENTS, RUNTIME_MODELS } from '../../src/shared/types.ts';
-import type { AgentNode, FileAttachment, ImageAttachment, LimitReached, PermissionDecisionBody, PermissionRequest, ResumeSessionBody, Runtime, ServerEvent, SessionDetail, SessionSummary, SlashCommandInfo, StartSessionBody } from '../../src/shared/types.ts';
+import type { AgentNode, FileAttachment, ImageAttachment, LimitReached, PermissionDecisionBody, PermissionRequest, ResumeSessionBody, Runtime, ServerEvent, SessionDetail, SessionSummary, SlashCommandInfo, StartSessionBody, TriageInfo } from '../../src/shared/types.ts';
 import { AGENT_RE, validAttachmentTotals, validEffort, validFiles, validImages, validMessageText, validResumeModel, validText } from '../validate.ts';
 import { createAcpQuery } from '../runtimes/acp.ts';
 import type { AcpOptions } from '../runtimes/acp.ts';
@@ -53,6 +53,8 @@ export interface PageStartOptions extends StartSessionBody {
   title?: string;
   /** The Claude session this fallback lead continues. */
   fallbackOf?: { sessionId: string; title: string };
+  /** Haiku triage classification when triage picked the start model. */
+  triage?: TriageInfo;
 }
 
 /** Called once per session when a Claude turn is refused by the plan limit. */
@@ -168,8 +170,10 @@ interface PageSession {
   imagesDir?: string;
   /** agy hook secret for POST /api/agy-hook/:id (agy runtime only). */
   hookSecret?: string;
-  /** Lead model for non-Claude runtimes (default for the next resume). */
+  /** Lead model for this session (default for the next resume and summary fallback before init). */
   model?: string;
+  /** Haiku triage outcome when triage picked the start model. */
+  triage?: TriageInfo;
   /** First line of the first prompt, clamped to 120 chars for the title. */
   title: string;
   startedAt: number;
@@ -216,6 +220,9 @@ const firstPromptLine = (prompt: string): string => {
   const line = prompt.split('\n', 1)[0] ?? prompt;
   return line.length > 120 ? line.slice(0, 120) : line;
 };
+
+const isOpusModel = (model: string | undefined): boolean =>
+  model === 'opus' || (model?.startsWith('claude-opus') ?? false);
 
 /** ~/.claude.json marks trusted projects: only then are project/local settings read (untrusted files are attacker-controlled). */
 function isProjectTrusted(cwd: string): boolean {
@@ -364,6 +371,7 @@ export class SdkSessions {
       ...(body.effort ? { effort: body.effort } : {}),
       runtime,
       ...(body.model ? { model: body.model } : {}),
+      ...(body.triage ? { triage: { ...body.triage } } : {}),
       title: body.title ?? firstPromptLine(body.prompt),
       ...(body.fallbackOf ? { fallbackOf: { ...body.fallbackOf } } : {}),
       startedAt,
@@ -911,20 +919,44 @@ export class SdkSessions {
     }
     if (existing) {
       if (existing.runtime !== 'claude') return this.resumeRuntime(existing, text, model, effort, images, files);
+      if (effort === undefined && isOpusModel(model)) effort = 'high';
       const root = existing.tree.nodes.get('root');
+      let restartForModel = false;
       if (!existing.stopped && existing.consuming) {
         if (root && (root.status === 'running' || root.status === 'waiting')) {
           throw new SessionError(409, 'Session is still running');
         }
-        // Idle (turn ended, input queue open): the live process just takes the message.
-        if (effort !== undefined) existing.effort = effort;
-        existing.updatedAt = Date.now();
-        const turn = this.prepareTurn(existing, text, images, files);
-        existing.queue.push(turn.message);
-        for (const event of turn.events) this.emit(event);
-        for (const event of setStatus(existing.tree, 'root', 'running')) this.emit(event);
-        this.scheduleUpsert(existing);
-        return id;
+        let modelSwitched = false;
+        if (model !== undefined && model !== existing.model) {
+          const setModel = (existing.query as unknown as { setModel?: (m?: string) => Promise<void> } | null)?.setModel;
+          if (typeof setModel === 'function') {
+            try {
+              await setModel.call(existing.query, model);
+              existing.model = model;
+              if (root) {
+                root.model = model;
+                this.emit(upsertEvent(root));
+              }
+              modelSwitched = true;
+            } catch {
+              restartForModel = true;
+            }
+          } else {
+            restartForModel = true;
+          }
+        }
+        if (!restartForModel) {
+          // Idle (turn ended, input queue open): the live process just takes the message.
+          if (effort !== undefined) existing.effort = effort;
+          existing.updatedAt = Date.now();
+          const turn = this.prepareTurn(existing, text, images, files);
+          existing.queue.push(turn.message);
+          for (const event of turn.events) this.emit(event);
+          for (const event of setStatus(existing.tree, 'root', 'running')) this.emit(event);
+          if (modelSwitched) this.flushUpsert(existing);
+          else this.scheduleUpsert(existing);
+          return id;
+        }
       }
       // Restarting a query left the session open elsewhere: a live heartbeat file for
       // this id from a non-dashboard process (not sdk-cli / sdk-ts) means a terminal
@@ -933,10 +965,19 @@ export class SdkSessions {
       if (leftover && !DASHBOARD_ENTRYPOINTS.has(leftover.entrypoint ?? '')) {
         throw new SessionError(409, holderMessage(leftover.pid));
       }
+      if (restartForModel) {
+        // Close the live idle query's queue so consume() unwinds immediately before restarting.
+        existing.stopped = true;
+        existing.queue.close();
+      }
       // The old process is gone (or stopping): unwind it before starting the new query.
       await this.unwind(existing);
+      if (model !== undefined) {
+        existing.model = model;
+        if (root) root.model = model;
+      }
       if (effort !== undefined) existing.effort = effort;
-      this.startQuery(existing, text, model, effort ?? existing.effort, true, images, files);
+      this.startQuery(existing, text, model ?? existing.model, effort ?? existing.effort, true, images, files);
       return id;
     }
     // Non-Claude runtimes live only in page memory: a terminal transcript cannot be adopted into one.
@@ -950,13 +991,21 @@ export class SdkSessions {
     const stillLive =
       info.transcriptMtimeMs !== undefined && Date.now() - info.transcriptMtimeMs < ACTIVE_MS;
     if (stillLive) throw new SessionError(409, 'This session is still active in a terminal');
+    if (effort === undefined && isOpusModel(model)) effort = 'high';
     const priorNodes = info.nodes ?? [];
     const title = info.title ?? priorRoot?.description ?? 'Resumed session';
     const tree = this.rebuildTree(id, priorNodes, title);
+    const priorModel = priorRoot?.model && priorRoot.model !== '<synthetic>' ? priorRoot.model : undefined;
+    const sessionModel = model ?? priorModel;
+    if (model) {
+      const root = tree.nodes.get('root');
+      if (root) root.model = model;
+    }
     const session: PageSession = {
       id,
       cwd,
       ...(storedAgent ? { agent: storedAgent } : {}),
+      ...(sessionModel ? { model: sessionModel } : {}),
       ...(effort ? { effort } : {}),
       // Terminal adoptions are always Claude Code sessions (non-Claude models refuse above).
       runtime: 'claude',
@@ -976,7 +1025,7 @@ export class SdkSessions {
       upsertThrottle: { lastSent: 0, timer: null },
     };
     this.sessions.set(id, session);
-    this.startQuery(session, text, model, effort, true, images, files);
+    this.startQuery(session, text, session.model, effort, true, images, files);
     return id;
   }
 
@@ -1083,7 +1132,7 @@ export class SdkSessions {
       root.prompt = priorRoot.prompt;
       if (priorRoot.description) root.description = priorRoot.description;
       else if (title) root.description = firstPromptLine(title);
-      if (priorRoot.model) root.model = priorRoot.model;
+      if (priorRoot.model && priorRoot.model !== '<synthetic>') root.model = priorRoot.model;
       root.result = priorRoot.result;
       root.lastActivity = priorRoot.lastActivity;
       root.costUsd = priorRoot.costUsd;
@@ -1284,7 +1333,8 @@ export class SdkSessions {
       updatedAt: session.updatedAt,
       costUsd: root?.costUsd ?? 0,
       ...(session.agent ? { agent: session.agent } : {}),
-      ...(root?.model ? { model: root.model } : {}),
+      ...((root?.model ?? session.model) ? { model: root?.model ?? session.model } : {}),
+      ...(session.triage ? { triage: { ...session.triage } } : {}),
       nodeCount: session.tree.nodes.size,
       pendingPermissions: session.pending.size,
       runtime: session.runtime,
