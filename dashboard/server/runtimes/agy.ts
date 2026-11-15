@@ -24,6 +24,8 @@ export interface AgyOptions {
   env?: NodeJS.ProcessEnv;
   /** Absolute image dir of the session once it has pasted images: --add-dir on each turn, and the hook may read there. */
   imagesDir?: () => string | undefined;
+  /** The session's artifact dir: $SWARMKIT_ARTIFACTS_DIR and --add-dir on each turn. */
+  artifactsDir?: string;
 }
 
 export interface AgyHookRequest {
@@ -252,6 +254,8 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
       }
       const imagesDir = opts.imagesDir?.();
       if (opts.hook && imagesDir) env.SWARMKIT_DASH_IMAGES_DIR = imagesDir;
+      if (opts.artifactsDir) env.SWARMKIT_ARTIFACTS_DIR = opts.artifactsDir;
+      if (opts.hook && opts.artifactsDir) env.SWARMKIT_DASH_ARTIFACTS_DIR = opts.artifactsDir;
       delete env.SWARMKIT_DASH_AGY_SETTINGS;
       delete env.CLAUDECODE;
       delete env.OPENCODE;
@@ -266,6 +270,7 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
       if (conv) args.push('--conversation', conv);
       const imagesDir = opts.imagesDir?.();
       if (imagesDir) args.push('--add-dir', imagesDir);
+      if (opts.artifactsDir) args.push('--add-dir', opts.artifactsDir);
       if (opts.hook) args.push('--dangerously-skip-permissions');
       return args;
     };

@@ -11,6 +11,7 @@ import type { ImageAttachment, ServerEvent } from '../src/shared/types.ts';
 import { MAX_IMAGE_BYTES } from '../src/shared/types.ts';
 import { validImages, validMessageText, ValidationError } from '../server/validate.ts';
 import { deleteImages, imageDir, imageEtag, pruneOrphanImages, readImage, resolveImagePath, saveImages } from '../server/images.ts';
+import { artifactDir, deleteArtifacts } from '../server/artifacts.ts';
 import { SdkSessions } from '../server/sdk/sessions.ts';
 import type { QueryFn } from '../server/sdk/sessions.ts';
 import { createAcpQuery } from '../server/runtimes/acp.ts';
@@ -330,10 +331,11 @@ describe('sessions with images', () => {
     });
     const read = (): Array<{ args: string[]; imagesDir: string | null }> =>
       existsSync(record) ? readFileSync(record, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l) as { args: string[]; imagesDir: string | null }) : [];
-    // Plain first turn: no image flag, no env.
+    const addDirs = (args: string[]): string[] => args.flatMap((a, i) => (a === '--add-dir' ? [args[i + 1]!] : []));
+    // Plain first turn: only the artifacts dir, no image flag, no env.
     const id = sdk.start({ prompt: 'hello', cwd: homeDir, runtime: 'agy' });
     await vi_waitFor(() => read().length === 1);
-    expect(read()[0]!.args).not.toContain('--add-dir');
+    expect(addDirs(read()[0]!.args)).toEqual([artifactDir(id)]);
     expect(read()[0]!.imagesDir).toBeNull();
     await vi_waitFor(() => sdk.get(id)?.nodes.find(n => n.id === 'root')?.status !== 'running');
     const img = png();
@@ -341,7 +343,7 @@ describe('sessions with images', () => {
     await vi_waitFor(() => read().length === 2);
     const dir = imageDir(id);
     const second = read()[1]!;
-    expect(second.args[second.args.indexOf('--add-dir') + 1]).toBe(dir);
+    expect(addDirs(second.args)).toEqual([dir, artifactDir(id)]);
     expect(second.args[1]).toBe(`see this\n\nAttached images (open them with read_file):\n${path.join(dir, '1.png')}`);
     expect(second.imagesDir).toBe(dir);
     expect(userEvents(events)[1]!.images).toEqual([`/api/sessions/${id}/images/1.png`]);
@@ -350,9 +352,10 @@ describe('sessions with images', () => {
     await vi_waitFor(() => sdk.get(id)?.nodes.find(n => n.id === 'root')?.status !== 'running');
     sdk.send(id, 'and now');
     await vi_waitFor(() => read().length === 3);
-    expect(read()[2]!.args).toContain('--add-dir');
+    expect(addDirs(read()[2]!.args)).toContain(dir);
     sdk.stop(id);
     deleteImages(id);
+    deleteArtifacts(id);
   });
 });
 
@@ -367,7 +370,7 @@ async function vi_waitFor(cond: () => boolean, timeoutMs = 8000): Promise<void> 
 function runHook(name: string, args: Record<string, unknown>, env: Record<string, string>): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const clean: NodeJS.ProcessEnv = { ...process.env, NO_PROXY: '*', no_proxy: '*' };
-    for (const k of ['SWARMKIT_DASH_HOOK_URL', 'SWARMKIT_DASH_HOOK_SECRET', 'SWARMKIT_DASH_CWD', 'SWARMKIT_DASH_IMAGES_DIR']) delete clean[k];
+    for (const k of ['SWARMKIT_DASH_HOOK_URL', 'SWARMKIT_DASH_HOOK_SECRET', 'SWARMKIT_DASH_CWD', 'SWARMKIT_DASH_IMAGES_DIR', 'SWARMKIT_DASH_ARTIFACTS_DIR']) delete clean[k];
     const child = spawn('python3', ['-I', hookPy], { env: { ...clean, ...env }, stdio: ['pipe', 'pipe', 'inherit'] });
     let text = '';
     child.stdout.on('data', (c: Buffer) => {
@@ -402,6 +405,25 @@ describe('agy-hook.py images dir', () => {
     expect((await runHook('write_to_file', { TargetFile: path.join(images, '2.png') }, withImages)).decision).toBe('deny');
     expect((await runHook('read_file', { Path: path.join(images, 'link', 'f') }, withImages)).decision).toBe('deny');
     expect((await runHook('read_file', { Path: path.join(images, '..', 'other', 'f') }, withImages)).decision).toBe('deny');
+  });
+});
+
+describe('agy-hook.py artifacts dir', () => {
+  it('auto-allows reads and writes in the artifacts dir only', async () => {
+    const cwd = path.join(scratch, 'work2');
+    const out = path.join(scratch, 'artifacts');
+    const other = path.join(scratch, 'other2');
+    for (const d of [cwd, out, other]) mkdirSync(d, { recursive: true });
+    symlinkSync(other, path.join(out, 'link'));
+    const base = { SWARMKIT_DASH_HOOK_URL: 'http://127.0.0.1:1/x', SWARMKIT_DASH_HOOK_SECRET: 's', SWARMKIT_DASH_CWD: cwd };
+    const env = { ...base, SWARMKIT_DASH_ARTIFACTS_DIR: out };
+    expect(await runHook('write_to_file', { TargetFile: path.join(out, 'report.pdf') }, env)).toEqual({ decision: 'allow' });
+    expect(await runHook('view_file', { AbsolutePath: path.join(out, 'report.pdf') }, env)).toEqual({ decision: 'allow' });
+    expect((await runHook('write_to_file', { TargetFile: path.join(out, 'report.pdf') }, base)).decision).toBe('deny');
+    expect((await runHook('write_to_file', { TargetFile: path.join(out, 'link', 'f') }, env)).decision).toBe('deny');
+    expect((await runHook('write_to_file', { TargetFile: path.join(out, '..', 'other2', 'f') }, env)).decision).toBe('deny');
+    // Edits in the cwd keep their normal rules (a .env edit still asks).
+    expect((await runHook('write_to_file', { TargetFile: path.join(cwd, '.env') }, env)).decision).toBe('deny');
   });
 });
 

@@ -22,6 +22,7 @@ import type { AgyHookResponse, AgyOptions } from '../runtimes/agy.ts';
 import { claudeConfigDir, resolveDirInHome } from '../paths.ts';
 import { CommandCache } from '../commandcache.ts';
 import { deleteImages, imageDir, pruneOrphanImages, saveFiles, saveImages } from '../images.ts';
+import { deleteArtifacts, ensureArtifactDir } from '../artifacts.ts';
 
 /** Main-thread agent names must start alphanumerically and stay short (no '../', no path tricks). */
 export { AGENT_RE };
@@ -386,6 +387,7 @@ export class SdkSessions {
     } catch (err) {
       this.sessions.delete(id);
       deleteImages(id);
+      deleteArtifacts(id);
       throw err;
     }
     return id;
@@ -424,6 +426,7 @@ export class SdkSessions {
     session.abort = new AbortController();
     // Untrusted projects only get user settings: project/local settings files would be attacker-controlled.
     session.untrustedProject = !isProjectTrusted(session.cwd);
+    const artifactsDir = this.artifactsDirFor(session);
     if (session.runtime === 'claude') {
       const options: Options = {
         cwd: session.cwd,
@@ -434,6 +437,10 @@ export class SdkSessions {
         // Trusted: the terminal's mode (permissions.defaultMode, else auto); untrusted: always ask.
         permissionMode: (session.permissionMode = session.untrustedProject ? 'default' : terminalPermissionMode()),
         canUseTool: this.makeCanUseTool(session, generation),
+        // $SWARMKIT_ARTIFACTS_DIR: where the lead puts files for the user to download (GET /api/sessions/:id/artifacts).
+        ...(artifactsDir
+          ? { env: { ...(process.env as Record<string, string>), SWARMKIT_ARTIFACTS_DIR: artifactsDir }, additionalDirectories: [artifactsDir] }
+          : {}),
         // A resumed session keeps its id and drops the fixed sessionId (the SDK continues the old one).
         ...(resume ? { resume: session.id } : { sessionId: session.id }),
         ...(session.agent ? { agent: session.agent } : {}),
@@ -442,7 +449,7 @@ export class SdkSessions {
       };
       session.query = this.queryFn({ prompt: session.queue, options });
     } else {
-      session.query = this.startRuntimeQuery(session, generation, model, effort, resume);
+      session.query = this.startRuntimeQuery(session, generation, model, effort, resume, artifactsDir);
     }
     if (turn) session.queue.push(turn.message);
     session.consumePromise = this.consume(session, generation).catch(err => {
@@ -529,7 +536,17 @@ export class SdkSessions {
    * abortController, canUseTool and the session identity travel in the options;
    * model/effort/agent go to the factory (no settingSources/permissionMode/agent).
    */
-  private startRuntimeQuery(session: PageSession, generation: number, model: string | undefined, effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined, resume: boolean): AsyncIterable<SDKMessage> {
+  /** The session's artifact dir (created), or undefined when the store can't be made (the session still runs). */
+  private artifactsDirFor(session: PageSession): string | undefined {
+    try {
+      return ensureArtifactDir(session.id);
+    } catch (err) {
+      console.error(`Session ${session.id}: no artifact dir:`, (err as Error).message);
+      return undefined;
+    }
+  }
+
+  private startRuntimeQuery(session: PageSession, generation: number, model: string | undefined, effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined, resume: boolean, artifactsDir?: string): AsyncIterable<SDKMessage> {
     const canUse = this.makeCanUseTool(session, generation);
     const options: Options = {
       cwd: session.cwd,
@@ -546,6 +563,7 @@ export class SdkSessions {
         ...(resume && session.runtimeSessionId ? { resumeId: session.runtimeSessionId } : {}),
         onSessionId,
         currentModel: () => session.model,
+        ...(artifactsDir ? { env: { ...process.env, SWARMKIT_ARTIFACTS_DIR: artifactsDir } } : {}),
       })({ prompt: session.queue, options });
     }
     // A fresh secret per generation: a lingering old agy process cannot get prompts in the new one.
@@ -580,6 +598,7 @@ export class SdkSessions {
       onSessionId,
       hook: { url: `${this.hookBase()}/api/agy-hook/${session.id}`, secret },
       imagesDir: () => session.imagesDir,
+      ...(artifactsDir ? { artifactsDir } : {}),
       currentModel: () => session.model,
     })({ prompt: session.queue, options });
   }

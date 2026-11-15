@@ -47,7 +47,7 @@ def check_path(value, root):
     return resolved
 
 
-def auto_allowed(name, args, root, images_root=None):
+def auto_allowed(name, args, root, images_root=None, artifacts_root=None):
     paths = READ_PATHS.get(name)
     if paths is None:
         edit, paths = True, EDIT_PATHS.get(name)
@@ -57,6 +57,13 @@ def auto_allowed(name, args, root, images_root=None):
         return False
     resolved = []
     for key in paths:
+        if artifacts_root:
+            # Reads and writes in the session's artifacts dir: files the lead hands the user.
+            try:
+                check_path(args.get(key), artifacts_root)
+                continue
+            except ValueError:
+                pass
         try:
             resolved.append(check_path(args.get(key), root))
         except ValueError:
@@ -245,7 +252,9 @@ def decide():
     root = os.path.realpath(os.environ.get("SWARMKIT_DASH_CWD") or os.getcwd())
     images = os.environ.get("SWARMKIT_DASH_IMAGES_DIR")
     images_root = os.path.realpath(images) if images and images.startswith("/") else None
-    if auto_allowed(call.get("name"), call.get("args"), root, images_root):
+    artifacts = os.environ.get("SWARMKIT_DASH_ARTIFACTS_DIR")
+    artifacts_root = os.path.realpath(artifacts) if artifacts and artifacts.startswith("/") else None
+    if auto_allowed(call.get("name"), call.get("args"), root, images_root, artifacts_root):
         return {"decision": "allow"}
     if call.get("name") == "run_command" and isinstance(call.get("args"), dict):
         verdict = command_decision(call["args"].get("CommandLine"))

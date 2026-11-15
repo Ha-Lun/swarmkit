@@ -32,6 +32,12 @@ builds. Never delegate small tasks: a subagent starts with no context. Workers (
 Bind to `0.0.0.0` (e.g. `vite --host 0.0.0.0`); report them as
 `http://localhost:<port>` or `${TAILSCALE_IP:-localhost}:<port>`.
 
+## Files for the user
+
+In a dashboard session (`SWARMKIT_ARTIFACTS_DIR` is set), hand the user a file
+(a PDF, an export, a build) by copying it into that folder, and name it in your
+reply; the dashboard offers it for download.
+
 ## OpenCode
 
 - Delegate with the `task` tool and the specialist's agent name. Ask the user,
