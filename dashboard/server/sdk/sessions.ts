@@ -12,7 +12,7 @@ import { pollWorkers } from '../model/workers.ts';
 import { noteRateLimit } from '../usage.ts';
 import { DASHBOARD_ENTRYPOINTS, holderMessage, liveHolder } from '../livesessions.ts';
 import { MAX_EVENTS, RUNTIME_MODELS } from '../../src/shared/types.ts';
-import type { AgentNode, FileAttachment, ImageAttachment, PermissionDecisionBody, PermissionRequest, ResumeSessionBody, Runtime, ServerEvent, SessionDetail, SessionSummary, SlashCommandInfo, StartSessionBody } from '../../src/shared/types.ts';
+import type { AgentNode, FileAttachment, ImageAttachment, LimitReached, PermissionDecisionBody, PermissionRequest, ResumeSessionBody, Runtime, ServerEvent, SessionDetail, SessionSummary, SlashCommandInfo, StartSessionBody } from '../../src/shared/types.ts';
 import { AGENT_RE, validAttachmentTotals, validEffort, validFiles, validImages, validMessageText, validResumeModel, validText } from '../validate.ts';
 import { createAcpQuery } from '../runtimes/acp.ts';
 import type { AcpOptions } from '../runtimes/acp.ts';
@@ -44,6 +44,54 @@ export class SessionError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
   }
+}
+
+/** Extra start options, internal only (the POST body validation never takes them). */
+export interface PageStartOptions extends StartSessionBody {
+  /** Keep the old title instead of the prompt's first line (fallback leads). */
+  title?: string;
+  /** The Claude session this fallback lead continues. */
+  fallbackOf?: { sessionId: string; title: string };
+}
+
+/** Called once per session when a Claude turn is refused by the plan limit. */
+export interface SessionHooks {
+  onLimit?: (sessionId: string, info: { window: string; resetsAt: string | null }) => void;
+}
+
+/** rateLimitType values that count as a plan-limit hit (usage.ts only records a subset). */
+const LIMIT_WINDOWS = new Set([
+  'five_hour',
+  'seven_day',
+  'seven_day_opus',
+  'seven_day_sonnet',
+  'overage',
+]);
+
+/** An assistant rate_limit error only counts when its text names the plan limit. */
+const LIMIT_TEXT_RE = /usage limit|limit reached/i;
+
+/** Text of an assistant message: explicit text, content blocks, then result strings. */
+function assistantErrorText(message: unknown): string {
+  const m = message as {
+    text?: unknown;
+    result?: unknown;
+    message?: { content?: unknown };
+  };
+  const parts: string[] = [];
+  if (typeof m?.text === 'string') parts.push(m.text);
+  const content = m?.message?.content;
+  if (typeof content === 'string') parts.push(content);
+  else if (Array.isArray(content)) {
+    for (const block of content) {
+      if (block && typeof block === 'object' && (block as { type?: unknown }).type === 'text') {
+        const text = (block as { text?: unknown }).text;
+        if (typeof text === 'string') parts.push(text);
+      }
+    }
+  }
+  if (typeof m?.result === 'string') parts.push(m.result);
+  return parts.join('\n');
 }
 
 /** Injectable so tests can drive a fake query. */
@@ -142,6 +190,14 @@ interface PageSession {
   untrustedProject: boolean;
   /** The SDK session's current permission mode (seeded at startQuery, kept up to date from system messages). */
   permissionMode?: NonNullable<Options['permissionMode']>;
+  /** Set when a Claude turn is refused by the plan limit (server/fallback.ts). */
+  limitHit?: { window: string; resetsAt: string | null };
+  /** Mirrors limitHit for summaries; the limit handler fills in the fallback. */
+  limitReached?: LimitReached;
+  /** onLimit has been called for this session (exactly once per session). */
+  limitNotified?: boolean;
+  /** Set on a fallback lead: the Claude session it continues (never falls back again). */
+  fallbackOf?: { sessionId: string; title: string };
   /** Terminal slash commands from the init message (filtered out of commands()). */
   terminalCommands?: Set<string>;
   upsertThrottle: { lastSent: number; timer: NodeJS.Timeout | null };
@@ -283,6 +339,7 @@ export class SdkSessions {
     private emit: (e: ServerEvent) => void,
     private queryFn: QueryFn = query,
     runtimes?: { acp?: (o: AcpOptions) => QueryFn; agy?: (o: AgyOptions) => QueryFn; hookBase?: () => string; commandCacheFile?: string },
+    private hooks?: SessionHooks,
   ) {
     this.commandCache = new CommandCache(runtimes?.commandCacheFile ?? null);
     this.acpFactory = runtimes?.acp ?? createAcpQuery;
@@ -294,7 +351,7 @@ export class SdkSessions {
   }
 
   /** Starts a session in the background and returns its id at once. */
-  start(body: StartSessionBody): string {
+  start(body: PageStartOptions): string {
     const id = randomUUID();
     const startedAt = Date.now();
     const runtime = body.runtime ?? 'claude';
@@ -306,7 +363,8 @@ export class SdkSessions {
       ...(body.effort ? { effort: body.effort } : {}),
       runtime,
       ...(body.model ? { model: body.model } : {}),
-      title: firstPromptLine(body.prompt),
+      title: body.title ?? firstPromptLine(body.prompt),
+      ...(body.fallbackOf ? { fallbackOf: { ...body.fallbackOf } } : {}),
       startedAt,
       updatedAt: startedAt,
       tree,
@@ -331,6 +389,28 @@ export class SdkSessions {
       throw err;
     }
     return id;
+  }
+
+  /** Sets (or replaces) the plan-limit handler after construction (index.ts wiring). */
+  setOnLimit(onLimit: SessionHooks['onLimit']): void {
+    this.hooks = { ...this.hooks, onLimit };
+  }
+
+  /** Current permission mode of a page session, for the fallback handoff. */
+  permissionModeOf(id: string): string | undefined {
+    return this.sessions.get(id)?.permissionMode;
+  }
+
+  /**
+   * Records the fallback outcome of a plan-limit hit and broadcasts the old
+   * session's summary again (its limitReached now names the new lead, or null
+   * when no lane was free). No-op without a recorded limit hit.
+   */
+  resolveLimit(id: string, fallback: LimitReached['fallback']): void {
+    const session = this.sessions.get(id);
+    if (!session || !session.limitHit) return;
+    session.limitReached = { ...session.limitHit, fallback };
+    this.flushUpsert(session);
   }
 
   /** Runs the SDK query for a session (fresh start or resumed continuation) and consumes it in the background. */
@@ -504,6 +584,31 @@ export class SdkSessions {
     })({ prompt: session.queue, options });
   }
 
+  /** Records a plan-limit hit from a rate_limit_event (rejected status, known window). */
+  private recordLimitEvent(session: PageSession, message: SDKRateLimitEvent): void {
+    if (session.runtime !== 'claude' || session.fallbackOf || session.stopped || session.limitHit) return;
+    const info = (message as unknown as { rate_limit_info?: unknown }).rate_limit_info as
+      | { status?: unknown; rateLimitType?: unknown; resetsAt?: unknown }
+      | undefined;
+    if (info?.status !== 'rejected') return;
+    if (typeof info.rateLimitType !== 'string' || !LIMIT_WINDOWS.has(info.rateLimitType)) return;
+    const resetsAt =
+      typeof info.resetsAt === 'number' && info.resetsAt > 0
+        ? new Date(info.resetsAt * 1000).toISOString()
+        : null;
+    session.limitHit = { window: info.rateLimitType, resetsAt };
+    session.limitReached = { window: info.rateLimitType, resetsAt, fallback: null };
+  }
+
+  /** Records a plan-limit hit from an assistant rate_limit error naming the limit. */
+  private recordAssistantLimit(session: PageSession, message: SDKMessage): void {
+    if (session.runtime !== 'claude' || session.fallbackOf || session.stopped || session.limitHit) return;
+    if (((message as unknown) as { error?: unknown }).error !== 'rate_limit') return;
+    if (!LIMIT_TEXT_RE.test(assistantErrorText(message))) return;
+    session.limitHit = { window: 'five_hour', resetsAt: null };
+    session.limitReached = { window: 'five_hour', resetsAt: null, fallback: null };
+  }
+
   /** Consumes the SDK iterator and broadcasts tree events + throttled summaries. */
   private async consume(session: PageSession, generation: number): Promise<void> {
     session.consuming = true;
@@ -513,6 +618,10 @@ export class SdkSessions {
         if ((message as { type?: string }).type === 'rate_limit_event') {
           // Feed the latest-known plan limits to /api/usage.
           noteRateLimit((message as SDKRateLimitEvent).rate_limit_info);
+          this.recordLimitEvent(session, message as SDKRateLimitEvent);
+        }
+        if ((message as { type?: string }).type === 'assistant') {
+          this.recordAssistantLimit(session, message);
         }
         const init = message as unknown as { type?: unknown; subtype?: unknown; terminal_slash_commands?: unknown; permissionMode?: unknown };
         if (init.type === 'system' && (init.subtype === 'init' || init.subtype === 'status') && typeof init.permissionMode === 'string') {
@@ -528,10 +637,40 @@ export class SdkSessions {
           void this.commands(session.id).catch(() => {});
         }
         for (const event of applyMessage(session.tree, message)) this.emit(event);
-        this.scheduleUpsert(session);
+        if (
+          (message as { type?: string }).type === 'result' &&
+          session.limitHit &&
+          !session.limitNotified &&
+          session.runtime === 'claude' &&
+          !session.fallbackOf &&
+          !session.stopped
+        ) {
+          // The turn was refused by the plan limit: pin the root to error (the
+          // reducer already did on a real is_error result; this is a no-op then),
+          // end the SDK stream, then hand off exactly once. limitReached was set
+          // synchronously at the limit signal above, so the upsert below already
+          // carries it and the generic error push stays silent.
+          session.limitNotified = true;
+          for (const event of setStatus(session.tree, 'root', 'error')) this.emit(event);
+          const info = { ...session.limitHit };
+          session.queue.close();
+          this.scheduleUpsert(session);
+          try {
+            const out = this.hooks?.onLimit?.(session.id, info) as unknown;
+            if (out instanceof Promise) out.catch(err => console.error(`Session ${session.id} onLimit failed:`, err));
+          } catch (err) {
+            console.error(`Session ${session.id} onLimit failed:`, err);
+          }
+        } else {
+          this.scheduleUpsert(session);
+        }
       }
-      if (generation === session.generation && !session.stopped) {
+      if (generation === session.generation && !session.stopped && !session.limitHit) {
         for (const event of setStatus(session.tree, 'root', 'done')) this.emit(event);
+        this.flushUpsert(session);
+      } else if (generation === session.generation && !session.stopped && session.limitHit) {
+        // The refused turn already pinned the root to error above: just make sure
+        // the final summary (with limitReached) is broadcast, never "done".
         this.flushUpsert(session);
       }
     } catch (err) {
@@ -1125,6 +1264,18 @@ export class SdkSessions {
         ? pageResumable(session.id, session.cwd, status)
         : ended && session.runtimeSessionId !== undefined,
       ...(session.untrustedProject ? { untrustedProject: true } : {}),
+      ...(session.fallbackOf ? { fallbackOf: { ...session.fallbackOf } } : {}),
+      ...(session.limitReached
+        ? {
+            limitReached: {
+              window: session.limitReached.window,
+              resetsAt: session.limitReached.resetsAt,
+              fallback: session.limitReached.fallback
+                ? { ...session.limitReached.fallback }
+                : null,
+            },
+          }
+        : {}),
     };
   }
 

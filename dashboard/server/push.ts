@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { PushEvents, PushPayload, PushSendResult, ServerEvent, SessionSummary, Status, WorkerTask } from '../src/shared/types.ts';
+import type { PushEvents, PushPayload, PushSendResult, Runtime, ServerEvent, SessionSummary, Status, WorkerTask } from '../src/shared/types.ts';
 import { generateVapidKeys, type PushTarget, type SendOptions, type SendOutcome, type VapidKeys } from './webpush.ts';
 
 const MAX_SUBSCRIPTIONS = 20;
@@ -276,6 +276,16 @@ export interface PushNotifier {
   baseline(sessions: SessionSummary[], workers: WorkerTask[]): void;
   /** One `test` push to one stored subscription. */
   sendTest(endpoint: string): Promise<PushSendResult>;
+  /** One plan-limit push for a Claude session (honours the error toggle, rate limit, warm-up). */
+  notifyLimit(args: NotifyLimitArgs): void;
+}
+
+/** Arguments of the single plan-limit push: the old session and its fallback (if any). */
+export interface NotifyLimitArgs {
+  oldId: string;
+  title: string;
+  resetsAt: string | null;
+  fallback: { sessionId: string; runtime: Runtime } | null;
 }
 
 function truncateText(text: string): string {
@@ -393,6 +403,8 @@ export function createPushNotifier(deps: NotifierDeps): PushNotifier {
       capMap(lastFinished);
       notify('finished', makePayload('Finished', body, tag, url));
     } else if (next === 'error') {
+      // A plan-limit error carries its own notice (notifyLimit): skip the generic one.
+      if (session.limitReached) return;
       notify('error', makePayload('Error', body, tag, url));
     }
   }
@@ -515,6 +527,15 @@ export function createPushNotifier(deps: NotifierDeps): PushNotifier {
         console.warn('push sendTest failed:', err);
         return 'error';
       }
+    },
+
+    notifyLimit(args: NotifyLimitArgs): void {
+      const url = `/?session=${encodeURIComponent(args.fallback?.sessionId ?? args.oldId)}`;
+      const when = args.resetsAt ? ` (resets ${new Date(args.resetsAt).toLocaleString()})` : '';
+      const body = args.fallback
+        ? `Continued on ${args.fallback.runtime}: ${args.title}${when}`
+        : `No fallback lane free: ${args.title}${when}`;
+      notify('error', makePayload('Claude limit reached', body, args.oldId, url));
     },
   };
 }
