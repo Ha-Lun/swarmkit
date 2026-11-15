@@ -223,7 +223,7 @@ describe('triageStartBody', () => {
 
     expect(calls).toHaveLength(1);
     expect((calls[0]!.prompt as string)).toContain('The request has attachments.');
-    expect(out.model).toBe('sonnet');
+    expect((out as { model?: string }).model).toBe('sonnet');
     expect(out.effort).toBe('medium');
     expect(out.triage).toEqual({
       level: 'trivial',

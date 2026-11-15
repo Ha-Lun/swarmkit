@@ -947,6 +947,17 @@ export class SdkSessions {
         }
         if (!restartForModel) {
           // Idle (turn ended, input queue open): the live process just takes the message.
+          if (effort !== undefined && effort !== existing.effort) {
+            // The live process keeps its start effort unless told: best effort, the turn still runs.
+            const applyFlags = (existing.query as unknown as { applyFlagSettings?: (s: { effortLevel: string }) => Promise<void> } | null)?.applyFlagSettings;
+            if (typeof applyFlags === 'function') {
+              try {
+                await applyFlags.call(existing.query, { effortLevel: effort });
+              } catch {
+                // Older CLI: the stored effort applies from the next restart.
+              }
+            }
+          }
           if (effort !== undefined) existing.effort = effort;
           existing.updatedAt = Date.now();
           const turn = this.prepareTurn(existing, text, images, files);

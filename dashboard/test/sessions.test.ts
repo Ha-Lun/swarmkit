@@ -1152,6 +1152,7 @@ describe('SdkSessions', () => {
       let queries = 0;
       const received: string[] = [];
       const switchedTo: Array<string | undefined> = [];
+      const flags: unknown[] = [];
       const sdk = new SdkSessions(e => events.push(e), params => {
         queries += 1;
         optionsSeen.push(params.options as Record<string, unknown> | undefined);
@@ -1166,6 +1167,9 @@ describe('SdkSessions', () => {
           setModel: async (m?: string) => {
             switchedTo.push(m);
           },
+          applyFlagSettings: async (s: unknown) => {
+            flags.push(s);
+          },
         }) as unknown as AsyncIterable<SDKMessage>;
       });
 
@@ -1179,6 +1183,7 @@ describe('SdkSessions', () => {
       await sdk.resume(id, { text: 'turn 2', model: 'claude-opus-5-5' }, { cwd: homeDir });
       expect(queries).toBe(1);
       expect(switchedTo).toEqual(['claude-opus-5-5']);
+      expect(flags).toEqual([{ effortLevel: 'high' }]);
       await vi.waitFor(() => {
         expect(received).toContain('turn 2');
       });
