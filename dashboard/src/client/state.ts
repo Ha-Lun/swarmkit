@@ -16,6 +16,10 @@ export interface AppState {
   details: Record<string, SessionDetail>;
   connected: boolean;
   workers: WorkerTask[];
+  /** Build id from the first hello; a later hello with another id sets `updated`. */
+  build?: string;
+  /** The server was redeployed since this page loaded: offer a reload. */
+  updated?: boolean;
 }
 
 export type Action =
@@ -70,7 +74,9 @@ export function reducer(state: AppState, action: Action): AppState {
         case 'hello': {
           const sessions = [...ev.sessions].sort(byRecency);
           // The landing page is the home screen on every width: never auto-select.
-          return { ...state, sessions };
+          if (!ev.build) return { ...state, sessions };
+          if (!state.build) return { ...state, sessions, build: ev.build };
+          return { ...state, sessions, updated: state.updated || ev.build !== state.build };
         }
         case 'session.upsert': {
           const sessions = mergeSessions(state.sessions, ev.session);

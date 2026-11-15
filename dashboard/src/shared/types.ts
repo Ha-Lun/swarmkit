@@ -207,7 +207,7 @@ export interface ArtifactsResponse {
 
 /** Sent over GET /events as `data: <json>` lines. */
 export type ServerEvent =
-  | { type: 'hello'; sessions: SessionSummary[] }
+  | { type: 'hello'; sessions: SessionSummary[]; build?: string }
   | { type: 'session.upsert'; session: SessionSummary }
   | { type: 'session.removed'; sessionId: string }
   | { type: 'node.upsert'; node: AgentNodeHead }

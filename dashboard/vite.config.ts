@@ -10,5 +10,5 @@ export default defineConfig({
       deny: ['.env', '.env.*', '*.{crt,pem,key,p12,pfx,cer,der}', '.npmrc', '**/.git/**', '**/.data/**'],
     },
   },
-  test: { globals: true, environment: 'node', include: ['test/**/*.test.ts'] },
+  test: { globals: true, environment: 'node', include: ['test/**/*.test.ts'], setupFiles: ['test/setup-cache.ts'] },
 });

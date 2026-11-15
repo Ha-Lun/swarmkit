@@ -4,8 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { readFile, stat } from 'node:fs/promises';
-import { accessSync, constants as fsConstants, statSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
+import { accessSync, constants as fsConstants, readFileSync, statSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ViteDevServer } from 'vite';
@@ -217,6 +217,13 @@ async function main(): Promise<void> {
   }
   const dashboardDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const distDir = path.resolve(dashboardDir, 'dist');
+  /** Hash of the built index.html (it names the hashed bundles); open pages compare it to spot a redeploy. */
+  let buildId: string | undefined;
+  try {
+    buildId = createHash('sha256').update(readFileSync(path.join(distDir, 'index.html'))).digest('hex').slice(0, 12);
+  } catch {
+    // No build (dev server): no update check.
+  }
   const load = loadToken(dashboardDir);
   const token = load.token;
   const tokenFile = load.file || tokenFilePath();
@@ -586,7 +593,7 @@ async function main(): Promise<void> {
       'X-Accel-Buffering': 'no',
     });
     clients.add(res);
-    res.write(`data: ${JSON.stringify({ type: 'hello', sessions: mergedSessions() })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'hello', sessions: mergedSessions(), build: development ? undefined : buildId })}\n\n`);
     res.write(`data: ${JSON.stringify({ type: 'workers.update', workers: registry.list() })}\n\n`);
     res.on('close', () => clients.delete(res));
     res.on('error', () => clients.delete(res));

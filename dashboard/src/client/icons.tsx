@@ -1,5 +1,4 @@
 // Tiny inline stroke icons (16-24 viewBox), currentColor, no icon library.
-import { useId } from 'react';
 import type { ReactNode } from 'react';
 import type { NodeKind } from '../shared/types';
 import type { ToolKey } from './format';
@@ -86,21 +85,20 @@ export function SendIcon({ size = 16, className }: IconProps) {
   );
 }
 
-/** SwarmKit brand mark: hexagon in the cream->red gradient, optional wordmark. */
+/** SwarmKit brand mark: a red lead dot in a ring of six cream dots (matches public/icon.svg), optional wordmark. */
 export function Logo({ size = 22, withWordmark = false }: IconProps & { withWordmark?: boolean }) {
-  // Gradient id must be unique per mounted instance.
-  const gid = `swk-grad-${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   return (
     <span className="logo">
-      <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-        <defs>
-          <linearGradient id={gid} x1="4" y1="5" x2="27" y2="28" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stopColor="#e8e2d6" />
-            <stop offset="1" stopColor="#e5484d" />
-          </linearGradient>
-        </defs>
-        <path d="M16 2l12 7v14l-12 7-12-7V9z" fill={`url(#${gid})`} />
-        <path d="M16 8.5l6.5 3.75v7.5L16 23.5l-6.5-3.75v-7.5L16 8.5z" fill="rgba(38,38,36,0.55)" />
+      <svg width={size} height={size} viewBox="0 0 512 512" aria-hidden="true" focusable="false">
+        <g fill="#e8e2d6">
+          <circle cx="256" cy="140" r="46" />
+          <circle cx="356" cy="198" r="46" />
+          <circle cx="356" cy="314" r="46" />
+          <circle cx="256" cy="372" r="46" />
+          <circle cx="156" cy="314" r="46" />
+          <circle cx="156" cy="198" r="46" />
+        </g>
+        <circle cx="256" cy="256" r="58" fill="#e5484d" />
       </svg>
       {withWordmark && (
         <span className="logo-word" style={{ fontSize: Math.max(13, Math.round(size * 0.82)) }}>

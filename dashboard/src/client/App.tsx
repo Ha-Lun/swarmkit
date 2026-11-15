@@ -931,6 +931,14 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
 
   return (
     <div className="app">
+      {state.updated && (
+        <div className="update-bar" role="status">
+          <span>SwarmKit was updated. Reload to get the new version.</span>
+          <button type="button" className="btn btn-primary" onClick={() => window.location.reload()}>
+            Reload
+          </button>
+        </div>
+      )}
       <TopBar
         sessions={state.sessions}
         selectedId={state.selectedId}
