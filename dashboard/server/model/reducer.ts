@@ -18,6 +18,8 @@ export interface SessionTree {
   toolNames?: Map<string, string>;
   /** cwd seen in the transcript, when the messages carry one. */
   cwd?: string;
+  /** Raw file paths named by Write/Edit/MultiEdit/NotebookEdit tool calls (insertion-ordered). */
+  writtenPaths?: Set<string>;
   /** SDK agent id (toolUseResult.agentId of async-launched subagents) -> node id. */
   agentIds?: Map<string, string>;
   /** node id -> message.id already counted for cost/tokens (streamed lines share one). */
@@ -96,6 +98,7 @@ export function createTree(sessionId: string, init: TreeInit): SessionTree {
     placeholders: new Set<string>(),
     workerCommands: new Map<string, string>(),
     backgroundTasks: new Map<string, string>(),
+    writtenPaths: new Set<string>(),
   };
 }
 
@@ -114,6 +117,7 @@ export function applyMessage(tree: SessionTree, msg: unknown, opts?: ApplyOption
   tree.toolNames ??= new Map<string, string>();
   tree.workerCommands ??= new Map<string, string>();
   tree.backgroundTasks ??= new Map<string, string>();
+  tree.writtenPaths ??= new Set<string>();
   const m = msg as Raw;
   try {
     switch (m.type) {
@@ -328,6 +332,7 @@ function applyAssistant(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerE
       node.toolCounts[name] = (node.toolCounts[name] ?? 0) + 1;
       tree.toolOwner.set(toolUseId, node.id);
       putCapped(tree.toolNames!, toolUseId, name);
+      recordWrittenPath(tree, name, input);
       const summary = toolSummary(name, input);
       // The hand-back tool call itself is invisible on cards: its tool_result (the
       // subagent's report envelope) is ignored too, so the previous text stands.
@@ -803,6 +808,7 @@ function toolSummary(name: string, input: Raw | undefined): string {
   let summary: string = name;
   if (name === 'Bash') summary = stringified(v.description) ?? stringified(v.command) ?? name;
   else if (name === 'Read' || name === 'Edit' || name === 'Write') summary = stringified(v.file_path) ?? name;
+  else if (name === 'NotebookEdit') summary = stringified(v.notebook_path) ?? name;
   else if (name === 'Grep' || name === 'Glob') summary = stringified(v.pattern) ?? name;
   else if (name === 'WebFetch') summary = stringified(v.url) ?? name;
   else if (name === 'WebSearch') summary = stringified(v.query) ?? name;
@@ -885,6 +891,24 @@ export function isHandbackNoise(tool: string | undefined, text: string): boolean
   const obj = asRaw(parsed);
   if (!obj) return false;
   return typeof obj.success === 'boolean' && 'message' in obj;
+}
+
+/** Raw paths recorded from write tool calls keep at most this many entries. */
+const MAX_WRITTEN = 1000;
+
+/** Records the file a Write/Edit/MultiEdit/NotebookEdit call named (raw, may be relative). */
+function recordWrittenPath(tree: SessionTree, name: string, input: Raw | undefined): void {
+  if (name !== 'Write' && name !== 'Edit' && name !== 'MultiEdit' && name !== 'NotebookEdit') return;
+  const v = (input ?? {}) as Raw;
+  // agy maps its writes to Edit with file_path; the opencode adapter passes rawInput through as Edit (filePath).
+  const found = [v.file_path, v.filePath, v.notebook_path, v.path].find(p => typeof p === 'string' && p.length > 0) as string | undefined;
+  if (!found) return;
+  tree.writtenPaths ??= new Set<string>();
+  if (tree.writtenPaths.has(found)) return;
+  tree.writtenPaths.add(found);
+  if (tree.writtenPaths.size > MAX_WRITTEN) {
+    for (const oldest of tree.writtenPaths) { tree.writtenPaths.delete(oldest); break; }
+  }
 }
 
 /** Sets a bounded map entry: past MAX_DEDUPE entries the oldest insertion is dropped. */

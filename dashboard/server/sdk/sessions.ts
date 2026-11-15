@@ -22,7 +22,7 @@ import type { AgyHookResponse, AgyOptions } from '../runtimes/agy.ts';
 import { claudeConfigDir, resolveDirInHome } from '../paths.ts';
 import { CommandCache } from '../commandcache.ts';
 import { deleteImages, imageDir, pruneOrphanImages, saveFiles, saveImages } from '../images.ts';
-import { deleteArtifacts, ensureArtifactDir } from '../artifacts.ts';
+import { deleteArtifacts, ensureArtifactDir, pruneOrphanArtifacts } from '../artifacts.ts';
 
 /** Main-thread agent names must start alphanumerically and stay short (no '../', no path tricks). */
 export { AGENT_RE };
@@ -1126,6 +1126,12 @@ export class SdkSessions {
     return session ? { cwd: session.cwd } : undefined;
   }
 
+  /** Raw paths the session's write tool calls named (Write/Edit/MultiEdit/NotebookEdit). */
+  writtenPaths(id: string): string[] | undefined {
+    const session = this.sessions.get(id);
+    return session ? [...(session.tree.writtenPaths ?? [])] : undefined;
+  }
+
   /** Lead runtime of a page session, if we own the id. */
   runtimeOf(id: string): Runtime | undefined {
     return this.sessions.get(id)?.runtime;
@@ -1343,6 +1349,8 @@ export class SdkSessions {
     if (now - this.lastImagePrune < 3_600_000) return;
     this.lastImagePrune = now;
     pruneOrphanImages(id => this.sessions.has(id), 7 * 86_400_000, now);
+    // Artifact files stay downloadable after eviction: prune only stores no page session owns.
+    pruneOrphanArtifacts(id => this.sessions.has(id), 30 * 86_400_000, now);
   }
 
   private poll(): void {

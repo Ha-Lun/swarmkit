@@ -199,7 +199,7 @@ export interface WrittenArtifact {
   url: string;
 }
 
-/** GET /api/sessions/:id/artifacts. Terminal sessions have no published list (always []). */
+/** GET /api/sessions/:id/artifacts. Published files come from the session's store dir (also after eviction). */
 export interface ArtifactsResponse {
   published: PublishedArtifact[];
   written: WrittenArtifact[];
