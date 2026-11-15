@@ -82,6 +82,25 @@ export function fmtTokens(n: number): string {
   return `${r / 1000}k`;
 }
 
+/** 0 B / 812 B / 1.5 KB / 340 KB / 1.2 MB: binary units, one decimal under 10, unit picked after rounding. */
+export function fmtBytes(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let v = n;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i += 1;
+  }
+  if (i === 0) return `${Math.round(v)} B`;
+  let r = v < 10 ? Math.round(v * 10) / 10 : Math.round(v);
+  if (r >= 1024 && i < units.length - 1) {
+    r = Math.round((r / 1024) * 10) / 10;
+    i += 1;
+  }
+  return `${r.toFixed(r < 10 ? 1 : 0)} ${units[i]}`;
+}
+
 export type ToolKey = 'read' | 'edit' | 'bash' | 'search' | 'web' | 'agent' | 'other';
 
 const TOOL_GROUPS: Array<[ToolKey, string[]]> = [

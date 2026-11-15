@@ -48,6 +48,17 @@ export function FileIcon({ size = 16, className }: IconProps) {
   );
 }
 
+/** Arrow into a tray, for download links. */
+export function DownloadIcon({ size = 16, className }: IconProps) {
+  return (
+    <Svg size={size} className={className}>
+      <path d="M12 4v11" />
+      <path d="M7.5 11l4.5 4.5 4.5-4.5" />
+      <path d="M5 19.5h14" />
+    </Svg>
+  );
+}
+
 /** Pause bars (interrupt a turn). */
 export function PauseIcon({ size = 16, className }: IconProps) {
   return (

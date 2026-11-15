@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fmtLimitReset, fmtResetIn, fmtTokens, goPillModel, modelLabel, parseIso, sessionHint, sessionSubline, usageTone } from '../src/client/format.ts';
+import { fmtBytes, fmtLimitReset, fmtResetIn, fmtTokens, goPillModel, modelLabel, parseIso, sessionHint, sessionSubline, usageTone } from '../src/client/format.ts';
 
 describe('fmtTokens', () => {
   it('picks the unit after rounding', () => {
@@ -9,6 +9,22 @@ describe('fmtTokens', () => {
     expect(fmtTokens(999_950)).toBe('1.0M');
     expect(fmtTokens(1_234_567)).toBe('1.2M');
     expect(fmtTokens(9_960_000)).toBe('10.0M');
+  });
+});
+
+describe('fmtBytes', () => {
+  it('picks the unit after rounding', () => {
+    expect(fmtBytes(0)).toBe('0 B');
+    expect(fmtBytes(-5)).toBe('0 B');
+    expect(fmtBytes(812)).toBe('812 B');
+    expect(fmtBytes(1023)).toBe('1023 B');
+    expect(fmtBytes(1024)).toBe('1.0 KB');
+    expect(fmtBytes(1536)).toBe('1.5 KB');
+    expect(fmtBytes(348_160)).toBe('340 KB');
+    expect(fmtBytes(1024 * 1024 - 100)).toBe('1.0 MB');
+    expect(fmtBytes(1_258_291)).toBe('1.2 MB');
+    expect(fmtBytes(5 * 1024 ** 3)).toBe('5.0 GB');
+    expect(fmtBytes(Number.NaN)).toBe('0 B');
   });
 });
 

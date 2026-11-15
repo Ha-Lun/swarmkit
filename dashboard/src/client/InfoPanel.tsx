@@ -2,10 +2,11 @@
 // Context (tokens and cost of the lead) and Agents & workers (click to open). `detail` is
 // undefined while the session loads; the panel then shows the summary fields only.
 import { useEffect } from 'react';
-import type { GitInfo, SessionDetail, SessionSummary, WorkerTask } from '../shared/types';
+import type { ArtifactsResponse, GitInfo, SessionDetail, SessionSummary, WorkerTask } from '../shared/types';
 import { GitStatus } from './Composer';
 import { agentLabel, agentSubtitle, matchWorkerTask } from './chat';
-import { fmtCost, fmtTokens, modelLabel, workerStateClass } from './format';
+import { fmtBytes, fmtCost, fmtTokens, modelLabel, workerStateClass } from './format';
+import { DownloadIcon } from './icons';
 
 const RUNTIME_NAMES = { claude: 'Claude Code', opencode: 'OpenCode', agy: 'Antigravity' } as const;
 
@@ -13,6 +14,7 @@ interface Props {
   session: SessionSummary;
   detail?: SessionDetail;
   git?: GitInfo;
+  artifacts?: ArtifactsResponse;
   workers: WorkerTask[];
   activeAgentId: string;
   /** Narrow screens: the panel overlays the chat, so it can be dismissed with Escape. */
@@ -20,6 +22,20 @@ interface Props {
   onOpenAgent: (nodeId: string) => void;
   onOpenWorker: (task: WorkerTask) => void;
   onClose: () => void;
+}
+
+function FileRow({ label, size, url }: { label: string; size: number; url: string }) {
+  return (
+    <li className="info-file">
+      <span className="info-file-text">
+        <span className="info-file-name" title={label}>{label}</span>
+        <span className="info-file-size">{fmtBytes(size)}</span>
+      </span>
+      <a className="btn btn-ghost btn-sm info-file-dl" href={url} download aria-label={`Download ${label}`} title={`Download ${label}`}>
+        <DownloadIcon size={16} />
+      </a>
+    </li>
+  );
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -35,6 +51,7 @@ export function InfoPanel({
   session,
   detail,
   git,
+  artifacts,
   workers,
   activeAgentId,
   overlay,
@@ -112,6 +129,32 @@ export function InfoPanel({
           </dl>
         )}
       </section>
+
+      {artifacts && (artifacts.published.length > 0 || artifacts.written.length > 0) && (
+        <section className="info-section" aria-labelledby="info-artifacts">
+          <h2 id="info-artifacts" className="info-h">Artifacts</h2>
+          {artifacts.published.length > 0 && (
+            <>
+              <h3 className="info-sub">Published</h3>
+              <ul className="info-files">
+                {artifacts.published.map((f) => (
+                  <FileRow key={f.name} label={f.name} size={f.size} url={f.url} />
+                ))}
+              </ul>
+            </>
+          )}
+          {artifacts.written.length > 0 && (
+            <>
+              <h3 className="info-sub">Written by the session</h3>
+              <ul className="info-files">
+                {artifacts.written.map((f) => (
+                  <FileRow key={f.path} label={f.rel} size={f.size} url={f.url} />
+                ))}
+              </ul>
+            </>
+          )}
+        </section>
+      )}
 
       <section className="info-section" aria-labelledby="info-agents">
         <h2 id="info-agents" className="info-h">

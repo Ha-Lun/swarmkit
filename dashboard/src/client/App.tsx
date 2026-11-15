@@ -27,6 +27,8 @@ import { initialState, nodeById, reducer } from './state';
 import { TopBar } from './TopBar';
 import { Tree } from './Tree';
 import { useUsage } from './Usage';
+import { resultKey } from './artifacts';
+import { useArtifacts } from './useArtifacts';
 import { WorkerDrawer } from './WorkerDrawer';
 import { workerKey, WorkersView } from './Workers';
 
@@ -690,6 +692,10 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   }, [backend, gitId, gitStatus]);
   const gitInfo = git && git.id === gitId ? git.info : undefined;
 
+  // Downloadable files: one fetch on open and after each new result of the lead, shared by the panel and the chat.
+  const leadEvents = detail?.nodes.find((n) => n.kind === 'main')?.events ?? detail?.nodes.find((n) => n.id === 'root')?.events;
+  const artifacts = useArtifacts(backend, gitId, resultKey(leadEvents));
+
   const baseActive =
     detail?.nodes.some((n) => n.status === 'running' || n.status === 'waiting') ||
     state.workers.some((w) => w.state === 'running') ||
@@ -1032,6 +1038,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
                 limitReached={selected?.limitReached}
                 fallbackOf={selected?.fallbackOf}
                 onSelectSession={selectSession}
+                artifacts={artifacts}
               />
             </>
           ) : (
@@ -1108,6 +1115,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
             session={selected}
             detail={detail}
             git={gitInfo}
+            artifacts={artifacts}
             workers={state.workers}
             activeAgentId={sessionView === 'map' ? (drawerNodeId ?? '') : activeAgentId}
             overlay={info.overlay}

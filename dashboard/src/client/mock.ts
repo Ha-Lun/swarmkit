@@ -4,6 +4,7 @@ import type {
   AgentNode,
   AgentNodeHead,
   AgentsResponse,
+  ArtifactsResponse,
   CommandsResponse,
   DirEntry,
   DirListing,
@@ -496,7 +497,7 @@ export function createMockBackend(): FleetBackend {
   const mockLane = (
     sess: SessionSummary,
     prompt: string,
-    events: { id: string; ago: number; kind: ActivityEvent['kind']; summary: string }[],
+    events: { id: string; ago: number; kind: ActivityEvent['kind']; summary: string; tool?: string }[],
   ) => {
     sessions.set(sess.id, sess);
     permLists.set(sess.id, []);
@@ -516,7 +517,7 @@ export function createMockBackend(): FleetBackend {
       tokens: tu(5200, 1100),
       toolCounts: {},
       lastActivity: events[events.length - 1].summary,
-      events: events.map((e) => ({ id: e.id, ts: base - e.ago, kind: e.kind, summary: e.summary })),
+      events: events.map((e) => ({ id: e.id, ts: base - e.ago, kind: e.kind, summary: e.summary, ...(e.tool ? { tool: e.tool } : {}) })),
     });
   };
   const l1: SessionSummary = {
@@ -560,7 +561,27 @@ export function createMockBackend(): FleetBackend {
   };
   mockLane(l1, 'Migrate the billing webhooks to the new signing scheme.', [
     { id: 'l1-e1', ago: 3_600_000, kind: 'user', summary: 'Migrate the billing webhooks to the new signing scheme.' },
-    { id: 'l1-e2', ago: 3_000_000, kind: 'text', summary: 'Moved the signature check into one verifier and updated the three handlers. Tests for the retry path are next.' },
+    { id: 'l1-e1a', ago: 3_400_000, kind: 'tool_use', tool: 'Write', summary: '/home/demo/work/acme-web/docs/webhook-migration.md' },
+    { id: 'l1-e1b', ago: 3_300_000, kind: 'tool_use', tool: 'Write', summary: '/home/demo/work/acme-web/scripts/backfill-signatures.sql' },
+    { id: 'l1-e2', ago: 3_000_000, kind: 'text', summary: 'Moved the signature check into one verifier and updated the three handlers. The migration notes and the report are ready to download; tests for the retry path are next.' },
+    { id: 'l1-e3', ago: 2_990_000, kind: 'result', summary: 'Moved the signature check into one verifier.' },
+  ]);
+
+  // Mock artifacts for the downloads UI: two published files from the first turn and two files the session wrote.
+  const artifactsFor = new Map<string, ArtifactsResponse>([
+    [
+      l1.id,
+      {
+        published: [
+          { name: 'webhook-migration-report.pdf', size: 1_258_291, mtime: base - 3_100_000, url: `/api/sessions/${l1.id}/artifacts/webhook-migration-report.pdf` },
+          { name: 'handler-diffs.zip', size: 348_160, mtime: base - 3_050_000, url: `/api/sessions/${l1.id}/artifacts/handler-diffs.zip` },
+        ],
+        written: [
+          { path: '/home/demo/work/acme-web/docs/webhook-migration.md', rel: 'docs/webhook-migration.md', size: 4_812, mtime: base - 3_400_000, url: `/api/sessions/${l1.id}/written?path=${encodeURIComponent('/home/demo/work/acme-web/docs/webhook-migration.md')}` },
+          { path: '/home/demo/work/acme-web/scripts/backfill-signatures.sql', rel: 'scripts/backfill-signatures.sql', size: 912, mtime: base - 3_300_000, url: `/api/sessions/${l1.id}/written?path=${encodeURIComponent('/home/demo/work/acme-web/scripts/backfill-signatures.sql')}` },
+        ],
+      },
+    ],
   ]);
   mockLane(f1, 'Continue the billing webhook migration: the retry-path tests are left.', [
     { id: 'f1-e1', ago: 280_000, kind: 'user', summary: 'Continue the billing webhook migration: the retry-path tests are left.' },
@@ -1273,6 +1294,10 @@ A claim with a footnote.[^1]
     git: (id) => {
       const git = gitInfo.get(id);
       return Promise.resolve(git ? { git: { ...git } } : {});
+    },
+    artifacts: (id) => {
+      const a = artifactsFor.get(id);
+      return Promise.resolve(a ? { published: a.published.map((f) => ({ ...f })), written: a.written.map((f) => ({ ...f })) } : { published: [], written: [] });
     },
     start: (body: StartSessionBody) => {
       const now = Date.now();

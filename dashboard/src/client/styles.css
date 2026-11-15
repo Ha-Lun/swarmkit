@@ -2697,6 +2697,24 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
   color: var(--text-3);
 }
 
+/* artifacts: published and written files with a download button each */
+.info-sub { margin: var(--space-2) 0 var(--space-1); font-size: 11.5px; font-weight: 400; color: var(--text-3); }
+.info-files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.info-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: 44px;
+  border-bottom: 1px solid var(--border);
+}
+.info-file:last-child { border-bottom: 0; }
+.info-file-text { min-width: 0; display: flex; flex-direction: column; }
+.info-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.info-file-size { color: var(--text-3); }
+.info-file-dl { flex: none; min-width: 44px; padding: 0; text-decoration: none; }
+
 /* ---------- responsive ---------- */
 
 @media (max-width: 768px) {
@@ -3286,6 +3304,54 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
   overflow: auto;
 }
 .chat-tool-result.is-error { color: var(--fail); }
+.chat-tool-entry { display: flex; align-items: flex-start; gap: var(--space-1); min-width: 0; }
+.chat-tool-entry > .chat-tool-item { flex: 1; min-width: 0; }
+.chat-tool-dl {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+  text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.chat-tool-dl:hover { background: var(--surface-2); color: var(--ink); }
+@media (pointer: coarse), (max-width: 768px) {
+  .chat-tool-dl { min-width: 44px; min-height: 44px; }
+}
+
+/* files published during a finished turn, under its last reply */
+.chat-artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chat-artifacts li { min-width: 0; max-width: 100%; }
+.chat-artifact {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+  text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.chat-artifact:hover { background: var(--surface-3); border-color: var(--border-3); }
+.chat-artifact svg { flex: none; color: var(--text-3); }
+.chat-artifact-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-artifact-size { flex: none; color: var(--text-3); }
 
 .handoff { border: 1px solid var(--border-2); border-radius: var(--radius); background: var(--surface); }
 .handoff.is-waiting { border-color: var(--amber); }
