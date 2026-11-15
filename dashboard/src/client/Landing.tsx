@@ -53,8 +53,6 @@ export function Landing({ backend, guard, sessions, onStarted }: Props) {
     availability,
     model,
     setModel,
-    effort,
-    setEffort,
     attachments,
     starting,
     error,
@@ -145,10 +143,8 @@ export function Landing({ backend, guard, sessions, onStarted }: Props) {
               runtime={runtime}
               availability={availability}
               model={model}
-              effort={effort}
               onRuntime={setRuntime}
               onModel={setModel}
-              onEffort={setEffort}
             />
           }
           error={
@@ -211,7 +207,7 @@ export function Landing({ backend, guard, sessions, onStarted }: Props) {
               </span>
               <AttachButton onFiles={attachments.addFiles} />
               <button type="submit" className="btn btn-primary btn-sm" disabled={!canStart}>
-                {starting ? 'starting…' : 'start'}
+                {starting ? (runtime === 'claude' ? 'choosing model…' : 'starting…') : 'start'}
               </button>
             </>
           }

@@ -25,8 +25,6 @@ export function NewSession({ backend, guard, onClose, onStarted }: Props) {
     availability,
     model,
     setModel,
-    effort,
-    setEffort,
     attachments,
     starting,
     error,
@@ -88,12 +86,9 @@ export function NewSession({ backend, guard, onClose, onStarted }: Props) {
           runtime={runtime}
           availability={availability}
           model={model}
-          effort={effort}
           onRuntime={setRuntime}
           onModel={setModel}
-          onEffort={setEffort}
           modelId="ns-model"
-          effortId="ns-effort"
           layout="stack"
         />
 
@@ -112,7 +107,7 @@ export function NewSession({ backend, guard, onClose, onStarted }: Props) {
             className="btn btn-primary"
             disabled={(!prompt.trim() && attachments.items.length === 0) || !cwd.trim() || starting}
           >
-            {starting ? 'Starting…' : 'Start'}
+            {starting ? (runtime === 'claude' ? 'Choosing model…' : 'Starting…') : 'Start'}
           </button>
         </div>
       </form>

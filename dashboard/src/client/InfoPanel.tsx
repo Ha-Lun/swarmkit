@@ -5,7 +5,7 @@ import { useEffect } from 'react';
 import type { ArtifactsResponse, GitInfo, SessionDetail, SessionSummary, WorkerTask } from '../shared/types';
 import { GitStatus } from './Composer';
 import { agentLabel, agentSubtitle, matchWorkerTask } from './chat';
-import { fmtBytes, fmtCost, fmtTokens, modelLabel, workerStateClass } from './format';
+import { fmtBytes, fmtCost, fmtTokens, modelLabel, triageText, workerStateClass } from './format';
 import { DownloadIcon } from './icons';
 
 const RUNTIME_NAMES = { claude: 'Claude Code', opencode: 'OpenCode', agy: 'Antigravity' } as const;
@@ -95,6 +95,7 @@ export function InfoPanel({
           </Row>
           {session.agent && <Row label="agent">{session.agent}</Row>}
           {session.model && <Row label="model">{modelLabel(session.model)}</Row>}
+          {session.triage && <Row label="triage">{triageText(session.triage, session.model)}</Row>}
           <Row label="cwd">
             <span className="info-path" title={session.cwd}>{session.cwd}</span>
           </Row>

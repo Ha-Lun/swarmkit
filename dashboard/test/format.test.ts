@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fmtBytes, fmtLimitReset, fmtResetIn, fmtTokens, goPillModel, modelLabel, parseIso, sessionHint, sessionSubline, usageTone } from '../src/client/format.ts';
+import { canUseOpus, fmtBytes, fmtLimitReset, fmtResetIn, fmtTokens, goPillModel, modelLabel, parseIso, sessionHint, sessionSubline, triageText, usageTone } from '../src/client/format.ts';
 
 describe('fmtTokens', () => {
   it('picks the unit after rounding', () => {
@@ -149,5 +149,40 @@ describe('fable pricing', () => {
     const { estimateCost, modelTier } = await import('../server/model/pricing.ts');
     expect(modelTier('claude-fable-5-1')).toBe('fable');
     expect(estimateCost('claude-fable-5-1', { input: 1_000_000, output: 1_000_000, cacheRead: 0, cacheWrite: 0 })).toBe(60);
+  });
+});
+
+describe('triageText', () => {
+  it('shows level, the session model and the reason', () => {
+    expect(triageText({ level: 'trivial', reason: 'single-file rename', source: 'haiku' }, 'sonnet')).toBe('trivial → Sonnet · single-file rename');
+    expect(triageText({ level: 'normal', reason: 'new endpoint', source: 'haiku' }, 'claude-sonnet-5-5')).toBe('normal → Sonnet 5.5 · new endpoint');
+  });
+  it('shows the model now in use, even after a switch to Opus', () => {
+    expect(triageText({ level: 'trivial', reason: 'typo', source: 'haiku' }, 'opus')).toBe('trivial → Opus · typo');
+  });
+  it('falls back to the model the level implies when the session has none', () => {
+    expect(triageText({ level: 'trivial', reason: '', source: 'haiku' })).toBe('trivial → Sonnet');
+    expect(triageText({ level: 'hard', reason: 'cross-cutting', source: 'haiku' })).toBe('hard → Opus · cross-cutting');
+  });
+  it('names a failed triage and keeps a non-empty reason', () => {
+    expect(triageText({ level: 'hard', reason: '', source: 'fallback' }, 'opus')).toBe('failed → Opus');
+    expect(triageText({ level: 'hard', reason: 'timeout', source: 'fallback' })).toBe('failed → Opus · timeout');
+  });
+});
+
+describe('canUseOpus', () => {
+  it('offers Opus for Claude sessions on Sonnet, short or full id', () => {
+    expect(canUseOpus({ runtime: 'claude', model: 'sonnet' })).toBe(true);
+    expect(canUseOpus({ model: 'claude-sonnet-5-5' })).toBe(true);
+  });
+  it('not once the model is Opus, Haiku or unknown', () => {
+    expect(canUseOpus({ runtime: 'claude', model: 'claude-opus-5-5' })).toBe(false);
+    expect(canUseOpus({ model: 'opus' })).toBe(false);
+    expect(canUseOpus({ model: 'claude-haiku-4-5-20251001' })).toBe(false);
+    expect(canUseOpus({})).toBe(false);
+  });
+  it('not for OpenCode or Antigravity sessions', () => {
+    expect(canUseOpus({ runtime: 'opencode', model: 'sonnet' })).toBe(false);
+    expect(canUseOpus({ runtime: 'agy', model: 'claude-sonnet-5-5' })).toBe(false);
   });
 });

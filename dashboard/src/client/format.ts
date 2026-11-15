@@ -1,5 +1,5 @@
 // Small pure formatting helpers. No side effects, no React.
-import type { AgentNode, GoLimit, PermissionRequest, SessionSummary, WorkerTask } from '../shared/types';
+import type { AgentNode, GoLimit, PermissionRequest, SessionSummary, TriageInfo, WorkerTask } from '../shared/types';
 
 /**
  * 'claude-opus-5-5' -> 'Opus 5.5'; 'opencode-go/glm-5.3-flash' -> 'GLM 5.3 Flash';
@@ -267,4 +267,21 @@ export function sessionHint(s: SessionSummary): string {
   ]
     .filter(Boolean)
     .join(' · ');
+}
+
+/**
+ * Info-panel value for the Haiku triage: `trivial → Sonnet 5.5 · single-file rename`, or
+ * `failed → Opus` when Haiku did not answer. The model is the session's current one (it may have
+ * been raised to Opus on a later resume); without it the level's own pick is shown.
+ */
+export function triageText(triage: TriageInfo, model?: string): string {
+  const fallbackModel = triage.level === 'hard' || triage.source === 'fallback' ? 'Opus' : 'Sonnet';
+  const picked = modelLabel(model) || fallbackModel;
+  const head = triage.source === 'fallback' ? `failed → ${picked}` : `${triage.level} → ${picked}`;
+  return triage.reason ? `${head} · ${triage.reason}` : head;
+}
+
+/** The "Use Opus" resume toggle: Claude sessions (runtime unset = Claude) that currently run on Sonnet. */
+export function canUseOpus(s: Pick<SessionSummary, 'runtime' | 'model'>): boolean {
+  return (s.runtime === undefined || s.runtime === 'claude') && modelLabel(s.model).startsWith('Sonnet');
 }

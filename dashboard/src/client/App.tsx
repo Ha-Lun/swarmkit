@@ -524,6 +524,8 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   const [view, setView] = useState<'session' | 'workers' | 'archive'>('session');
   const [workerDrawerKey, setWorkerDrawerKey] = useState<string | null>(null);
   const [endedDraft, setEndedDraft] = useState<{ id: string; text: string } | null>(null);
+  // Session whose Continue bar has "Use Opus" ticked; kept here so the 409 remount does not drop it.
+  const [opusFor, setOpusFor] = useState<string | null>(null);
   const [restartBusy, setRestartBusy] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
   const [dismissedRestart, setDismissedRestart] = useState<string[]>(readDismissed);
@@ -865,6 +867,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   const handleResumed = useCallback(
     (id: string) => {
       setEndedDraft(null);
+      setOpusFor(null);
       setView('session');
       guardSilent(backend.detail(id)).then((d) => {
         if (d) dispatch({ type: 'detail', detail: d });
@@ -1103,6 +1106,8 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
               <Continue
                 key={`${selected.id}:${ended ? 'ended' : ''}`}
                 initialText={ended ? endedDraft?.text : undefined}
+                useOpus={opusFor === selected.id}
+                onUseOpus={(on) => setOpusFor(on ? selected.id : null)}
                 ended={ended}
                 backend={backend}
                 guard={guard}

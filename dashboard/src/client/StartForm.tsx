@@ -1,5 +1,6 @@
 // Shared start-session form state and model selects (used by Landing and NewSession).
-// Every setup runs the lead-dev-hybrid agent; only the runtime/model/effort vary.
+// Every setup runs the lead-dev-hybrid agent; only the runtime/model vary. The Claude setup has no
+// model or effort choice: the server picks both per task with a Haiku triage.
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { RUNTIME_MODELS } from '../shared/types';
@@ -10,8 +11,6 @@ import type { UseAttachments } from './attachments';
 import { MetaLine, providerName } from './Composer';
 import { modelLabel as shortModelLabel } from './format';
 import { resolveDefaultCwd } from './FolderPicker';
-
-export type EffortValue = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export const SETUP_ORDER: Runtime[] = ['claude', 'opencode', 'agy'];
 const SETUP_LABEL: Record<Runtime, string> = {
@@ -25,8 +24,9 @@ const SETUP_DESC: Record<Runtime, string> = {
   opencode: 'OpenCode lead, Antigravity worker',
   agy: 'Antigravity lead, no workers',
 };
+/** Model a setup starts with; Claude has none (the server's triage picks it). */
 const SETUP_MODEL: Record<Runtime, string> = {
-  claude: 'opus',
+  claude: '',
   opencode: RUNTIME_MODELS.opencode[0] ?? 'opencode-go/mimo-v2.6-pro',
   agy: RUNTIME_MODELS.agy[0] ?? 'gemini-4-argon-high',
 };
@@ -53,7 +53,6 @@ export function useStartForm(
   const [prompt, setPrompt] = useState('');
   const [runtime, setRuntimeInner] = useState<Runtime>(readSetup);
   const [model, setModel] = useState<string>(() => SETUP_MODEL[readSetup()]);
-  const [effort, setEffort] = useState<EffortValue>('high');
   const [availability, setAvailability] = useState<RuntimesResponse | null>(null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -107,8 +106,8 @@ export function useStartForm(
         prompt: p,
         cwd: c,
         agent: LEAD_AGENT,
-        ...(model ? { model } : {}),
-        ...(runtime === 'claude' ? { effort } : {}),
+        // Claude: neither model nor effort, the server triages them.
+        ...(runtime !== 'claude' && model ? { model } : {}),
         runtime,
         ...(images.length > 0 ? { images } : {}),
         ...(files.length > 0 ? { files } : {}),
@@ -134,8 +133,6 @@ export function useStartForm(
     availability,
     model,
     setModel,
-    effort,
-    setEffort,
     attachments,
     starting,
     error,
@@ -147,43 +144,29 @@ interface FieldsProps {
   runtime: Runtime;
   availability: RuntimesResponse | null;
   model: string;
-  effort: EffortValue;
   onRuntime: (v: Runtime) => void;
   onModel: (v: string) => void;
-  onEffort: (v: EffortValue) => void;
   modelId: string;
-  effortId: string;
   layout: 'row' | 'stack';
-}
-
-function modelLabel(model: string): string {
-  if (model === 'claude-fable-5-1') return 'Fable';
-  if (model === 'opus') return 'Opus';
-  if (model === 'sonnet') return 'Sonnet';
-  if (model === 'haiku') return 'Haiku';
-  if (!model) return 'Default';
-  return model;
 }
 
 export function AgentModelFields({
   runtime,
   availability,
   model,
-  effort,
   onRuntime,
   onModel,
-  onEffort,
   modelId,
-  effortId,
   layout,
 }: FieldsProps) {
   const [open, setOpen] = useState(false);
   const panelId = `${modelId}-panel`;
   const modelShown = model || SETUP_MODEL[runtime];
+  const models = runtime === 'claude' ? [] : RUNTIME_MODELS[runtime];
   const summary =
     runtime === 'claude'
-      ? `${LEAD_AGENT} · ${modelLabel(modelShown)} · ${effort ? `${effort} effort` : 'default effort'}`
-      : `${SETUP_LABEL[runtime]} · ${modelLabel(modelShown)}`;
+      ? `${LEAD_AGENT} · Auto`
+      : `${SETUP_LABEL[runtime]} · ${shortModelLabel(modelShown) || 'Default'}`;
   const setupField = (
     <div className="amf-setup">
       <div className="view-toggle setup-seg" role="group" aria-label="Setup">
@@ -216,43 +199,15 @@ export function AgentModelFields({
       </span>
     </>
   );
-  const modelField =
-    runtime === 'claude' ? (
-      <>
-        <label htmlFor={modelId}>Model</label>
-        <select id={modelId} value={model} onChange={(e) => onModel(e.target.value)}>
-          <option value="">Default</option>
-          <option value="claude-fable-5-1">Fable</option>
-          <option value="opus">Opus</option>
-          <option value="sonnet">Sonnet</option>
-          <option value="haiku">Haiku</option>
-        </select>
-      </>
-    ) : (
-      <>
-        <label htmlFor={modelId}>Model</label>
-        <select id={modelId} value={modelShown} onChange={(e) => onModel(e.target.value)}>
-          {RUNTIME_MODELS[runtime].map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-      </>
-    );
-  const effortField = (
+  const modelField = (
     <>
-      <label htmlFor={effortId}>Effort</label>
-      <select
-        id={effortId}
-        value={effort}
-        onChange={(e) => onEffort(e.target.value as EffortValue)}
-      >
-        <option value="low">Low</option>
-        <option value="medium">Medium</option>
-        <option value="high">High</option>
-        <option value="xhigh">Extra high</option>
-        <option value="max">Max</option>
+      <label htmlFor={modelId}>Model</label>
+      <select id={modelId} value={modelShown} onChange={(e) => onModel(e.target.value)}>
+        {models.map((m) => (
+          <option key={m} value={m}>
+            {m}
+          </option>
+        ))}
       </select>
     </>
   );
@@ -261,30 +216,33 @@ export function AgentModelFields({
       {setupField}
       <div className="amf-summary">
         <span className="amf-summary-text">{summary}</span>
-        <button
-          type="button"
-          className="amf-toggle"
-          aria-expanded={open}
-          aria-controls={panelId}
-          onClick={() => setOpen((v) => !v)}
-        >
-          {open ? 'Hide' : 'Change'}
-        </button>
+        {runtime === 'claude' ? (
+          <span className="amf-note">Model picked per task (Haiku)</span>
+        ) : (
+          <button
+            type="button"
+            className="amf-toggle"
+            aria-expanded={open}
+            aria-controls={panelId}
+            onClick={() => setOpen((v) => !v)}
+          >
+            {open ? 'Hide' : 'Change'}
+          </button>
+        )}
       </div>
       {open &&
+        runtime !== 'claude' &&
         (layout === 'row' ? (
           <div id={panelId}>
             <div className="land-row">
               <div className="land-field">{agentField}</div>
               <div className="land-field">{modelField}</div>
-              {runtime === 'claude' && <div className="land-field">{effortField}</div>}
             </div>
           </div>
         ) : (
           <div id={panelId} className="amf-stack">
             {agentField}
             {modelField}
-            {runtime === 'claude' && effortField}
           </div>
         ))}
     </div>
@@ -305,14 +263,12 @@ interface PopoverProps {
   runtime: Runtime;
   availability: RuntimesResponse | null;
   model: string;
-  effort: EffortValue;
   onRuntime: (v: Runtime) => void;
   onModel: (v: string) => void;
-  onEffort: (v: EffortValue) => void;
 }
 
-/** The landing meta line as a button; opens a small menu for setup, model and effort. */
-export function SetupPopover({ runtime, availability, model, effort, onRuntime, onModel, onEffort }: PopoverProps) {
+/** The landing meta line as a button; opens a small menu for setup and (non-Claude) model. */
+export function SetupPopover({ runtime, availability, model, onRuntime, onModel }: PopoverProps) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -354,14 +310,14 @@ export function SetupPopover({ runtime, availability, model, effort, onRuntime, 
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls="land-setup-menu"
-        title="Change setup, model and effort"
+        title={runtime === 'claude' ? 'Change setup' : 'Change setup and model'}
         onClick={() => setOpen((v) => !v)}
       >
-        <MetaLine agent={LEAD_AGENT} model={shortModelLabel(modelShown) || 'Default'} provider={providerName(runtime)} runtime={runtime} />
+        <MetaLine agent={LEAD_AGENT} model={runtime === 'claude' ? 'Auto' : shortModelLabel(modelShown) || 'Default'} provider={providerName(runtime)} runtime={runtime} />
         <span className="meta-caret" aria-hidden="true">▾</span>
       </button>
       {open && (
-        <div ref={menuRef} id="land-setup-menu" className="setup-menu" role="dialog" aria-label="Setup, model and effort">
+        <div ref={menuRef} id="land-setup-menu" className="setup-menu" role="dialog" aria-label={runtime === 'claude' ? 'Setup' : 'Setup and model'}>
           <p className="setup-menu-h">setup</p>
           <div className="setup-menu-opts" role="group" aria-label="Setup">
             {SETUP_ORDER.map((r) => {
@@ -383,33 +339,17 @@ export function SetupPopover({ runtime, availability, model, effort, onRuntime, 
               );
             })}
           </div>
-          <label className="setup-menu-h" htmlFor="land-model">model</label>
           {runtime === 'claude' ? (
-            <select id="land-model" value={model} onChange={(e) => onModel(e.target.value)}>
-              <option value="">Default</option>
-              <option value="claude-fable-5-1">Fable</option>
-              <option value="opus">Opus</option>
-              <option value="sonnet">Sonnet</option>
-              <option value="haiku">Haiku</option>
-            </select>
+            <p className="setup-menu-note">Model picked per task (Haiku)</p>
           ) : (
-            <select id="land-model" value={modelShown} onChange={(e) => onModel(e.target.value)}>
-              {RUNTIME_MODELS[runtime].map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          )}
-          {runtime === 'claude' && (
             <>
-              <label className="setup-menu-h" htmlFor="land-effort">effort</label>
-              <select id="land-effort" value={effort} onChange={(e) => onEffort(e.target.value as EffortValue)}>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="xhigh">Extra high</option>
-                <option value="max">Max</option>
+              <label className="setup-menu-h" htmlFor="land-model">model</label>
+              <select id="land-model" value={modelShown} onChange={(e) => onModel(e.target.value)}>
+                {RUNTIME_MODELS[runtime].map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
               </select>
             </>
           )}

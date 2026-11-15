@@ -7,7 +7,7 @@ import { filesFromPaste, useAttachments } from './attachments';
 import { AttachButton, AttachmentTray } from './AttachmentTray';
 import { ComposerWhere, MetaLine, PromptShell, providerName } from './Composer';
 import { useEnterToSend } from './enterToSend';
-import { modelLabel } from './format';
+import { canUseOpus, modelLabel } from './format';
 import { useSlashMenu } from './SlashMenu';
 
 interface Props {
@@ -23,15 +23,20 @@ interface Props {
   /** The server just refused a message because the session has ended. */
   ended?: boolean;
   loadCommands: () => Promise<SlashCommandInfo[]>;
+  /** "Use Opus" for the next resume; owned by App so it survives the remount when the draft moves here. */
+  useOpus: boolean;
+  onUseOpus: (on: boolean) => void;
 }
 
-export function Continue({ backend, guard, session, git, sessionId, source, onResumed, initialText = '', ended = false, loadCommands }: Props) {
+export function Continue({ backend, guard, session, git, sessionId, source, onResumed, initialText = '', ended = false, loadCommands, useOpus, onUseOpus }: Props) {
   const [text, setText] = useState(initialText);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const attachments = useAttachments();
   const ref = useRef<HTMLTextAreaElement>(null);
   const slash = useSlashMenu(text, setText, loadCommands, ref);
+
+  const opusOffered = canUseOpus(session);
 
   const submit = async () => {
     const t = text.trim();
@@ -44,6 +49,7 @@ export function Continue({ backend, guard, session, git, sessionId, source, onRe
       const res = await guard(
         backend.resume(sessionId, {
           text: t,
+          ...(opusOffered && useOpus ? { model: 'opus' } : {}),
           ...(images.length > 0 ? { images } : {}),
           ...(files.length > 0 ? { files } : {}),
         }),
@@ -106,6 +112,15 @@ export function Continue({ backend, guard, session, git, sessionId, source, onRe
             if (enterToSend.onKeyDown(e)) return;
           }}
         />
+      }
+      aside={
+        opusOffered && (
+          <label className="opus-toggle">
+            <input type="checkbox" checked={useOpus} onChange={(e) => onUseOpus(e.target.checked)} />
+            <span className="opus-toggle-name">Use Opus</span>
+            <span className="opus-toggle-hint">next message re-reads the chat at Opus price</span>
+          </label>
+        )
       }
       meta={<MetaLine agent={session.agent} model={modelLabel(session.model)} provider={providerName(runtime)} runtime={runtime} />}
       hint="enter send · shift+enter newline"

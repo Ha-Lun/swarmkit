@@ -109,6 +109,8 @@ interface ShellProps {
   meta: ReactNode;
   /** Dim text at the end of the meta line (desktop only). */
   hint?: ReactNode;
+  /** A control line between the box and the row (e.g. the Continue "Use Opus" toggle). */
+  aside?: ReactNode;
   error?: ReactNode;
   /** The dim row under the box. */
   left: ReactNode;
@@ -116,7 +118,7 @@ interface ShellProps {
 }
 
 /** The prompt input: rounded card on the input fill, meta pills inside, one dim row below. */
-export function PromptShell({ runtime, variant = 'session', onSubmit, tray, menu, onFiles, textarea, meta, hint, error, left, right }: ShellProps) {
+export function PromptShell({ runtime, variant = 'session', onSubmit, tray, menu, onFiles, textarea, meta, hint, aside, error, left, right }: ShellProps) {
   const body = (
     <div className="composer-col">
       {tray}
@@ -128,6 +130,7 @@ export function PromptShell({ runtime, variant = 'session', onSubmit, tray, menu
           {hint && <span className="composer-hint" aria-hidden="true">{hint}</span>}
         </div>
       </div>
+      {aside}
       {error}
       <div className="composer-row">
         <div className="composer-row-left">{left}</div>

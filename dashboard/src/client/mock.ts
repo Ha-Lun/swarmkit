@@ -16,6 +16,7 @@ import type {
   SessionSummary,
   StartSessionBody,
   StartSessionResponse,
+  TriageInfo,
   ResumeSessionBody,
   TokenUsage,
   UsageReport,
@@ -172,6 +173,9 @@ export function createMockBackend(): FleetBackend {
     startedAt: base - 50_000_000,
     updatedAt: base - 49_000_000,
     costUsd: 0.12,
+    agent: 'lead-dev-hybrid',
+    model: 'claude-sonnet-5-5',
+    triage: { level: 'trivial', reason: 'single-file doc draft', source: 'haiku' },
     nodeCount: 1,
     pendingPermissions: 0,
     resumable: true,
@@ -1288,7 +1292,7 @@ A claim with a footnote.[^1]
 
   let mockStars = ['/home/demo/work/acme-web'];
 
-  return {
+  const backend: FleetBackend = {
     sessions: () => Promise.resolve(Array.from(sessions.values()).map((s) => ({ ...s })).sort((a, b) => b.updatedAt - a.updatedAt)),
     detail: (id) => Promise.resolve(detail(id)),
     git: (id) => {
@@ -1304,6 +1308,14 @@ A claim with a footnote.[^1]
       const id = uid('page');
       const title = body.prompt.split('\n')[0].slice(0, 120) || 'New session';
       const runtime = body.runtime ?? 'claude';
+      // Claude without a model: the server's Haiku triage picks it (here by keyword, after a short wait).
+      const triaged = runtime === 'claude' && !body.model;
+      const triage: TriageInfo | undefined = triaged
+        ? /typo|rename|pdf/i.test(body.prompt)
+          ? { level: 'trivial', reason: 'small mechanical edit', source: 'haiku' }
+          : { level: 'hard', reason: 'multi-step change across files', source: 'haiku' }
+        : undefined;
+      const model = triage ? (triage.level === 'hard' ? 'claude-opus-5-5' : 'claude-sonnet-5-5') : body.model;
       const s: SessionSummary = {
         id,
         source: 'page',
@@ -1315,7 +1327,8 @@ A claim with a footnote.[^1]
         updatedAt: now,
         costUsd: 0,
         agent: body.agent,
-        model: body.model,
+        model,
+        ...(triage ? { triage } : {}),
         nodeCount: 1,
         pendingPermissions: 0,
         resumable: false,
@@ -1330,7 +1343,7 @@ A claim with a footnote.[^1]
         parentId: null,
         kind: 'main',
         agentType: runtime === 'claude' ? (body.agent ?? 'main') : 'lead-dev-hybrid',
-        model: body.model,
+        model,
         description: title,
         prompt: body.prompt,
         status: 'running',
@@ -1532,6 +1545,10 @@ A claim with a footnote.[^1]
       s.source = 'page';
       s.status = 'running';
       s.resumable = false;
+      if (body.model) {
+        s.model = body.model;
+        if (root) root.model = body.model;
+      }
       if (root) {
         root.status = 'running';
         root.endedAt = undefined;
@@ -1583,4 +1600,12 @@ A claim with a footnote.[^1]
       return () => clearAll();
     },
   };
+
+  // The real server waits on the Haiku triage (5-15 s) before a Claude session without a model starts.
+  const startNow = backend.start;
+  backend.start = (body) =>
+    (body.runtime ?? 'claude') === 'claude' && !body.model
+      ? new Promise((resolve, reject) => at(1500, () => startNow(body).then(resolve, reject)))
+      : startNow(body);
+  return backend;
 }
