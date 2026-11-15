@@ -1041,14 +1041,16 @@ def main():
     ap.add_argument("--wait", action="store_true", help="queue for a free slot instead of refusing at the limit")
     a = ap.parse_args()
     if a.cmd in ("start", "resume"):
-        manual, claude, opencode = (os.environ.get(k) == "1" for k in ("SWARMKIT_ALLOW_WORKERS", "CLAUDECODE", "OPENCODE"))
+        manual, claude, opencode, agy_lead = (os.environ.get(k) == "1" for k in
+                                              ("SWARMKIT_ALLOW_WORKERS", "CLAUDECODE", "OPENCODE", "SWARMKIT_AGY_LEAD"))
         def refuse(m):
             print(m, file=sys.stderr)
             sys.exit(2)
         if CLI == "opencode" and opencode and not manual:
             refuse(f"{PROG}: OpenCode never starts opencode workers; use your own subagents (task tool), or agy-task for an agy worker.")
-        if CLI == "opencode" and not (claude or manual):
-            refuse(f"{PROG}: workers are started only by Claude Code (CLAUDECODE=1 missing). In OpenCode or Antigravity, use your own "
+        if CLI == "opencode" and not (claude or manual or agy_lead):  # agy_lead: a dashboard agy lead session
+            refuse(f"{PROG}: workers are started only by Claude Code or a dashboard agy lead (CLAUDECODE=1 / SWARMKIT_AGY_LEAD=1 "
+                     "missing). In OpenCode or Antigravity, use your own "
                      "subagents instead. Set SWARMKIT_ALLOW_WORKERS=1 to start one by hand from a terminal.")
         if CLI == "agy" and not (claude or opencode or manual):
             refuse(f"{PROG}: agy workers are started only by Claude Code or OpenCode. Set SWARMKIT_ALLOW_WORKERS=1 to start one by hand from a terminal.")

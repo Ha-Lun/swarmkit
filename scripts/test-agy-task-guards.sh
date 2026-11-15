@@ -779,7 +779,7 @@ unset SWARMKIT_DISPATCH_LOG
 [ "$(wc -l < "$T/dispatch.jsonl")" = 4 ] || fail "logged without SWARMKIT_DISPATCH_LOG"
 for s in dl1 dl2 dl3; do "$TASK" clean $s --force; done
 # --- worker start guard per lane
-CLEAN=(env -u CLAUDECODE -u OPENCODE -u SWARMKIT_ALLOW_WORKERS)
+CLEAN=(env -u CLAUDECODE -u OPENCODE -u SWARMKIT_ALLOW_WORKERS -u SWARMKIT_AGY_LEAD)
 OC_NEW="opencode-task: OpenCode never starts opencode workers"
 OC_OLD="opencode-task: workers are started only by Claude Code"
 AGY_MSG="agy-task: agy workers are started only by Claude Code or OpenCode"
@@ -808,7 +808,10 @@ refused "$OC_NEW" "${CLEAN[@]}" CLAUDECODE=1 OPENCODE=1 "$TASK" start cc6 "p"
 allowed "${CLEAN[@]}" CLAUDECODE=1 OPENCODE=1 "$AGY_TASK" start cc7 "p"
 allowed "${CLEAN[@]}" SWARMKIT_ALLOW_WORKERS=1 OPENCODE=1 "$TASK" start cc8 "p"
 allowed "${CLEAN[@]}" SWARMKIT_ALLOW_WORKERS=1 "$AGY_TASK" start cc9 "p"
-for s in cc2 cc3 cc5 cc7 cc8 cc9; do "$TASK" clean $s --force >/dev/null 2>&1 || true; "$AGY_TASK" clean $s --force >/dev/null 2>&1 || true; done
+allowed "${CLEAN[@]}" SWARMKIT_AGY_LEAD=1 "$TASK" start cc10 "p"
+refused "$OC_NEW" "${CLEAN[@]}" SWARMKIT_AGY_LEAD=1 OPENCODE=1 "$TASK" start cc11 "p"
+refused "$AGY_MSG" "${CLEAN[@]}" SWARMKIT_AGY_LEAD=1 "$AGY_TASK" start cc12 "p"
+for s in cc2 cc3 cc5 cc7 cc8 cc9 cc10; do "$TASK" clean $s --force >/dev/null 2>&1 || true; "$AGY_TASK" clean $s --force >/dev/null 2>&1 || true; done
 # model: resolve-only, same rules as start, starts nothing
 export SWARMKIT_OPENCODE_AGENTS_DIR="$T/magents"; mkdir -p "$SWARMKIT_OPENCODE_AGENTS_DIR"
 mkagent() { printf -- "---\n%s---\n" "$2" > "$SWARMKIT_OPENCODE_AGENTS_DIR/$1.md"; }
