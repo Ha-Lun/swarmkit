@@ -2,6 +2,7 @@
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import { readFile, stat } from 'node:fs/promises';
 import { accessSync, constants as fsConstants, statSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
@@ -35,6 +36,15 @@ import { SdkSessions, SessionError } from './sdk/sessions.ts';
 import { createLimitHandler } from './fallback.ts';
 import { validAttachmentTotals, validFiles, validImages, validMessageText, validRuntime, validRuntimeAgent, validRuntimeEffort, validRuntimeModel, ValidationError } from './validate.ts';
 import { imageEtag, readImage } from './images.ts';
+import {
+  artifactDir,
+  downloadHeaders,
+  listArtifacts,
+  openForDownload,
+  resolveWritten,
+  validArtifactName,
+  writtenArtifacts,
+} from './artifacts.ts';
 import { resolveDirInHome } from './paths.ts';
 import { staticPolicy } from './static.ts';
 import { abortUsageProbe, getLaneLimits, getUsage } from './usage.ts';
@@ -399,6 +409,98 @@ async function main(): Promise<void> {
     res.end(req.method === 'HEAD' ? undefined : image.data);
   }
 
+  /** Page session (sdk) or terminal session (watcher) behind an artifacts route; unknown -> undefined. */
+  async function artifactSession(id: string): Promise<{ id: string; cwd: string; paths: string[] } | undefined> {
+    let sessionId: string;
+    try {
+      sessionId = decodeURIComponent(id);
+    } catch {
+      return undefined;
+    }
+    if (sdk.owns(sessionId)) {
+      const file = sdk.fileInfo(sessionId)!;
+      return { id: sessionId, cwd: file.cwd, paths: sdk.writtenPaths(sessionId) ?? [] };
+    }
+    const file = watcher.fileInfo(sessionId);
+    if (!file) return undefined;
+    return { id: sessionId, cwd: file.cwd, paths: (await watcher.writtenPaths(sessionId)) ?? [] };
+  }
+
+  /** Streams an opened download: headers for GET and HEAD, bytes only for GET, handle always closed. */
+  async function serveDownload(
+    req: IncomingMessage,
+    res: ServerResponse,
+    filename: string,
+    opened: Awaited<ReturnType<typeof openForDownload>>,
+  ): Promise<void> {
+    if (!opened) return sendJson(res, 404, { error: 'file not found' });
+    const { handle, size } = opened;
+    const headers = downloadHeaders(filename, size);
+    if (req.method === 'HEAD') {
+      try {
+        await handle.close();
+      } catch {
+        // Best effort.
+      }
+      res.writeHead(200, headers);
+      return void res.end();
+    }
+    res.writeHead(200, headers);
+    try {
+      await pipeline(handle.createReadStream(), res);
+    } catch (err) {
+      console.error('Artifact download failed:', err instanceof Error ? err.message : 'unknown error');
+      try {
+        res.destroy();
+      } catch {
+        // Best effort.
+      }
+    } finally {
+      try {
+        await handle.close();
+      } catch {
+        // Best effort: no fd leaks when the client disconnects.
+      }
+    }
+  }
+
+  /** GET /api/sessions/:id/artifacts: published files plus files the session wrote in its cwd. */
+  async function serveArtifacts(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
+    void req;
+    const session = await artifactSession(id);
+    if (!session) return sendJson(res, 404, { error: 'session not found' });
+    const written = await writtenArtifacts(session.id, session.cwd, session.paths);
+    return sendJson(res, 200, { published: listArtifacts(session.id), written });
+  }
+
+  /** GET|HEAD /api/sessions/:id/artifacts/:name: one published file (attachment). */
+  async function servePublished(req: IncomingMessage, res: ServerResponse, id: string, name: string): Promise<void> {
+    const session = await artifactSession(id);
+    let fileName: string;
+    try {
+      fileName = decodeURIComponent(name);
+    } catch {
+      return sendJson(res, 404, { error: 'file not found' });
+    }
+    if (!session || !validArtifactName(fileName)) return sendJson(res, 404, { error: 'file not found' });
+    let dir: string;
+    try {
+      dir = artifactDir(session.id);
+    } catch {
+      return sendJson(res, 404, { error: 'file not found' });
+    }
+    return serveDownload(req, res, fileName, await openForDownload(path.join(dir, fileName)));
+  }
+
+  /** GET|HEAD /api/sessions/:id/written?path=: one file the session wrote in its cwd (attachment). */
+  async function serveWritten(req: IncomingMessage, res: ServerResponse, id: string, requested: string | null): Promise<void> {
+    const session = await artifactSession(id);
+    if (!session || !requested) return sendJson(res, 404, { error: 'file not found' });
+    const opened = await resolveWritten(session.cwd, session.paths, requested);
+    if (!opened) return sendJson(res, 404, { error: 'file not found' });
+    return serveDownload(req, res, path.basename(opened.real), opened);
+  }
+
   sessionLookup = id => mergedSessions().find(s => s.id === id);
   const mergedSessions = (): SessionSummary[] =>
     [...sdk.list(), ...watcher.list()].sort((a, b) => b.updatedAt - a.updatedAt);
@@ -678,6 +780,18 @@ async function main(): Promise<void> {
       if (parts.length === 5 && parts[3] === 'images') {
         if (method !== 'GET' && method !== 'HEAD') return sendJson(res, 405, { error: 'method not allowed' });
         return serveImage(req, res, id, parts[4] ?? '');
+      }
+      if (parts.length === 4 && parts[3] === 'artifacts') {
+        if (method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+        return serveArtifacts(req, res, id);
+      }
+      if (parts.length === 5 && parts[3] === 'artifacts') {
+        if (method !== 'GET' && method !== 'HEAD') return sendJson(res, 405, { error: 'method not allowed' });
+        return servePublished(req, res, id, parts[4] ?? '');
+      }
+      if (parts.length === 4 && parts[3] === 'written') {
+        if (method !== 'GET' && method !== 'HEAD') return sendJson(res, 405, { error: 'method not allowed' });
+        return serveWritten(req, res, id, url.searchParams.get('path'));
       }
       if (parts.length === 3 && method === 'DELETE') {
         return sdk.stop(id)

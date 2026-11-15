@@ -300,6 +300,25 @@ export class TranscriptWatcher {
     return this.live.get(id)?.path ?? this.heads.get(id)?.path;
   }
 
+  /** Raw paths the terminal session's write tool calls named (Write/Edit/MultiEdit/NotebookEdit). */
+  async writtenPaths(id: string): Promise<string[] | undefined> {
+    if (this.skipFn(id)) return undefined;
+    let live = this.live.get(id);
+    if (!live) {
+      const file = await this.findFile(id);
+      if (!file) return undefined;
+      try {
+        const parsed = await this.parseFull(file, id);
+        live = parsed.live;
+        this.live.set(id, parsed.live);
+        this.flushEvents(parsed.events, parsed.live);
+      } catch {
+        return undefined;
+      }
+    }
+    return [...(live.tree.writtenPaths ?? [])];
+  }
+
   /**
    * True once the session's transcript is known (parsed and tailed from here on),
    * polling up to waitMs for a file that is still being created. False for page sessions.
