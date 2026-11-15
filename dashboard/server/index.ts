@@ -32,6 +32,8 @@ import { commandCacheFilePath } from './commandcache.ts';
 import { sendPush, validatePushTarget } from './webpush.ts';
 import { WorkerRegistry } from './registry.ts';
 import { SdkSessions, SessionError } from './sdk/sessions.ts';
+import { createLimitHandler } from './fallback.ts';
+import { abortUsageProbe, getLaneLimits, getUsage } from './usage.ts';
 import { validAttachmentTotals, validFiles, validImages, validMessageText, validRuntime, validRuntimeAgent, validRuntimeEffort, validRuntimeModel, ValidationError } from './validate.ts';
 import { imageEtag, readImage } from './images.ts';
 import { resolveDirInHome } from './paths.ts';
@@ -259,6 +261,16 @@ async function main(): Promise<void> {
     hookBase: () => `http://${hookHost}:${PORT}`,
     commandCacheFile: commandCacheFilePath(),
   });
+  // A Claude page session refused by the plan limit falls back to a free lane
+  // (agy or opencode) with a handoff prompt; the notifier sends the one push.
+  sdk.setOnLimit(
+    createLimitHandler({
+      sdk,
+      getLaneLimits,
+      runtimesStatus,
+      notifyLimit: args => notifier.notifyLimit(args),
+    }),
+  );
   // A fresh install or a lost cache: fetch the Claude command list once so the `/` menu works.
   void sdk.primeCommands(os.homedir()).catch(() => {});
   const watcher = new TranscriptWatcher({ emit: broadcast, skip: id => sdk.owns(id) });

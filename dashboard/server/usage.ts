@@ -168,9 +168,11 @@ function utilisationOf(raw: unknown): number | null {
   return Math.min(100, Math.max(0, Math.round(raw)));
 }
 
-/** rate_limit_event utilization: a fraction strictly between 0 and 1 is upscaled to percent; exactly 1 means 1 %. */
-function eventUtilisationOf(raw: unknown): number | null {
+/** rate_limit_event utilization: a fraction strictly between 0 and 1 is upscaled to percent. */
+function eventUtilisationOf(raw: unknown, rejected = false): number | null {
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return null;
+  // A rejected event at exactly 1 means the window is full (100 %); otherwise 1 stays 1 %.
+  if (rejected && raw === 1) return 100;
   return utilisationOf(raw > 0 && raw < 1 ? raw * 100 : raw);
 }
 
@@ -203,7 +205,10 @@ function claudeFromSession(state: UsageState, now: number): ClaudeUsage {
 export function noteRateLimit(info: SDKRateLimitInfo, state: UsageState = defaultState): void {
   const type = info?.rateLimitType;
   if (!type || !(RATE_LIMIT_TYPES as string[]).includes(type)) return;
-  const utilization = eventUtilisationOf(info.utilization);
+  const rejected = (info as { status?: unknown })?.status === 'rejected';
+  let utilization = eventUtilisationOf(info.utilization, rejected);
+  // A rejected window with no usable figure is full, not unknown: record 100.
+  if (utilization === null && rejected) utilization = 100;
   if (utilization === null) return;
   const resetsAt =
     typeof info.resetsAt === 'number' && info.resetsAt > 0 ? new Date(info.resetsAt * 1000).toISOString() : null;
@@ -944,4 +949,31 @@ export async function getUsage(opts: UsageOptions = {}): Promise<UsageReport> {
     ...(go.error ? { limitsError: go.error } : {}),
   };
   return { claude, opencode, agy };
+}
+
+/**
+ * Fast lane limits for the plan-limit fallback: only the agy and opencode Go
+ * plan limits, without the claude probe, the opencode stats calls or the agy
+ * task-dir scan (nothing heavy right after a limit hit).
+ */
+export async function getLaneLimits(
+  opts: UsageOptions = {},
+): Promise<Pick<UsageReport, 'agy' | 'opencode'>> {
+  const execFile: UsageExec =
+    opts.execFile ??
+    ((file, args, execOpts) => execFileP(file, args, { ...execOpts, killSignal: 'SIGKILL', maxBuffer: EXEC_MAX_BUFFER, cwd: os.homedir(), encoding: 'utf8' }).then((r) => String(r.stdout)));
+  const o: UsageOptions = {
+    ...opts,
+    execFile,
+    queryFactory: opts.queryFactory ?? query,
+  };
+  const [agyLimits, go] = await Promise.all([collectAgyLimits(o), collectGoLimits(o)]);
+  const asOf = new Date(nowMs(o)).toISOString();
+  const agy: AgyUsage = agyLimits.limits
+    ? { available: true, asOf, windows: [], limits: agyLimits.limits }
+    : { available: false, asOf: null, error: agyLimits.error ?? AGY_LIMITS_UNAVAILABLE_MSG, windows: [] };
+  const opencode: OpencodeUsage = go.limits
+    ? { available: true, asOf, windows: [], limits: go.limits }
+    : { available: false, asOf: null, error: go.error, windows: [], limitsError: go.error };
+  return { agy, opencode };
 }

@@ -720,4 +720,74 @@ describe('createPushNotifier', () => {
     await flush();
     expect(rec.calls.map(c => c.payload.title)).toEqual(['Worker ok', 'Worker NOT ok']);
   });
+
+  it('suppresses the generic error for a limit session and sends one limit push', async () => {
+    const store = makeFakeStore([makeSub('https://push.example/1')]);
+    const rec = makeRecorder();
+    const notifier = createPushNotifier({
+      store,
+      send: rec.send,
+      subject: 'mailto:test@example.com',
+      now: () => 10_000,
+      warmupMs: 0,
+    });
+
+    notifier.baseline([makeSession({ id: 'old', status: 'running' })], []);
+    // The refused turn's error upsert already carries limitReached: no generic Error.
+    notifier.observe({
+      type: 'session.upsert',
+      session: {
+        ...makeSession({ id: 'old', status: 'error' }),
+        limitReached: { window: 'five_hour', resetsAt: null, fallback: null },
+      },
+    });
+    await flush();
+    expect(rec.calls).toHaveLength(0);
+
+    notifier.notifyLimit({ oldId: 'old', title: 'Fix bug', resetsAt: null, fallback: { sessionId: 'new', runtime: 'agy' } });
+    await flush();
+    expect(rec.calls).toHaveLength(1);
+    expect(rec.calls[0]?.payload).toEqual({
+      title: 'Claude limit reached',
+      body: 'Continued on agy: Fix bug',
+      tag: 'old',
+      url: '/?session=new',
+    });
+  });
+
+  it('limit push without a lane points at the old session and names the reset time', async () => {
+    const store = makeFakeStore([makeSub('https://push.example/1')]);
+    const rec = makeRecorder();
+    const notifier = createPushNotifier({
+      store,
+      send: rec.send,
+      subject: 'mailto:test@example.com',
+      now: () => 10_000,
+      warmupMs: 0,
+    });
+    const resetsAt = '2026-11-02T00:00:00.000Z';
+    notifier.notifyLimit({ oldId: 'old', title: 'Fix bug', resetsAt, fallback: null });
+    await flush();
+    expect(rec.calls).toHaveLength(1);
+    expect(rec.calls[0]?.payload.title).toBe('Claude limit reached');
+    expect(rec.calls[0]?.payload.body).toContain('No fallback lane free: Fix bug');
+    expect(rec.calls[0]?.payload.body).toContain('resets');
+    expect(rec.calls[0]?.payload.tag).toBe('old');
+    expect(rec.calls[0]?.payload.url).toBe('/?session=old');
+  });
+
+  it('limit pushes honour the error event toggle', async () => {
+    const store = makeFakeStore([makeSub('https://push.example/1', { events: allEvents({ error: false }) })]);
+    const rec = makeRecorder();
+    const notifier = createPushNotifier({
+      store,
+      send: rec.send,
+      subject: 'mailto:test@example.com',
+      now: () => 10_000,
+      warmupMs: 0,
+    });
+    notifier.notifyLimit({ oldId: 'old', title: 'Fix bug', resetsAt: null, fallback: { sessionId: 'new', runtime: 'opencode' } });
+    await flush();
+    expect(rec.calls).toHaveLength(0);
+  });
 });
