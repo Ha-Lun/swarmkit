@@ -120,6 +120,22 @@ describe('plan-limit detection', () => {
     expect(sdk.get(id)?.status).not.toBe('done');
   });
 
+  it('continuing the session (resume/restart unwind) clears the limit so the next turn can finish', async () => {
+    const onLimit = vi.fn();
+    const sdk = new SdkSessions(() => {}, limitQuery({
+      event: { status: 'rejected', rateLimitType: 'five_hour', resetsAt: RESET_S },
+    }), undefined, { onLimit });
+    const id = sdk.start({ prompt: 'do work', cwd: homeDir });
+    await vi.waitFor(() => expect(raw(sdk, id).consuming).toBe(false));
+    expect(sdk.get(id)?.limitReached).toBeDefined();
+    const session = raw(sdk, id) as unknown as { limitHit?: unknown; limitNotified?: boolean };
+    await (sdk as unknown as { unwind(s: unknown): Promise<void> }).unwind(session);
+    expect(session.limitHit).toBeUndefined();
+    expect(session.limitNotified).toBe(true);
+    expect(sdk.get(id)?.limitReached).toBeUndefined();
+    expect(onLimit).toHaveBeenCalledTimes(1);
+  });
+
   it('assistant error alone counts (five_hour, no resetsAt); overage events count too', async () => {
     const assistantOnly = vi.fn();
     const sdk = new SdkSessions(() => {}, limitQuery({

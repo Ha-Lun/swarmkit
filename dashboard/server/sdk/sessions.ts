@@ -1005,6 +1005,10 @@ export class SdkSessions {
       new Promise<void>(resolve => setTimeout(resolve, RESUME_UNWIND_MS).unref()),
     ]);
     session.stopped = false;
+    // Continuing after a plan-limit hit: the new turn decides the status again. limitNotified
+    // stays set, so one session never starts a second fallback lead.
+    session.limitHit = undefined;
+    session.limitReached = undefined;
     session.pending.clear();
     this.unqueue(session);
     session.queue = new InputQueue();

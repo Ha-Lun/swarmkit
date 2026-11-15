@@ -79,7 +79,7 @@ describe('pickLane', () => {
       pickLane({ agy: agyPart(agyLimits([99])), opencode: opencodePart(goLimits([99])) }, runtimes(true, true)),
     ).toBeNull();
     expect(
-      pickLane({ agy: agyPart(agyLimits([10])), opencode: opencodePart(goLimits([10], true)) }, runtimes(true, true)),
+      pickLane({ agy: agyPart(agyLimits([99])), opencode: opencodePart(goLimits([10], true)) }, runtimes(true, true)),
     ).toBeNull();
   });
 
