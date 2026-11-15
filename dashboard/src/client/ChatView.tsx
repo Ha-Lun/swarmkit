@@ -1,14 +1,15 @@
 // Chat transcript for one agent: bubbles, tool rows, handoff cards, thinking indicator.
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import type { AgentNode, DecideOptions, LimitReached, PermissionRequest, SessionSummary, WorkerTask } from '../shared/types';
+import type { AgentNode, ArtifactsResponse, DecideOptions, LimitReached, PublishedArtifact, WrittenArtifact, PermissionRequest, SessionSummary, WorkerTask } from '../shared/types';
 import { MAX_EVENTS } from '../shared/types';
 import { agentLabel, buildChat, isSafeImageUrl, matchWorkerTask, orbColor, orbLabel, orbState, stripImageMarkers } from './chat';
 import type { ChatItem } from './chat';
-import { elapsedMs, fmtDuration, modelLabel, toolGroups, workerElapsedS } from './format';
+import { elapsedMs, fmtBytes, fmtDuration, modelLabel, toolGroups, workerElapsedS } from './format';
 const Markdown = lazy(() => import('./Markdown').then((m) => ({ default: m.Markdown })));
 import { Scanner } from './Scanner';
-import { FileIcon } from './icons';
+import { DownloadIcon, FileIcon, PaperclipIcon } from './icons';
+import { matchWritten, turnArtifacts } from './artifacts';
 import { PermissionPanel } from './Permission';
 import { toolSummary } from './toolSummary';
 import { ContinuedFrom, LimitNotice } from './Fallback';
@@ -29,6 +30,8 @@ interface Props {
   limitReached?: LimitReached;
   fallbackOf?: NonNullable<SessionSummary['fallbackOf']>;
   onSelectSession?: (id: string) => void;
+  /** The session's downloadable files: the strip under finished turns and the tool-row links. */
+  artifacts?: ArtifactsResponse;
 }
 
 function firstLine(s: string): string {
@@ -145,7 +148,7 @@ function UserBubble({ item }: { item: Extract<ChatItem, { type: 'user' }> }) {
   );
 }
 
-function ToolsRow({ item }: { item: Extract<ChatItem, { type: 'tools' }> }) {
+function ToolsRow({ item, written }: { item: Extract<ChatItem, { type: 'tools' }>; written: WrittenArtifact[] }) {
   if (!item.events.some((e) => e.kind === 'tool_use')) return null;
   const counts: Record<string, number> = {};
   for (const c of item.counts) counts[c.tool] = c.count;
@@ -163,15 +166,31 @@ function ToolsRow({ item }: { item: Extract<ChatItem, { type: 'tools' }> }) {
                 <span>{e.summary}</span>
               </span>
             );
-            return e.detail ? (
-              <details key={e.id} className="chat-tool-item">
+            const file = matchWritten(e.tool, e.summary, written);
+            const entry = e.detail ? (
+              <details className="chat-tool-item">
                 <summary>{body}</summary>
                 <pre>{e.detail}</pre>
               </details>
             ) : (
-              <div key={e.id} className="chat-tool-item">
-                {body}
+              <div className="chat-tool-item">{body}</div>
+            );
+            // The link sits beside the details, not in its <summary>, so it never toggles the row.
+            return file ? (
+              <div key={e.id} className="chat-tool-entry">
+                {entry}
+                <a
+                  className="chat-tool-dl"
+                  href={file.url}
+                  download
+                  aria-label={`Download ${file.rel}`}
+                  title={`Download ${file.rel}`}
+                >
+                  <DownloadIcon size={14} />
+                </a>
               </div>
+            ) : (
+              <div key={e.id} className="chat-tool-entry">{entry}</div>
             );
           }
           return (
@@ -185,6 +204,23 @@ function ToolsRow({ item }: { item: Extract<ChatItem, { type: 'tools' }> }) {
         {uses.length === 0 && <p className="muted">No tool calls.</p>}
       </div>
     </details>
+  );
+}
+
+/** Files published during one finished turn, as download chips under its last reply. */
+function ArtifactStrip({ files }: { files: PublishedArtifact[] }) {
+  return (
+    <ul className="chat-artifacts" aria-label="Files published this turn">
+      {files.map((f) => (
+        <li key={f.name}>
+          <a className="chat-artifact" href={f.url} download aria-label={`Download ${f.name}`} title={`Download ${f.name}`}>
+            <PaperclipIcon size={13} />
+            <span className="chat-artifact-name">{f.name}</span>
+            <span className="chat-artifact-size">· {fmtBytes(f.size)}</span>
+          </a>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -299,9 +335,12 @@ function ThinkingStatus({ node, color, waiting }: { node: AgentNode; color: stri
   );
 }
 
-export function ChatView({ node, nodes, permissions, workers, workersAt, now, onOpenAgent, onDecide, untrusted, onOpenWorkerLog, limitReached, fallbackOf, onSelectSession }: Props) {
+export function ChatView({ node, nodes, permissions, workers, workersAt, now, onOpenAgent, onDecide, untrusted, onOpenWorkerLog, limitReached, fallbackOf, onSelectSession, artifacts }: Props) {
   const children = nodes.filter((n) => n.parentId === node.id);
   const items = buildChat(node, children);
+  const written = artifacts?.written ?? [];
+  // Published files belong to the session, so only the lead's turns get a strip.
+  const strips = node.kind === 'main' && artifacts ? turnArtifacts(node.events, artifacts.published) : new Map<string, PublishedArtifact[]>();
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const permByNode = new Map<string, PermissionRequest>();
   for (const p of permissions) {
@@ -369,10 +408,14 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
               return <UserBubble key={item.id} item={item} />;
             }
             if (item.type === 'assistant') {
+              const strip = strips.get(item.id);
               return (
-                <Suspense key={item.id} fallback={<p className="chat-assistant md-plain">{item.text}</p>}>
-                  <Markdown className="chat-assistant" text={item.text} />
-                </Suspense>
+                <Fragment key={item.id}>
+                  <Suspense fallback={<p className="chat-assistant md-plain">{item.text}</p>}>
+                    <Markdown className="chat-assistant" text={item.text} />
+                  </Suspense>
+                  {strip && <ArtifactStrip files={strip} />}
+                </Fragment>
               );
             }
             if (item.type === 'thinking') {
@@ -388,7 +431,7 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
               );
             }
             if (item.type === 'tools') {
-              return <ToolsRow key={item.id} item={item} />;
+              return <ToolsRow key={item.id} item={item} written={written} />;
             }
             if (item.type === 'handoff') {
               const child = byId.get(item.childId);

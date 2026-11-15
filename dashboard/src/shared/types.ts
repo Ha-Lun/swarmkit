@@ -176,6 +176,35 @@ export interface GitResponse {
   git?: GitInfo;
 }
 
+/** A file the agent published into the session's artifacts folder ($SWARMKIT_ARTIFACTS_DIR). */
+export interface PublishedArtifact {
+  name: string;
+  size: number;
+  /** Epoch ms. */
+  mtime: number;
+  /** GET /api/sessions/:id/artifacts/:name (downloads as an attachment). */
+  url: string;
+}
+
+/** A file the session wrote with Write/Edit/NotebookEdit that still exists inside its cwd. */
+export interface WrittenArtifact {
+  /** Absolute path, as the tool call named it. */
+  path: string;
+  /** Path relative to the session cwd. */
+  rel: string;
+  size: number;
+  /** Epoch ms. */
+  mtime: number;
+  /** GET /api/sessions/:id/written?path=<abs> (downloads as an attachment). */
+  url: string;
+}
+
+/** GET /api/sessions/:id/artifacts. Terminal sessions have no published list (always []). */
+export interface ArtifactsResponse {
+  published: PublishedArtifact[];
+  written: WrittenArtifact[];
+}
+
 /** Sent over GET /events as `data: <json>` lines. */
 export type ServerEvent =
   | { type: 'hello'; sessions: SessionSummary[] }
@@ -222,6 +251,9 @@ export interface WorkerTask {
 // POST /api/sessions/:id/interrupt      -> { ok: true }
 // POST /api/sessions/:id/resume         ResumeSessionBody -> StartSessionResponse
 // GET  /api/sessions/:id/images/:name   -> the stored image bytes (name like 1.png; 404 when unknown)
+// GET  /api/sessions/:id/artifacts      -> ArtifactsResponse
+// GET  /api/sessions/:id/artifacts/:name -> a published file (attachment; 404 when unknown)
+// GET  /api/sessions/:id/written?path=  -> a file the session wrote inside its cwd (attachment)
 // DELETE /api/sessions/:id              -> { ok: true }   (stops a page session)
 // POST /api/permissions/:id             PermissionDecisionBody -> { ok: true }
 // POST /api/presence                  PresenceBody -> { ok: true }   (is this tab visible? gates terminal-prompt relay)

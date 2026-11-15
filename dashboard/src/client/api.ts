@@ -1,6 +1,7 @@
 // HTTP + SSE wrappers around the server contract in ../shared/types.
 import type {
   AgentsResponse,
+  ArtifactsResponse,
   CommandsResponse,
   GitResponse,
   DecideOptions,
@@ -98,6 +99,8 @@ export interface FleetBackend {
   remoteControls(): Promise<RemoteControl[]>;
   commands(sessionId: string): Promise<CommandsResponse>;
   git(sessionId: string): Promise<GitResponse>;
+  /** Files the session published and files it wrote; each item's `url` downloads it. */
+  artifacts(sessionId: string): Promise<ArtifactsResponse>;
   /** Tab heartbeat; `keepalive` lets the final hidden report survive page unload. */
   presence(body: PresenceBody, keepalive?: boolean): Promise<unknown>;
   /** Web Push: the server's VAPID key, this device's subscription state, and its changes. */
@@ -174,6 +177,7 @@ export const apiBackend: FleetBackend = {
   remoteControls: () => request('/api/remote-control'),
   commands: (sessionId) => request(`/api/sessions/${encodeURIComponent(sessionId)}/commands`),
   git: (sessionId) => request(`/api/sessions/${encodeURIComponent(sessionId)}/git`),
+  artifacts: (sessionId) => request(`/api/sessions/${encodeURIComponent(sessionId)}/artifacts`),
   pushKey: () => request('/api/push'),
   pushStatus: (body) => request('/api/push/status', { method: 'POST', body: JSON.stringify(body) }),
   pushSubscribe: (body) => request('/api/push/subscribe', { method: 'POST', body: JSON.stringify(body) }),
