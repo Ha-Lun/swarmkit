@@ -174,6 +174,15 @@ export function fmtClockShort(iso: string | number): string {
   return new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 }
 
+/** Local reset time for the plan-limit notice: '14:10', or 'Mon 14:10' when it is not today. '' if unparseable. */
+export function fmtLimitReset(iso: string, now = Date.now()): string {
+  const t = parseIso(iso);
+  if (Number.isNaN(t)) return '';
+  const clock = fmtClockShort(t);
+  if (new Date(t).toDateString() === new Date(now).toDateString()) return clock;
+  return `${new Date(t).toLocaleDateString([], { weekday: 'short' })} ${clock}`;
+}
+
 /** 'in 4h 24m' when under a day out, 'Mon 19:59' (local) when longer, 'now' when due. */
 export function fmtResetIn(resetsAt: string, now = Date.now()): string {
   const t = parseIso(resetsAt);

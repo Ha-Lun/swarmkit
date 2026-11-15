@@ -1029,6 +1029,9 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
                 onDecide={decide}
                 untrusted={selected?.untrustedProject === true}
                 onOpenWorkerLog={(task) => setWorkerDrawerKey(workerKey(task))}
+                limitReached={selected?.limitReached}
+                fallbackOf={selected?.fallbackOf}
+                onSelectSession={selectSession}
               />
             </>
           ) : (

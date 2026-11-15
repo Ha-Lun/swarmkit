@@ -2379,6 +2379,45 @@ details.collapsible > summary:hover { color: var(--ink); }
   .restart-banner .btn { min-height: 44px; }
 }
 
+/* ---------- plan-limit fallback ---------- */
+
+.limit-notice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--amber);
+  border-radius: var(--radius-sm);
+}
+.limit-notice svg { flex: none; color: var(--amber); }
+.limit-text { flex: 1 1 14em; min-width: 0; color: var(--text); font-size: 12.5px; }
+.limit-sub { color: var(--text-2); }
+.limit-go { flex: none; }
+
+.chat-from {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.chat-from:hover { color: var(--text); background: var(--surface-2); }
+.chat-from:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.chat-from-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-from b { font-weight: 600; color: var(--text); }
+
 /* ---------- continue ---------- */
 
 .continue-hint { font-size: 11.5px; align-self: center; min-width: 0; }

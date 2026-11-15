@@ -492,6 +492,81 @@ export function createMockBackend(): FleetBackend {
     ],
   });
 
+  // l1 + f1: a Claude page session that hit its plan limit, and the agy session that took over.
+  const mockLane = (
+    sess: SessionSummary,
+    prompt: string,
+    events: { id: string; ago: number; kind: ActivityEvent['kind']; summary: string }[],
+  ) => {
+    sessions.set(sess.id, sess);
+    permLists.set(sess.id, []);
+    nodeMaps.set(sess.id, new Map());
+    nodeMaps.get(sess.id)!.set('root', {
+      id: 'root',
+      sessionId: sess.id,
+      parentId: null,
+      kind: 'main',
+      agentType: sess.agent ?? 'main',
+      model: sess.model,
+      description: sess.title,
+      prompt,
+      status: sess.status,
+      startedAt: sess.startedAt,
+      costUsd: sess.costUsd,
+      tokens: tu(5200, 1100),
+      toolCounts: {},
+      lastActivity: events[events.length - 1].summary,
+      events: events.map((e) => ({ id: e.id, ts: base - e.ago, kind: e.kind, summary: e.summary })),
+    });
+  };
+  const l1: SessionSummary = {
+    id: 'mock-limit-1',
+    source: 'page',
+    project: 'acme-web',
+    cwd: '/home/demo/work/acme-web',
+    title: 'Migrate the billing webhooks',
+    status: 'idle',
+    startedAt: base - 3_600_000,
+    updatedAt: base - 300_000,
+    costUsd: 1.42,
+    agent: 'lead-dev-hybrid',
+    model: 'claude-opus-5-5',
+    nodeCount: 1,
+    pendingPermissions: 0,
+    resumable: true,
+    limitReached: {
+      window: 'five_hour',
+      resetsAt: new Date(base + 2 * 3_600_000).toISOString(),
+      fallback: { sessionId: 'mock-agy-1', runtime: 'agy' },
+    },
+  };
+  const f1: SessionSummary = {
+    id: 'mock-agy-1',
+    source: 'page',
+    project: 'acme-web',
+    cwd: '/home/demo/work/acme-web',
+    title: 'Migrate the billing webhooks',
+    status: 'running',
+    startedAt: base - 280_000,
+    updatedAt: base - 20_000,
+    costUsd: 0.03,
+    agent: 'lead-dev-hybrid',
+    model: 'gemini-4-argon',
+    nodeCount: 1,
+    pendingPermissions: 0,
+    resumable: false,
+    runtime: 'agy',
+    fallbackOf: { sessionId: l1.id, title: l1.title },
+  };
+  mockLane(l1, 'Migrate the billing webhooks to the new signing scheme.', [
+    { id: 'l1-e1', ago: 3_600_000, kind: 'user', summary: 'Migrate the billing webhooks to the new signing scheme.' },
+    { id: 'l1-e2', ago: 3_000_000, kind: 'text', summary: 'Moved the signature check into one verifier and updated the three handlers. Tests for the retry path are next.' },
+  ]);
+  mockLane(f1, 'Continue the billing webhook migration: the retry-path tests are left.', [
+    { id: 'f1-e1', ago: 280_000, kind: 'user', summary: 'Continue the billing webhook migration: the retry-path tests are left.' },
+    { id: 'f1-e2', ago: 20_000, kind: 'text', summary: 'Picking up from the verifier change; writing the retry-path tests now.' },
+  ]);
+
   // Mock git state for the composer footer and the topbar chip: dirty and ahead, clean in a worktree, none.
   const gitInfo = new Map<string, GitInfo>([
     [s1.id, { branch: 'feat/pricing-page', detached: false, dirty: 3, ahead: 2, behind: 0 }],

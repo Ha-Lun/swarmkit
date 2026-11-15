@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fmtResetIn, fmtTokens, goPillModel, modelLabel, parseIso, sessionHint, sessionSubline, usageTone } from '../src/client/format.ts';
+import { fmtLimitReset, fmtResetIn, fmtTokens, goPillModel, modelLabel, parseIso, sessionHint, sessionSubline, usageTone } from '../src/client/format.ts';
 
 describe('fmtTokens', () => {
   it('picks the unit after rounding', () => {
@@ -9,6 +9,19 @@ describe('fmtTokens', () => {
     expect(fmtTokens(999_950)).toBe('1.0M');
     expect(fmtTokens(1_234_567)).toBe('1.2M');
     expect(fmtTokens(9_960_000)).toBe('10.0M');
+  });
+});
+
+describe('fmtLimitReset', () => {
+  const now = new Date(2026, 10, 15, 10, 0).getTime();
+  it('shows only the clock when the reset is today', () => {
+    expect(fmtLimitReset(new Date(2026, 10, 15, 14, 10).toISOString(), now)).toBe('14:10');
+  });
+  it('adds the weekday when the reset is on another day', () => {
+    expect(fmtLimitReset(new Date(2026, 10, 16, 3, 5).toISOString(), now)).toMatch(/^\S+ 03:05$/);
+  });
+  it('is empty for an unparseable value', () => {
+    expect(fmtLimitReset('soon', now)).toBe('');
   });
 });
 

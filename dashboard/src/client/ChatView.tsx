@@ -1,7 +1,7 @@
 // Chat transcript for one agent: bubbles, tool rows, handoff cards, thinking indicator.
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import type { AgentNode, DecideOptions, PermissionRequest, WorkerTask } from '../shared/types';
+import type { AgentNode, DecideOptions, LimitReached, PermissionRequest, SessionSummary, WorkerTask } from '../shared/types';
 import { MAX_EVENTS } from '../shared/types';
 import { agentLabel, buildChat, isSafeImageUrl, matchWorkerTask, orbColor, orbLabel, orbState, stripImageMarkers } from './chat';
 import type { ChatItem } from './chat';
@@ -11,6 +11,7 @@ import { Scanner } from './Scanner';
 import { FileIcon } from './icons';
 import { PermissionPanel } from './Permission';
 import { toolSummary } from './toolSummary';
+import { ContinuedFrom, LimitNotice } from './Fallback';
 
 interface Props {
   node: AgentNode;
@@ -24,6 +25,10 @@ interface Props {
   /** The session's project is untrusted: plan approval offers manual mode only. */
   untrusted?: boolean;
   onOpenWorkerLog?: (task: WorkerTask) => void;
+  /** Plan-limit fallback links, shown on the session's main agent only. */
+  limitReached?: LimitReached;
+  fallbackOf?: NonNullable<SessionSummary['fallbackOf']>;
+  onSelectSession?: (id: string) => void;
 }
 
 function firstLine(s: string): string {
@@ -294,7 +299,7 @@ function ThinkingStatus({ node, color, waiting }: { node: AgentNode; color: stri
   );
 }
 
-export function ChatView({ node, nodes, permissions, workers, workersAt, now, onOpenAgent, onDecide, untrusted, onOpenWorkerLog }: Props) {
+export function ChatView({ node, nodes, permissions, workers, workersAt, now, onOpenAgent, onDecide, untrusted, onOpenWorkerLog, limitReached, fallbackOf, onSelectSession }: Props) {
   const children = nodes.filter((n) => n.parentId === node.id);
   const items = buildChat(node, children);
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -344,6 +349,9 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
     <div className="chat-wrap">
       <div className="chat" role="log" aria-live="polite" ref={scrollRef} onScroll={onScroll}>
         <div className="chat-col" style={{ '--lane': orbColor(node, task) } as CSSProperties}>
+          {fallbackOf && node.kind === 'main' && onSelectSession && (
+            <ContinuedFrom from={fallbackOf} onSelectSession={onSelectSession} />
+          )}
           {trimmed && <p className="chat-trimmed">Earlier activity trimmed</p>}
           {node.prompt && node.kind !== 'main' && (
             <details className="chat-given">
@@ -417,6 +425,9 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
           ))}
           {thinking && (
             <ThinkingStatus node={node} color={orbColor(node, task)} waiting={node.status === 'waiting' || permByNode.has(node.id)} />
+          )}
+          {limitReached && node.kind === 'main' && onSelectSession && (
+            <LimitNotice limit={limitReached} now={now} onSelectSession={onSelectSession} />
           )}
         </div>
       </div>
