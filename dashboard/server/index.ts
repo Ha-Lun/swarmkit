@@ -33,6 +33,7 @@ import { commandCacheFilePath } from './commandcache.ts';
 import { sendPush, validatePushTarget } from './webpush.ts';
 import { WorkerRegistry } from './registry.ts';
 import { SdkSessions, SessionError } from './sdk/sessions.ts';
+import { triageStartBody } from './triage.ts';
 import { createLimitHandler } from './fallback.ts';
 import { validAttachmentTotals, validFiles, validImages, validMessageText, validRuntime, validRuntimeAgent, validRuntimeEffort, validRuntimeModel, ValidationError } from './validate.ts';
 import { imageEtag, readImage } from './images.ts';
@@ -742,7 +743,18 @@ async function main(): Promise<void> {
     if (url.pathname === '/api/sessions') {
       if (method === 'GET') return sendJson(res, 200, mergedSessions());
       if (method === 'POST') {
-        const body = await validateSessionBody(await readJson(req, MAX_IMAGE_BODY));
+        let body = await validateSessionBody(await readJson(req, MAX_IMAGE_BODY));
+        const ac = new AbortController();
+        const onClose = () => {
+          if (!res.writableEnded) ac.abort();
+        };
+        res.on('close', onClose);
+        try {
+          body = await triageStartBody(body, { signal: ac.signal });
+        } finally {
+          res.off('close', onClose);
+        }
+        if (ac.signal.aborted) return;
         return sendJson(res, 201, { sessionId: sdk.start(body) });
       }
       return sendJson(res, 405, { error: 'method not allowed' });

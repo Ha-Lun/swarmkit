@@ -1088,5 +1088,191 @@ describe('SdkSessions', () => {
       expect(await ended.commands(doneId)).toEqual([]);
     });
   });
+
+  describe('triage and model switching', () => {
+    it('summary shows the start model before any init message and shows triage', () => {
+      const noInit: QueryFn = () =>
+        (async function* (): AsyncGenerator<any, void> {
+          await new Promise<void>(() => {});
+        })() as unknown as AsyncIterable<SDKMessage>;
+      const sdk = new SdkSessions(() => {}, noInit);
+      const triage = { level: 'trivial' as const, reason: 'version bump', source: 'haiku' as const };
+      const id = sdk.start({
+        prompt: 'bump version',
+        cwd: homeDir,
+        model: 'sonnet',
+        effort: 'medium',
+        triage,
+      });
+
+      const summary = sdk.list().find(s => s.id === id);
+      expect(summary?.model).toBe('sonnet');
+      expect(summary?.triage).toEqual(triage);
+      expect(sdk.get(id)?.model).toBe('sonnet');
+      expect(sdk.get(id)?.triage).toEqual(triage);
+      sdk.stop(id);
+    });
+
+    it('restarted Sonnet session keeps sonnet, and resuming with opus switches, remembers it, and bumps medium effort to high', async () => {
+      const optionsSeen: (Record<string, unknown> | undefined)[] = [];
+      const sdk = new SdkSessions(() => {}, makeRecordingQuery(optionsSeen));
+      const id = sdk.start({ prompt: 'small step', cwd: homeDir, model: 'sonnet', effort: 'medium' });
+      await vi.waitFor(() => {
+        expect(sdk.get(id)?.status).toBe('done');
+      });
+      expect(optionsSeen.at(0)?.model).toBe('sonnet');
+      expect(optionsSeen.at(0)?.effort).toBe('medium');
+
+      await sdk.resume(id, { text: 'follow up' }, { cwd: homeDir });
+      await vi.waitFor(() => {
+        expect(sdk.get(id)?.status).toBe('done');
+      });
+      expect(optionsSeen.at(-1)?.model).toBe('sonnet');
+      expect(optionsSeen.at(-1)?.effort).toBe('medium');
+
+      await sdk.resume(id, { text: 'now redesign auth', model: 'opus' }, { cwd: homeDir });
+      await vi.waitFor(() => {
+        expect(sdk.get(id)?.status).toBe('done');
+      });
+      expect(optionsSeen.at(-1)?.model).toBe('opus');
+      expect(optionsSeen.at(-1)?.effort).toBe('high');
+      expect(sdk.get(id)?.model).toBe('opus');
+
+      await sdk.resume(id, { text: 'keep going' }, { cwd: homeDir });
+      await vi.waitFor(() => {
+        expect(sdk.get(id)?.status).toBe('done');
+      });
+      expect(optionsSeen.at(-1)?.model).toBe('opus');
+      expect(optionsSeen.at(-1)?.effort).toBe('high');
+    });
+
+    it('live idle session with a new model calls setModel and updates node/session without restarting', async () => {
+      const events: ServerEvent[] = [];
+      const optionsSeen: (Record<string, unknown> | undefined)[] = [];
+      let queries = 0;
+      const received: string[] = [];
+      const switchedTo: Array<string | undefined> = [];
+      const flags: unknown[] = [];
+      const sdk = new SdkSessions(e => events.push(e), params => {
+        queries += 1;
+        optionsSeen.push(params.options as Record<string, unknown> | undefined);
+        const iterator = params.prompt as AsyncIterable<{ message: { content: string } }>;
+        const gen = (async function* (): AsyncGenerator<any, void> {
+          for await (const m of iterator) {
+            received.push(typeof m.message.content === 'string' ? m.message.content : '');
+            yield { type: 'result', subtype: 'success' };
+          }
+        })();
+        return Object.assign(gen, {
+          setModel: async (m?: string) => {
+            switchedTo.push(m);
+          },
+          applyFlagSettings: async (s: unknown) => {
+            flags.push(s);
+          },
+        }) as unknown as AsyncIterable<SDKMessage>;
+      });
+
+      const id = sdk.start({ prompt: 'turn 1', cwd: homeDir, model: 'sonnet', effort: 'medium' });
+      await vi.waitFor(() => {
+        expect(received).toContain('turn 1');
+      });
+      raw(sdk, id).tree.nodes.get('root')!.status = 'idle';
+      events.length = 0;
+
+      await sdk.resume(id, { text: 'turn 2', model: 'claude-opus-5-5' }, { cwd: homeDir });
+      expect(queries).toBe(1);
+      expect(switchedTo).toEqual(['claude-opus-5-5']);
+      expect(flags).toEqual([{ effortLevel: 'high' }]);
+      await vi.waitFor(() => {
+        expect(received).toContain('turn 2');
+      });
+      expect(sdk.get(id)?.model).toBe('claude-opus-5-5');
+      expect(events.some(e => e.type === 'node.upsert' && e.node.id === 'root' && e.node.model === 'claude-opus-5-5')).toBe(true);
+      expect(events.some(e => e.type === 'session.upsert' && e.session.model === 'claude-opus-5-5')).toBe(true);
+
+      // Subsequent restart remembers the switched model and high effort.
+      sdk.stop(id);
+      await sdk.resume(id, { text: 'turn 3' }, { cwd: homeDir });
+      expect(queries).toBe(2);
+      expect(optionsSeen.at(-1)?.model).toBe('claude-opus-5-5');
+      expect(optionsSeen.at(-1)?.effort).toBe('high');
+      sdk.stop(id);
+    });
+
+    it('live idle session falls back to unwind + startQuery when setModel is missing or throws', async () => {
+      for (const mode of ['missing', 'throws'] as const) {
+        const optionsSeen: (Record<string, unknown> | undefined)[] = [];
+        const received: string[] = [];
+        let queries = 0;
+        const sdk = new SdkSessions(() => {}, params => {
+          queries += 1;
+          optionsSeen.push(params.options as Record<string, unknown> | undefined);
+          const iterator = params.prompt as AsyncIterable<{ message: { content: string } }>;
+          const gen = (async function* (): AsyncGenerator<any, void> {
+            for await (const m of iterator) {
+              received.push(typeof m.message.content === 'string' ? m.message.content : '');
+              yield { type: 'result', subtype: 'success' };
+            }
+          })();
+          if (mode === 'throws') {
+            return Object.assign(gen, {
+              setModel: async () => {
+                throw new Error('unsupported');
+              },
+            }) as unknown as AsyncIterable<SDKMessage>;
+          }
+          return gen as unknown as AsyncIterable<SDKMessage>;
+        });
+
+        const id = sdk.start({ prompt: 'turn 1', cwd: homeDir, model: 'sonnet', effort: 'medium' });
+        await vi.waitFor(() => {
+          expect(received).toContain('turn 1');
+        });
+        raw(sdk, id).tree.nodes.get('root')!.status = 'idle';
+
+        await sdk.resume(id, { text: 'turn 2', model: 'opus' }, { cwd: homeDir });
+        expect(queries).toBe(2);
+        expect(optionsSeen.at(-1)?.model).toBe('opus');
+        expect(optionsSeen.at(-1)?.effort).toBe('high');
+        await vi.waitFor(() => {
+          expect(received).toContain('turn 2');
+        });
+        sdk.stop(id);
+      }
+    });
+
+    it('evicted session resume uses priorRoot.model but not "<synthetic>"', async () => {
+      const optionsSeen: (Record<string, unknown> | undefined)[] = [];
+      const sdk = new SdkSessions(() => {}, makeRecordingQuery(optionsSeen));
+      const baseRoot: AgentNode = {
+        id: 'root',
+        sessionId: 'evicted-1',
+        parentId: null,
+        kind: 'main',
+        agentType: 'main',
+        model: 'claude-sonnet-4-5',
+        status: 'done',
+        startedAt: 1,
+        endedAt: 2,
+        costUsd: 0,
+        tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        toolCounts: {},
+        events: [],
+      };
+
+      await sdk.resume('evicted-1', { text: 'continue' }, { cwd: homeDir, nodes: [baseRoot] });
+      expect(optionsSeen.at(-1)?.model).toBe('claude-sonnet-4-5');
+      expect(sdk.get('evicted-1')?.model).toBe('claude-sonnet-4-5');
+
+      await sdk.resume(
+        'evicted-synth',
+        { text: 'continue' },
+        { cwd: homeDir, nodes: [{ ...baseRoot, sessionId: 'evicted-synth', model: '<synthetic>' }] },
+      );
+      expect(optionsSeen.at(-1)?.model).toBeUndefined();
+      expect(sdk.get('evicted-synth')?.model).toBeUndefined();
+    });
+  });
 });
 
