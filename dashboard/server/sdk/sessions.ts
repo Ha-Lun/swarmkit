@@ -919,7 +919,7 @@ export class SdkSessions {
     }
     if (existing) {
       if (existing.runtime !== 'claude') return this.resumeRuntime(existing, text, model, effort, images, files);
-      if (effort === undefined && isOpusModel(model)) effort = 'high';
+      if (effort === undefined && isOpusModel(model) && !isOpusModel(existing.model)) effort = 'high';
       const root = existing.tree.nodes.get('root');
       let restartForModel = false;
       if (!existing.stopped && existing.consuming) {
@@ -944,6 +944,10 @@ export class SdkSessions {
           } else {
             restartForModel = true;
           }
+        }
+        // The awaits above can race a stop or another message: check again before pushing.
+        if (existing.stopped || !existing.consuming || root?.status === 'running' || root?.status === 'waiting') {
+          throw new SessionError(409, 'Session changed while switching the model; try again');
         }
         if (!restartForModel) {
           // Idle (turn ended, input queue open): the live process just takes the message.
@@ -976,11 +980,8 @@ export class SdkSessions {
       if (leftover && !DASHBOARD_ENTRYPOINTS.has(leftover.entrypoint ?? '')) {
         throw new SessionError(409, holderMessage(leftover.pid));
       }
-      if (restartForModel) {
-        // Close the live idle query's queue so consume() unwinds immediately before restarting.
-        existing.stopped = true;
-        existing.queue.close();
-      }
+      // The live idle query could not switch model: stop it properly (pending prompts, workers), then restart.
+      if (restartForModel) this.stop(id);
       // The old process is gone (or stopping): unwind it before starting the new query.
       await this.unwind(existing);
       if (model !== undefined) {
@@ -1002,7 +1003,7 @@ export class SdkSessions {
     const stillLive =
       info.transcriptMtimeMs !== undefined && Date.now() - info.transcriptMtimeMs < ACTIVE_MS;
     if (stillLive) throw new SessionError(409, 'This session is still active in a terminal');
-    if (effort === undefined && isOpusModel(model)) effort = 'high';
+    if (effort === undefined && isOpusModel(model) && !isOpusModel(priorRoot?.model)) effort = 'high';
     const priorNodes = info.nodes ?? [];
     const title = info.title ?? priorRoot?.description ?? 'Resumed session';
     const tree = this.rebuildTree(id, priorNodes, title);
@@ -1091,6 +1092,7 @@ export class SdkSessions {
     session.pending.clear();
     this.unqueue(session);
     session.queue = new InputQueue();
+    if (session.upsertThrottle.timer) clearTimeout(session.upsertThrottle.timer);
     session.upsertThrottle = { lastSent: 0, timer: null };
     session.updatedAt = Date.now();
   }
