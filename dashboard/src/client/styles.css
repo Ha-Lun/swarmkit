@@ -3370,6 +3370,14 @@ h3.usage-name { font-size: 12px; font-weight: 700; color: var(--text-2); margin:
 }
 
 /* files published during a finished turn, under its last reply */
+.chat-triage {
+  align-self: flex-end;
+  margin: calc(-1 * var(--space-1)) 0 0;
+  color: var(--text-3);
+  font-size: 12px;
+  text-align: right;
+}
+
 .chat-artifacts {
   display: flex;
   flex-wrap: wrap;

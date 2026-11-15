@@ -1050,6 +1050,8 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
                 fallbackOf={selected?.fallbackOf}
                 onSelectSession={selectSession}
                 artifacts={artifacts}
+                triage={selected?.triage}
+                model={selected?.model}
               />
             </>
           ) : (

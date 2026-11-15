@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canUseOpus, fmtBytes, fmtLimitReset, fmtResetIn, fmtTokens, goPillModel, modelLabel, parseIso, sessionHint, sessionSubline, triageText, usageTone } from '../src/client/format.ts';
+import { canUseOpus, fmtBytes, fmtLimitReset, fmtResetIn, fmtTokens, goPillModel, modelLabel, parseIso, sessionHint, sessionSubline, triageNote, triageText, usageTone } from '../src/client/format.ts';
 
 describe('fmtTokens', () => {
   it('picks the unit after rounding', () => {
@@ -184,5 +184,19 @@ describe('canUseOpus', () => {
   it('not for OpenCode or Antigravity sessions', () => {
     expect(canUseOpus({ runtime: 'opencode', model: 'sonnet' })).toBe(false);
     expect(canUseOpus({ runtime: 'agy', model: 'claude-sonnet-5-5' })).toBe(false);
+  });
+});
+
+describe('triageNote', () => {
+  it('names the picked model with its version, the level and the reason', () => {
+    expect(triageNote({ level: 'trivial', reason: 'single typo fix', source: 'haiku' }, 'claude-sonnet-5-5')).toBe('Auto picked Sonnet 5.5 · trivial · single typo fix');
+    expect(triageNote({ level: 'hard', reason: '', source: 'haiku' }, 'opus')).toBe('Auto picked Opus · hard');
+  });
+  it('says when triage failed', () => {
+    expect(triageNote({ level: 'hard', reason: '', source: 'fallback' }, 'claude-opus-5-5')).toBe('Auto picked Opus 5.5 · triage failed');
+  });
+  it('keeps the original pick after a switch to Opus, and works before the model is known', () => {
+    expect(triageNote({ level: 'normal', reason: 'ui toggle', source: 'haiku' }, 'claude-opus-5-5')).toBe('Auto picked Sonnet · normal · ui toggle');
+    expect(triageNote({ level: 'trivial', reason: 'x', source: 'haiku' })).toBe('Auto picked Sonnet · trivial · x');
   });
 });

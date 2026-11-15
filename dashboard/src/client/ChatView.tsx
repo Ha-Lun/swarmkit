@@ -5,7 +5,7 @@ import type { AgentNode, ArtifactsResponse, DecideOptions, LimitReached, Publish
 import { MAX_EVENTS } from '../shared/types';
 import { agentLabel, buildChat, isSafeImageUrl, matchWorkerTask, orbColor, orbLabel, orbState, stripImageMarkers } from './chat';
 import type { ChatItem } from './chat';
-import { elapsedMs, fmtBytes, fmtDuration, modelLabel, toolGroups, workerElapsedS } from './format';
+import { elapsedMs, fmtBytes, fmtDuration, modelLabel, toolGroups, triageNote, workerElapsedS } from './format';
 const Markdown = lazy(() => import('./Markdown').then((m) => ({ default: m.Markdown })));
 import { Scanner } from './Scanner';
 import { DownloadIcon, FileIcon, PaperclipIcon } from './icons';
@@ -32,6 +32,9 @@ interface Props {
   onSelectSession?: (id: string) => void;
   /** The session's downloadable files: the strip under finished turns and the tool-row links. */
   artifacts?: ArtifactsResponse;
+  /** The lead session's triage and model: a line under the first prompt names the model Auto picked. */
+  triage?: SessionSummary['triage'];
+  model?: string;
 }
 
 function firstLine(s: string): string {
@@ -335,13 +338,14 @@ function ThinkingStatus({ node, color, waiting }: { node: AgentNode; color: stri
   );
 }
 
-export function ChatView({ node, nodes, permissions, workers, workersAt, now, onOpenAgent, onDecide, untrusted, onOpenWorkerLog, limitReached, fallbackOf, onSelectSession, artifacts }: Props) {
+export function ChatView({ node, nodes, permissions, workers, workersAt, now, onOpenAgent, onDecide, untrusted, onOpenWorkerLog, limitReached, fallbackOf, onSelectSession, artifacts, triage, model }: Props) {
   const children = nodes.filter((n) => n.parentId === node.id);
   const items = buildChat(node, children);
   const written = artifacts?.written ?? [];
   // Published files belong to the session, so only the lead's turns get a strip.
   const strips = node.kind === 'main' && artifacts ? turnArtifacts(node.events, artifacts.published) : new Map<string, PublishedArtifact[]>();
   const byId = new Map(nodes.map((n) => [n.id, n]));
+  const firstUserId = items.find((i) => i.type === 'user')?.id;
   const permByNode = new Map<string, PermissionRequest>();
   for (const p of permissions) {
     if (!permByNode.has(p.nodeId)) permByNode.set(p.nodeId, p);
@@ -405,7 +409,13 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
           )}
           {items.map((item) => {
             if (item.type === 'user') {
-              return <UserBubble key={item.id} item={item} />;
+              const showTriage = node.kind === 'main' && triage && item.id === firstUserId;
+              return (
+                <Fragment key={item.id}>
+                  <UserBubble item={item} />
+                  {showTriage && <p className="chat-triage">{triageNote(triage, model)}</p>}
+                </Fragment>
+              );
             }
             if (item.type === 'assistant') {
               const strip = strips.get(item.id);

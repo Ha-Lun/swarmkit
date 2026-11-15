@@ -281,6 +281,19 @@ export function triageText(triage: TriageInfo, model?: string): string {
   return triage.reason ? `${head} · ${triage.reason}` : head;
 }
 
+/**
+ * The chat line under the first prompt: `Auto picked Sonnet 5.5 · trivial · single typo fix`, or
+ * `Auto picked Opus 5.5 · triage failed`. Names the triage's own pick (Sonnet or Opus), with the
+ * version from the session model when that is the same family (it stays right after a Use Opus switch).
+ */
+export function triageNote(triage: TriageInfo, model?: string): string {
+  const family = triage.level === 'hard' || triage.source === 'fallback' ? 'Opus' : 'Sonnet';
+  const current = modelLabel(model);
+  const picked = current.startsWith(family) ? current : family;
+  if (triage.source === 'fallback') return `Auto picked ${picked} · triage failed`;
+  return triage.reason ? `Auto picked ${picked} · ${triage.level} · ${triage.reason}` : `Auto picked ${picked} · ${triage.level}`;
+}
+
 /** The "Use Opus" resume toggle: Claude sessions (runtime unset = Claude) that currently run on Sonnet. */
 export function canUseOpus(s: Pick<SessionSummary, 'runtime' | 'model'>): boolean {
   return (s.runtime === undefined || s.runtime === 'claude') && modelLabel(s.model).startsWith('Sonnet');
