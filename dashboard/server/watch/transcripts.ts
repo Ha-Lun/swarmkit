@@ -316,6 +316,7 @@ export class TranscriptWatcher {
         return undefined;
       }
     }
+    this.flushEvents(await this.refreshLive(live), live);
     return [...(live.tree.writtenPaths ?? [])];
   }
 

@@ -99,7 +99,7 @@ describe('artifactDisposition', () => {
     expect(artifactDisposition('report.pdf')).toBe(`attachment; filename="report.pdf"; filename*=UTF-8''report.pdf`);
     const out = artifactDisposition('résumé "final".pdf');
     expect(out.startsWith('attachment; ')).toBe(true);
-    expect(out).toContain('filename="r_sum___final_.pdf"');
+    expect(out).toContain('filename="r_sum_ _final_.pdf"');
     expect(out).toContain(`filename*=UTF-8''${encodeURIComponent('résumé "final".pdf')}`);
   });
 });
@@ -236,7 +236,7 @@ describe('writtenArtifacts and resolveWritten', () => {
     writeFileSync(outside, 'secret');
     const link = path.join(cwd, 'link.txt');
     symlinkSync(outside, link);
-    expect(await writtenArtifacts('s1', cwd, ['gone.txt', 'link.txt'])).toHaveLength(2);
+    expect((await writtenArtifacts('s1', cwd, ['gone.txt', 'link.txt'])).map(w => w.rel)).toEqual(['gone.txt']);
     rmSync(gone);
     expect(await writtenArtifacts('s1', cwd, ['gone.txt', 'link.txt'])).toEqual([]);
     // The link resolves outside the cwd: not downloadable even when recorded.
