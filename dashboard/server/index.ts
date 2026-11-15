@@ -37,10 +37,10 @@ import { createLimitHandler } from './fallback.ts';
 import { validAttachmentTotals, validFiles, validImages, validMessageText, validRuntime, validRuntimeAgent, validRuntimeEffort, validRuntimeModel, ValidationError } from './validate.ts';
 import { imageEtag, readImage } from './images.ts';
 import {
-  artifactDir,
   downloadHeaders,
   listArtifacts,
   openForDownload,
+  plainStoreDir,
   resolveWritten,
   validArtifactName,
   writtenArtifacts,
@@ -435,18 +435,10 @@ async function main(): Promise<void> {
   ): Promise<void> {
     if (!opened) return sendJson(res, 404, { error: 'file not found' });
     const { handle, size } = opened;
-    const headers = downloadHeaders(filename, size);
-    if (req.method === 'HEAD') {
-      try {
-        await handle.close();
-      } catch {
-        // Best effort.
-      }
-      res.writeHead(200, headers);
-      return void res.end();
-    }
-    res.writeHead(200, headers);
     try {
+      // Inside the try: a header that writeHead rejects must still close the handle.
+      res.writeHead(200, downloadHeaders(filename, size));
+      if (req.method === 'HEAD') return void res.end();
       await pipeline(handle.createReadStream(), res);
     } catch (err) {
       console.error('Artifact download failed:', err instanceof Error ? err.message : 'unknown error');
@@ -470,7 +462,7 @@ async function main(): Promise<void> {
     const session = await artifactSession(id);
     if (!session) return sendJson(res, 404, { error: 'session not found' });
     const written = await writtenArtifacts(session.id, session.cwd, session.paths);
-    return sendJson(res, 200, { published: listArtifacts(session.id), written });
+    return sendJson(res, 200, { published: await listArtifacts(session.id), written });
   }
 
   /** GET|HEAD /api/sessions/:id/artifacts/:name: one published file (attachment). */
@@ -483,12 +475,8 @@ async function main(): Promise<void> {
       return sendJson(res, 404, { error: 'file not found' });
     }
     if (!session || !validArtifactName(fileName)) return sendJson(res, 404, { error: 'file not found' });
-    let dir: string;
-    try {
-      dir = artifactDir(session.id);
-    } catch {
-      return sendJson(res, 404, { error: 'file not found' });
-    }
+    const dir = await plainStoreDir(session.id);
+    if (!dir) return sendJson(res, 404, { error: 'file not found' });
     return serveDownload(req, res, fileName, await openForDownload(path.join(dir, fileName)));
   }
 

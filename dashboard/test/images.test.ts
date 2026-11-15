@@ -424,6 +424,10 @@ describe('agy-hook.py artifacts dir', () => {
     expect((await runHook('write_to_file', { TargetFile: path.join(out, '..', 'other2', 'f') }, env)).decision).toBe('deny');
     // Edits in the cwd keep their normal rules (a .env edit still asks).
     expect((await runHook('write_to_file', { TargetFile: path.join(cwd, '.env') }, env)).decision).toBe('deny');
+    // A symlinked artifacts dir (an agent swapped it for a link to somewhere else) is not trusted.
+    const swapped = path.join(scratch, 'artifacts-link');
+    symlinkSync(other, swapped);
+    expect((await runHook('write_to_file', { TargetFile: path.join(swapped, 'f') }, { ...base, SWARMKIT_DASH_ARTIFACTS_DIR: swapped })).decision).toBe('deny');
   });
 });
 

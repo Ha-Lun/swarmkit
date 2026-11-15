@@ -2,6 +2,7 @@
 """PreToolUse hook gating sandboxed `agy` dashboard sessions (stdlib only, run as `python3 -I`)."""
 import json
 import os
+import stat
 import re
 import shlex
 import sys
@@ -60,7 +61,9 @@ def auto_allowed(name, args, root, images_root=None, artifacts_root=None):
         if artifacts_root:
             # Reads and writes in the session's artifacts dir: files the lead hands the user.
             try:
-                check_path(args.get(key), artifacts_root)
+                p = check_path(args.get(key), artifacts_root)
+                if edit and (p == os.path.realpath(settings_path()) or ".gemini" in p.lower().split(os.sep)):
+                    return False
                 continue
             except ValueError:
                 pass
@@ -93,6 +96,19 @@ def sensitive_edit(resolved, root):
         return os.stat(resolved).st_nlink > 1
     except OSError:
         return False
+
+def plain_own_dir(p):
+    """p when it is an absolute, symlink-free directory (no symlinked ancestor either) owned by us, else None."""
+    if not p or not p.startswith("/"):
+        return None
+    try:
+        st = os.lstat(p)
+    except OSError:
+        return None
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid():
+        return None
+    return p if os.path.realpath(p) == os.path.abspath(p) else None
+
 
 def settings_path():
     return os.environ.get("SWARMKIT_DASH_AGY_SETTINGS") or os.path.expanduser("~/.gemini/antigravity-cli/settings.json")
@@ -252,8 +268,7 @@ def decide():
     root = os.path.realpath(os.environ.get("SWARMKIT_DASH_CWD") or os.getcwd())
     images = os.environ.get("SWARMKIT_DASH_IMAGES_DIR")
     images_root = os.path.realpath(images) if images and images.startswith("/") else None
-    artifacts = os.environ.get("SWARMKIT_DASH_ARTIFACTS_DIR")
-    artifacts_root = os.path.realpath(artifacts) if artifacts and artifacts.startswith("/") else None
+    artifacts_root = plain_own_dir(os.environ.get("SWARMKIT_DASH_ARTIFACTS_DIR"))
     if auto_allowed(call.get("name"), call.get("args"), root, images_root, artifacts_root):
         return {"decision": "allow"}
     if call.get("name") == "run_command" and isinstance(call.get("args"), dict):

@@ -2,6 +2,7 @@
 // orphan pruning, the download headers and the HTTP serving (statuses, headers, HEAD,
 // streaming) over a harness that drives the same server helpers as server/index.ts.
 import { linkSync, mkdirSync, mkdtempSync, realpathSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -20,6 +21,7 @@ import {
   listArtifacts,
   MAX_DOWNLOAD_BYTES,
   openForDownload,
+  plainStoreDir,
   pruneOrphanArtifacts,
   resolveWritten,
   validArtifactName,
@@ -105,8 +107,8 @@ describe('artifactDisposition', () => {
 });
 
 describe('listArtifacts', () => {
-  it('lists regular files newest first and skips the rest; missing dir -> []', () => {
-    expect(listArtifacts('artifacts-missing')).toEqual([]);
+  it('lists regular files newest first and skips the rest; missing dir -> []', async () => {
+    expect(await listArtifacts('artifacts-missing')).toEqual([]);
     const id = 'artifacts-list';
     const dir = ensureArtifactDir(id);
     writeFileSync(path.join(dir, 'old.txt'), 'old');
@@ -116,7 +118,7 @@ describe('listArtifacts', () => {
     symlinkSync(path.join(dir, 'old.txt'), path.join(dir, 'link.txt'));
     const old = new Date(Date.now() - 60_000);
     utimesSync(path.join(dir, 'old.txt'), old, old);
-    const listed = listArtifacts(id);
+    const listed = await listArtifacts(id);
     expect(listed.map(a => a.name)).toEqual(['new.txt', 'old.txt']);
     expect(listed[0]).toMatchObject({
       size: 3,
@@ -125,11 +127,11 @@ describe('listArtifacts', () => {
     expect(typeof listed[0]!.mtime).toBe('number');
   });
 
-  it('caps the list at 100', () => {
+  it('caps the list at 100', async () => {
     const id = 'artifacts-cap';
     const dir = ensureArtifactDir(id);
     for (let i = 0; i < 105; i++) writeFileSync(path.join(dir, `f${i}.txt`), 'x');
-    expect(listArtifacts(id)).toHaveLength(100);
+    expect(await listArtifacts(id)).toHaveLength(100);
   });
 });
 
@@ -366,7 +368,7 @@ function startHarness(sessions: Map<string, { cwd: string; paths: string[] }>): 
           const session = await lookup(id);
           if (!session) return sendJson(res, 404, { error: 'session not found' });
           const written = await writtenArtifacts(session.id, session.cwd, session.paths);
-          return sendJson(res, 200, { published: listArtifacts(session.id), written });
+          return sendJson(res, 200, { published: await listArtifacts(session.id), written });
         }
         if (parts.length === 5 && parts[3] === 'artifacts') {
           if (method !== 'GET' && method !== 'HEAD') return sendJson(res, 405, { error: 'method not allowed' });
@@ -530,5 +532,45 @@ describe('SdkSessions writtenPaths', () => {
     expect(sdk.writtenPaths(id)).toEqual(['notes.txt']);
     expect(sdk.writtenPaths('nope')).toBeUndefined();
     sdk.stop(id);
+  });
+});
+
+describe('hardening (security review)', () => {
+  it('refuses a store dir swapped for a symlink', async () => {
+    const id = 'swapped-store';
+    const target = path.join(scratch, 'pretend-ssh');
+    mkdirSync(target, { recursive: true });
+    writeFileSync(path.join(target, 'id_ed25519'), 'secret');
+    ensureArtifactDir('another-one'); // makes the store root
+    symlinkSync(target, artifactDir(id));
+    expect(await listArtifacts(id)).toEqual([]);
+    expect(await plainStoreDir(id)).toBeUndefined();
+  });
+
+  it('rejects control characters in names and in the header fallback', () => {
+    expect(validArtifactName('a\r\nb.pdf')).toBe(false);
+    expect(validArtifactName('a\x01.pdf')).toBe(false);
+    expect(artifactDisposition('a\\b\x7f.pdf')).toContain('filename="a_b_.pdf"');
+  });
+
+  it('does not block on a FIFO', async () => {
+    const dir = ensureArtifactDir('fifo-session');
+    const fifo = path.join(dir, 'pipe.pdf');
+    execFileSync('mkfifo', [fifo]);
+    expect(await openForDownload(fifo)).toBeUndefined();
+  });
+
+  it('never offers written files under a dot-named part of the cwd', async () => {
+    const cwd = mkdtempSync(path.join(scratch, 'home-'));
+    mkdirSync(path.join(cwd, '.ssh'));
+    writeFileSync(path.join(cwd, '.ssh', 'id_ed25519'), 'secret');
+    writeFileSync(path.join(cwd, '.env'), 'X=1');
+    writeFileSync(path.join(cwd, 'ok.txt'), 'ok');
+    const recorded = ['.ssh/id_ed25519', '.env', 'ok.txt'];
+    expect((await writtenArtifacts('s1', cwd, recorded)).map(w => w.rel)).toEqual(['ok.txt']);
+    expect(await resolveWritten(cwd, recorded, path.join(cwd, '.ssh', 'id_ed25519'))).toBeUndefined();
+    const ok = await resolveWritten(cwd, recorded, path.join(cwd, 'ok.txt'));
+    expect(ok).toBeDefined();
+    await ok!.handle.close();
   });
 });

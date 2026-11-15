@@ -62,18 +62,34 @@ export function validArtifactName(name: string): boolean {
   if (Buffer.byteLength(name, 'utf8') > 200) return false;
   if (name === '.' || name === '..') return false;
   if (name.startsWith('.')) return false;
-  if (name.includes('/') || name.includes('\\') || name.includes('\0')) return false;
+  if (name.includes('/') || name.includes('\\')) return false;
+  // Control characters (NUL, CR, LF, ...) would also break the Content-Disposition header.
+  if (/[\x00-\x1f\x7f]/.test(name)) return false;
   return true;
 }
 
-/** Published files of one session, newest first (at most 100). Missing dir -> []. */
-export function listArtifacts(sessionId: string): PublishedArtifact[] {
+/**
+ * The session's store dir for reading, or undefined unless it is a plain directory owned by
+ * us whose path has no symlinked part (an agent could swap it for a link to ~/.ssh).
+ */
+export async function plainStoreDir(sessionId: string): Promise<string | undefined> {
   let dir: string;
   try {
     dir = artifactDir(sessionId);
+    const st = await lstat(dir);
+    if (st.isSymbolicLink() || !st.isDirectory()) return undefined;
+    if (typeof process.getuid === 'function' && st.uid !== process.getuid()) return undefined;
+    if ((await realpath(dir)) !== dir) return undefined;
   } catch {
-    return [];
+    return undefined;
   }
+  return dir;
+}
+
+/** Published files of one session, newest first (at most 100). Missing dir -> []. */
+export async function listArtifacts(sessionId: string): Promise<PublishedArtifact[]> {
+  const dir = await plainStoreDir(sessionId);
+  if (!dir) return [];
   let names: string[];
   try {
     names = readdirSync(dir);
@@ -101,17 +117,27 @@ export function listArtifacts(sessionId: string): PublishedArtifact[] {
   return out.slice(0, 100);
 }
 
-/** Opens a file for download: O_NOFOLLOW, regular file, single link, within the cap. */
+/**
+ * Opens a file for download: O_NOFOLLOW and O_NONBLOCK (a planted FIFO must not block a
+ * thread), regular file, single link, within the cap, and (where /proc exists) the opened
+ * file really is absPath, so a parent directory swapped for a symlink after the checks loses.
+ */
 export async function openForDownload(absPath: string): Promise<{ handle: Awaited<ReturnType<typeof open>>; size: number; mtimeMs: number } | undefined> {
   let handle;
   try {
-    handle = await open(absPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    handle = await open(absPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
   } catch {
     return undefined;
   }
   try {
     const st = await handle.stat();
-    if (!st.isFile() || st.nlink !== 1 || st.size > downloadCap) {
+    let opened = absPath;
+    try {
+      opened = await realpath(`/proc/self/fd/${handle.fd}`);
+    } catch {
+      // No /proc (not Linux): the O_NOFOLLOW and realpath checks stand alone.
+    }
+    if (!st.isFile() || st.nlink !== 1 || st.size > downloadCap || opened !== absPath) {
       await handle.close();
       return undefined;
     }
@@ -184,7 +210,7 @@ export function artifactContentType(name: string): string {
 
 /** attachment filename with an ASCII fallback and an RFC 5987 encoded value. */
 export function artifactDisposition(name: string): string {
-  const fallback = name.replace(/["\u0080-\u{10FFFF}]/gu, '_');
+  const fallback = name.replace(/["\\\x00-\x1f\x7f\u0080-\u{10FFFF}]/gu, '_');
   const encoded = encodeURIComponent(name).replace(/['()*]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
   return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }
@@ -222,7 +248,7 @@ export async function writtenArtifacts(sessionId: string, cwd: string, paths: It
     } catch {
       continue; // Missing or unreadable.
     }
-    if (real === realCwd || !real.startsWith(realCwd + path.sep)) continue;
+    if (real === realCwd || !real.startsWith(realCwd + path.sep) || hiddenPart(realCwd, real)) continue;
     if (seen.has(real)) continue;
     seen.add(real);
     let st;
@@ -244,6 +270,14 @@ export async function writtenArtifacts(sessionId: string, cwd: string, paths: It
   return out.slice(0, 200);
 }
 
+/**
+ * True when a path below cwd has a dot-named part (.env, .ssh/, .config/, .git/): a write
+ * there is recorded even when it was denied, so such files are never offered.
+ */
+function hiddenPart(realCwd: string, real: string): boolean {
+  return path.relative(realCwd, real).split(path.sep).some(part => part.startsWith('.'));
+}
+
 /** GET check: requested must be absolute and the realpath of a recorded entry inside cwd. */
 export async function resolveWritten(
   cwd: string,
@@ -259,7 +293,7 @@ export async function resolveWritten(
   } catch {
     return undefined;
   }
-  if (realRequested === realCwd || !realRequested.startsWith(realCwd + path.sep)) return undefined;
+  if (realRequested === realCwd || !realRequested.startsWith(realCwd + path.sep) || hiddenPart(realCwd, realRequested)) return undefined;
   for (const p of paths) {
     let real: string;
     try {
