@@ -137,6 +137,19 @@ export interface SessionSummary {
   resumable: boolean;
   /** True when the project settings for cwd are not trusted (no hasTrustDialogAccepted); only user settings are read. */
   untrustedProject?: boolean;
+  /** Set on a Claude page session whose turn was refused by the plan limit (server/fallback.ts). */
+  limitReached?: LimitReached;
+  /** Set on the session a fallback lead started from: the Claude session it continues. */
+  fallbackOf?: { sessionId: string; title: string };
+}
+
+/** The plan limit stopped this Claude session; `fallback` is the session that took over, or null when no lane was free. */
+export interface LimitReached {
+  /** 'five_hour' | 'seven_day' | ... from the SDK's rate_limit_event. */
+  window: string;
+  /** ISO 8601, or null when the SDK did not say. */
+  resetsAt: string | null;
+  fallback: { sessionId: string; runtime: Runtime } | null;
 }
 
 /** Git state of a session's cwd (server/git.ts), shown in the session header and composer footer. */
