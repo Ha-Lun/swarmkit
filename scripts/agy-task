@@ -502,7 +502,11 @@ def opencode_env(a, p):
         cfg["agent"] = {agent: {"permission": perm}}
     # opencode takes its project directory from $PWD, not the real cwd: without this it edits the
     # checkout agy-task was started from instead of the worktree.
-    return {**os.environ, "PWD": str(wt), "OPENCODE_CONFIG_CONTENT": json.dumps(cfg)}
+    # The worker is OpenCode, never a lead: drop the launch rights and dashboard hook secrets of
+    # whoever started it, so neither it nor the code it runs can start workers or call the hook.
+    lead = ("CLAUDECODE", "SWARMKIT_ALLOW_WORKERS", "SWARMKIT_AGY_LEAD")
+    env = {k: v for k, v in os.environ.items() if k not in lead and not k.startswith("SWARMKIT_DASH_")}
+    return {**env, "OPENCODE": "1", "PWD": str(wt), "OPENCODE_CONFIG_CONTENT": json.dumps(cfg)}
 
 
 DENIED = re.compile(r"rule which prevents|permission|rejected", re.I)

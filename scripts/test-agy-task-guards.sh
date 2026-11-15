@@ -41,6 +41,7 @@ cat > "$T/bin/opencode" <<'S'
 #!/bin/sh
 { printf '%s' "$*" | tr '\n' ' '; echo; } >> "$STUB_ARGS"   # one line per run: the prompt has newlines
 printf '%s' "$OPENCODE_CONFIG_CONTENT" > "$STUB_ARGS.cfg"
+env | grep -E '^(OPENCODE|CLAUDECODE|SWARMKIT_ALLOW_WORKERS|SWARMKIT_AGY_LEAD|SWARMKIT_DASH_[A-Z_]*)=' | sort > "$STUB_ARGS.env"
 echo stub > stub.txt
 . "$(dirname "$0")/modes"
 case "${STUB_MODE:-ok}" in
@@ -811,7 +812,10 @@ allowed "${CLEAN[@]}" SWARMKIT_ALLOW_WORKERS=1 "$AGY_TASK" start cc9 "p"
 allowed "${CLEAN[@]}" SWARMKIT_AGY_LEAD=1 "$TASK" start cc10 "p"
 refused "$OC_NEW" "${CLEAN[@]}" SWARMKIT_AGY_LEAD=1 OPENCODE=1 "$TASK" start cc11 "p"
 refused "$AGY_MSG" "${CLEAN[@]}" SWARMKIT_AGY_LEAD=1 "$AGY_TASK" start cc12 "p"
-for s in cc2 cc3 cc5 cc7 cc8 cc9 cc10; do "$TASK" clean $s --force >/dev/null 2>&1 || true; "$AGY_TASK" clean $s --force >/dev/null 2>&1 || true; done
+# an opencode worker gets none of its lead's launch rights or dashboard hook secrets
+"${CLEAN[@]}" SWARMKIT_AGY_LEAD=1 CLAUDECODE=1 SWARMKIT_DASH_HOOK_SECRET=s3cret "$TASK" start cc13 "p" >/dev/null 2>&1 || true
+[ "$(cat "$STUB_ARGS.env")" = "OPENCODE=1" ] || fail "worker env leaks lead vars: $(cat "$STUB_ARGS.env")"
+for s in cc2 cc3 cc5 cc7 cc8 cc9 cc10 cc13; do "$TASK" clean $s --force >/dev/null 2>&1 || true; "$AGY_TASK" clean $s --force >/dev/null 2>&1 || true; done
 # model: resolve-only, same rules as start, starts nothing
 export SWARMKIT_OPENCODE_AGENTS_DIR="$T/magents"; mkdir -p "$SWARMKIT_OPENCODE_AGENTS_DIR"
 mkagent() { printf -- "---\n%s---\n" "$2" > "$SWARMKIT_OPENCODE_AGENTS_DIR/$1.md"; }
