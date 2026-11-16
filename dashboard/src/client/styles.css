@@ -30,7 +30,7 @@
   --accent-2: var(--ink); /* secondary highlight (ink in the terminal palette) */
   --accent-text: #5cc98d; /* accent as text on the input fill: 4.5:1 where --accent is only 3:1 */
   --focus: var(--accent);
-  --rt-claude: #d97757;
+  --rt-claude: #2f8f5b;
   --rt-opencode: #e5484d;
   --rt-agy: #4f8cff;
 

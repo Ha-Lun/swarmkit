@@ -232,11 +232,11 @@ describe('orbColor', () => {
     expect(orbColor(node({ kind: 'worker', worker: { lane: 'opencode', slug: 'a' } }), workerTask({ lane: 'agy' }))).toBe('#4f8cff');
   });
   it('model names case-insensitive with task override', () => {
-    expect(orbColor(node({ kind: 'subagent', model: 'claude-opus-5-5' }))).toBe('#d97757');
+    expect(orbColor(node({ kind: 'subagent', model: 'claude-opus-5-5' }))).toBe('#2f8f5b');
     expect(orbColor(node({ kind: 'subagent', model: 'Claude-Sonnet-4' }))).toBe('#e7e9ee');
     expect(orbColor(node({ kind: 'subagent', model: 'haiku-3' }))).toBe('#9aa1ae');
-    expect(orbColor(node({ kind: 'subagent', model: 'sonnet-x' }), workerTask({ model: 'opus-y' }))).toBe('#d97757');
-    expect(orbColor(mainNode({ model: undefined }))).toBe('#d97757');
+    expect(orbColor(node({ kind: 'subagent', model: 'sonnet-x' }), workerTask({ model: 'opus-y' }))).toBe('#2f8f5b');
+    expect(orbColor(mainNode({ model: undefined }))).toBe('#2f8f5b');
     expect(orbColor(node({ kind: 'subagent', model: 'other-model' }))).toBe('#9aa1ae');
     expect(orbColor(node({ kind: 'subagent' }))).toBe('#9aa1ae');
   });
