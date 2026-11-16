@@ -15,10 +15,10 @@ agy is the default worker lane. Use `opencode-task` instead only when the worker
 |---|---|
 | `--model hydrogen` (`gemini-4-hydrogen-high`, the default) | implementation from an approved plan, `--agent <specialist>` work, writing tests, surveys and briefs (`--review`) |
 | `--model hydrogen --effort medium` or `low` | trivial bulk or mechanical edits |
-| `--model hydrogen --effort xhigh` | a harder self-contained task, before escalating to Argon |
-| `--model argon` (`gemini-4-argon-high`, its top effort) | review of your own diff, cross-review of a worker's branch, hard implementation (tricky logic, multi-file refactors), the retry after a Hydrogen task failed its one resume (a fresh start), and the plan critic (`--review`, the plan on stdin) |
+| `--model hydrogen --effort xhigh` (`gemini-4-hydrogen-xhigh`) | second-opinion review of your own diff (`--review`), cross-review of an OpenCode worker's branch (`--review`), hard implementation (tricky logic, multi-file refactors), the plan critic (`--review`, the plan on stdin), and the fresh-start retry after a Hydrogen high task failed its one resume |
+| `--model argon` (`gemini-4-argon-high`, its top effort) | last resort only: a fresh start when a Hydrogen xhigh task also fails after its one resume, never a default for any role (Argon has its own small weekly quota; keep it for the retry after Hydrogen xhigh failed) |
 
-A branch Argon wrote is reviewed by `opencode-task --review` (its lane default). Run 2-3 independent tasks at once, never more: the box has 8 cores and little spare RAM.
+Every branch an agy worker (Hydrogen or Argon) wrote is reviewed by `opencode-task --review` (its lane default); a branch an OpenCode worker wrote is reviewed by `agy-task --review --model hydrogen --effort xhigh`. Run 2-3 independent tasks at once, never more: the box has 8 cores and little spare RAM.
 
 Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'): on agy, Hydrogen low/medium/high/xhigh and Argon low/medium/high, chosen by the table above. Never add a model without the owner's OK. agy workers have no shell, so run the verify yourself after an agy task lands; only `opencode-task` workers get the test/build runners in `RUNNERS` (`scripts/agy-task`).
 
