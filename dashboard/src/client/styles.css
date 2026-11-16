@@ -1842,7 +1842,7 @@ details.collapsible > summary:hover { color: var(--ink); }
   shape-rendering: crispEdges;
 }
 .wordmark-dim { fill: var(--idle); }
-.wordmark-bright { fill: var(--ink); }
+.wordmark-bright { fill: var(--accent); }
 .composer.is-landing { width: 100%; padding: 0; }
 .composer.is-landing .composer-col { max-width: none; }
 .composer.is-landing .composer-box { padding: var(--space-4) var(--space-4) var(--space-3); }
