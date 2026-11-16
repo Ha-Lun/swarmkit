@@ -96,6 +96,7 @@ describe('agy query', () => {
     expect(String(anyOf(withHook.at(-1)!).result)).toContain('skip=true');
     const without = await collect('hi', queryOpts(), { commandPrefix: prefix() });
     expect(String(anyOf(without.at(-1)!).result)).toContain('skip=false');
+    expect(String(anyOf(without.at(-1)!).result)).toContain('agyLead=none');
   });
 
   it('passes hook env vars and strips CLAUDECODE/OPENCODE', async () => {
@@ -110,6 +111,7 @@ describe('agy query', () => {
       expect(text).toContain(`dashCwd=${scratch}`);
       expect(text).toContain('claudecode=false');
       expect(text).toContain('opencode=false');
+      expect(text).toContain('agyLead=1');
     } finally {
       if (prevClaude === undefined) delete process.env.CLAUDECODE;
       else process.env.CLAUDECODE = prevClaude;

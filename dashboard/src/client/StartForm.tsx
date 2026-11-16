@@ -22,7 +22,7 @@ const SETUP_SHORT: Record<Runtime, string> = { claude: 'Claude', opencode: 'Open
 const SETUP_DESC: Record<Runtime, string> = {
   claude: 'Claude lead, OpenCode + Antigravity workers',
   opencode: 'OpenCode lead, Antigravity worker',
-  agy: 'Antigravity lead, no workers',
+  agy: 'Antigravity lead (Argon), OpenCode workers',
 };
 /** Model a setup starts with; Claude has none (the server's triage picks it). */
 const SETUP_MODEL: Record<Runtime, string> = {

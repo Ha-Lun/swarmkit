@@ -251,6 +251,10 @@ export function createAgyQuery(opts: AgyOptions): QueryFn {
         env.SWARMKIT_DASH_HOOK_URL = opts.hook.url;
         env.SWARMKIT_DASH_HOOK_SECRET = opts.hook.secret;
         if (cwd) env.SWARMKIT_DASH_CWD = cwd;
+        // A gated dashboard lead may start opencode-task workers (agy-task still refuses it).
+        env.SWARMKIT_AGY_LEAD = '1';
+      } else {
+        delete env.SWARMKIT_AGY_LEAD;
       }
       const imagesDir = opts.imagesDir?.();
       if (opts.hook && imagesDir) env.SWARMKIT_DASH_IMAGES_DIR = imagesDir;

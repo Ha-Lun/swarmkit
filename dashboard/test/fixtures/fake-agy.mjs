@@ -81,7 +81,7 @@ if (prompt === 'hang') {
     result: {
       conversation_id: id,
       status: 'SUCCESS',
-      response: `flags conv=${conv ?? 'none'} skip=${skip} model=${modelFlag} hookUrl=${env.SWARMKIT_DASH_HOOK_URL ?? 'none'} dashCwd=${env.SWARMKIT_DASH_CWD ?? 'none'} claudecode=${'CLAUDECODE' in env} opencode=${'OPENCODE' in env}`,
+      response: `flags conv=${conv ?? 'none'} skip=${skip} model=${modelFlag} hookUrl=${env.SWARMKIT_DASH_HOOK_URL ?? 'none'} dashCwd=${env.SWARMKIT_DASH_CWD ?? 'none'} claudecode=${'CLAUDECODE' in env} opencode=${'OPENCODE' in env} agyLead=${env.SWARMKIT_AGY_LEAD ?? 'none'}`,
       num_turns: 1,
       usage: { input_tokens: 10, output_tokens: 5, thinking_tokens: 0, cache_read_tokens: 2, total_tokens: 15 },
     },
