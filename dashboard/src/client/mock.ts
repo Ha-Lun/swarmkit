@@ -1602,10 +1602,15 @@ A claim with a footnote.[^1]
   };
 
   // The real server waits on the Haiku triage (5-15 s) before a Claude session without a model starts.
+  // ?startDelay=<ms> stretches the wait (to look at the pending chat); ?startFail makes it fail.
+  const query = new URLSearchParams(typeof location === 'undefined' ? '' : location.search);
+  const startDelay = Number(query.get('startDelay')) || 1500;
   const startNow = backend.start;
   backend.start = (body) =>
     (body.runtime ?? 'claude') === 'claude' && !body.model
-      ? new Promise((resolve, reject) => at(1500, () => startNow(body).then(resolve, reject)))
+      ? new Promise((resolve, reject) =>
+          at(startDelay, () => (query.has('startFail') ? reject(new Error('mock: triage failed')) : startNow(body).then(resolve, reject))),
+        )
       : startNow(body);
   return backend;
 }

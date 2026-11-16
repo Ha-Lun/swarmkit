@@ -44,10 +44,18 @@ function readSetup(): Runtime {
   return 'claude';
 }
 
+/** What a Claude start shows in the chat while the triage runs: the prompt as sent, and its attachments. */
+export interface StartDraft {
+  prompt: string;
+  /** Thumbnail object URLs; the owner of the draft revokes them. */
+  images: string[];
+  files: string[];
+}
+
 export function useStartForm(
   backend: FleetBackend,
   guard: Guard,
-  onStarted: (sessionId: string) => void,
+  onStarted: (sessionId: string, handoff?: StartDraft) => void,
 ) {
   const [cwd, setCwd] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -56,6 +64,8 @@ export function useStartForm(
   const [availability, setAvailability] = useState<RuntimesResponse | null>(null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set while a Claude start waits on the server's model triage: the form swaps to a chat with this prompt.
+  const [pending, setPending] = useState<StartDraft | null>(null);
   const attachments: UseAttachments = useAttachments();
 
   const setRuntime = (r: Runtime) => {
@@ -99,8 +109,13 @@ export function useStartForm(
     const images = attachments.toPayload();
     const files = attachments.toFiles();
     if ((!p && images.length === 0 && files.length === 0) || !c || starting) return;
+    const draft: StartDraft | null =
+      runtime === 'claude'
+        ? { prompt: p, images: attachments.items.map((i) => i.previewUrl), files: attachments.files.map((f) => f.name) }
+        : null;
     setStarting(true);
     setError(null);
+    setPending(draft);
     try {
       const body: StartSessionBody = {
         prompt: p,
@@ -114,12 +129,17 @@ export function useStartForm(
       };
       const res = await guard(backend.start(body));
       if (res) {
-        attachments.clear();
-        onStarted(res.sessionId);
-      } else setStarting(false);
+        // The chat view keeps showing the thumbnails until the session loads, so it takes the URLs over.
+        attachments.clear(draft !== null);
+        onStarted(res.sessionId, draft ?? undefined);
+      } else {
+        setStarting(false);
+        setPending(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not start the session.');
       setStarting(false);
+      setPending(null);
     }
   };
 
@@ -135,6 +155,7 @@ export function useStartForm(
     setModel,
     attachments,
     starting,
+    pending,
     error,
     submit,
   };

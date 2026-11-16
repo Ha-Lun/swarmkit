@@ -227,8 +227,8 @@ describe('orbLabel', () => {
 describe('orbColor', () => {
   it('worker lanes', () => {
     expect(orbColor(node({ kind: 'worker', worker: { lane: 'agy', slug: 'a' } }))).toBe('#4f8cff');
-    expect(orbColor(node({ kind: 'worker', worker: { lane: 'opencode', slug: 'a' } }))).toBe('#f59e0b');
-    expect(orbColor(node({ kind: 'worker' }))).toBe('#f59e0b');
+    expect(orbColor(node({ kind: 'worker', worker: { lane: 'opencode', slug: 'a' } }))).toBe('#b58cf0');
+    expect(orbColor(node({ kind: 'worker' }))).toBe('#b58cf0');
     expect(orbColor(node({ kind: 'worker', worker: { lane: 'opencode', slug: 'a' } }), workerTask({ lane: 'agy' }))).toBe('#4f8cff');
   });
   it('model names case-insensitive with task override', () => {
@@ -241,8 +241,8 @@ describe('orbColor', () => {
     expect(orbColor(node({ kind: 'subagent' }))).toBe('#9aa1ae');
   });
   it('main runtime models before the generic rules', () => {
-    expect(orbColor(mainNode({ model: 'opencode-go/mimo-v2.6-pro' }))).toBe('#f59e0b');
-    expect(orbColor(mainNode({ model: 'opencode-go/glm-5.3-flash' }))).toBe('#f59e0b');
+    expect(orbColor(mainNode({ model: 'opencode-go/mimo-v2.6-pro' }))).toBe('#b58cf0');
+    expect(orbColor(mainNode({ model: 'opencode-go/glm-5.3-flash' }))).toBe('#b58cf0');
     expect(orbColor(mainNode({ model: 'gemini-3.8-flash-high' }))).toBe('#4f8cff');
     // gemini wins over a generic opus/sonnet match on main nodes.
     expect(orbColor(mainNode({ model: 'gemini-opus-bridge' }))).toBe('#4f8cff');

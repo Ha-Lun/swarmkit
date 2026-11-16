@@ -323,7 +323,7 @@ export function foldDone(
 }
 
 /** Lane colours, kept in sync with --rt-claude / --rt-opencode / --rt-agy / --ink / --text-3 (the scanner takes a literal colour). */
-const ORB = { claude: '#d97757', opencode: '#f59e0b', agy: '#4f8cff', cream: '#e7e9ee', dim: '#9aa1ae' } as const;
+const ORB = { claude: '#d97757', opencode: '#b58cf0', agy: '#4f8cff', cream: '#e7e9ee', dim: '#9aa1ae' } as const;
 
 export function orbColor(node: AgentNode, task?: WorkerTask): string {
   if (node.kind === 'worker') {

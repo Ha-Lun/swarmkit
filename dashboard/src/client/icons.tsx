@@ -98,7 +98,7 @@ export function Logo({ size = 22, withWordmark = false }: IconProps & { withWord
           <circle cx="156" cy="314" r="46" />
           <circle cx="156" cy="198" r="46" />
         </g>
-        <circle cx="256" cy="256" r="58" fill="#e5484d" />
+        <circle cx="256" cy="256" r="58" fill="#d9806a" />
       </svg>
       {withWordmark && (
         <span className="logo-word" style={{ fontSize: Math.max(13, Math.round(size * 0.82)) }}>

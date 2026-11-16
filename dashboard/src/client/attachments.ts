@@ -275,7 +275,8 @@ export interface UseAttachments {
   addFiles: (files: FileList | File[]) => void;
   remove: (id: string) => void;
   removeFile: (id: string) => void;
-  clear: () => void;
+  /** Empties the tray; `keepPreviews` leaves the thumbnail URLs alive for a new owner to revoke. */
+  clear: (keepPreviews?: boolean) => void;
   toPayload: () => ImageAttachment[];
   toFiles: () => FileAttachment[];
 }
@@ -315,9 +316,9 @@ export function useAttachments(): UseAttachments {
     setFiles((prev) => prev.filter((p) => p.id !== id));
   }, []);
 
-  const clear = useCallback(() => {
+  const clear = useCallback((keepPreviews = false) => {
     const prev = itemsRef.current;
-    for (const p of prev) URL.revokeObjectURL(p.previewUrl);
+    if (!keepPreviews) for (const p of prev) URL.revokeObjectURL(p.previewUrl);
     itemsRef.current = [];
     filesRef.current = [];
     setItems([]);

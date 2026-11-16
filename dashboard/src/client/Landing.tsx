@@ -10,6 +10,7 @@ import { useEnterToSend } from './enterToSend';
 import { UNTRUSTED_NOTICE } from './format';
 import { FolderPicker } from './FolderPicker';
 import { Wordmark } from './icons';
+import { PendingChat } from './PendingChat';
 import { nextSetup, SetupPopover, useStartForm } from './StartForm';
 
 interface Props {
@@ -55,6 +56,7 @@ export function Landing({ backend, guard, sessions, onStarted }: Props) {
     setModel,
     attachments,
     starting,
+    pending,
     error,
     submit,
   } = useStartForm(backend, guard, onStarted);
@@ -102,117 +104,127 @@ export function Landing({ backend, guard, sessions, onStarted }: Props) {
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [prompt]);
 
+  // Back on the form after a failed start: the box is shown again, put the cursor back in it.
+  const wasPending = useRef(false);
+  useEffect(() => {
+    if (wasPending.current && !pending && !window.matchMedia('(pointer: coarse)').matches) ref.current?.focus();
+    wasPending.current = pending !== null;
+  }, [pending]);
+
   const canStart = (prompt.trim().length > 0 || attachments.items.length > 0) && cwd.trim().length > 0 && !starting;
   const untrusted = sessions.some((s) => s.cwd === cwd.trim() && s.untrustedProject);
 
   return (
-    <div className="landing">
-      <div className="landing-inner">
-        <Wordmark />
-        <PromptShell
-          variant="landing"
-          runtime={runtime}
-          onSubmit={submit}
-          onFiles={attachments.addFiles}
-          tray={<AttachmentTray items={attachments.items} files={attachments.files} onRemove={attachments.remove} onRemoveFile={attachments.removeFile} />}
-          textarea={
-            <textarea
-              ref={ref}
-              rows={1}
-              aria-label="Prompt"
-              placeholder={'Ask anything… "Fix broken tests"'}
-              title="Enter to start, Shift+Enter for a new line, Shift+Tab to change setup"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onPaste={(e) => {
-                const files = filesFromPaste(e);
-                if (files.length > 0) attachments.addFiles(files);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Tab' && e.shiftKey) {
-                  e.preventDefault();
-                  setRuntime(nextSetup(runtime, availability));
-                  return;
-                }
-                enterToSend.onKeyDown(e);
-              }}
-            />
-          }
-          meta={
-            <SetupPopover
-              runtime={runtime}
-              availability={availability}
-              model={model}
-              onRuntime={setRuntime}
-              onModel={setModel}
-            />
-          }
-          error={
-            (untrusted || error || attachments.error) && (
-              <>
-                {untrusted && (
-                  <p className="notice" role="note">
-                    {UNTRUSTED_NOTICE}
-                  </p>
-                )}
-                {(error || attachments.error) && (
-                  <p className="continue-error" role="alert">
-                    {error ?? attachments.error}
-                  </p>
-                )}
-              </>
-            )
-          }
-          left={
-            <div
-              ref={folderRef}
-              className="folder"
-              onKeyDown={(e) => {
-                if (e.key === 'Escape' && pickerOpen) {
-                  e.stopPropagation();
-                  setPickerOpen(false);
-                  folderBtnRef.current?.focus();
-                }
-              }}
-            >
-              <button
-                ref={folderBtnRef}
-                type="button"
-                className="folder-btn"
-                aria-haspopup="dialog"
-                aria-expanded={pickerOpen}
-                title={cwd.trim() || 'Home folder'}
-                onClick={() => setPickerOpen((v) => !v)}
-              >
-                {shortFolder(cwd, home)}
-              </button>
-              {pickerOpen && (
-                <div className="folder-pop" role="dialog" aria-label="Working folder">
-                  <FolderPicker backend={backend} guard={guard} cwd={cwd} onCwd={setCwd} />
-                  <button type="button" className="btn btn-ghost btn-sm folder-done" onClick={() => {
+    <>
+    {pending && <PendingChat draft={pending} label="Choosing a model…" />}
+      <div className="landing" hidden={pending !== null}>
+        <div className="landing-inner">
+          <Wordmark />
+          <PromptShell
+            variant="landing"
+            runtime={runtime}
+            onSubmit={submit}
+            onFiles={attachments.addFiles}
+            tray={<AttachmentTray items={attachments.items} files={attachments.files} onRemove={attachments.remove} onRemoveFile={attachments.removeFile} />}
+            textarea={
+              <textarea
+                ref={ref}
+                rows={1}
+                aria-label="Prompt"
+                placeholder={'Ask anything… "Fix broken tests"'}
+                title="Enter to start, Shift+Enter for a new line, Shift+Tab to change setup"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onPaste={(e) => {
+                  const files = filesFromPaste(e);
+                  if (files.length > 0) attachments.addFiles(files);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Tab' && e.shiftKey) {
+                    e.preventDefault();
+                    setRuntime(nextSetup(runtime, availability));
+                    return;
+                  }
+                  enterToSend.onKeyDown(e);
+                }}
+              />
+            }
+            meta={
+              <SetupPopover
+                runtime={runtime}
+                availability={availability}
+                model={model}
+                onRuntime={setRuntime}
+                onModel={setModel}
+              />
+            }
+            error={
+              (untrusted || error || attachments.error) && (
+                <>
+                  {untrusted && (
+                    <p className="notice" role="note">
+                      {UNTRUSTED_NOTICE}
+                    </p>
+                  )}
+                  {(error || attachments.error) && (
+                    <p className="continue-error" role="alert">
+                      {error ?? attachments.error}
+                    </p>
+                  )}
+                </>
+              )
+            }
+            left={
+              <div
+                ref={folderRef}
+                className="folder"
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && pickerOpen) {
+                    e.stopPropagation();
                     setPickerOpen(false);
                     folderBtnRef.current?.focus();
-                  }}>
-                    Use this folder
-                  </button>
-                </div>
-              )}
-            </div>
-          }
-          right={
-            <>
-              <span className="row-hints" aria-hidden="true">
-                <span><b>shift+tab</b> setup</span>
-                <span><b>enter</b> start</span>
-              </span>
-              <AttachButton onFiles={attachments.addFiles} />
-              <button type="submit" className="btn btn-primary btn-sm" disabled={!canStart}>
-                {starting ? (runtime === 'claude' ? 'choosing model…' : 'starting…') : 'start'}
-              </button>
-            </>
-          }
-        />
+                  }
+                }}
+              >
+                <button
+                  ref={folderBtnRef}
+                  type="button"
+                  className="folder-btn"
+                  aria-haspopup="dialog"
+                  aria-expanded={pickerOpen}
+                  title={cwd.trim() || 'Home folder'}
+                  onClick={() => setPickerOpen((v) => !v)}
+                >
+                  {shortFolder(cwd, home)}
+                </button>
+                {pickerOpen && (
+                  <div className="folder-pop" role="dialog" aria-label="Working folder">
+                    <FolderPicker backend={backend} guard={guard} cwd={cwd} onCwd={setCwd} />
+                    <button type="button" className="btn btn-ghost btn-sm folder-done" onClick={() => {
+                      setPickerOpen(false);
+                      folderBtnRef.current?.focus();
+                    }}>
+                      Use this folder
+                    </button>
+                  </div>
+                )}
+              </div>
+            }
+            right={
+              <>
+                <span className="row-hints" aria-hidden="true">
+                  <span><b>shift+tab</b> setup</span>
+                  <span><b>enter</b> start</span>
+                </span>
+                <AttachButton onFiles={attachments.addFiles} />
+                <button type="submit" className="btn btn-primary btn-sm" disabled={!canStart}>
+                  {starting ? 'starting…' : 'start'}
+                </button>
+              </>
+            }
+          />
+        </div>
       </div>
-    </div>
+    </>
   );
 }

@@ -17,6 +17,8 @@ import { Logo } from './icons';
 import { InfoPanel } from './InfoPanel';
 import { RemoteRail } from './RemoteRail';
 import { Landing } from './Landing';
+import { PendingChat } from './PendingChat';
+import type { StartDraft } from './StartForm';
 import { NewSession } from './NewSession';
 import { packInstallDone, RestartBanner } from './RestartBanner';
 import { startPresence } from './presence';
@@ -751,12 +753,23 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
     dispatch({ type: 'select', sessionId: id });
     setView('session');
   }, []);
-  const onStarted = useCallback((id: string) => {
+  // A Claude start's prompt, kept on screen until the new session's detail has loaded.
+  const [handoff, setHandoff] = useState<(StartDraft & { id: string }) | null>(null);
+  const onStarted = useCallback((id: string, draft?: StartDraft) => {
+    setHandoff(draft ? { ...draft, id } : null);
     setNewOpen(false);
     setDrawerNodeId(null);
     dispatch({ type: 'select', sessionId: id });
     setView('session');
   }, []);
+
+  // Drop the handoff (and its thumbnail URLs) once the session's own chat can take over, or on navigating away.
+  const handoffDone = handoff !== null && (detail?.id === handoff.id || state.selectedId !== handoff.id || loadError);
+  useEffect(() => {
+    if (!handoffDone || !handoff) return;
+    for (const src of handoff.images) URL.revokeObjectURL(src);
+    setHandoff(null);
+  }, [handoffDone, handoff]);
 
   const openWorker = useCallback((task: WorkerTask) => setWorkerDrawerKey(workerKey(task)), []);
 
@@ -989,6 +1002,8 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
             <WorkersView workers={state.workers} now={now} at={workersAtRef.current} onOpen={openWorker} />
           ) : view === 'archive' ? (
             <Archive sessions={state.sessions} now={now} onSelect={selectSession} />
+          ) : handoff && !handoffDone ? (
+            <PendingChat draft={handoff} label="Starting session…" />
           ) : !selected ? (
             <Landing
               backend={backend}
