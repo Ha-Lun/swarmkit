@@ -4,5 +4,5 @@
     <circle cx="256" cy="140" r="46"/><circle cx="356" cy="198" r="46"/><circle cx="356" cy="314" r="46"/>
     <circle cx="256" cy="372" r="46"/><circle cx="156" cy="314" r="46"/><circle cx="156" cy="198" r="46"/>
   </g>
-  <circle cx="256" cy="256" r="58" fill="#e5484d"/>
+  <circle cx="256" cy="256" r="58" fill="#2f8f5b"/>
 </svg>

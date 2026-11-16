@@ -26,9 +26,9 @@
   --faint: #6b665e;
 
   /* accent + runtime lanes */
-  --accent: #e5484d;
+  --accent: #2f8f5b;
   --accent-2: var(--ink); /* secondary highlight (ink in the terminal palette) */
-  --accent-text: #f47c80; /* accent as text on the input fill: 4.5:1 where --accent is only 3:1 */
+  --accent-text: #5cc98d; /* accent as text on the input fill: 4.5:1 where --accent is only 3:1 */
   --focus: var(--accent);
   --rt-claude: #d97757;
   --rt-opencode: #e5484d;
@@ -45,7 +45,7 @@
   --violet-ring: rgba(232, 226, 214, 0.45);
   --teal: var(--green);
 
-  --accent-soft: rgba(229, 72, 77, 0.16);
+  --accent-soft: rgba(47, 143, 91, 0.16);
   --violet-soft: rgba(255, 245, 230, 0.08);
   --teal-soft: rgba(127, 176, 105, 0.15);
   --amber-soft: rgba(217, 164, 65, 0.15);
