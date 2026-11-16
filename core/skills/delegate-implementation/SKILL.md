@@ -29,7 +29,6 @@ Everything else in the plan goes to a worker.
 | Well-specified implementation, tests to write (default; you run the verify) | `agy-task --model hydrogen`, `--agent <specialist>` when a specialty applies, see `agy-delegate` |
 | Trivial bulk or mechanical edits | `agy-task --model hydrogen --effort low` |
 | Hard implementation (tricky logic, multi-file refactor), or the fresh-start retry after Hydrogen high failed its one resume | `agy-task --model hydrogen --effort xhigh` |
-| Last-resort retry only when a Hydrogen xhigh task also fails after its one resume (never a default for any role; Argon has its own small weekly quota; keep it for the retry after Hydrogen xhigh failed) | `agy-task --model argon` |
 | Implementation where the worker must iterate on a test run itself (failing test, TDD, debugging) | `opencode-task` (free `opencode-go/` model), `--agent <specialist>` when a specialty applies (lane model, never `lead-dev-hybrid`), see `opencode-delegate` |
 | Second opinion on your own diff | `agy-task --review --model hydrogen --effort xhigh` |
 | Cross-review of a worker's branch | see below |
@@ -40,9 +39,9 @@ Claude Code runs both lanes. From OpenCode use only `agy-task` (`opencode-task` 
 
 Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'); pick the agy model from the tiers in `agy-delegate`, use the opencode lane default unless the owner names a model (also with `--agent` unless the agent pins an allowlisted `opencode.model`), and never add a model without the owner's OK. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`). Give it a verify command from that list, or run the verify yourself after it lands. For a project in a subdirectory, give the worker `npm --prefix <dir> test` or `npm --prefix <dir> run typecheck` as verify, and pass `--setup 'ln -s <main checkout>/<dir>/node_modules <dir>/node_modules'` so its dependencies exist (setup artifacts are not committed).
 
-Cross-review: `opencode-task --review` (lane default model) reviews every branch an agy worker (Hydrogen or Argon) wrote; `agy-task --review --model hydrogen --effort xhigh` reviews a branch an OpenCode worker wrote.
+Cross-review: `opencode-task --review` (lane default model) reviews every branch an agy worker wrote; `agy-task --review --model hydrogen --effort xhigh` reviews a branch an OpenCode worker wrote.
 
-If a Hydrogen high task fails after its one resume, start it fresh on Hydrogen xhigh (`--model hydrogen --effort xhigh`). Only if a Hydrogen xhigh task also fails after its one resume, start it fresh on Argon (`--model argon`); Argon is the last resort, never a default for any role (Argon has its own small weekly quota; keep it for the retry after Hydrogen xhigh failed). If the preferred worker fails twice on the same kind of task, use another one. If none is available, Claude's own `junior-dev` (mechanical edits) and `test-writer` (tests) subagents are the fallback.
+If a Hydrogen high task fails after its one resume, start it fresh on Hydrogen xhigh (`--model hydrogen --effort xhigh`). If the preferred worker fails twice on the same kind of task, use another one. If none is available, Claude's own `junior-dev` (mechanical edits) and `test-writer` (tests) subagents are the fallback.
 
 ## 3. Write the prompt
 
@@ -66,7 +65,7 @@ For each finished task:
 
 1. `ok` in `result.json`, then read `git diff <base>..<cli>/<slug>`. The diff is the truth.
 2. Run the verify command yourself in the worktree.
-3. If something is wrong, `resume` once with concrete feedback (file, line, expected behaviour). If it fails again: a Hydrogen high task starts fresh on Hydrogen xhigh, and a Hydrogen xhigh task starts fresh on Argon (last resort); otherwise do that part yourself.
+3. If something is wrong, `resume` once with concrete feedback (file, line, expected behaviour). If it fails again: a Hydrogen high task starts fresh on Hydrogen xhigh; otherwise do that part yourself.
 4. `git merge <cli>/<slug>`, then `<cli>-task clean <slug>`.
 
 After the last merge, run the full test suite, then the usual review (`code-proofreader`, `security-auditor`, `release-tester`) as the change requires. Tell the user which parts were delegated and to which worker.
