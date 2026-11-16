@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="SwarmKit">
-  <rect width="512" height="512" rx="112" fill="#232220"/>
+  <rect width="512" height="512" rx="112" fill="#262624"/>
   <g fill="#e8e2d6">
     <circle cx="256" cy="140" r="46"/><circle cx="356" cy="198" r="46"/><circle cx="356" cy="314" r="46"/>
     <circle cx="256" cy="372" r="46"/><circle cx="156" cy="314" r="46"/><circle cx="156" cy="198" r="46"/>
   </g>
-  <circle cx="256" cy="256" r="58" fill="#d9806a"/>
+  <circle cx="256" cy="256" r="58" fill="#e5484d"/>
 </svg>
