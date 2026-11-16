@@ -22,13 +22,13 @@ const SETUP_SHORT: Record<Runtime, string> = { claude: 'Claude', opencode: 'Open
 const SETUP_DESC: Record<Runtime, string> = {
   claude: 'Claude lead, OpenCode + Antigravity workers',
   opencode: 'OpenCode lead, Antigravity worker',
-  agy: 'Antigravity lead (Argon), OpenCode workers',
+  agy: 'Antigravity lead (Hydrogen), OpenCode workers',
 };
 /** Model a setup starts with; Claude has none (the server's triage picks it). */
 const SETUP_MODEL: Record<Runtime, string> = {
   claude: '',
   opencode: RUNTIME_MODELS.opencode[0] ?? 'opencode-go/mimo-v2.6-pro',
-  agy: RUNTIME_MODELS.agy[0] ?? 'gemini-4-argon-high',
+  agy: RUNTIME_MODELS.agy[0] ?? 'gemini-4-hydrogen-xhigh',
 };
 
 /** The only agent any setup starts with. */
