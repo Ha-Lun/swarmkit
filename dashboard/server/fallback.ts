@@ -22,7 +22,7 @@ type LaneReport = Pick<UsageReport, 'agy' | 'opencode'>;
 export function pickLane(report: LaneReport, runtimes: RuntimesResponse): FallbackLane | null {
   const agyLimits = report.agy?.limits;
   if (runtimes.agy && Array.isArray(agyLimits)) {
-    const gemini = agyLimits.filter(l => l.group === 'Gemini');
+    const gemini = agyLimits.filter(l => l.group === 'Gemini' || l.group === 'Argon');
     if (
       gemini.length > 0 &&
       gemini.every(l => typeof l.utilization === 'number' && l.utilization < 95)

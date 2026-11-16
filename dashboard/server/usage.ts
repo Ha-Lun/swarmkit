@@ -790,9 +790,10 @@ function containsNotLoggedIn(s: string): boolean {
   return s.toLowerCase().includes('not logged in');
 }
 
-/** "Gemini Models" -> "Gemini", "Claude and GPT models" -> "Claude/GPT"; unknown names pass through. */
+/** "Gemini Models" -> "Gemini", "Gemini 4 Argon" -> "Argon" (its own quota), "Claude and GPT models" -> "Claude/GPT"; unknown names pass through. */
 function shortAgyGroup(name: string): string {
   const lower = name.toLowerCase();
+  if (lower.includes('argon')) return 'Argon';
   if (lower.includes('gemini')) return 'Gemini';
   if (lower.includes('claude') || lower.includes('gpt') || lower.includes('3p')) return 'Claude/GPT';
   return name;

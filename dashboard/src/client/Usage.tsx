@@ -198,6 +198,7 @@ function OpenCodeCard({ oc }: { oc: UsageReport['opencode'] }) {
 
 function shortAgyGroupLabel(group: string): string {
   const lower = group.toLowerCase();
+  if (lower.includes('argon')) return 'Argon';
   if (lower.includes('gemini')) return 'Gemini';
   if (lower.includes('claude') || lower.includes('gpt') || lower.includes('3p')) return 'Claude/GPT';
   return group;
@@ -224,7 +225,7 @@ function AgyCard({
   const limits = [...(a.limits ?? [])].sort((x, y) => {
     const gx = shortAgyGroupLabel(x.group);
     const gy = shortAgyGroupLabel(y.group);
-    const gi = (g: string) => (g === 'Gemini' ? 0 : g === 'Claude/GPT' ? 1 : 2);
+    const gi = (g: string) => (g === 'Gemini' ? 0 : g === 'Argon' ? 1 : g === 'Claude/GPT' ? 2 : 3);
     const wi = (w: string) => (w === '5h' ? 0 : 1);
     return gi(gx) - gi(gy) || wi(x.window) - wi(y.window) || gx.localeCompare(gy);
   });

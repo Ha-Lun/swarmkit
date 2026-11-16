@@ -43,7 +43,7 @@ def pct(limit):
 def worker_lanes(report):
     """('agy', worst %) and ('OpenCode', worst %) from the plan windows the dashboard reports."""
     lanes = []
-    agy = [pct(l) for l in report.get("agy", {}).get("limits") or [] if l.get("group") == "Gemini"]
+    agy = [pct(l) for l in report.get("agy", {}).get("limits") or [] if l.get("group") in ("Gemini", "Argon")]
     oc = report.get("opencode", {}).get("limits") or []
     ocp = [100 if l.get("limited") else pct(l) for l in oc]
     for name, vals in (("agy", agy), ("OpenCode", ocp)):

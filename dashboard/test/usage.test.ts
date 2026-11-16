@@ -595,6 +595,11 @@ describe('agy limits', () => {
               { id: '3p-5h', name: '5h', window: '5h', remaining_fraction: 0.75, reset_time: RESET_5H },
             ],
           },
+          {
+            name: 'Gemini 4 Argon',
+            description: 'a',
+            buckets: [{ id: 'argon-weekly', name: 'weekly', window: 'weekly', remaining_fraction: 0.4, reset_time: RESET_WEEKLY }],
+          },
         ],
       },
     },
@@ -633,9 +638,10 @@ describe('agy limits', () => {
         cwd: os.homedir(),
       });
       expect(report.agy.available).toBe(true);
-      expect(report.agy.limits).toHaveLength(4);
+      expect(report.agy.limits).toHaveLength(5);
       expect(report.agy.limits).toEqual(
         expect.arrayContaining([
+          { group: 'Argon', window: 'weekly', utilization: 60, resetsAt: RESET_WEEKLY },
           { group: 'Gemini', window: 'weekly', utilization: 0, resetsAt: RESET_WEEKLY },
           { group: 'Gemini', window: '5h', utilization: 25, resetsAt: RESET_5H },
           { group: 'Claude/GPT', window: 'weekly', utilization: 0, resetsAt: RESET_WEEKLY },
