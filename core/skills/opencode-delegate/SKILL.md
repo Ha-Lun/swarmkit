@@ -16,6 +16,8 @@ opencode-task list                                     # running and finished ta
 opencode-task clean <slug> [--force]                   # remove worktree and branch once merged or discarded
 ```
 
+**Client repos.** Before the first `opencode-task` start or resume in a repo, run `opencode-task client-repo`. If it prints `unknown`, ask the user whether the repo is a client repo (code owned by a client, not by them), then record the answer with `opencode-task client-repo yes` or `no`; the script refuses to start until it is recorded, and asks only once per repo. Never answer it yourself. In a client repo every worker runs on `opencode-go/mimo-v2.6-flash` (zero data retention): the script overrides any other model, because the default muse model lets Meta train on prompts.
+
 Options: `--model opencode-go/<model>` (default: the free model set in `scripts/agy-task`; use `opencode-go/` models, the user's subscription), `--effort <variant>` (default `max`), `--timeout 20m`, `--base REF`, `--setup "<cmd>"`, `--review`. Use `-` as the prompt to read it from stdin.
 
 - Each run gets a config overlay for that process only. It allows edits, limits the shell to common test, lint and build commands (`npm test`, `npm run test|lint|build|typecheck`, `pytest`, `python3 -m unittest`, `go test`, `cargo test`, `make test`, …) plus `git status|diff|log|show`, and turns off web fetches and subagents. Name the exact test command in the prompt; other commands are denied and listed in `denied_actions`. With `--review`, edits are denied too.

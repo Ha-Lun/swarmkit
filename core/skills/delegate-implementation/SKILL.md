@@ -37,6 +37,8 @@ In Claude Code, UI, styling, motion and 3D work never goes to a worker: it goes 
 
 Claude Code runs both lanes. From OpenCode use only `agy-task` (`opencode-task` refuses under OpenCode). Antigravity runs no workers.
 
+Client repos: before the first `opencode-task` run in a repo, if `opencode-task client-repo` prints `unknown`, ask the user whether it is a client repo and record the answer (`opencode-task client-repo yes|no`); never answer it yourself. Client repos run on `opencode-go/mimo-v2.6-flash` automatically.
+
 Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'); pick the agy model from the tiers in `agy-delegate`, use the opencode lane default unless the owner names a model (also with `--agent` unless the agent pins an allowlisted `opencode.model`), and never add a model without the owner's OK. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`). Give it a verify command from that list, or run the verify yourself after it lands. For a project in a subdirectory, give the worker `npm --prefix <dir> test` or `npm --prefix <dir> run typecheck` as verify, and pass `--setup 'ln -s <main checkout>/<dir>/node_modules <dir>/node_modules'` so its dependencies exist (setup artifacts are not committed).
 
 Cross-review: `opencode-task --review` (lane default model) reviews every branch an agy worker wrote; `agy-task --review --model hydrogen --effort xhigh` reviews a branch an OpenCode worker wrote.

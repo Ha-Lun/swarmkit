@@ -33,6 +33,10 @@
   - Cross-review: `opencode-task --review` reviews every branch an agy worker
     wrote; `agy-task --review --model hydrogen --effort xhigh`
     reviews a branch an OpenCode worker wrote.
+  - Client repos: before the first `opencode-task` run in a repo, if
+    `opencode-task client-repo` prints `unknown`, ask the user (once per repo)
+    whether it is a client repo and record it with `opencode-task client-repo
+    yes|no`; never answer it yourself. Client repos run on mimo-v2.6-flash.
   - Delegated agents a skill asks for (e.g. `security-audit`'s research and
     general agents): `--review` workers, with the main session as the only
     writer of the skill's files.
