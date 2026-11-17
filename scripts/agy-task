@@ -344,9 +344,9 @@ def refuse(task, msg):
     sys.exit(2)
 
 
-def write_nofollow(path, text):
+def write_nofollow(path, text, mode=0o644):
     """Create or truncate a regular file, never through a symlink (or a FIFO: O_NONBLOCK fails instead of hanging)."""
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_NONBLOCK, 0o644)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_NONBLOCK, mode)
     with os.fdopen(fd, "w") as f:
         if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
             raise OSError(f"{path} is not a regular file")
@@ -443,6 +443,50 @@ def read_nofollow(path):
         if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
             raise OSError(f"{path} is not a regular file")
         return f.read()
+
+
+CLIENT_MODEL = "opencode-go/mimo-v2.6-flash"
+
+
+def client_state(root):
+    """True/False if this repo's client answer is recorded, None if unknown. A symlink or unreadable file is a clean exit-2 refusal."""
+    p = root / "client-repo.json"
+    if not os.path.lexists(p):
+        return None
+    try:
+        o = json.loads(read_nofollow(p))
+    except (OSError, ValueError) as e:
+        print(f"{PROG}: cannot read {p}: {e}", file=sys.stderr)
+        sys.exit(2)
+    if not isinstance(o, dict) or not isinstance(o.get("client"), bool):
+        print(f"{PROG}: cannot read {p}: not a client record", file=sys.stderr)
+        sys.exit(2)
+    return o["client"]
+
+
+def record_client(root, is_client):
+    """Record this repo's client answer, dir 0700 and file 0600, never through a symlink."""
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(root, 0o700)
+    except OSError as e:
+        print(f"{PROG}: cannot record client answer: {e}", file=sys.stderr)
+        sys.exit(2)
+    by = "agy-lead" if os.environ.get("SWARMKIT_AGY_LEAD") == "1" \
+        else "claude-code" if os.environ.get("CLAUDECODE") == "1" else "manual"
+    rec = {"client": bool(is_client), "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "by": by}
+    try:
+        write_nofollow(root / "client-repo.json", json.dumps(rec) + "\n", mode=0o600)
+        os.chmod(root / "client-repo.json", 0o600)
+    except OSError as e:
+        print(f"{PROG}: cannot record client answer: {e}", file=sys.stderr)
+        sys.exit(2)
+
+
+def ask_message(repo_name):
+    return (f"{PROG}: ask the user once whether {repo_name} is a client repo "
+            f"(code owned by a client, not by the user), then run "
+            f"\"opencode-task client-repo yes\" or \"... no\" and start again.")
 
 
 def subprojects(p):
@@ -987,7 +1031,7 @@ def run_task(task, prompt, a, repo, resume_id=None, warnings=()):
     return 0 if ok else 1
 
 
-def resolve(a):
+def resolve(a, is_client=False):
     """Model, effort and agent checks shared by start and model, so a model preview can never drift from a start."""
     from_agent = a.model is None and a.agent and CLI == "opencode"
     if a.model is None:
@@ -1024,11 +1068,16 @@ def resolve(a):
                 print(f"{PROG}: agent {a.agent} model {m} is not on the worker allowlist; using {a.model}", file=sys.stderr)
     if a.effort is None:
         a.effort = EFFORT_DEFAULTS.get(a.model, "")
+    if is_client and CLI == "opencode":
+        if a.model != CLIENT_MODEL or a.effort != "":
+            print(f"{PROG}: client repo: using {CLIENT_MODEL} instead of model {a.model} effort {a.effort or 'none'}",
+                  file=sys.stderr)
+        a.model, a.effort = CLIENT_MODEL, ""
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    ap.add_argument("cmd", choices=["start", "resume", "list", "clean", "model"])
+    ap.add_argument("cmd", choices=["start", "resume", "list", "clean", "model", "client-repo"])
     ap.add_argument("slug", nargs="?")
     ap.add_argument("prompt", nargs="?", help="task text, or - to read it from stdin")
     ap.add_argument("--model", default=None)
@@ -1058,8 +1107,56 @@ def main():
                      "subagents instead. Set SWARMKIT_ALLOW_WORKERS=1 to start one by hand from a terminal.")
         if CLI == "agy" and not (claude or opencode or manual):
             refuse(f"{PROG}: agy workers are started only by Claude Code or OpenCode. Set SWARMKIT_ALLOW_WORKERS=1 to start one by hand from a terminal.")
+    if a.cmd == "client-repo" and PROG != "opencode-task":
+        print(f"{PROG}: client-repo is opencode-task only", file=sys.stderr)
+        sys.exit(2)
+    # Repo discovery runs before the model early return and before resolve() finishes, so start,
+    # resume and model all know the repo. `model` outside a git repo skips the check instead of failing.
+    def base_for_client(b):
+        return Path(os.path.realpath(os.environ.get(f"{b['env']}_DIR", Path.home() / b["home"])))
+    cwd_for_client = Path(os.path.realpath(Path.cwd()))
+    for b in BACKENDS.values():
+        if cwd_for_client == base_for_client(b) or base_for_client(b) in cwd_for_client.parents:
+            sys.exit(f"{PROG}: run {PROG} from the main checkout, not from inside a task dir ({base_for_client(b)})")
+    repo_for_client, root_for_client = None, None
+    bench_skip = os.environ.get("SWARMKIT_BENCH") == "1"
+    if a.cmd in ("start", "resume", "model", "client-repo"):
+        if a.cmd == "model":
+            r = subprocess.run(["git", "worktree", "list", "--porcelain"], text=True, capture_output=True)
+            if r.returncode == 0 and r.stdout.strip():
+                try:
+                    repo_for_client = Path(r.stdout.splitlines()[0].split(" ", 1)[1])
+                    here_for_client = Path(sh("git", "rev-parse", "--show-toplevel"))
+                    key_for_client = f"{repo_for_client.name}-{hashlib.sha1(str(repo_for_client).encode()).hexdigest()[:6]}"
+                    root_for_client = base_for_client(BACKEND) / key_for_client
+                except SystemExit:
+                    repo_for_client, root_for_client = None, None
+        else:
+            repo_for_client = Path(sh("git", "worktree", "list", "--porcelain").splitlines()[0].split(" ", 1)[1])
+            here_for_client = Path(sh("git", "rev-parse", "--show-toplevel"))
+            key_for_client = f"{repo_for_client.name}-{hashlib.sha1(str(repo_for_client).encode()).hexdigest()[:6]}"
+            root_for_client = base_for_client(BACKEND) / key_for_client
+    if a.cmd == "client-repo":
+        if a.prompt is not None:
+            sys.exit(f"{PROG}: client-repo takes only yes or no")
+        if a.slug is None:
+            s = client_state(root_for_client) if root_for_client is not None else None
+            print("client" if s is True else "not client" if s is False else "unknown")
+            return 0
+        if a.slug not in ("yes", "no"):
+            sys.exit(f"{PROG}: client-repo takes only yes or no")
+        record_client(root_for_client, a.slug == "yes")
+        print("client" if a.slug == "yes" else "not client")
+        return 0
+    is_client_for_run = False
+    if PROG == "opencode-task" and root_for_client is not None and a.cmd in ("start", "resume", "model"):
+        s = client_state(root_for_client)
+        if a.cmd in ("start", "resume") and s is None and not bench_skip:
+            print(ask_message(repo_for_client.name), file=sys.stderr)
+            sys.exit(2)
+        is_client_for_run = (s is True)
     if a.cmd in ("start", "model"):
-        resolve(a)
+        resolve(a, is_client_for_run)
         if a.cmd == "model":
             print(a.model, a.effort or "none")
             return 0
@@ -1212,6 +1309,12 @@ def main():
     if not prev.get("conversation_id"):
         sys.exit(f"{PROG}: previous run has no conversation_id to resume")
     o = json.loads((task / "opts.json").read_text()) if (task / "opts.json").exists() else {}
+    if PROG == "opencode-task" and client_state(root) is True:
+        if o.get("model") != CLIENT_MODEL or o.get("effort", "") != "":
+            print(f"{PROG}: client repo: using {CLIENT_MODEL} instead of model {o.get('model')} effort {o.get('effort') or 'none'}",
+                  file=sys.stderr)
+            o["model"], o["effort"] = CLIENT_MODEL, ""
+            (task / "opts.json").write_text(json.dumps(o))
     if not o.get("gitdir") or not (task / "dotgit").exists():
         sys.exit(f"{PROG}: {a.slug} was started before git isolation and cannot be resumed; "
                  f"inspect {task / 'worktree'} by hand, then clean it with --force")

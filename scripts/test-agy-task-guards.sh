@@ -93,6 +93,7 @@ last_model() { tail -1 "$STUB_ARGS" | sed -n 's/.* -m \([^ ]*\) .*/\1/p'; }
 res() { jq -r "$2" "$OPENCODE_TASK_DIR"/$1-*/"$3"/result.json; }
 
 mkrepo r1; cd "$T/r1"
+"$TASK" client-repo no >/dev/null
 
 # --- effort per model
 D=opencode-go/muse-spark-1.3-contributor
@@ -227,6 +228,7 @@ STUB_MODE=deny "$TASK" start cb4 --max-denied 0 --max-tool-errors 0 --timeout 3 
 
 # --- global cap: two repos, cap 2, three starts; the third queues behind the other repo's task
 mkrepo r2
+(cd "$T/r2" && "$TASK" client-repo no >/dev/null)
 export OPENCODE_TASK_MAX=2 STUB_MODE=slow STUB_SLEEP=5
 (cd "$T/r1" && "$TASK" start cap1 "p" >/dev/null 2>&1) &
 (cd "$T/r2" && "$TASK" start cap2 "p" >/dev/null 2>&1) &
@@ -849,4 +851,62 @@ mkagent mres-pinvar "model: opencode-go/glm-5.3-flash#high
 "$AGY_TASK" model --model gemini-3.8-flash-high >/dev/null 2>&1 && fail "agy accepted the removed 3.8 Flash"
 "$AGY_TASK" model --model gemini-4-argon-high --effort low >/dev/null 2>&1 && fail "agy accepted a full ID with a conflicting effort"
 unset SWARMKIT_OPENCODE_AGENTS_DIR
+
+# --- client repo: ask once per repo, client repos run on mimo
+mkrepo cru; cd "$T/cru"
+[ "$("$TASK" client-repo)" = unknown ] || fail "unrecorded repo should print unknown"
+refused "opencode-task: ask the user once whether cru is a client repo" "$TASK" start cru1 "p"
+[ ! -e "$OPENCODE_TASK_DIR"/cru-*/cru1 ] || fail "refused start left a task dir"
+refused "opencode-task: ask the user once whether cru is a client repo" "$TASK" resume cru1 "again"
+SWARMKIT_BENCH=1 "$TASK" start crub "p" >/dev/null 2>&1 || fail "bench start in unrecorded repo refused"
+[ "$(res cru .ok crub)" = true ] || fail "bench start not ok"
+"$TASK" clean crub --force
+"$TASK" client-repo yes >/dev/null
+[ "$("$TASK" client-repo)" = client ] || fail "client-repo yes not recorded"
+"$TASK" list | grep -q client-repo.json && fail "list shows client-repo.json"
+"$TASK" start cruc1 "p" >/dev/null 2>&1 || true
+[ "$(last_model)" = "opencode-go/mimo-v2.6-flash" ] || fail "client start should run on mimo, got $(last_model)"
+err=$("$TASK" start cruc2 --model "$D" "p" 2>&1 >/dev/null) || true
+[ "$(last_model)" = "opencode-go/mimo-v2.6-flash" ] || fail "explicit model in client repo not mimo, got $(last_model)"
+echo "$err" | grep -q "instead of model $D" || fail "no override note for explicit model: $err"
+err=$("$TASK" start cruc3 --effort high "p" 2>&1 >/dev/null) || true
+[ "$(last_model)" = "opencode-go/mimo-v2.6-flash" ] || fail "explicit effort in client repo not cleared, got $(last_model)"
+echo "$err" | grep -q "effort high" || fail "note does not name replaced effort: $err"
+export SWARMKIT_OPENCODE_AGENTS_DIR="$T/cagents"; mkdir -p "$SWARMKIT_OPENCODE_AGENTS_DIR"
+printf -- "---\nmodel: opencode-go/glm-5.3-flash\n---\n" > "$SWARMKIT_OPENCODE_AGENTS_DIR/m-glm.md"
+"$TASK" start cruc4 --agent m-glm "p" >/dev/null 2>&1 || true
+[ "$(last_model)" = "opencode-go/mimo-v2.6-flash" ] || fail "agent pin in client repo not mimo, got $(last_model)"
+unset SWARMKIT_OPENCODE_AGENTS_DIR
+[ "$("$TASK" model)" = "opencode-go/mimo-v2.6-flash none" ] || fail "model in client repo not mimo: $("$TASK" model)"
+cfile=$(echo "$OPENCODE_TASK_DIR"/cru-*/client-repo.json)
+[ "$(stat -c %a "$cfile")" = 600 ] || fail "client-repo.json not 0600: $(stat -c %a "$cfile")"
+git worktree add -q "$T/cru-wt"
+[ "$(cd "$T/cru-wt" && "$TASK" client-repo)" = client ] || fail "second worktree did not see client answer"
+[ "$(cd "$T/cru-wt" && "$TASK" model)" = "opencode-go/mimo-v2.6-flash none" ] || fail "second worktree model not mimo"
+git worktree remove --force "$T/cru-wt"
+for s in cruc1 cruc2 cruc3 cruc4; do "$TASK" clean $s --force; done
+mkrepo crr; (cd "$T/crr" && "$TASK" client-repo no >/dev/null)
+(cd "$T/crr" && "$TASK" start r1 "p" >/dev/null 2>&1 || true)
+[ "$(last_model)" = "$D#high" ] || fail "not-client start should run on muse, got $(last_model)"
+(cd "$T/crr" && "$TASK" client-repo yes >/dev/null)
+err=$(cd "$T/crr" && "$TASK" resume r1 "again" 2>&1 >/dev/null) || true
+[ "$(last_model)" = "opencode-go/mimo-v2.6-flash" ] || fail "resume after yes not mimo, got $(last_model)"
+echo "$err" | grep -q "instead of model" || fail "resume override note missing: $err"
+(cd "$T/crr" && "$TASK" clean r1 --force)
+mkrepo crn; (cd "$T/crn" && "$TASK" client-repo no >/dev/null)
+[ "$(cd "$T/crn" && "$TASK" client-repo)" = "not client" ] || fail "client-repo no not recorded"
+(cd "$T/crn" && "$TASK" start n1 "p" >/dev/null 2>&1 || true)
+[ "$(last_model)" = "$D#high" ] || fail "not-client start not muse, got $(last_model)"
+(cd "$T/crn" && "$TASK" clean n1 --force)
+mkrepo crs; (cd "$T/crs" && "$TASK" client-repo yes >/dev/null)
+sfile=$(echo "$OPENCODE_TASK_DIR"/crs-*/client-repo.json)
+rm "$sfile" && ln -s /etc/hostname "$sfile"
+rc=0; out=$(cd "$T/crs" && "$TASK" start s1 "p" 2>&1) || rc=$?
+[ "$rc" = 2 ] || fail "symlinked client-repo.json not refused ($rc): $out"
+echo "$out" | grep -q "cannot read" || fail "symlink refusal message: $out"
+rm "$sfile"
+rc=0; out=$("$AGY_TASK" client-repo 2>&1) || rc=$?
+[ "$rc" = 2 ] || fail "agy-task client-repo accepted ($rc)"
+echo "$out" | grep -q "opencode-task only" || fail "agy client-repo message: $out"
+cd "$T/r1"
 echo "ok"
