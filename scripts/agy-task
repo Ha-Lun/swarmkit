@@ -42,7 +42,7 @@ the gate log (a call agy rejected as INVALID before the hook, the next step's st
 resume that answered for another conversation is NOT ok and not committed. A base that tracks anything under
 .agents/.agent/_agents/_agent/.gemini is refused, and so is a launch (start after --setup, resume) while the worktree
 has any such entry besides the wrapper's own overlay, or a symlink among them.
-The gate's schema (tool names, argument keys, transcript format) was probed on agy 1.4.2, 1.4.7, 1.4.10, 1.5.8 and 1.5.9 (AGY_PROBED): another
+The gate's schema (tool names, argument keys, transcript format) was probed on agy 1.4.2, 1.4.7, 1.4.10, 1.5.8, 1.5.9 and 1.5.10 (AGY_PROBED): another
 agy version is refused unless AGY_TASK_ALLOW_UNPROBED=1. Re-probe before bumping it: in a scratch repo, run one
 plain and one --agent task that reads, edits and searches; compare the tool names and argument keys in
 ~/.gemini/antigravity-cli/brain/<conversation>/.system_generated/logs/transcript_full.jsonl and the gate log
@@ -335,7 +335,7 @@ def agy_agent_problem(agent):
     return agy_agent_parts(agent)[0]
 
 
-AGY_PROBED = "1.5.9"  # the agy version the gate schema and transcript check were probed on
+AGY_PROBED = "1.5.10"  # the agy version the gate schema and transcript check were probed on
 
 
 def refuse(task, msg):
