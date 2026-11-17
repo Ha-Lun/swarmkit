@@ -825,6 +825,7 @@ describe('opencode Go limits', () => {
     const h = m.calls[0]!.init.headers as Record<string, string>;
     expect(h.authorization).toBe(`Bearer ${KEY}`);
     expect(h['x-opencode-org-id']).toBe('wrk_1');
+    expect(h['user-agent']).toBe('swarmkit-dashboard/0.1');
     expect(JSON.stringify(report)).not.toContain(KEY);
   });
 

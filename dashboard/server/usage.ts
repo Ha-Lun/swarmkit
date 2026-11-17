@@ -74,6 +74,8 @@ const GO_LIMITS_FAILURE_TTL_MS = 60_000;
 const GO_LIMITS_TIMEOUT_MS = 10_000;
 const GO_LIMITS_MAX_BODY = 64 * 1024;
 const GO_USAGE_URL = 'https://opencode.ai/zen/go/v1/usage';
+/** OpenCode Go asks clients to send their own user agent, not a generic HTTP-library name. */
+const GO_USER_AGENT = 'swarmkit-dashboard/0.1';
 /** Fixed short errors for the Go limits call (never response bodies, keys or paths). */
 const GO_UNAVAILABLE_MSG = 'go limits unavailable';
 const GO_NOT_SIGNED_IN_MSG = 'opencode not signed in';
@@ -650,6 +652,7 @@ async function fetchGoLimits(o: UsageOptions): Promise<GoLimit[]> {
       signal: AbortSignal.timeout(GO_LIMITS_TIMEOUT_MS),
       headers: {
         accept: 'application/json',
+        'user-agent': GO_USER_AGENT,
         authorization: `Bearer ${cred.token}`,
         ...(cred.orgId ? { 'x-opencode-org-id': cred.orgId } : {}),
       },
