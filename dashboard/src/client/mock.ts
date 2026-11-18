@@ -95,7 +95,16 @@ const mockRemoteControls: RemoteControl[] = [
   { id: '6', name: 'ops-tools', cwd: '/', target: 'claude-rc:6', activityAt: Date.now() - 4 * 60_000, sessionId: 'mock-term-1' },
 ];
 
+/** Mirrors the server's reserved env names so the demo rejects the same ones. */
+const MOCK_RESERVED = new Set(['PATH', 'HOME', 'PWD', 'SHELL', 'USER', 'ENV', 'BASH_ENV', 'IFS', 'TMPDIR', 'NODE_OPTIONS', 'NODE_PATH', 'PYTHONPATH', 'PYTHONSTARTUP']);
+const MOCK_RESERVED_PREFIXES = ['LD_', 'DYLD_', 'SWARMKIT_', 'CLAUDE_', 'ANTHROPIC_', 'FLEET_', 'XDG_', 'OPENCODE_', 'AGY_', 'GIT_'];
+function isReservedSecretName(name: string): boolean {
+  return MOCK_RESERVED.has(name) || MOCK_RESERVED_PREFIXES.some((p) => name.startsWith(p));
+}
+
 export function createMockBackend(): FleetBackend {
+  // cwd -> secret name -> updatedAt. Values are deliberately never kept.
+  const mockSecrets = new Map<string, Map<string, number>>();
   let emit: ((ev: ServerEvent) => void) | null = null;
   const timers = new Set<number>();
   const at = (ms: number, fn: () => void) => {
@@ -1506,6 +1515,32 @@ A claim with a footnote.[^1]
         ? (mockStars.includes(clean) ? mockStars : [...mockStars, clean])
         : mockStars.filter((s) => s !== clean);
       return Promise.resolve([...mockStars]);
+    },
+    secrets: (cwd) =>
+      Promise.resolve({
+        project: cwd,
+        names: [...(mockSecrets.get(cwd) ?? new Map<string, number>())]
+          .map(([name, updatedAt]) => ({ name, updatedAt }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      }),
+    putSecret: ({ cwd, name, value }) => {
+      if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(name)) {
+        return Promise.reject(new ApiError(400, 'name must be 1-64 characters: A-Z, 0-9 and _, starting with a letter'));
+      }
+      if (isReservedSecretName(name)) return Promise.reject(new ApiError(400, 'that name is reserved for the environment'));
+      if (value.length === 0) return Promise.reject(new ApiError(400, 'value must be a non-empty string'));
+      if (new TextEncoder().encode(value).length > 8 * 1024) {
+        return Promise.reject(new ApiError(400, 'value is too large (max 8 KB)'));
+      }
+      // Only the name and time are kept; the demo never holds the value.
+      const names = mockSecrets.get(cwd) ?? new Map<string, number>();
+      names.set(name, Date.now());
+      mockSecrets.set(cwd, names);
+      return Promise.resolve(undefined);
+    },
+    deleteSecret: ({ cwd, name }) => {
+      mockSecrets.get(cwd)?.delete(name);
+      return Promise.resolve(undefined);
     },
     workers: () =>
       Promise.resolve(workerTasks.map((t) => ({ ...t, toolCounts: { ...t.toolCounts } }))),

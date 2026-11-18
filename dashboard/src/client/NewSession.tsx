@@ -6,6 +6,7 @@ import { filesFromPaste } from './attachments';
 import { useEnterToSend } from './enterToSend';
 import { FolderPicker } from './FolderPicker';
 import { PendingChat } from './PendingChat';
+import { SecretsButton } from './Secrets';
 import { AgentModelFields, useStartForm } from './StartForm';
 import type { StartDraft } from './StartForm';
 
@@ -32,6 +33,8 @@ export function NewSession({ backend, guard, onClose, onStarted }: Props) {
     pending,
     error,
     submit,
+    secretGuard,
+    secretWarning,
   } = useStartForm(backend, guard, onStarted);
 
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -103,6 +106,7 @@ export function NewSession({ backend, guard, onClose, onStarted }: Props) {
           layout="stack"
         />
 
+        {secretWarning}
         {error && (
           <p className="dialog-error" role="alert">
             {error}
@@ -110,6 +114,9 @@ export function NewSession({ backend, guard, onClose, onStarted }: Props) {
         )}
 
         <div className="dialog-actions">
+          <span className="dialog-actions-start">
+            <SecretsButton onClick={() => secretGuard.open()} disabled={!cwd.trim()} />
+          </span>
           <button type="button" className="btn btn-ghost" onClick={onClose}>
             Cancel
           </button>
@@ -122,6 +129,7 @@ export function NewSession({ backend, guard, onClose, onStarted }: Props) {
           </button>
         </div>
       </form>
+      {secretGuard.dialog}
     </div>
   );
 }

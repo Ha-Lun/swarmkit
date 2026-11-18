@@ -11,6 +11,7 @@ import { UNTRUSTED_NOTICE } from './format';
 import { FolderPicker } from './FolderPicker';
 import { Wordmark } from './icons';
 import { PendingChat } from './PendingChat';
+import { SecretsButton } from './Secrets';
 import { nextSetup, SetupPopover, useStartForm } from './StartForm';
 
 interface Props {
@@ -59,6 +60,8 @@ export function Landing({ backend, guard, sessions, onStarted }: Props) {
     pending,
     error,
     submit,
+    secretGuard,
+    secretWarning,
   } = useStartForm(backend, guard, onStarted);
 
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -159,8 +162,9 @@ export function Landing({ backend, guard, sessions, onStarted }: Props) {
               />
             }
             error={
-              (untrusted || error || attachments.error) && (
+              (untrusted || error || attachments.error || secretWarning) && (
                 <>
+                  {secretWarning}
                   {untrusted && (
                     <p className="notice" role="note">
                       {UNTRUSTED_NOTICE}
@@ -216,6 +220,7 @@ export function Landing({ backend, guard, sessions, onStarted }: Props) {
                   <span><b>shift+tab</b> setup</span>
                   <span><b>enter</b> start</span>
                 </span>
+                <SecretsButton onClick={() => secretGuard.open()} disabled={!cwd.trim()} />
                 <AttachButton onFiles={attachments.addFiles} />
                 <button type="submit" className="btn btn-primary btn-sm" disabled={!canStart}>
                   {starting ? 'starting…' : 'start'}
@@ -225,6 +230,7 @@ export function Landing({ backend, guard, sessions, onStarted }: Props) {
           />
         </div>
       </div>
+      {secretGuard.dialog}
     </>
   );
 }

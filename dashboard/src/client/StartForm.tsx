@@ -11,6 +11,7 @@ import type { UseAttachments } from './attachments';
 import { MetaLine, providerName } from './Composer';
 import { modelLabel as shortModelLabel } from './format';
 import { resolveDefaultCwd } from './FolderPicker';
+import { useSecretGuard } from './Secrets';
 
 export const SETUP_ORDER: Runtime[] = ['claude', 'opencode', 'agy'];
 const SETUP_LABEL: Record<Runtime, string> = {
@@ -58,7 +59,7 @@ export function useStartForm(
   onStarted: (sessionId: string, handoff?: StartDraft) => void,
 ) {
   const [cwd, setCwd] = useState('');
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPromptRaw] = useState('');
   const [runtime, setRuntimeInner] = useState<Runtime>(readSetup);
   const [model, setModel] = useState<string>(() => SETUP_MODEL[readSetup()]);
   const [availability, setAvailability] = useState<RuntimesResponse | null>(null);
@@ -67,6 +68,11 @@ export function useStartForm(
   // Set while a Claude start waits on the server's model triage: the form swaps to a chat with this prompt.
   const [pending, setPending] = useState<StartDraft | null>(null);
   const attachments: UseAttachments = useAttachments();
+  const secretGuard = useSecretGuard(cwd.trim());
+  const setPrompt = (v: string) => {
+    setPromptRaw(v);
+    secretGuard.reset();
+  };
 
   const setRuntime = (r: Runtime) => {
     setRuntimeInner(r);
@@ -102,13 +108,14 @@ export function useStartForm(
     };
   }, [backend]);
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
+  const submit = async (e?: FormEvent, force = false) => {
+    e?.preventDefault();
     const p = prompt.trim();
     const c = cwd.trim();
     const images = attachments.toPayload();
     const files = attachments.toFiles();
     if ((!p && images.length === 0 && files.length === 0) || !c || starting) return;
+    if (!force && secretGuard.check(p)) return;
     const draft: StartDraft | null =
       runtime === 'claude'
         ? { prompt: p, images: attachments.items.map((i) => i.previewUrl), files: attachments.files.map((f) => f.name) }
@@ -158,6 +165,12 @@ export function useStartForm(
     pending,
     error,
     submit,
+    secretGuard,
+    /** The paste-guard notice for the prompt box (render it in the error slot). */
+    secretWarning: secretGuard.warning(() => prompt, () => {
+      secretGuard.reset();
+      void submit(undefined, true);
+    }),
   };
 }
 

@@ -5,6 +5,7 @@ import type {
   CommandsResponse,
   GitResponse,
   DecideOptions,
+  DeleteSecretBody,
   DirListing,
   FileAttachment, ImageAttachment,
   PermissionDecisionBody,
@@ -14,8 +15,10 @@ import type {
   PushStatusResponse,
   PushSubscribeBody,
   PushSendResult,
+  PutSecretBody,
   RemoteControl,
   RuntimesResponse,
+  SecretsListResponse,
   ServerEvent,
   SessionDetail,
   SessionSummary,
@@ -61,6 +64,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     throw new ApiError(0, `Network error: ${e instanceof Error ? e.message : String(e)}`);
   }
   if (!res.ok) throw new ApiError(res.status, await errorMessage(res, url, init?.method));
+  if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
 
@@ -109,6 +113,10 @@ export interface FleetBackend {
   pushSubscribe(body: PushSubscribeBody): Promise<unknown>;
   pushUnsubscribe(body: PushEndpointBody): Promise<unknown>;
   pushTest(body: PushEndpointBody): Promise<{ ok: boolean; result: PushSendResult }>;
+  /** Per-project secrets: names only come back, never values. Agents see them as env vars in new or restarted sessions. */
+  secrets(cwd: string): Promise<SecretsListResponse>;
+  putSecret(body: PutSecretBody): Promise<unknown>;
+  deleteSecret(body: DeleteSecretBody): Promise<unknown>;
   connect(
     onEvent: (ev: ServerEvent) => void,
     onStatus: (connected: boolean) => void,
@@ -183,6 +191,9 @@ export const apiBackend: FleetBackend = {
   pushSubscribe: (body) => request('/api/push/subscribe', { method: 'POST', body: JSON.stringify(body) }),
   pushUnsubscribe: (body) => request('/api/push/unsubscribe', { method: 'POST', body: JSON.stringify(body) }),
   pushTest: (body) => request('/api/push/test', { method: 'POST', body: JSON.stringify(body) }),
+  secrets: (cwd) => request(`/api/secrets?cwd=${encodeURIComponent(cwd)}`),
+  putSecret: (body) => request('/api/secrets', { method: 'PUT', body: JSON.stringify(body) }),
+  deleteSecret: (body) => request('/api/secrets', { method: 'DELETE', body: JSON.stringify(body) }),
   connect(onEvent, onStatus) {
     // EventSource reconnects on its own with backoff; we surface the state and
     // let App refetch the selected detail when the stream reopens.
