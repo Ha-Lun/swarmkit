@@ -8,7 +8,7 @@ import { SdkSessions } from '../server/sdk/sessions.ts';
 import type { QueryFn } from '../server/sdk/sessions.ts';
 import {
   deleteSecret, invalidateSecretCaches, listSecrets, projectRoot, putSecret, redactDeep, redactSecrets, redactServerEvent,
-  secretEnv, secretEntriesForCwd, secretsDirPath, secretsFilePath, secretsPromptLine,
+  secretEnv, secretEntriesForCwd, secretsDirPath, secretsFilePath,
 } from '../server/secrets.ts';
 import type { SecretEntry, SecretResolver } from '../server/secrets.ts';
 import type { ActivityEvent, ServerEvent, SessionSummary } from '../src/shared/types.ts';
@@ -94,7 +94,7 @@ describe('storage', () => {
   it('replaces, deletes and treats a missing delete as fine', () => {
     putSecret(work, 'API_KEY', 'first-value');
     putSecret(work, 'API_KEY', 'second-value');
-    expect(secretEnv(work)).toEqual({ API_KEY: 'second-value' });
+    expect(secretEnv(work)).toEqual({ API_KEY: 'second-value', SWARMKIT_SECRET_NAMES: 'API_KEY' });
     deleteSecret(work, 'API_KEY');
     deleteSecret(work, 'API_KEY');
     expect(listSecrets(work).names).toEqual([]);
@@ -157,7 +157,7 @@ describe('project scoping', () => {
     expect(projectRoot(path.join(repo, 'packages', 'app'))).toBe(repo);
     putSecret(path.join(repo, 'packages', 'app'), 'API_KEY', 'sk-test-123456');
     expect(listSecrets(repo).names.map(n => n.name)).toEqual(['API_KEY']);
-    expect(secretEnv(path.join(repo, 'packages'))).toEqual({ API_KEY: 'sk-test-123456' });
+    expect(secretEnv(path.join(repo, 'packages'))).toEqual({ API_KEY: 'sk-test-123456', SWARMKIT_SECRET_NAMES: 'API_KEY' });
   });
 
   it('treats a worktree (.git file) as its own project', () => {
@@ -185,7 +185,7 @@ describe('project scoping', () => {
     symlinkSync(real, link);
     putSecret(link, 'API_KEY', 'via-link-123');
     expect(listSecrets(real)).toEqual({ project: real, names: [expect.objectContaining({ name: 'API_KEY' })] });
-    expect(secretEnv(link)).toEqual({ API_KEY: 'via-link-123' });
+    expect(secretEnv(link)).toEqual({ API_KEY: 'via-link-123', SWARMKIT_SECRET_NAMES: 'API_KEY' });
   });
 
   it('GET never returns values', () => {
@@ -305,11 +305,11 @@ describe('injection', () => {
     }) as QueryFn;
   }
 
-  it('merges project secrets into the Claude env and names them in the system prompt', async () => {
+  it('merges project secrets and their names into the Claude env, with no systemPrompt option', async () => {
     const project = path.join(homeDir, 'p1');
     mkdirSync(project);
-    putSecret(project, 'API_KEY', 'sk-test-123456');
     putSecret(project, 'DB_URL', 'postgres://x');
+    putSecret(project, 'API_KEY', 'sk-test-123456');
     const seen: Record<string, unknown>[] = [];
     const sdk = new SdkSessions(() => {}, recording(seen));
     sdk.start({ prompt: 'hello', cwd: project });
@@ -317,24 +317,54 @@ describe('injection', () => {
     const env = seen[0]!.env as Record<string, string>;
     expect(env.API_KEY).toBe('sk-test-123456');
     expect(env.DB_URL).toBe('postgres://x');
+    expect(env.SWARMKIT_SECRET_NAMES).toBe('API_KEY,DB_URL');
     expect(env.PATH).toBe(process.env.PATH); // process.env stays
-    const prompt = seen[0]!.systemPrompt as { type: string; preset: string; append: string };
-    expect(prompt.type).toBe('preset');
-    expect(prompt.append).toContain('API_KEY, DB_URL');
-    expect(prompt.append).not.toContain('sk-test-123456');
-    expect(prompt.append).not.toContain('postgres');
+    expect(seen[0]).not.toHaveProperty('systemPrompt');
   });
 
-  it('adds nothing to the prompt for a project without secrets, but still passes the env', async () => {
+  it('passes the secrets and their names to the OpenCode and agy runtimes', async () => {
+    const project = path.join(homeDir, 'p3');
+    mkdirSync(project);
+    putSecret(project, 'DB_URL', 'postgres://x');
+    putSecret(project, 'API_KEY', 'sk-test-123456');
+    const acpEnv: Record<string, string | undefined>[] = [];
+    const agyEnv: Record<string, string | undefined>[] = [];
+    const none = recording([]);
+    const sdk = new SdkSessions(() => {}, recording([]), {
+      acp: o => { acpEnv.push(o.env as Record<string, string | undefined>); return none; },
+      agy: o => { agyEnv.push(o.env as Record<string, string | undefined>); return none; },
+    });
+    sdk.start({ prompt: 'hello', cwd: project, runtime: 'opencode' });
+    sdk.start({ prompt: 'hello', cwd: project, runtime: 'agy' });
+    await vi.waitFor(() => expect(acpEnv.length + agyEnv.length).toBe(2));
+    for (const env of [acpEnv[0]!, agyEnv[0]!]) {
+      expect(env.API_KEY).toBe('sk-test-123456');
+      expect(env.DB_URL).toBe('postgres://x');
+      expect(env.SWARMKIT_SECRET_NAMES).toBe('API_KEY,DB_URL');
+    }
+  });
+
+  it('sets no names env for a project without secrets, in any runtime, but still passes the env', async () => {
     const project = path.join(homeDir, 'p2');
     mkdirSync(project);
-    expect(secretsPromptLine(project)).toBeUndefined();
     const seen: Record<string, unknown>[] = [];
-    const sdk = new SdkSessions(() => {}, recording(seen));
+    const acpEnv: Record<string, string | undefined>[] = [];
+    const agyEnv: Record<string, string | undefined>[] = [];
+    const none = recording([]);
+    const sdk = new SdkSessions(() => {}, recording(seen), {
+      acp: o => { acpEnv.push(o.env as Record<string, string | undefined>); return none; },
+      agy: o => { agyEnv.push(o.env as Record<string, string | undefined>); return none; },
+    });
     sdk.start({ prompt: 'hello', cwd: project });
-    await vi.waitFor(() => expect(seen).toHaveLength(1));
-    expect(seen[0]!.systemPrompt).toBeUndefined();
-    expect((seen[0]!.env as Record<string, string>).PATH).toBe(process.env.PATH);
+    sdk.start({ prompt: 'hello', cwd: project, runtime: 'opencode' });
+    sdk.start({ prompt: 'hello', cwd: project, runtime: 'agy' });
+    await vi.waitFor(() => expect(seen.length + acpEnv.length + agyEnv.length).toBe(3));
+    expect(seen[0]).not.toHaveProperty('systemPrompt');
+    const env = seen[0]!.env as Record<string, string>;
+    expect(env.PATH).toBe(process.env.PATH);
+    expect(env.SWARMKIT_SECRET_NAMES).toBeUndefined();
+    expect(acpEnv[0]!.SWARMKIT_SECRET_NAMES).toBeUndefined();
+    expect(agyEnv[0]!.SWARMKIT_SECRET_NAMES).toBeUndefined();
   });
 
   it('keeps one project’s secrets out of another project’s session', async () => {

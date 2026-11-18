@@ -272,16 +272,15 @@ export function projectSecrets(cwd: string): SecretEntry[] {
   }
 }
 
-/** Env vars of a session's project secrets, to merge over process.env. */
+/**
+ * Env vars of a session's project secrets, to merge over process.env, plus SWARMKIT_SECRET_NAMES
+ * (comma-separated, sorted; names only) so the agent knows what it has. Empty without secrets.
+ */
 export function secretEnv(cwd: string): Record<string, string> {
-  return Object.fromEntries(projectSecrets(cwd).map(s => [s.name, s.value]));
-}
-
-/** The one system-prompt line for a project with secrets; undefined without any. */
-export function secretsPromptLine(cwd: string): string | undefined {
-  const names = projectSecrets(cwd).map(s => s.name).sort();
-  if (names.length === 0) return undefined;
-  return `Project secrets available as env vars: ${names.join(', ')} (values hidden; never print, echo or log them). If a needed secret is missing, ask the user to add it in the dashboard's Secrets panel; never ask for it in chat.`;
+  const entries = projectSecrets(cwd);
+  if (entries.length === 0) return {};
+  const names = entries.map(s => s.name).sort().join(',');
+  return { ...Object.fromEntries(entries.map(s => [s.name, s.value])), SWARMKIT_SECRET_NAMES: names };
 }
 
 // ---------------------------------------------------------------- redaction

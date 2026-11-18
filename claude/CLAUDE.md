@@ -38,6 +38,12 @@ In a dashboard session (`SWARMKIT_ARTIFACTS_DIR` is set), hand the user a file
 (a PDF, an export, a build) by copying it into that folder, and name it in your
 reply; the dashboard offers it for download.
 
+In a dashboard session, `$SWARMKIT_SECRET_NAMES` lists this project's secrets,
+each available as an env var of that name. Use them by reference (`$NAME`) and
+never print, echo or log their values. If a secret you need is missing, ask the
+user to add it in the dashboard's Secrets panel; never ask them to paste it in
+chat.
+
 ## Claude Code
 
 - Large or risky work: call `EnterPlanMode` first; `ExitPlanMode` is the
