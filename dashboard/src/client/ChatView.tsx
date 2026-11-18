@@ -25,6 +25,8 @@ interface Props {
   onDecide: (p: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>, opts?: DecideOptions) => void;
   /** The session's project is untrusted: plan approval offers manual mode only. */
   untrusted?: boolean;
+  /** The session's folder, for the paste guard on answers. */
+  cwd?: string;
   onOpenWorkerLog?: (task: WorkerTask) => void;
   /** Plan-limit fallback links, shown on the session's main agent only. */
   limitReached?: LimitReached;
@@ -236,6 +238,7 @@ function HandoffCard({
   onOpenAgent,
   onDecide,
   untrusted,
+  cwd,
 }: {
   child: AgentNode;
   task?: WorkerTask;
@@ -245,6 +248,7 @@ function HandoffCard({
   onOpenAgent: (nodeId: string) => void;
   onDecide: (p: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>, opts?: DecideOptions) => void;
   untrusted?: boolean;
+  cwd?: string;
 }) {
   const [showFull, setShowFull] = useState(false);
   const name = agentLabel(child);
@@ -310,7 +314,7 @@ function HandoffCard({
         </div>
       </div>
       {permission && (
-        <PermissionPanel key={permission.id} request={permission} untrusted={untrusted} onDecide={(allow, message, answers, opts) => onDecide(permission, allow, message, answers, opts)} />
+        <PermissionPanel key={permission.id} request={permission} untrusted={untrusted} cwd={cwd} onDecide={(allow, message, answers, opts) => onDecide(permission, allow, message, answers, opts)} />
       )}
     </div>
   );
@@ -338,7 +342,7 @@ function ThinkingStatus({ node, color, waiting }: { node: AgentNode; color: stri
   );
 }
 
-export function ChatView({ node, nodes, permissions, workers, workersAt, now, onOpenAgent, onDecide, untrusted, onOpenWorkerLog, limitReached, fallbackOf, onSelectSession, artifacts, triage, model }: Props) {
+export function ChatView({ node, nodes, permissions, workers, workersAt, now, onOpenAgent, onDecide, untrusted, cwd, onOpenWorkerLog, limitReached, fallbackOf, onSelectSession, artifacts, triage, model }: Props) {
   const children = nodes.filter((n) => n.parentId === node.id);
   const items = buildChat(node, children);
   const written = artifacts?.written ?? [];
@@ -457,6 +461,7 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
                   onOpenAgent={onOpenAgent}
                   onDecide={onDecide}
                   untrusted={untrusted}
+                  cwd={cwd}
                 />
               );
             }
@@ -474,7 +479,7 @@ export function ChatView({ node, nodes, permissions, workers, workersAt, now, on
             );
           })}
           {pendingForNode.map((p) => (
-            <PermissionPanel key={p.id} request={p} untrusted={untrusted} onDecide={(allow, message, answers, opts) => onDecide(p, allow, message, answers, opts)} />
+            <PermissionPanel key={p.id} request={p} untrusted={untrusted} cwd={cwd} onDecide={(allow, message, answers, opts) => onDecide(p, allow, message, answers, opts)} />
           ))}
           {thinking && (
             <ThinkingStatus node={node} color={orbColor(node, task)} waiting={node.status === 'waiting' || permByNode.has(node.id)} />

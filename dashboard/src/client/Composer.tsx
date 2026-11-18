@@ -223,104 +223,106 @@ export function Composer({ session, git, onSend, onInterrupt, onStop, loadComman
   const runtime = session.runtime ?? 'claude';
 
   return (
-    <PromptShell
-      runtime={runtime}
-      onFiles={attachments.addFiles}
-      tray={<AttachmentTray items={attachments.items} files={attachments.files} onRemove={attachments.remove} onRemoveFile={attachments.removeFile} />}
-      menu={slash.menu}
-      textarea={
-        <textarea
-          ref={ref}
-          rows={1}
-          aria-label="Message the session"
-          placeholder={queues ? 'Queue a message for after this turn…' : 'Ask or steer while it works…'}
-          title="Enter to send, Shift+Enter for a new line"
-          {...slash.inputProps}
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            secretGuard.reset();
-            slash.onChange();
-          }}
-          onPaste={(e) => {
-            const files = filesFromPaste(e);
-            if (files.length > 0) attachments.addFiles(files);
-          }}
-          onKeyDown={(e) => {
-            if (slash.onKeyDown(e)) return;
-            if (enterToSend.onKeyDown(e)) return;
-          }}
-        />
-      }
-      meta={<MetaLine agent={session.agent} model={modelLabel(session.model)} provider={providerName(runtime)} runtime={runtime} />}
-      hint="enter send · shift+enter newline"
-      error={
-        <>
-          {secretGuard.warning(() => text, () => {
-            secretGuard.reset();
-            send(true);
-          })}
-          {(attachments.error || error) && (
-            <p className="continue-error" role="alert">
-              {attachments.error ?? error}
-            </p>
-          )}
-          {secretGuard.dialog}
-        </>
-      }
-      left={<ComposerWhere session={session} git={git} />}
-      right={
-        <>
-          <AttachButton onFiles={attachments.addFiles} />
-          {confirming ? (
-            <span
-              className="composer-confirm"
-              role="group"
-              aria-label="Confirm stop"
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') cancelStop();
-              }}
-            >
-              <span className="composer-confirm-text">Stop this session? The lead and its running workers end.</span>
-              <button
-                type="button"
-                className="btn btn-danger btn-sm"
-                onClick={() => {
-                  setConfirming(false);
-                  onStop();
+    <>
+      <PromptShell
+        runtime={runtime}
+        onFiles={attachments.addFiles}
+        tray={<AttachmentTray items={attachments.items} files={attachments.files} onRemove={attachments.remove} onRemoveFile={attachments.removeFile} />}
+        menu={slash.menu}
+        textarea={
+          <textarea
+            ref={ref}
+            rows={1}
+            aria-label="Message the session"
+            placeholder={queues ? 'Queue a message for after this turn…' : 'Ask or steer while it works…'}
+            title="Enter to send, Shift+Enter for a new line"
+            {...slash.inputProps}
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              secretGuard.reset();
+              slash.onChange();
+            }}
+            onPaste={(e) => {
+              const files = filesFromPaste(e);
+              if (files.length > 0) attachments.addFiles(files);
+            }}
+            onKeyDown={(e) => {
+              if (slash.onKeyDown(e)) return;
+              if (enterToSend.onKeyDown(e)) return;
+            }}
+          />
+        }
+        meta={<MetaLine agent={session.agent} model={modelLabel(session.model)} provider={providerName(runtime)} runtime={runtime} />}
+        hint="enter send · shift+enter newline"
+        error={
+          <>
+            {secretGuard.warning(() => text, () => {
+              secretGuard.reset();
+              send(true);
+            })}
+            {(attachments.error || error) && (
+              <p className="continue-error" role="alert">
+                {attachments.error ?? error}
+              </p>
+            )}
+          </>
+        }
+        left={<ComposerWhere session={session} git={git} />}
+        right={
+          <>
+            <AttachButton onFiles={attachments.addFiles} />
+            {confirming ? (
+              <span
+                className="composer-confirm"
+                role="group"
+                aria-label="Confirm stop"
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') cancelStop();
                 }}
               >
-                Stop session
-              </button>
-              <button type="button" className="btn btn-ghost btn-sm" autoFocus onClick={cancelStop}>
-                Cancel
-              </button>
-            </span>
-          ) : (
-            <>
-              <button type="button" className="composer-action" aria-label="Interrupt turn" title="Interrupt turn" onClick={() => void run(onInterrupt)}>
-                <span className="btn-icon" aria-hidden="true"><PauseIcon /></span>
-                <span className="btn-text">interrupt</span>
-              </button>
-              <button ref={stopRef} type="button" className="composer-action is-danger" aria-label="Stop session" title="Stop session" onClick={() => setConfirming(true)}>
-                <span className="btn-icon" aria-hidden="true"><StopIcon /></span>
-                <span className="btn-text">stop</span>
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm composer-send"
-                disabled={!canSend}
-                aria-label={queues ? 'Queue message' : 'Send message'}
-                title={queues ? 'The lead reads it when its current turn ends' : 'Steers the running turn at its next step'}
-                onClick={() => send()}
-              >
-                <span className="btn-icon" aria-hidden="true"><SendIcon /></span>
-                <span className="btn-text">{queues ? 'queue' : 'send'}</span>
-              </button>
-            </>
-          )}
-        </>
-      }
-    />
+                <span className="composer-confirm-text">Stop this session? The lead and its running workers end.</span>
+                <button
+                  type="button"
+                  className="btn btn-danger btn-sm"
+                  onClick={() => {
+                    setConfirming(false);
+                    onStop();
+                  }}
+                >
+                  Stop session
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" autoFocus onClick={cancelStop}>
+                  Cancel
+                </button>
+              </span>
+            ) : (
+              <>
+                <button type="button" className="composer-action" aria-label="Interrupt turn" title="Interrupt turn" onClick={() => void run(onInterrupt)}>
+                  <span className="btn-icon" aria-hidden="true"><PauseIcon /></span>
+                  <span className="btn-text">interrupt</span>
+                </button>
+                <button ref={stopRef} type="button" className="composer-action is-danger" aria-label="Stop session" title="Stop session" onClick={() => setConfirming(true)}>
+                  <span className="btn-icon" aria-hidden="true"><StopIcon /></span>
+                  <span className="btn-text">stop</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm composer-send"
+                  disabled={!canSend}
+                  aria-label={queues ? 'Queue message' : 'Send message'}
+                  title={queues ? 'The lead reads it when its current turn ends' : 'Steers the running turn at its next step'}
+                  onClick={() => send()}
+                >
+                  <span className="btn-icon" aria-hidden="true"><SendIcon /></span>
+                  <span className="btn-text">{queues ? 'queue' : 'send'}</span>
+                </button>
+              </>
+            )}
+          </>
+        }
+      />
+      {secretGuard.dialog}
+    </>
   );
 }

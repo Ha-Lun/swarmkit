@@ -47,6 +47,25 @@ describe('looksLikeSecret: detects', () => {
   });
 });
 
+describe('looksLikeSecret: scans past rejected matches', () => {
+  it('finds a real key after a rejected lowercase slug', () => {
+    const text = 'try sk-some-long-lowercase-slug-name first, then sk-proj-AbCdEfGhIjKlMnOpQrStUvWx';
+    expect(looksLikeSecret(text)).toEqual({ kind: 'API key', token: 'sk-proj-AbCdEfGhIjKlMnOpQrStUvWx' });
+  });
+  it('finds a real key after several rejected slugs', () => {
+    const text = 'sk-first-lowercase-slug-here sk-second-lowercase-slug-here sk-Real1234567890abcdefghij';
+    expect(looksLikeSecret(text)?.token).toBe('sk-Real1234567890abcdefghij');
+  });
+  it('still returns null when every match is rejected', () => {
+    expect(looksLikeSecret('sk-first-lowercase-slug-here and sk-second-lowercase-slug-here')).toBeNull();
+  });
+  it('is stable across repeated calls (no shared lastIndex)', () => {
+    const text = 'a sk-ant-api03-abcdefghijklmnopqrstuvwxyz b';
+    expect(looksLikeSecret(text)?.kind).toBe('Anthropic API key');
+    expect(looksLikeSecret(text)?.kind).toBe('Anthropic API key');
+  });
+});
+
 describe('looksLikeSecret: leaves normal text alone', () => {
   it.each([
     'Please fix the failing tests in src/client/Composer.tsx and keep the diff small.',

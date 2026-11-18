@@ -3735,7 +3735,7 @@ button.rc-main:hover, button.rc-main[aria-current] { background: var(--surface-2
 .secrets-value input,
 .secrets-value textarea { flex: 1; min-width: 0; }
 .secrets-value .btn { min-height: 36px; }
-.secrets-value textarea.is-masked { -webkit-text-security: disc; }
+.secrets-value .is-masked { -webkit-text-security: disc; }
 .secrets-restart {
   display: flex;
   flex-wrap: wrap;
