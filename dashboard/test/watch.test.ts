@@ -542,3 +542,81 @@ describe('TranscriptWatcher resumable', () => {
     }
   });
 });
+
+describe('TranscriptWatcher retention', () => {
+  /** Test-only view of the watcher head cache. */
+  function headsOf(w: TranscriptWatcher): Map<string, { mtimeMs: number; key: string }> {
+    return (w as unknown as { heads: Map<string, { mtimeMs: number; key: string }> }).heads;
+  }
+
+  function transcriptFor(title: string): string {
+    const user = JSON.stringify({
+      type: 'user',
+      uuid: 'u1',
+      timestamp: T1,
+      cwd: '/repo/alpha',
+      message: { role: 'user', content: title },
+    });
+    return `${user}\n${baseAssistant}\n`;
+  }
+
+  it('lists transcripts up to 14 days old (default window)', async () => {
+    const temp = await mkdtemp(join(tmpdir(), 'fleet-retention-age-'));
+    const projects = join(temp, 'projects');
+    const dir = join(projects, 'p');
+    await mkdir(dir, { recursive: true });
+    const watcher = new TranscriptWatcher({ root: projects, emit: () => {}, skip: () => false });
+    try {
+      const day = 86_400_000;
+      const now = Date.now();
+      await writeFile(join(dir, 'old13.jsonl'), transcriptFor('Thirteen days old'));
+      await writeFile(join(dir, 'old20.jsonl'), transcriptFor('Twenty days old'));
+      for (const [name, age] of [['old13.jsonl', 13], ['old20.jsonl', 20]] as const) {
+        const past = now - age * day;
+        await utimes(join(dir, name), past / 1000, past / 1000);
+      }
+      const ids = new Set(watcher.list().map((s) => s.id));
+      expect(ids.has('old13')).toBe(true);
+      expect(ids.has('old20')).toBe(false);
+      expect(headsOf(watcher).has('old20')).toBe(false);
+    } finally {
+      watcher.stop();
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+
+  it('caps the listing and the head cache at the newest 300 transcripts', async () => {
+    const temp = await mkdtemp(join(tmpdir(), 'fleet-retention-cap-'));
+    const projects = join(temp, 'projects');
+    const dir = join(projects, 'p');
+    await mkdir(dir, { recursive: true });
+    const watcher = new TranscriptWatcher({ root: projects, emit: () => {}, skip: () => false });
+    try {
+      const now = Date.now();
+      const total = 305;
+      for (let i = 0; i < total; i++) {
+        const file = join(dir, `hw${i}.jsonl`);
+        await writeFile(file, transcriptFor(`Session ${i}`));
+        // hw0 is the newest, hw304 the oldest.
+        const mtime = now - i * 60_000;
+        await utimes(file, mtime / 1000, mtime / 1000);
+      }
+      const ids = new Set(watcher.list().map((s) => s.id));
+      expect(ids.size).toBe(300);
+      expect(ids.has('hw0')).toBe(true);
+      expect(ids.has('hw299')).toBe(true);
+      expect(ids.has('hw300')).toBe(false);
+      expect(ids.has('hw304')).toBe(false);
+      const heads = headsOf(watcher);
+      expect(heads.size).toBeLessThanOrEqual(300);
+      // Unchanged files stay cached by path:mtime:size (no re-read on the next pass).
+      const cached = heads.get('hw0');
+      expect(cached).toBeDefined();
+      watcher.list();
+      expect(heads.get('hw0')).toBe(cached);
+    } finally {
+      watcher.stop();
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+});

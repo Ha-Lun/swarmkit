@@ -14,7 +14,7 @@ import { extractLines, parseObject, readRange } from '../fsutil.ts';
 export interface WatcherOptions {
   /** Defaults to ~/.claude/projects. */
   root?: string;
-  /** Only sessions modified within this many ms are listed; default 24 h. */
+  /** Only sessions modified within this many ms are listed; default 14 days. */
   maxAgeMs?: number;
   emit: (e: ServerEvent) => void;
   /** True for session ids owned by the SDK manager (page sessions): the watcher skips them. */
@@ -75,6 +75,10 @@ const ACCESS_MS = 10 * 60_000;
 const MAX_LIVE = 20;
 /** Cached meta.json entries per watcher. */
 const MAX_META_CACHE = 500;
+/** Transcripts listed (and head-cached) per watcher: the newest by mtime, the rest are hidden. */
+const MAX_HEAD_SESSIONS = 300;
+/** Listing window for transcripts, unless the caller overrides it: 14 days. */
+const DEFAULT_MAX_AGE_MS = 14 * 24 * 60 * 60_000;
 
 export class TranscriptWatcher {
   private readonly root: string;
@@ -94,7 +98,7 @@ export class TranscriptWatcher {
 
   constructor(opts: WatcherOptions) {
     this.root = opts.root ?? join(claudeConfigDir(), 'projects');
-    this.maxAgeMs = opts.maxAgeMs ?? 24 * 60 * 60_000;
+    this.maxAgeMs = opts.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
     this.emitFn = opts.emit;
     this.skipFn = opts.skip;
   }
@@ -298,6 +302,48 @@ export class TranscriptWatcher {
   /** The transcript file followed for a terminal session, when known. */
   transcriptPath(id: string): string | undefined {
     return this.live.get(id)?.path ?? this.heads.get(id)?.path;
+  }
+
+  /**
+   * Re-adopts a page session whose transcript exists but that the SDK manager just
+   * evicted (sync: the manager calls it from its eviction pass, after it stopped
+   * owning the id). Refreshes the head entry when the file changed and broadcasts the
+   * terminal summary, so the session never disappears from the clients. False when
+   * there is no transcript or it aged out of the listing window: the session is gone.
+   */
+  adopt(sessionId: string): boolean {
+    if (this.skipFn(sessionId)) return false;
+    const path = this.findFileSync(sessionId);
+    if (!path) return false;
+    let st: { mtimeMs: number; size: number };
+    try {
+      const s = statSync(path);
+      if (!s.isFile()) return false;
+      st = { mtimeMs: s.mtimeMs, size: s.size };
+    } catch {
+      return false;
+    }
+    if (Date.now() - st.mtimeMs > this.maxAgeMs) return false;
+    const key = `${path}:${st.mtimeMs}:${st.size}`;
+    const cur = this.heads.get(sessionId);
+    let head: HeadEntry;
+    try {
+      head = cur && cur.key === key ? cur : readHeadSync(path, st, key);
+    } catch {
+      return false; // unreadable transcript: treat the session as gone
+    }
+    head.mtimeMs = st.mtimeMs;
+    this.heads.set(sessionId, head);
+    this.noteCwd(head.cwd, st.mtimeMs);
+    this.trimHeads();
+    const live = this.live.get(sessionId);
+    // Older than the newest MAX_HEAD_SESSIONS transcripts: not listed, so not adopted.
+    if (!live && this.heads.get(sessionId) !== head) return false;
+    const summary = live
+      ? liveSummary(live, this.holders, this.pendingCount(sessionId))
+      : headSummary(head, this.holders, this.pendingCount(sessionId));
+    this.emitFn({ type: 'session.upsert', session: summary });
+    return true;
   }
 
   /** Raw paths the terminal session's write tool calls named (Write/Edit/MultiEdit/NotebookEdit). */
@@ -644,7 +690,10 @@ export class TranscriptWatcher {
     }
   }
 
-  /** Sync head-cache refresh for list(); reads at most 64 KB per main file. */
+  /**
+   * Sync head-cache refresh for list(): stats every transcript, then reads at most 64 KB
+   * for the newest MAX_HEAD_SESSIONS files (older ones stay off the list, capped away).
+   */
   private refreshHeadsSync(): void {
     let projects: Dirent[];
     try {
@@ -653,7 +702,8 @@ export class TranscriptWatcher {
       return;
     }
     const now = Date.now();
-    const alive = new Set<string>();
+    /** Stat-only candidates inside the listing window (no file contents read yet). */
+    const found: { id: string; path: string; mtimeMs: number; size: number }[] = [];
     for (const d of projects) {
       if (d.isSymbolicLink() || !d.isDirectory()) continue;
       let files: Dirent[];
@@ -671,23 +721,36 @@ export class TranscriptWatcher {
           const path = join(this.root, d.name, f.name);
           const st = statSync(path);
           if (now - st.mtimeMs > this.maxAgeMs) continue;
-          alive.add(id);
-          const key = `${path}:${st.mtimeMs}:${st.size}`;
-          const cur = this.heads.get(id);
-          if (!cur || cur.key !== key) {
-            this.heads.set(id, readHeadSync(path, st, key));
-          } else {
-            cur.mtimeMs = st.mtimeMs;
-          }
-          this.noteCwd(this.heads.get(id)?.cwd ?? '', st.mtimeMs);
+          found.push({ id, path, mtimeMs: st.mtimeMs, size: st.size });
         } catch {
           // unreadable file: skip
         }
       }
     }
+    // The head cache (and with it the listing) holds the newest transcripts only.
+    found.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    const alive = new Set<string>();
+    for (const { id, path, mtimeMs, size } of found.slice(0, MAX_HEAD_SESSIONS)) {
+      alive.add(id);
+      const key = `${path}:${mtimeMs}:${size}`;
+      const cur = this.heads.get(id);
+      if (!cur || cur.key !== key) {
+        this.heads.set(id, readHeadSync(path, { mtimeMs, size }, key));
+      } else {
+        cur.mtimeMs = mtimeMs;
+      }
+      this.noteCwd(this.heads.get(id)?.cwd ?? '', mtimeMs);
+    }
     for (const id of [...this.heads.keys()]) {
       if (!alive.has(id)) this.heads.delete(id);
     }
+  }
+
+  /** Keeps the head cache at MAX_HEAD_SESSIONS, dropping the oldest mtimes. */
+  private trimHeads(): void {
+    if (this.heads.size <= MAX_HEAD_SESSIONS) return;
+    const oldest = [...this.heads.entries()].sort((a, b) => a[1].mtimeMs - b[1].mtimeMs);
+    for (const [id] of oldest.slice(0, this.heads.size - MAX_HEAD_SESSIONS)) this.heads.delete(id);
   }
 
   private noteCwd(cwd: string, mtimeMs: number): void {
@@ -709,6 +772,26 @@ export class TranscriptWatcher {
       try {
         const st = await stat(path);
         if (st.isFile() && !st.isSymbolicLink()) return path;
+      } catch {
+        // next project dir
+      }
+    }
+    return undefined;
+  }
+
+  /** Sync findFile(): the transcript path of a session id, when a project dir holds it. */
+  private findFileSync(sessionId: string): string | undefined {
+    let projects: Dirent[];
+    try {
+      projects = readdirSync(this.root, { withFileTypes: true });
+    } catch {
+      return undefined;
+    }
+    for (const d of projects) {
+      if (d.isSymbolicLink() || !d.isDirectory()) continue;
+      const path = join(this.root, d.name, `${sessionId}.jsonl`);
+      try {
+        if (statSync(path).isFile()) return path;
       } catch {
         // next project dir
       }
