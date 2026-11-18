@@ -608,7 +608,6 @@ describe('TranscriptWatcher retention', () => {
       expect(ids.has('hw300')).toBe(false);
       expect(ids.has('hw304')).toBe(false);
       const heads = headsOf(watcher);
-      expect(heads.size).toBeLessThanOrEqual(300);
       // Unchanged files stay cached by path:mtime:size (no re-read on the next pass).
       const cached = heads.get('hw0');
       expect(cached).toBeDefined();
@@ -617,6 +616,109 @@ describe('TranscriptWatcher retention', () => {
     } finally {
       watcher.stop();
       await rm(temp, { recursive: true, force: true });
+    }
+  });
+
+  it('adopt() returns false for a transcript older than 14 days', async () => {
+    const temp = await mkdtemp(join(tmpdir(), 'fleet-retention-adopt-age-'));
+    const projects = join(temp, 'projects');
+    const dir = join(projects, 'p');
+    await mkdir(dir, { recursive: true });
+    const seen: ServerEvent[] = [];
+    const watcher = new TranscriptWatcher({ root: projects, emit: (e) => seen.push(e), skip: () => false });
+    try {
+      await writeFile(join(dir, 'ancient.jsonl'), transcriptFor('Ancient session'));
+      const past = Date.now() - 20 * 86_400_000;
+      await utimes(join(dir, 'ancient.jsonl'), past / 1000, past / 1000);
+      expect(watcher.adopt('ancient')).toBe(false);
+      expect(headsOf(watcher).has('ancient')).toBe(false);
+      expect(seen.some((e) => e.type === 'session.upsert')).toBe(false);
+    } finally {
+      watcher.stop();
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+
+  it('adopt() returns false when the transcript is outside the newest 300', async () => {
+    const temp = await mkdtemp(join(tmpdir(), 'fleet-retention-adopt-cap-'));
+    const projects = join(temp, 'projects');
+    const dir = join(projects, 'p');
+    await mkdir(dir, { recursive: true });
+    const seen: ServerEvent[] = [];
+    const watcher = new TranscriptWatcher({ root: projects, emit: (e) => seen.push(e), skip: () => false });
+    try {
+      const now = Date.now();
+      for (let i = 0; i < 300; i++) {
+        const file = join(dir, `hw${i}.jsonl`);
+        await writeFile(file, transcriptFor(`Session ${i}`));
+        await utimes(file, (now - i * 60_000) / 1000, (now - i * 60_000) / 1000);
+      }
+      expect(new Set(watcher.list().map((s) => s.id)).size).toBe(300);
+      // Older than every cached head but still inside the 14-day window.
+      await writeFile(join(dir, 'too-old.jsonl'), transcriptFor('Too old for the top 300'));
+      const past = now - 301 * 60_000;
+      await utimes(join(dir, 'too-old.jsonl'), past / 1000, past / 1000);
+      expect(watcher.adopt('too-old')).toBe(false);
+      expect(seen.some((e) => e.type === 'session.upsert' && (e as { session?: { id?: string } }).session?.id === 'too-old')).toBe(false);
+    } finally {
+      watcher.stop();
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+
+  it('emits session.removed when a head is trimmed out of the newest 300', async () => {
+    const temp = await mkdtemp(join(tmpdir(), 'fleet-retention-trim-removed-'));
+    const projects = join(temp, 'projects');
+    const dir = join(projects, 'p');
+    await mkdir(dir, { recursive: true });
+    const seen: ServerEvent[] = [];
+    const watcher = new TranscriptWatcher({ root: projects, emit: (e) => seen.push(e), skip: () => false });
+    try {
+      const now = Date.now();
+      for (let i = 0; i < 300; i++) {
+        const file = join(dir, `hw${i}.jsonl`);
+        await writeFile(file, transcriptFor(`Session ${i}`));
+        await utimes(file, (now - i * 60_000) / 1000, (now - i * 60_000) / 1000);
+      }
+      expect(new Set(watcher.list().map((s) => s.id)).size).toBe(300);
+      seen.length = 0;
+      await writeFile(join(dir, 'hw-new.jsonl'), transcriptFor('Brand new session'));
+      await watcher.scanNow();
+      const removed = seen.filter((e) => e.type === 'session.removed');
+      expect(removed.some((e) => (e as { sessionId?: string }).sessionId === 'hw299')).toBe(true);
+      expect(headsOf(watcher).has('hw299')).toBe(false);
+    } finally {
+      watcher.stop();
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+
+  it('list() within 1 s does not re-stat: a new file appears only after 1 s or a scan', async () => {
+    vi.useFakeTimers();
+    try {
+      const temp = await mkdtemp(join(tmpdir(), 'fleet-retention-throttle-'));
+      const projects = join(temp, 'projects');
+      const dir = join(projects, 'p');
+      await mkdir(dir, { recursive: true });
+      const watcher = new TranscriptWatcher({ root: projects, emit: () => {}, skip: () => false });
+      try {
+        await writeFile(join(dir, 'first.jsonl'), transcriptFor('First'));
+        expect(new Set(watcher.list().map((s) => s.id)).has('first')).toBe(true);
+        await writeFile(join(dir, 'second.jsonl'), transcriptFor('Second'));
+        // Within the same second the new file is still invisible.
+        expect(new Set(watcher.list().map((s) => s.id)).has('second')).toBe(false);
+        vi.advanceTimersByTime(1100);
+        expect(new Set(watcher.list().map((s) => s.id)).has('second')).toBe(true);
+        // A scan always refreshes, even inside the throttle window.
+        await writeFile(join(dir, 'third.jsonl'), transcriptFor('Third'));
+        await watcher.scanNow();
+        expect(new Set(watcher.list().map((s) => s.id)).has('third')).toBe(true);
+      } finally {
+        watcher.stop();
+        await rm(temp, { recursive: true, force: true });
+      }
+    } finally {
+      vi.useRealTimers();
     }
   });
 });

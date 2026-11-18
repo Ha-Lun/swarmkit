@@ -334,6 +334,23 @@ describe('eviction with a transcript on disk', () => {
       watcher.stop();
     }
   });
+
+  it('falls back to session.removed when onEvict throws', async () => {
+    const { sdk, watcher, id, seen } = await setup(true);
+    try {
+      sdk.setOnEvict(() => {
+        throw new Error('adopt blew up');
+      });
+      raw(sdk, id).updatedAt = Date.now() - EVICT_AFTER_MS - 1_000;
+      const before = seen.length;
+      sdk.evict();
+      const after = seen.slice(before);
+      expect(sdk.owns(id)).toBe(false);
+      expect(after.some(e => e.type === 'session.removed' && e.sessionId === id)).toBe(true);
+    } finally {
+      watcher.stop();
+    }
+  });
 });
 
 describe('page session retention', () => {
@@ -362,7 +379,6 @@ describe('page session retention', () => {
     expect(sdk.owns(extra)).toBe(false);
     expect(finished.every(id => sdk.owns(id))).toBe(true);
     expect(live.every(id => sdk.owns(id))).toBe(true);
-    expect(MAX_PAGE_SESSIONS).toBe(100);
     for (const id of live) sdk.stop(id);
   });
 

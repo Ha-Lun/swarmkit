@@ -95,6 +95,7 @@ export class TranscriptWatcher {
   private terminalPending = new Map<string, Map<string, PermissionRequest>>();
   private timer: ReturnType<typeof setInterval> | undefined;
   private scanning = false;
+  private lastRefreshMs = 0;
 
   constructor(opts: WatcherOptions) {
     this.root = opts.root ?? join(claudeConfigDir(), 'projects');
@@ -222,7 +223,9 @@ export class TranscriptWatcher {
 
   /** Terminal sessions, most recently updated first. */
   list(): SessionSummary[] {
-    this.refreshHeadsSync();
+    if (Date.now() - this.lastRefreshMs >= 1000) {
+      this.refreshHeadsSync();
+    }
     const out = new Map<string, SessionSummary>();
     for (const [id, head] of this.heads) {
       if (this.skipFn(id)) continue;
@@ -313,7 +316,7 @@ export class TranscriptWatcher {
    */
   adopt(sessionId: string): boolean {
     if (this.skipFn(sessionId)) return false;
-    const path = this.findFileSync(sessionId);
+    const path = this.heads.get(sessionId)?.path ?? this.findFileSync(sessionId);
     if (!path) return false;
     let st: { mtimeMs: number; size: number };
     try {
@@ -324,17 +327,12 @@ export class TranscriptWatcher {
       return false;
     }
     if (Date.now() - st.mtimeMs > this.maxAgeMs) return false;
-    const key = `${path}:${st.mtimeMs}:${st.size}`;
-    const cur = this.heads.get(sessionId);
     let head: HeadEntry;
     try {
-      head = cur && cur.key === key ? cur : readHeadSync(path, st, key);
+      head = this.upsertHead(sessionId, path, st.mtimeMs, st.size);
     } catch {
       return false; // unreadable transcript: treat the session as gone
     }
-    head.mtimeMs = st.mtimeMs;
-    this.heads.set(sessionId, head);
-    this.noteCwd(head.cwd, st.mtimeMs);
     this.trimHeads();
     const live = this.live.get(sessionId);
     // Older than the newest MAX_HEAD_SESSIONS transcripts: not listed, so not adopted.
@@ -694,7 +692,31 @@ export class TranscriptWatcher {
    * Sync head-cache refresh for list(): stats every transcript, then reads at most 64 KB
    * for the newest MAX_HEAD_SESSIONS files (older ones stay off the list, capped away).
    */
+  /** Inserts or refreshes one head-cache entry (cached when path:mtime:size is unchanged). */
+  private upsertHead(id: string, path: string, mtimeMs: number, size: number): HeadEntry {
+    const key = `${path}:${mtimeMs}:${size}`;
+    const cur = this.heads.get(id);
+    let head: HeadEntry;
+    if (cur && cur.key === key) {
+      head = cur;
+    } else {
+      head = readHeadSync(path, { mtimeMs, size }, key);
+    }
+    head.mtimeMs = mtimeMs;
+    this.heads.set(id, head);
+    this.noteCwd(head.cwd, mtimeMs);
+    return head;
+  }
+
+  /** Emits session.removed for a head-cache drop that orphans a listed session. */
+  private emitRemovedIfOrphan(id: string): void {
+    if (this.live.has(id)) return;
+    if (this.skipFn(id)) return;
+    this.emitFn({ type: 'session.removed', sessionId: id });
+  }
+
   private refreshHeadsSync(): void {
+    this.lastRefreshMs = Date.now();
     let projects: Dirent[];
     try {
       projects = readdirSync(this.root, { withFileTypes: true });
@@ -732,25 +754,36 @@ export class TranscriptWatcher {
     const alive = new Set<string>();
     for (const { id, path, mtimeMs, size } of found.slice(0, MAX_HEAD_SESSIONS)) {
       alive.add(id);
-      const key = `${path}:${mtimeMs}:${size}`;
-      const cur = this.heads.get(id);
-      if (!cur || cur.key !== key) {
-        this.heads.set(id, readHeadSync(path, { mtimeMs, size }, key));
-      } else {
-        cur.mtimeMs = mtimeMs;
+      try {
+        this.upsertHead(id, path, mtimeMs, size);
+      } catch {
+        // Unreadable between stat and read: drop the stale entry below.
+        alive.delete(id);
       }
-      this.noteCwd(this.heads.get(id)?.cwd ?? '', mtimeMs);
     }
     for (const id of [...this.heads.keys()]) {
-      if (!alive.has(id)) this.heads.delete(id);
+      if (!alive.has(id)) {
+        this.heads.delete(id);
+        this.emitRemovedIfOrphan(id);
+      }
     }
   }
 
   /** Keeps the head cache at MAX_HEAD_SESSIONS, dropping the oldest mtimes. */
   private trimHeads(): void {
-    if (this.heads.size <= MAX_HEAD_SESSIONS) return;
-    const oldest = [...this.heads.entries()].sort((a, b) => a[1].mtimeMs - b[1].mtimeMs);
-    for (const [id] of oldest.slice(0, this.heads.size - MAX_HEAD_SESSIONS)) this.heads.delete(id);
+    while (this.heads.size > MAX_HEAD_SESSIONS) {
+      let oldestId: string | undefined;
+      let oldestMtime = Infinity;
+      for (const [id, head] of this.heads) {
+        if (head.mtimeMs < oldestMtime) {
+          oldestMtime = head.mtimeMs;
+          oldestId = id;
+        }
+      }
+      if (oldestId === undefined) return;
+      this.heads.delete(oldestId);
+      this.emitRemovedIfOrphan(oldestId);
+    }
   }
 
   private noteCwd(cwd: string, mtimeMs: number): void {
