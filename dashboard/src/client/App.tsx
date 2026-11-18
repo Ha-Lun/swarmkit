@@ -27,6 +27,8 @@ import { parseDeepLink, pushSupported, registerWorker, stripDeepLink } from './p
 import type { DeepLink } from './push';
 import { StatusBar } from './StatusBar';
 import { initialState, nodeById, reducer } from './state';
+import { SecretsContext, useSecretsDialog } from './Secrets';
+import type { SecretsRestart } from './Secrets';
 import { TopBar } from './TopBar';
 import { Tree } from './Tree';
 import { useUsage } from './Usage';
@@ -353,6 +355,7 @@ function Topbar({
   const [confirmStop, setConfirmStop] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const secrets = useSecretsDialog(session.cwd, session.id);
 
   useEffect(() => {
     if (!menuOpen) {
@@ -440,6 +443,18 @@ function Topbar({
             >
               {infoOpen ? 'Hide session info' : 'Show session info'}
             </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="topbar-menu-item"
+              onClick={() => {
+                setMenuOpen(false);
+                btnRef.current?.focus();
+                secrets.open();
+              }}
+            >
+              Secrets…
+            </button>
             {canRestart && (
               <>
                 <div className="topbar-menu-sep" aria-hidden="true" />
@@ -511,6 +526,7 @@ function Topbar({
           </div>
         )}
       </div>
+      {secrets.dialog}
     </header>
   );
 }
@@ -946,10 +962,27 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
     if (state.selectedId) void guardSilent(backend.stop(state.selectedId));
   }, [backend, guardSilent, state.selectedId]);
 
+  // Secrets dialogs offer a restart only for a live, restartable session (page-owned Claude lead).
+  const secretsRestart = useMemo<SecretsRestart | undefined>(
+    () =>
+      selected && isLivePageSession(selected) && (selected.runtime ?? 'claude') === 'claude'
+        ? {
+            sessionId: selected.id,
+            active: selected.status === 'running' || selected.status === 'waiting',
+            busy: restartBusy,
+            error: restartError,
+            onRestart: () => void restartSession(),
+          }
+        : undefined,
+    [selected, restartBusy, restartError, restartSession],
+  );
+  const secretsCtx = useMemo(() => ({ backend, guard, restart: secretsRestart }), [backend, guard, secretsRestart]);
+
   // After every hook: an early return above them changes the hook count (React #300).
   if (authNeeded) return <TokenScreen />;
 
   return (
+    <SecretsContext.Provider value={secretsCtx}>
     <div className="app">
       {state.updated && (
         <div className="update-bar" role="status">
@@ -1202,6 +1235,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
         />
       )}
     </div>
+    </SecretsContext.Provider>
   );
 }
 

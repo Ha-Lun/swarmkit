@@ -8,6 +8,7 @@ import { PauseIcon, SendIcon, StopIcon } from './icons';
 import { AttachButton, AttachDropzone, AttachmentTray } from './AttachmentTray';
 import { useEnterToSend } from './enterToSend';
 import { modelLabel } from './format';
+import { SecretsButton, useSecretGuard } from './Secrets';
 import { useSlashMenu } from './SlashMenu';
 
 /** Last two path segments: enough to recognise a checkout without eating the footer line. */
@@ -178,6 +179,7 @@ export function Composer({ session, git, onSend, onInterrupt, onStop, loadComman
   const [text, setText] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
   const attachments = useAttachments();
+  const secretGuard = useSecretGuard(session.cwd, session.id);
 
   const slash = useSlashMenu(text, setText, loadCommands, ref);
 
@@ -200,12 +202,14 @@ export function Composer({ session, git, onSend, onInterrupt, onStop, loadComman
     }
   };
 
-  const send = () => {
+  const send = (force = false) => {
     const t = text.trim();
     const images = attachments.toPayload();
     const files = attachments.toFiles();
     if (!t && images.length === 0 && files.length === 0) return;
+    if (!force && secretGuard.check(t)) return;
     void run(() => onSend(t, images, files), () => {
+      secretGuard.reset();
       setText('');
       attachments.clear();
     });
@@ -214,7 +218,7 @@ export function Composer({ session, git, onSend, onInterrupt, onStop, loadComman
   const canSend = text.trim().length > 0 || attachments.items.length > 0 || attachments.files.length > 0;
 
   // Slash menu wins over Enter: while it is open, Enter picks the command.
-  const enterToSend = useEnterToSend(ref, send, { shouldSend: () => slash.menu == null });
+  const enterToSend = useEnterToSend(ref, () => send(), { shouldSend: () => slash.menu == null });
 
   const runtime = session.runtime ?? 'claude';
 
@@ -235,6 +239,7 @@ export function Composer({ session, git, onSend, onInterrupt, onStop, loadComman
           value={text}
           onChange={(e) => {
             setText(e.target.value);
+            secretGuard.reset();
             slash.onChange();
           }}
           onPaste={(e) => {
@@ -250,11 +255,18 @@ export function Composer({ session, git, onSend, onInterrupt, onStop, loadComman
       meta={<MetaLine agent={session.agent} model={modelLabel(session.model)} provider={providerName(runtime)} runtime={runtime} />}
       hint="enter send · shift+enter newline"
       error={
-        (attachments.error || error) && (
-          <p className="continue-error" role="alert">
-            {attachments.error ?? error}
-          </p>
-        )
+        <>
+          {secretGuard.warning(() => text, () => {
+            secretGuard.reset();
+            send(true);
+          })}
+          {(attachments.error || error) && (
+            <p className="continue-error" role="alert">
+              {attachments.error ?? error}
+            </p>
+          )}
+          {secretGuard.dialog}
+        </>
       }
       left={<ComposerWhere session={session} git={git} />}
       right={
@@ -300,7 +312,7 @@ export function Composer({ session, git, onSend, onInterrupt, onStop, loadComman
                 disabled={!canSend}
                 aria-label={queues ? 'Queue message' : 'Send message'}
                 title={queues ? 'The lead reads it when its current turn ends' : 'Steers the running turn at its next step'}
-                onClick={send}
+                onClick={() => send()}
               >
                 <span className="btn-icon" aria-hidden="true"><SendIcon /></span>
                 <span className="btn-text">{queues ? 'queue' : 'send'}</span>

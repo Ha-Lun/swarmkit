@@ -8,6 +8,7 @@ import { AttachButton, AttachmentTray } from './AttachmentTray';
 import { ComposerWhere, MetaLine, PromptShell, providerName } from './Composer';
 import { useEnterToSend } from './enterToSend';
 import { canUseOpus, modelLabel } from './format';
+import { useSecretGuard } from './Secrets';
 import { useSlashMenu } from './SlashMenu';
 
 interface Props {
@@ -33,16 +34,18 @@ export function Continue({ backend, guard, session, git, sessionId, source, onRe
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const attachments = useAttachments();
+  const secretGuard = useSecretGuard(session.cwd, session.id);
   const ref = useRef<HTMLTextAreaElement>(null);
   const slash = useSlashMenu(text, setText, loadCommands, ref);
 
   const opusOffered = canUseOpus(session);
 
-  const submit = async () => {
+  const submit = async (force = false) => {
     const t = text.trim();
     const images = attachments.toPayload();
     const files = attachments.toFiles();
     if ((!t && images.length === 0 && files.length === 0) || busy) return;
+    if (!force && secretGuard.check(t)) return;
     setBusy(true);
     setError(null);
     try {
@@ -101,6 +104,7 @@ export function Continue({ backend, guard, session, git, sessionId, source, onRe
           {...slash.inputProps}
           onChange={(e) => {
             setText(e.target.value);
+            secretGuard.reset();
             slash.onChange();
           }}
           onPaste={(e) => {
@@ -125,11 +129,18 @@ export function Continue({ backend, guard, session, git, sessionId, source, onRe
       meta={<MetaLine agent={session.agent} model={modelLabel(session.model)} provider={providerName(runtime)} runtime={runtime} />}
       hint="enter send · shift+enter newline"
       error={
-        (attachments.error || error) && (
-          <p className="continue-error" role="alert">
-            {attachments.error ?? error}
-          </p>
-        )
+        <>
+          {secretGuard.warning(() => text, () => {
+            secretGuard.reset();
+            void submit(true);
+          })}
+          {(attachments.error || error) && (
+            <p className="continue-error" role="alert">
+              {attachments.error ?? error}
+            </p>
+          )}
+          {secretGuard.dialog}
+        </>
       }
       left={<ComposerWhere session={session} git={git} />}
       right={

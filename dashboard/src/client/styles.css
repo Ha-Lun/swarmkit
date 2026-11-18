@@ -3701,3 +3701,84 @@ button.rc-main:hover, button.rc-main[aria-current] { background: var(--surface-2
 @media (pointer: coarse) {
   .rc-main { min-height: 44px; }
 }
+
+/* ---------- secrets dialog + paste guard ---------- */
+
+.dialog-actions-start { margin-right: auto; }
+.dialog-actions-start .composer-action { min-height: 44px; }
+
+.secrets-dialog { width: min(520px, 100%); gap: var(--space-2); }
+.secrets-project { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); margin: 0; font-size: 12px; }
+.secrets-project code { min-width: 0; overflow-wrap: anywhere; color: var(--text); }
+.secrets-list {
+  display: flex;
+  flex-direction: column;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.secrets-item,
+.secrets-empty { padding: var(--space-2) var(--space-3); font-size: 12px; }
+.secrets-item { display: flex; align-items: center; gap: var(--space-3); min-height: 44px; }
+.secrets-item + .secrets-item { border-top: 1px solid var(--border); }
+.secrets-name { min-width: 0; overflow-wrap: anywhere; color: var(--ink); font-size: 13px; }
+.secrets-when { margin-left: auto; white-space: nowrap; }
+.secrets-delete { min-height: 32px; padding: 0 var(--space-3); }
+.secrets-form { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-3); }
+.secrets-hint,
+.secrets-note { margin: 0; font-size: 11.5px; line-height: 1.45; }
+.secrets-note { margin-top: var(--space-2); color: var(--text-2); }
+.secrets-value { display: flex; align-items: flex-start; gap: var(--space-2); }
+.secrets-value input,
+.secrets-value textarea { flex: 1; min-width: 0; }
+.secrets-value .btn { min-height: 36px; }
+.secrets-value textarea.is-masked { -webkit-text-security: disc; }
+.secrets-restart {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  background: var(--amber-soft);
+  font-size: 12px;
+  color: var(--text);
+}
+.secrets-restart-text { flex: 1 1 16ch; min-width: 0; }
+.secrets-restart .btn { min-height: 32px; }
+.secrets-restart .restart-ctl-error { flex-basis: 100%; max-width: none; }
+
+.secret-warn {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--amber);
+  border-radius: var(--radius-sm);
+  background: var(--amber-soft);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.secret-warn p { flex: 1 1 28ch; min-width: 0; margin: 0; }
+.secret-warn-actions { display: flex; gap: var(--space-2); }
+.secret-warn .btn { min-height: 32px; }
+@media (max-width: 700px) {
+  .secrets-item { flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
+  .secrets-name { flex: 1 1 0; }
+  .secrets-when { order: 3; flex-basis: 100%; margin-left: 0; }
+}
+@media (pointer: coarse), (max-width: 700px) {
+  .secrets-value .btn,
+  .secrets-delete,
+  .secrets-restart .btn,
+  .secret-warn .btn { min-height: 44px; }
+}
