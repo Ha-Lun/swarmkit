@@ -283,7 +283,31 @@ export interface WorkerTask {
 // POST /api/push/subscribe             PushSubscribeBody -> { ok: true }
 // POST /api/push/unsubscribe           PushEndpointBody -> { ok: true }
 // POST /api/push/test                  PushEndpointBody -> { ok: boolean; result: PushSendResult }
+// GET  /api/secrets?cwd=<abs path>     -> SecretsListResponse   (names only, never values)
+// PUT  /api/secrets                    PutSecretBody -> 204
+// DELETE /api/secrets                  DeleteSecretBody -> 204
 // GET  /events                          -> text/event-stream of ServerEvent
+
+/** GET /api/secrets?cwd=: the project's secrets (its git root, else the folder itself). Values never leave the server. */
+export interface SecretsListResponse {
+  /** Resolved project root the secrets are stored under. */
+  project: string;
+  names: { name: string; updatedAt: number }[];
+}
+
+/** PUT /api/secrets: sets or replaces one secret. name: [A-Z][A-Z0-9_]{0,63}, not a reserved env name; value: 1 byte to 8 KB, no NUL. */
+export interface PutSecretBody {
+  /** Absolute path of an existing folder inside the project. */
+  cwd: string;
+  name: string;
+  value: string;
+}
+
+/** DELETE /api/secrets: removes one secret (204 even when it did not exist). */
+export interface DeleteSecretBody {
+  cwd: string;
+  name: string;
+}
 
 /** Which lead runtime drives a page session: the Claude Agent SDK, `opencode acp`, or `agy -p`. */
 export type Runtime = 'claude' | 'opencode' | 'agy';

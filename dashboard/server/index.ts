@@ -35,6 +35,8 @@ import { WorkerRegistry } from './registry.ts';
 import { SdkSessions, SessionError } from './sdk/sessions.ts';
 import { triageStartBody } from './triage.ts';
 import { createLimitHandler } from './fallback.ts';
+import { deleteSecret, listSecrets, putSecret, redactDeep, redactServerEvent, redactSummary, secretEntriesForCwd } from './secrets.ts';
+import type { SecretEntry, SecretResolver } from './secrets.ts';
 import { validAttachmentTotals, validFiles, validImages, validMessageText, validRuntime, validRuntimeAgent, validRuntimeEffort, validRuntimeModel, ValidationError } from './validate.ts';
 import { imageEtag, readImage } from './images.ts';
 import {
@@ -254,7 +256,20 @@ async function main(): Promise<void> {
     sessionInfo: id => sessionLookup(id),
   });
 
-  function broadcast(event: ServerEvent): void {
+  // Which project a session belongs to, for per-project secret redaction (set once sdk and watcher exist).
+  let sessionCwd: (id: string) => string | undefined = () => undefined;
+  const secretResolver: SecretResolver = {
+    forCwd: cwd => secretEntriesForCwd(cwd),
+    forSession: id => {
+      const cwd = sessionCwd(id);
+      return cwd ? secretEntriesForCwd(cwd) : [];
+    },
+  };
+  const entriesOfSession = (id: string): SecretEntry[] => secretResolver.forSession(id);
+
+  function broadcast(rawEvent: ServerEvent): void {
+    // Scrub this project's secret values first: the notifier and every client only see the redacted event.
+    const event = redactServerEvent(rawEvent, secretResolver);
     notifier.observe(event);
     // Serialise each event once, no matter how many clients receive it.
     const data = `data: ${JSON.stringify(event)}\n\n`;
@@ -285,7 +300,7 @@ async function main(): Promise<void> {
       sdk,
       getLaneLimits,
       runtimesStatus,
-      notifyLimit: args => notifier.notifyLimit(args),
+      notifyLimit: args => notifier.notifyLimit({ ...args, title: redactDeep(args.title, entriesOfSession(args.oldId)) }),
     }),
   );
   // A fresh install or a lost cache: fetch the Claude command list once so the `/` menu works.
@@ -295,6 +310,7 @@ async function main(): Promise<void> {
   // An evicted page session whose transcript exists is re-listed by the watcher at once,
   // so it stays in the list instead of vanishing until the next reload.
   sdk.setOnEvict(id => watcher.adopt(id));
+  sessionCwd = id => sdk.fileInfo(id)?.cwd ?? watcher.fileInfo(id)?.cwd;
 
   // Terminal Claude Code sessions relay AskUserQuestion / ExitPlanMode here through their
   // PermissionRequest hook; the secret is new on every start and lives only in the hook file.
@@ -505,7 +521,10 @@ async function main(): Promise<void> {
     return serveDownload(req, res, path.basename(opened.real), opened);
   }
 
-  sessionLookup = id => mergedSessions().find(s => s.id === id);
+  sessionLookup = id => {
+    const found = mergedSessions().find(s => s.id === id);
+    return found && redactSummary(found, secretResolver);
+  };
   const mergedSessions = (): SessionSummary[] =>
     [...sdk.list(), ...watcher.list()].sort((a, b) => b.updatedAt - a.updatedAt);
 
@@ -602,7 +621,7 @@ async function main(): Promise<void> {
       'X-Accel-Buffering': 'no',
     });
     clients.add(res);
-    res.write(`data: ${JSON.stringify({ type: 'hello', sessions: mergedSessions(), build: development ? undefined : buildId })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'hello', sessions: mergedSessions().map(s => redactSummary(s, secretResolver)), build: development ? undefined : buildId })}\n\n`);
     res.write(`data: ${JSON.stringify({ type: 'workers.update', workers: registry.list() })}\n\n`);
     res.on('close', () => clients.delete(res));
     res.on('error', () => clients.delete(res));
@@ -749,7 +768,7 @@ async function main(): Promise<void> {
     }
 
     if (url.pathname === '/api/sessions') {
-      if (method === 'GET') return sendJson(res, 200, mergedSessions());
+      if (method === 'GET') return sendJson(res, 200, mergedSessions().map(s => redactSummary(s, secretResolver)));
       if (method === 'POST') {
         let body = await validateSessionBody(await readJson(req, MAX_IMAGE_BODY));
         const ac = new AbortController();
@@ -772,7 +791,7 @@ async function main(): Promise<void> {
       const id = parts[2] ?? '';
       if (parts.length === 3 && method === 'GET') {
         const detail = sdk.get(id) ?? (await watcher.get(id));
-        if (detail) return sendJson(res, 200, detail);
+        if (detail) return sendJson(res, 200, redactDeep(detail, secretEntriesForCwd(detail.cwd)));
         return sendJson(res, 404, { error: 'session not found' });
       }
       if (parts.length === 4 && parts[3] === 'git' && method === 'GET') {
@@ -908,6 +927,26 @@ async function main(): Promise<void> {
     }
 
     if (parts[1] === 'push') return handlePush(req, res, parts, method);
+
+    if (url.pathname === '/api/secrets') {
+      // Bodies carry values: never log them, and ValidationErrors never echo them.
+      if (method === 'GET') return sendJson(res, 200, listSecrets(url.searchParams.get('cwd')));
+      if (method === 'PUT') {
+        const body = requireObject(await readJson(req, 16 * 1024));
+        putSecret(body.cwd, body.name, body.value);
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+      if (method === 'DELETE') {
+        const body = requireObject(await readJson(req, 1024));
+        deleteSecret(body.cwd, body.name);
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+      return sendJson(res, 405, { error: 'method not allowed' });
+    }
 
     if (url.pathname === '/api/stars') {
       if (method === 'GET') return sendJson(res, 200, await listStars());

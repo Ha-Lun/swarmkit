@@ -12,7 +12,7 @@ export interface TokenResult {
   file: string;
 }
 
-function configBase(): string {
+export function configBase(): string {
   const xdg = process.env.XDG_CONFIG_HOME?.trim();
   return xdg && path.isAbsolute(xdg) ? path.resolve(xdg) : path.join(os.homedir(), '.config');
 }

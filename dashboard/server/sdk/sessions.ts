@@ -16,6 +16,7 @@ import type { AgentNode, FileAttachment, ImageAttachment, LimitReached, Permissi
 import { AGENT_RE, validAttachmentTotals, validEffort, validFiles, validImages, validMessageText, validResumeModel, validText } from '../validate.ts';
 import { createAcpQuery } from '../runtimes/acp.ts';
 import type { AcpOptions } from '../runtimes/acp.ts';
+import { secretEnv, secretsPromptLine } from '../secrets.ts';
 import { AgyHookBridge, createAgyQuery } from '../runtimes/agy.ts';
 import { listAgyCommands } from '../runtimes/agy-commands.ts';
 import type { AgyHookResponse, AgyOptions } from '../runtimes/agy.ts';
@@ -453,6 +454,7 @@ export class SdkSessions {
     // Untrusted projects only get user settings: project/local settings files would be attacker-controlled.
     session.untrustedProject = !isProjectTrusted(session.cwd);
     const artifactsDir = this.artifactsDirFor(session);
+    const secretsLine = session.runtime === 'claude' ? secretsPromptLine(session.cwd) : undefined;
     if (session.runtime === 'claude') {
       const options: Options = {
         cwd: session.cwd,
@@ -463,10 +465,12 @@ export class SdkSessions {
         // Trusted: the terminal's mode (permissions.defaultMode, else auto); untrusted: always ask.
         permissionMode: (session.permissionMode = session.untrustedProject ? 'default' : terminalPermissionMode()),
         canUseTool: this.makeCanUseTool(session, generation),
-        // $SWARMKIT_ARTIFACTS_DIR: where the lead puts files for the user to download (GET /api/sessions/:id/artifacts).
-        ...(artifactsDir
-          ? { env: { ...(process.env as Record<string, string>), SWARMKIT_ARTIFACTS_DIR: artifactsDir }, additionalDirectories: [artifactsDir] }
-          : {}),
+        // The project's secrets (also for untrusted projects: the user stored them for this folder) and
+        // $SWARMKIT_ARTIFACTS_DIR, where the lead puts files for the user to download (GET /api/sessions/:id/artifacts).
+        env: { ...(process.env as Record<string, string>), ...secretEnv(session.cwd), ...(artifactsDir ? { SWARMKIT_ARTIFACTS_DIR: artifactsDir } : {}) },
+        ...(artifactsDir ? { additionalDirectories: [artifactsDir] } : {}),
+        // snapshot false: a resumed or restarted session names the secrets it has now, not the first start's.
+        ...(secretsLine ? { systemPrompt: { type: 'preset' as const, preset: 'claude_code' as const, append: secretsLine, snapshot: false } } : {}),
         // A resumed session keeps its id and drops the fixed sessionId (the SDK continues the old one).
         ...(resume ? { resume: session.id } : { sessionId: session.id }),
         ...(session.agent ? { agent: session.agent } : {}),
@@ -589,7 +593,8 @@ export class SdkSessions {
         ...(resume && session.runtimeSessionId ? { resumeId: session.runtimeSessionId } : {}),
         onSessionId,
         currentModel: () => session.model,
-        ...(artifactsDir ? { env: { ...process.env, SWARMKIT_ARTIFACTS_DIR: artifactsDir } } : {}),
+        // No prompt hook in the ACP adapter: opencode gets the env vars but no system-prompt line.
+        env: { ...process.env, ...secretEnv(session.cwd), ...(artifactsDir ? { SWARMKIT_ARTIFACTS_DIR: artifactsDir } : {}) },
       })({ prompt: session.queue, options });
     }
     // A fresh secret per generation: a lingering old agy process cannot get prompts in the new one.
@@ -625,6 +630,8 @@ export class SdkSessions {
       hook: { url: `${this.hookBase()}/api/agy-hook/${session.id}`, secret },
       imagesDir: () => session.imagesDir,
       ...(artifactsDir ? { artifactsDir } : {}),
+      // Through AgyOptions.env (merged over process.env at spawn); agy has no prompt hook for the secrets line.
+      env: secretEnv(session.cwd),
       currentModel: () => session.model,
     })({ prompt: session.queue, options });
   }
