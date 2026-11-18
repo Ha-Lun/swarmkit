@@ -335,6 +335,11 @@ async function main(): Promise<void> {
       if (err instanceof ValidationError) return sendJson(res, 400, { error: err.message });
       throw err;
     }
+    // Ended sessions the list marks as not resumable (no completed turn, transcript or folder gone) are view only.
+    const listed = mergedSessions().find(s => s.id === id);
+    if (listed && !listed.resumable && ['done', 'error', 'stopped'].includes(listed.status)) {
+      return sendJson(res, 409, { error: 'This session is view only and cannot be continued' });
+    }
     let info: { cwd: string; transcriptMtimeMs?: number; nodes?: AgentNode[]; title?: string };
     if (sdk.owns(id)) {
       const file = sdk.fileInfo(id)!;

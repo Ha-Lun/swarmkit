@@ -11,6 +11,7 @@ import { AgentTabs } from './AgentTabs';
 import { ChatView } from './ChatView';
 import { agentLabel, agentSubtitle, agentTabs } from './chat';
 import { Drawer } from './Drawer';
+import { Orb } from './Orb';
 import { Scanner } from './Scanner';
 import { fmtCost, sessionHint, UNTRUSTED_NOTICE } from './format';
 import { Logo } from './icons';
@@ -920,7 +921,10 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
 
   const ended = !!selected && endedDraft?.id === selected.id;
   const running = selected && !ended ? selected.status === 'running' || selected.status === 'waiting' : false;
-  const canContinue = !!selected && !running;
+  // Ended sessions the server could not continue (no transcript turn, folder gone) are view only.
+  const viewOnly =
+    !!selected && !running && !ended && !selected.resumable && ['done', 'error', 'stopped'].includes(selected.status);
+  const canContinue = !!selected && !running && !viewOnly;
 
   const isLivePageSession = (s: SessionSummary) =>
     s.source === 'page' && (s.status === 'running' || s.status === 'waiting');
@@ -1033,7 +1037,11 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
               </div>
             ) : (
               <div className="canvas-loading" aria-live="polite">
-                <Scanner size="md" state="connecting" color="#e7e9ee" />
+                {sessionView === 'map' ? (
+                  <Orb size={32} state="connecting" color="#e7e9ee" />
+                ) : (
+                  <Scanner size="md" state="connecting" color="#e7e9ee" />
+                )}
                 Loading session…
               </div>
             )
@@ -1119,6 +1127,8 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
               <div className="readonly-bar">
                 Read-only — this session is running in a terminal. Continue becomes available when it stops.
               </div>
+            ) : viewOnly ? (
+              <div className="readonly-bar">View only — this session has ended and can’t be continued.</div>
             ) : canContinue ? (
               <Continue
                 key={`${selected.id}:${ended ? 'ended' : ''}`}

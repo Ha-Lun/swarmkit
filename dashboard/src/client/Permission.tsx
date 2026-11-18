@@ -51,23 +51,23 @@ export interface PlanChoice {
   mode?: DecideOptions['mode'];
 }
 
-export const PLAN_MODE_HINT = 'Manual: every tool asks. Accept edits: file edits go through, other tools ask. Auto: no prompts.';
+export const PLAN_MODE_HINT = 'Auto: no prompts. Accept edits: file edits go through, other tools ask. Manual: every tool asks.';
 export const UNTRUSTED_PLAN_NOTE = 'Untrusted project: mode stays manual.';
 
-/** Approve buttons for a plan, in display order; manual is primary, and untrusted projects get manual only. */
+/** Approve buttons for a plan, in display order; auto mode is first and primary, and untrusted projects get a plain Approve only. */
 export function planChoices(untrusted: boolean): PlanChoice[] {
   if (untrusted) {
     return [{ label: 'Approve', title: 'Approve and continue in manual mode: every tool asks', primary: true }];
   }
   return [
-    { label: 'Approve · manual', title: 'Approve and continue in manual mode: every tool asks', primary: true },
+    { label: 'Approve · auto mode', title: 'Approve and continue in auto mode: no per-tool prompts', primary: true, mode: 'auto' },
     {
       label: 'Approve · accept edits',
       title: 'Approve and continue in accept-edits mode: file edits go through, other tools still ask',
       primary: false,
       mode: 'acceptEdits',
     },
-    { label: 'Approve · auto mode', title: 'Approve and continue in auto mode: no per-tool prompts', primary: false, mode: 'auto' },
+    { label: 'Approve · manual', title: 'Approve and continue in manual mode: every tool asks', primary: false },
   ];
 }
 

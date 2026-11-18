@@ -1,6 +1,5 @@
-// Archive: ended sessions that can actually be continued (resumable === true),
-// newest first, grouped by project. Ended sessions with resumable === false are not
-// shown anywhere in the UI — only hidden, never deleted from disk.
+// Archive: every ended session, newest first, grouped by project. Resumable ones open with
+// the Continue bar; the rest are labelled "view only" and open read-only.
 import { useMemo, useState } from 'react';
 import type { SessionSummary } from '../shared/types';
 import { fmtCost, relTime, sessionHint, sessionSubline } from './format';
@@ -12,13 +11,15 @@ interface Props {
   onSelect: (id: string) => void;
 }
 
+const isEnded = (s: SessionSummary) => s.status === 'done' || s.status === 'error' || s.status === 'stopped';
+
 export function Archive({ sessions, now, onSelect }: Props) {
   const [filter, setFilter] = useState('');
 
   const archived = useMemo(
     () =>
       sessions
-        .filter((s) => s.resumable === true)
+        .filter((s) => s.resumable === true || isEnded(s))
         .sort((a, b) => b.updatedAt - a.updatedAt),
     [sessions],
   );
@@ -49,7 +50,7 @@ export function Archive({ sessions, now, onSelect }: Props) {
       <div className="arch-inner">
         <h1 className="arch-title">Archive</h1>
         <p className="muted arch-sub">
-          Ended sessions you can continue. The session view already shows the Continue bar for them.
+          Ended sessions, newest first. Open one to read it; sessions marked “view only” can’t be continued.
         </p>
         <input
           type="search"
@@ -81,6 +82,7 @@ export function Archive({ sessions, now, onSelect }: Props) {
                         {s.source === 'terminal' && <TerminalIcon size={10} />}
                         {s.source}
                       </span>
+                      {!s.resumable && <span className="badge arch-viewonly">view only</span>}
                       <span className="arch-name">{s.title || s.project}</span>
                       <span className="arch-cost">{fmtCost(s.costUsd)}</span>
                     </span>

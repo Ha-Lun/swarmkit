@@ -90,21 +90,21 @@ describe('startPresence', () => {
 });
 
 describe('planChoices', () => {
-  it('orders manual, accept edits, auto with manual primary', () => {
+  it('orders auto mode, accept edits, manual with auto mode primary', () => {
     const c = planChoices(false);
-    expect(c.map((x) => x.label)).toEqual(['Approve · manual', 'Approve · accept edits', 'Approve · auto mode']);
-    expect(c.map((x) => x.mode)).toEqual([undefined, 'acceptEdits', 'auto']);
+    expect(c.map((x) => x.label)).toEqual(['Approve · auto mode', 'Approve · accept edits', 'Approve · manual']);
+    expect(c.map((x) => x.mode)).toEqual(['auto', 'acceptEdits', undefined]);
     expect(c.map((x) => x.primary)).toEqual([true, false, false]);
   });
 
-  it('offers only a manual Approve in untrusted projects', () => {
+  it('offers only a plain, manual-mode Approve in untrusted projects', () => {
     expect(planChoices(true)).toEqual([expect.objectContaining({ label: 'Approve', primary: true })]);
     expect(planChoices(true)[0]!.mode).toBeUndefined();
   });
 
   it('keeps the hint in button order', () => {
-    expect(PLAN_MODE_HINT.indexOf('Manual')).toBeLessThan(PLAN_MODE_HINT.indexOf('Accept edits'));
-    expect(PLAN_MODE_HINT.indexOf('Accept edits')).toBeLessThan(PLAN_MODE_HINT.indexOf('Auto'));
+    expect(PLAN_MODE_HINT.indexOf('Auto')).toBeLessThan(PLAN_MODE_HINT.indexOf('Accept edits'));
+    expect(PLAN_MODE_HINT.indexOf('Accept edits')).toBeLessThan(PLAN_MODE_HINT.indexOf('Manual'));
     expect(UNTRUSTED_PLAN_NOTE).toBe('Untrusted project: mode stays manual.');
   });
 });
