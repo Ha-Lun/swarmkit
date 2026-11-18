@@ -3708,6 +3708,16 @@ button.rc-main:hover, button.rc-main[aria-current] { background: var(--surface-2
 .dialog-actions-start .composer-action { min-height: 44px; }
 
 .secrets-dialog { width: min(520px, 100%); gap: var(--space-2); }
+/* Fade only the backdrop: fading the whole overlay left the dialog see-through for its first 150 ms. */
+.overlay-secrets { background: none; animation: none; }
+.overlay-secrets::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 19, 18, 0.65);
+  animation: fade-in 0.15s ease both;
+}
+.overlay-secrets > .dialog { position: relative; }
 .secrets-project { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); margin: 0; font-size: 12px; }
 .secrets-project code { min-width: 0; overflow-wrap: anywhere; color: var(--text); }
 .secrets-list {

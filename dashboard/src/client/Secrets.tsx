@@ -199,7 +199,7 @@ export function SecretsDialog({ cwd, sessionId, initialValue = '', onClose }: Di
 
   return createPortal(
     <div
-      className="overlay"
+      className="overlay overlay-secrets"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
