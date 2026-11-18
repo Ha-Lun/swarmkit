@@ -1101,6 +1101,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
                 onOpenAgent={setActiveAgentId}
                 onDecide={decide}
                 untrusted={selected?.untrustedProject === true}
+                cwd={selected?.cwd}
                 onOpenWorkerLog={(task) => setWorkerDrawerKey(workerKey(task))}
                 limitReached={selected?.limitReached}
                 fallbackOf={selected?.fallbackOf}
@@ -1122,6 +1123,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
               onOpen={openNode}
               onDecide={decide}
               untrusted={selected?.untrustedProject === true}
+              cwd={selected?.cwd}
             />
           )}
 

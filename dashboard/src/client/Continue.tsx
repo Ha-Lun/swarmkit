@@ -84,75 +84,77 @@ export function Continue({ backend, guard, session, git, sessionId, source, onRe
   const runtime = session.runtime ?? 'claude';
 
   return (
-    <PromptShell
-      runtime={runtime}
-      onSubmit={(e) => {
-        e.preventDefault();
-        void submit();
-      }}
-      onFiles={attachments.addFiles}
-      tray={<AttachmentTray items={attachments.items} files={attachments.files} onRemove={attachments.remove} onRemoveFile={attachments.removeFile} />}
-      menu={slash.menu}
-      textarea={
-        <textarea
-          ref={ref}
-          rows={1}
-          aria-label="Continue this session"
-          placeholder="Continue this session…"
-          title="Enter to send, Shift+Enter for a new line"
-          value={text}
-          {...slash.inputProps}
-          onChange={(e) => {
-            setText(e.target.value);
-            secretGuard.reset();
-            slash.onChange();
-          }}
-          onPaste={(e) => {
-            const files = filesFromPaste(e);
-            if (files.length > 0) attachments.addFiles(files);
-          }}
-          onKeyDown={(e) => {
-            if (slash.onKeyDown(e)) return;
-            if (enterToSend.onKeyDown(e)) return;
-          }}
-        />
-      }
-      aside={
-        opusOffered && (
-          <label className="opus-toggle">
-            <input type="checkbox" checked={useOpus} onChange={(e) => onUseOpus(e.target.checked)} />
-            <span className="opus-toggle-name">Use Opus</span>
-            <span className="opus-toggle-hint">next message re-reads the chat at Opus price</span>
-          </label>
-        )
-      }
-      meta={<MetaLine agent={session.agent} model={modelLabel(session.model)} provider={providerName(runtime)} runtime={runtime} />}
-      hint="enter send · shift+enter newline"
-      error={
-        <>
-          {secretGuard.warning(() => text, () => {
-            secretGuard.reset();
-            void submit(true);
-          })}
-          {(attachments.error || error) && (
-            <p className="continue-error" role="alert">
-              {attachments.error ?? error}
-            </p>
-          )}
-          {secretGuard.dialog}
-        </>
-      }
-      left={<ComposerWhere session={session} git={git} />}
-      right={
-        <>
-          {ended && <span className="continue-hint">Session has ended; use Continue.</span>}
-          {source === 'terminal' && <span className="continue-hint">Continuing makes it page-owned.</span>}
-          <AttachButton onFiles={attachments.addFiles} />
-          <button type="submit" className="btn btn-primary btn-sm" disabled={!canSend || busy}>
-            {busy ? 'continuing…' : 'continue'}
-          </button>
-        </>
-      }
-    />
+    <>
+      <PromptShell
+        runtime={runtime}
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+        onFiles={attachments.addFiles}
+        tray={<AttachmentTray items={attachments.items} files={attachments.files} onRemove={attachments.remove} onRemoveFile={attachments.removeFile} />}
+        menu={slash.menu}
+        textarea={
+          <textarea
+            ref={ref}
+            rows={1}
+            aria-label="Continue this session"
+            placeholder="Continue this session…"
+            title="Enter to send, Shift+Enter for a new line"
+            value={text}
+            {...slash.inputProps}
+            onChange={(e) => {
+              setText(e.target.value);
+              secretGuard.reset();
+              slash.onChange();
+            }}
+            onPaste={(e) => {
+              const files = filesFromPaste(e);
+              if (files.length > 0) attachments.addFiles(files);
+            }}
+            onKeyDown={(e) => {
+              if (slash.onKeyDown(e)) return;
+              if (enterToSend.onKeyDown(e)) return;
+            }}
+          />
+        }
+        aside={
+          opusOffered && (
+            <label className="opus-toggle">
+              <input type="checkbox" checked={useOpus} onChange={(e) => onUseOpus(e.target.checked)} />
+              <span className="opus-toggle-name">Use Opus</span>
+              <span className="opus-toggle-hint">next message re-reads the chat at Opus price</span>
+            </label>
+          )
+        }
+        meta={<MetaLine agent={session.agent} model={modelLabel(session.model)} provider={providerName(runtime)} runtime={runtime} />}
+        hint="enter send · shift+enter newline"
+        error={
+          <>
+            {secretGuard.warning(() => text, () => {
+              secretGuard.reset();
+              void submit(true);
+            })}
+            {(attachments.error || error) && (
+              <p className="continue-error" role="alert">
+                {attachments.error ?? error}
+              </p>
+            )}
+          </>
+        }
+        left={<ComposerWhere session={session} git={git} />}
+        right={
+          <>
+            {ended && <span className="continue-hint">Session has ended; use Continue.</span>}
+            {source === 'terminal' && <span className="continue-hint">Continuing makes it page-owned.</span>}
+            <AttachButton onFiles={attachments.addFiles} />
+            <button type="submit" className="btn btn-primary btn-sm" disabled={!canSend || busy}>
+              {busy ? 'continuing…' : 'continue'}
+            </button>
+          </>
+        }
+      />
+      {secretGuard.dialog}
+    </>
   );
 }

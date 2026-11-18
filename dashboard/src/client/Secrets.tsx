@@ -41,6 +41,18 @@ function KeyIcon({ size = 16 }: { size?: number }) {
   );
 }
 
+/**
+ * Keeps password managers (1Password, LastPass, Bitwarden, Chrome) from offering to save the
+ * name/value pair as a login. The value is a text input masked in CSS, not type="password".
+ */
+const NO_SAVE_PROPS = {
+  autoComplete: 'off',
+  'data-1p-ignore': true,
+  'data-lpignore': 'true',
+  'data-bwignore': true,
+  'data-form-type': 'other',
+} as const;
+
 /** Uppercase as you type; spaces and hyphens become underscores, anything else not allowed is dropped. */
 function cleanName(raw: string): string {
   return raw.toUpperCase().replace(/[\s-]+/g, '_').replace(/[^A-Z0-9_]/g, '');
@@ -116,7 +128,9 @@ export function SecretsDialog({ cwd, sessionId, initialValue = '', onClose }: Di
   const canSave = NAME_RE.test(name) && value.length > 0 && !tooBig && !saving;
 
   const save = async (e: FormEvent) => {
+    // This dialog is portalled, but React still bubbles its events to a form it was rendered inside.
     e.preventDefault();
+    e.stopPropagation();
     if (!canSave) return;
     setSaving(true);
     setError(null);
@@ -173,7 +187,7 @@ export function SecretsDialog({ cwd, sessionId, initialValue = '', onClose }: Di
   const valueProps = {
     id: 'sd-value',
     value,
-    autoComplete: 'off',
+    ...NO_SAVE_PROPS,
     spellCheck: false,
     'aria-describedby': 'sd-note',
     placeholder: 'Paste the value here',
@@ -234,7 +248,7 @@ export function SecretsDialog({ cwd, sessionId, initialValue = '', onClose }: Di
             ref={nameRef}
             value={name}
             maxLength={64}
-            autoComplete="off"
+            {...NO_SAVE_PROPS}
             spellCheck={false}
             autoCapitalize="characters"
             placeholder="STRIPE_API_KEY"
@@ -253,7 +267,7 @@ export function SecretsDialog({ cwd, sessionId, initialValue = '', onClose }: Di
             {multiline ? (
               <textarea {...valueProps} rows={4} className={shown ? undefined : 'is-masked'} />
             ) : (
-              <input {...valueProps} type={shown ? 'text' : 'password'} />
+              <input {...valueProps} type="text" className={shown ? undefined : 'is-masked'} />
             )}
             <button
               type="button"

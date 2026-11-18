@@ -41,8 +41,11 @@ const RULES: Rule[] = [
 /** The first credential-shaped token in `text`, or null. */
 export function looksLikeSecret(text: string): SecretMatch | null {
   for (const rule of RULES) {
-    const m = rule.re.exec(text);
-    if (m && (!rule.accept || rule.accept(m[0]))) return { kind: rule.kind, token: m[0] };
+    // Every match, not just the first: a rejected slug must not hide a real key after it.
+    const re = new RegExp(rule.re.source, 'g');
+    for (const m of text.matchAll(re)) {
+      if (!rule.accept || rule.accept(m[0])) return { kind: rule.kind, token: m[0] };
+    }
   }
   return null;
 }

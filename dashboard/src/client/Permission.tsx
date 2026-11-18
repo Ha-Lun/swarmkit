@@ -3,6 +3,7 @@ import { lazy, Suspense, useMemo, useRef, useState } from 'react';
 import type { DecideOptions, PermissionRequest } from '../shared/types';
 import { permissionSummary } from './format';
 import { WarnIcon } from './icons';
+import { useSecretGuard } from './Secrets';
 import './permission.css';
 
 const Markdown = lazy(() => import('./Markdown').then((m) => ({ default: m.Markdown })));
@@ -11,6 +12,8 @@ interface Props {
   request: PermissionRequest;
   /** The session's project is untrusted: plan approval offers manual mode only. */
   untrusted?: boolean;
+  /** The session's folder: lets the paste guard offer to store a key typed into an answer. */
+  cwd?: string;
   onDecide: (allow: boolean, message?: string, answers?: Record<string, string>, opts?: DecideOptions) => void;
 }
 
@@ -133,7 +136,8 @@ export function fallbackQuestionTexts(input: unknown): string[] {
   return out;
 }
 
-export function PermissionPanel({ request, untrusted = false, onDecide }: Props) {
+export function PermissionPanel({ request, untrusted = false, cwd = '', onDecide }: Props) {
+  const secretGuard = useSecretGuard(cwd, request.sessionId);
   const [answer, setAnswer] = useState('');
   const [busy, setBusy] = useState(false);
   // Synchronous double-submit guard: set before setBusy so a second click in
@@ -196,8 +200,13 @@ export function PermissionPanel({ request, untrusted = false, onDecide }: Props)
   const isTerminal = request.terminal === true;
   const answerInTerminal = () => go(false, undefined, undefined, { terminal: true });
 
-  const submitPicker = () => {
-    if (!answers) return;
+  const pickerText = answers ? Object.values(answers).join('\n') : '';
+
+  // A free-text answer goes to the agent as typed, so check it for a key first (needs a folder to save into).
+  const blocked = (text: string, force: boolean) => !force && cwd !== '' && secretGuard.check(text);
+
+  const submitPicker = (force = false) => {
+    if (!answers || blocked(pickerText, force)) return;
     go(true, undefined, answers);
   };
 
@@ -206,9 +215,9 @@ export function PermissionPanel({ request, untrusted = false, onDecide }: Props)
     [isAsk, usePicker, request.input],
   );
 
-  const submitFallback = () => {
+  const submitFallback = (force = false) => {
     const text = answer.trim();
-    if (!text) return;
+    if (!text || blocked(text, force)) return;
     if (fallbackTexts.length > 0) {
       const ans: Record<string, string> = {};
       for (const t of fallbackTexts) ans[t] = text;
@@ -225,12 +234,32 @@ export function PermissionPanel({ request, untrusted = false, onDecide }: Props)
   };
 
   const cancelReject = () => {
+    secretGuard.reset();
     setRejecting(false);
     setFeedback('');
     requestAnimationFrame(() => rejectBtnRef.current?.focus());
   };
 
-  const sendFeedback = () => go(false, planRejectMessage(feedback));
+  const sendFeedback = (force = false) => {
+    if (blocked(feedback, force)) return;
+    go(false, planRejectMessage(feedback));
+  };
+
+  // The warning follows whichever answer box is in use.
+  const guardWarning = isPlan
+    ? secretGuard.warning(() => feedback, () => {
+        secretGuard.reset();
+        sendFeedback(true);
+      })
+    : usePicker
+      ? secretGuard.warning(() => pickerText, () => {
+          secretGuard.reset();
+          submitPicker(true);
+        })
+      : secretGuard.warning(() => answer.trim(), () => {
+          secretGuard.reset();
+          submitFallback(true);
+        });
 
   const setPicked = (qi: number, label: string, multi: boolean) => {
     const base = ensureStates();
@@ -257,6 +286,7 @@ export function PermissionPanel({ request, untrusted = false, onDecide }: Props)
   const setOtherText = (qi: number, text: string) => {
     const base = ensureStates();
     const next = base.map((s, i) => (i === qi ? { ...s, otherText: text } : s));
+    secretGuard.reset();
     setStates(next);
   };
 
@@ -387,7 +417,10 @@ export function PermissionPanel({ request, untrusted = false, onDecide }: Props)
             placeholder="Type your answer…"
             rows={2}
             value={answer}
-            onChange={(e) => setAnswer(e.target.value)}
+            onChange={(e) => {
+              setAnswer(e.target.value);
+              secretGuard.reset();
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !(e.nativeEvent as KeyboardEvent).isComposing) {
                 e.preventDefault();
@@ -401,6 +434,9 @@ export function PermissionPanel({ request, untrusted = false, onDecide }: Props)
           {permissionSummary(request)}
         </p>
       )}
+
+      {guardWarning}
+      {secretGuard.dialog}
 
       {isTerminal && (
         <p className="perm-note">The terminal session is waiting for this answer.</p>
@@ -418,7 +454,10 @@ export function PermissionPanel({ request, untrusted = false, onDecide }: Props)
             rows={3}
             value={feedback}
             disabled={busy}
-            onChange={(e) => setFeedback(e.target.value)}
+            onChange={(e) => {
+              setFeedback(e.target.value);
+              secretGuard.reset();
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Escape') {
                 e.preventDefault();
@@ -430,7 +469,7 @@ export function PermissionPanel({ request, untrusted = false, onDecide }: Props)
             }}
           />
           <div className="perm-actions">
-            <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={sendFeedback}>
+            <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => sendFeedback()}>
               Send feedback
             </button>
             <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={cancelReject}>
@@ -446,7 +485,7 @@ export function PermissionPanel({ request, untrusted = false, onDecide }: Props)
               type="button"
               className="btn btn-primary btn-sm"
               disabled={busy || !answers}
-              onClick={submitPicker}
+              onClick={() => submitPicker()}
             >
               Answer
             </button>
@@ -464,7 +503,7 @@ export function PermissionPanel({ request, untrusted = false, onDecide }: Props)
             type="button"
             className="btn btn-primary btn-sm"
             disabled={busy || !answer.trim()}
-            onClick={submitFallback}
+            onClick={() => submitFallback()}
           >
             Answer
           </button>

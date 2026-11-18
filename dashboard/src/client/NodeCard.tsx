@@ -17,6 +17,8 @@ interface Props {
   onOpen: () => void;
   onDecide: (permission: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>, opts?: DecideOptions) => void;
   untrusted?: boolean;
+  /** The session's folder, for the paste guard on answers. */
+  cwd?: string;
 }
 
 const STATE_LABEL: Record<Status, string> = {
@@ -130,7 +132,7 @@ function LaneBadge({ lane }: { lane: 'agy' | 'opencode' }) {
   return <span className={`badge lane-${lane}`}>{lane}</span>;
 }
 
-export function NodeCard({ node, now, permission, open, task, workersAt, onOpen, onDecide, untrusted, root = false }: Props & { root?: boolean }) {
+export function NodeCard({ node, now, permission, open, task, workersAt, onOpen, onDecide, untrusted, cwd, root = false }: Props & { root?: boolean }) {
   const v = nodeView(node, now, task, workersAt, permission != null);
   const live = v.state === 'running' || v.state === 'waiting';
   // Live work shows what it is doing; finished and failed agents keep just the description.
@@ -178,6 +180,7 @@ export function NodeCard({ node, now, permission, open, task, workersAt, onOpen,
           key={permission.id}
           request={permission}
           untrusted={untrusted}
+          cwd={cwd}
           onDecide={(allow, message, answers, opts) => onDecide(permission, allow, message, answers, opts)}
         />
       )}

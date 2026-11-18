@@ -203,6 +203,8 @@ interface Props {
   onDecide: (permission: PermissionRequest, allow: boolean, message?: string, answers?: Record<string, string>, opts?: DecideOptions) => void;
   /** The session's project is untrusted: plan approval offers manual mode only. */
   untrusted?: boolean;
+  /** The session's folder, for the paste guard on answers. */
+  cwd?: string;
 }
 
 interface View {
@@ -213,7 +215,7 @@ interface View {
 
 const isLive = (state: Status) => state === 'running' || state === 'waiting';
 
-export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, onOpen, onDecide, untrusted }: Props) {
+export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, onOpen, onDecide, untrusted, cwd }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const layerRef = useRef<HTMLUListElement>(null);
   const [view, setView] = useState<View>({ x: FIT_PAD, y: FIT_PAD, z: 1 });
@@ -654,6 +656,7 @@ export function Tree({ nodes, permissions, workers, workersAt, now, openNodeId, 
                     onOpen={guarded(() => onOpen(node.id))}
                     onDecide={onDecide}
                     untrusted={untrusted}
+                    cwd={cwd}
                   />
                 )}
                 {!group && expanded.has(node.id) && fold.foldable.has(node.id) && (
