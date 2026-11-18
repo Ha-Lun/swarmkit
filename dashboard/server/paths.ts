@@ -1,5 +1,6 @@
 // Shared home-directory helpers: realpathed $HOME, inside-home checks, cwd resolution
 // and the Claude config dir. Centralises the symlinked-$HOME handling.
+import { realpathSync } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,6 +11,16 @@ let cachedHomeReal: string | undefined;
 export async function homeReal(): Promise<string> {
   if (cachedHomeReal === undefined) cachedHomeReal = await realpath(os.homedir());
   return cachedHomeReal;
+}
+
+/** Synchronous, uncached realpath of os.homedir() (falls back to the plain path when it cannot be resolved). */
+export function homeRealSync(): string {
+  const home = os.homedir();
+  try {
+    return realpathSync(home);
+  } catch {
+    return path.resolve(home);
+  }
 }
 
 /** True when p is home itself or lives under it (string-prefix on the realpathed home). */

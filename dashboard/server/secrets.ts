@@ -15,22 +15,41 @@ import {
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { configBase } from './auth.ts';
+import { homeRealSync, isInside } from './paths.ts';
 import { ValidationError } from './validate.ts';
-import type { ServerEvent, SessionSummary } from '../src/shared/types.ts';
+import type { ServerEvent } from '../src/shared/types.ts';
 
 export const SECRET_NAME_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 export const MAX_SECRET_VALUE_BYTES = 8 * 1024;
 /** Values shorter than this are stored but not redacted (too many false hits). */
 export const MIN_REDACT_LENGTH = 6;
+/**
+ * Values with fewer distinct characters ("aaaaaa", "000000") are stored but not redacted: they are
+ * not real secrets, they would mangle ordinary text, and long runs of them make the alternation slow.
+ */
+export const MIN_REDACT_DISTINCT_CHARS = 4;
+/** Per project: how many secrets, and the total value bytes (all of them land in one env block, so E2BIG is the limit). */
+export const MAX_SECRETS_PER_PROJECT = 64;
+export const MAX_PROJECT_SECRET_BYTES = 128 * 1024;
+/** Serialized store size at which a PUT is refused. */
+export const MAX_STORE_WRITE_BYTES = 1024 * 1024;
 /** Hard cap on the store file we are willing to read. */
 const MAX_STORE_BYTES = 8 * 1024 * 1024;
 
+// Names that change how a program, shell, loader or network client behaves: a secret under one of
+// them would be a way to hijack the agent's tools instead of handing it a credential.
 const RESERVED_NAMES = new Set([
   'PATH', 'HOME', 'PWD', 'SHELL', 'USER', 'ENV', 'BASH_ENV', 'IFS', 'TMPDIR',
   'NODE_OPTIONS', 'NODE_PATH', 'PYTHONPATH', 'PYTHONSTARTUP',
+  'SHELLOPTS', 'PS1', 'PS2', 'PS3', 'PS4', 'PROMPT_COMMAND', 'CDPATH', 'GLOBIGNORE',
+  'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE',
+  'EDITOR', 'VISUAL', 'PAGER', 'MANPAGER', 'LESSOPEN', 'LESSCLOSE', 'BROWSER', 'GNUPGHOME',
+  'LOCPATH', 'NLSPATH', 'HOSTALIASES', 'TERM', 'LANG', 'LANGUAGE', 'TZ',
 ]);
 const RESERVED_PREFIXES = [
   'LD_', 'DYLD_', 'SWARMKIT_', 'CLAUDE_', 'ANTHROPIC_', 'FLEET_', 'XDG_', 'OPENCODE_', 'AGY_', 'GIT_',
+  'NODE_', 'NPM_CONFIG_', 'PYTHON', 'PERL', 'RUBY', 'BASH', 'GLIBC_', 'MALLOC_', 'OPENSSL_', 'SSL_', 'SSH_',
+  'LC_', 'JAVA_', 'JDK_', 'GCONV_',
 ];
 
 export function isReservedSecretName(name: string): boolean {
@@ -69,31 +88,43 @@ function realDir(cwd: string): string | undefined {
   }
 }
 
-/** Nearest ancestor (or self) holding a `.git` entry: the git toplevel, worktrees and submodules included. */
-function gitToplevel(dir: string): string | undefined {
+/**
+ * Nearest ancestor (or self) holding a `.git` entry: the git toplevel, worktrees and submodules
+ * included. The walk stops before $HOME: a dotfiles repo there must not become the scope of every
+ * folder below it.
+ */
+function gitToplevel(dir: string, home: string): string | undefined {
   let current = dir;
-  for (;;) {
+  while (current !== home) {
     if (existsSync(path.join(current, '.git'))) return current;
     const parent = path.dirname(current);
     if (parent === current) return undefined;
     current = parent;
   }
+  return undefined;
 }
 
-/** Project root for the API: cwd must be an absolute, existing directory. */
+/** A folder inside $HOME scopes to its git toplevel (never $HOME itself); anything else to itself. */
+function scopeOf(real: string, home: string): string {
+  return isInside(home, real) ? (gitToplevel(real, home) ?? real) : real;
+}
+
+/** Project root for the API: cwd must be an absolute, existing directory inside $HOME (same contract as starting a session). */
 export function projectRoot(cwd: unknown): string {
   if (typeof cwd !== 'string' || cwd.length === 0 || cwd.length > 4096 || cwd.includes('\0') || !path.isAbsolute(cwd)) {
     throw new ValidationError('cwd must be an absolute path');
   }
   const real = realDir(cwd);
   if (!real) throw new ValidationError('cwd must be an existing directory');
-  return gitToplevel(real) ?? real;
+  const home = homeRealSync();
+  if (!isInside(home, real)) throw new ValidationError('cwd must be inside your home directory');
+  return scopeOf(real, home);
 }
 
 /** Same scoping for a session's cwd, which may have vanished: falls back to the plain resolved path. */
 function projectRootLoose(cwd: string): string {
   const real = realDir(cwd);
-  return real ? (gitToplevel(real) ?? real) : path.resolve(cwd);
+  return real ? scopeOf(real, homeRealSync()) : path.resolve(cwd);
 }
 
 // ---------------------------------------------------------------- private file store
@@ -123,6 +154,9 @@ function sanitize(raw: unknown): Store {
 }
 
 let loaded: { file: string; sig: string; store: Store } | undefined;
+const EMPTY_STORE: Store = Object.freeze({});
+/** The last store that loaded or saved cleanly: redaction falls back to it when a reload fails. */
+let lastGood: Store = EMPTY_STORE;
 
 /** Reads the store (missing file = empty). A file we cannot trust or parse throws; callers never overwrite it blind. */
 function loadStore(): Store {
@@ -133,7 +167,8 @@ function loadStore(): Store {
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       loaded = undefined;
-      return {};
+      lastGood = EMPTY_STORE;
+      return EMPTY_STORE;
     }
     throw new Error('secrets file cannot be opened');
   }
@@ -144,7 +179,10 @@ function loadStore(): Store {
     if (st.size > MAX_STORE_BYTES) throw new Error('secrets file is too large');
     if ((st.mode & 0o077) !== 0) fchmodSync(fd, 0o600);
     const sig = `${st.ino}:${st.size}:${st.mtimeMs}`;
-    if (loaded && loaded.file === file && loaded.sig === sig) return loaded.store;
+    if (loaded && loaded.file === file && loaded.sig === sig) {
+      lastGood = loaded.store;
+      return loaded.store;
+    }
     const buf = Buffer.alloc(st.size);
     let off = 0;
     while (off < buf.length) {
@@ -160,6 +198,7 @@ function loadStore(): Store {
     }
     const store = sanitize(parsed);
     loaded = { file, sig, store };
+    lastGood = store;
     return store;
   } finally {
     closeSync(fd);
@@ -200,7 +239,7 @@ function saveStore(store: Store): void {
     throw err;
   }
   loaded = undefined;
-  invalidateSecretCaches();
+  lastGood = store;
   try {
     const dfd = openSync(dir, fsConstants.O_RDONLY);
     try {
@@ -219,7 +258,9 @@ export function validSecretName(raw: unknown): string {
   if (typeof raw !== 'string' || !SECRET_NAME_RE.test(raw)) {
     throw new ValidationError('name must be 1-64 characters: A-Z, 0-9 and _, starting with a letter');
   }
-  if (isReservedSecretName(raw)) throw new ValidationError('that name is reserved for the environment');
+  if (isReservedSecretName(raw)) {
+    throw new ValidationError('that name is reserved because it changes how programs run; pick a different name (for example MY_PROXY_URL)');
+  }
   return raw;
 }
 
@@ -244,7 +285,15 @@ export function putSecret(cwd: unknown, name: unknown, value: unknown): void {
   const n = validSecretName(name);
   const v = validSecretValue(value);
   const store = structuredClone(loadStore());
-  (store[project] ??= {})[n] = { value: v, updatedAt: Date.now() };
+  const own = (store[project] ??= {});
+  if (!own[n] && Object.keys(own).length >= MAX_SECRETS_PER_PROJECT) throw new ValidationError('too many secrets');
+  own[n] = { value: v, updatedAt: Date.now() };
+  // All of a project's values land in one env block: keep it far below the exec argument limit.
+  const projectBytes = Object.values(own).reduce((sum, s) => sum + Buffer.byteLength(s.value, 'utf8'), 0);
+  if (projectBytes > MAX_PROJECT_SECRET_BYTES) {
+    throw new ValidationError(`this project's secrets are too large (max ${MAX_PROJECT_SECRET_BYTES / 1024} KB in total)`);
+  }
+  if (Buffer.byteLength(JSON.stringify(store), 'utf8') > MAX_STORE_WRITE_BYTES) throw new ValidationError('secret store full');
   saveStore(store);
 }
 
@@ -272,6 +321,11 @@ export function projectSecrets(cwd: string): SecretEntry[] {
   }
 }
 
+// Every value this process ever handed to an agent. A value deleted or rotated while its session is
+// still running is gone from the store but not from that session's output: keep redacting it.
+const injected = new Map<string, string>();
+let injectedVersion = 0;
+
 /**
  * Env vars of a session's project secrets, to merge over process.env, plus SWARMKIT_SECRET_NAMES
  * (comma-separated, sorted; names only) so the agent knows what it has. Empty without secrets.
@@ -279,6 +333,12 @@ export function projectSecrets(cwd: string): SecretEntry[] {
 export function secretEnv(cwd: string): Record<string, string> {
   const entries = projectSecrets(cwd);
   if (entries.length === 0) return {};
+  for (const e of entries) {
+    if (!injected.has(e.value)) {
+      injected.set(e.value, e.name);
+      injectedVersion++;
+    }
+  }
   const names = entries.map(s => s.name).sort().join(',');
   return { ...Object.fromEntries(entries.map(s => [s.name, s.value])), SWARMKIT_SECRET_NAMES: names };
 }
@@ -295,17 +355,22 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** Worth redacting: long enough and varied enough to be a real secret (see MIN_REDACT_*). */
+function redactable(value: string): boolean {
+  return value.length >= MIN_REDACT_LENGTH && new Set(value).size >= MIN_REDACT_DISTINCT_CHARS;
+}
+
 /** One alternation, longest value first, so a single pass never re-scans a placeholder. */
 function matcherFor(entries: SecretEntry[]): Matcher | null {
   const cached = matchers.get(entries);
   if (cached !== undefined) return cached;
   const names = new Map<string, string>();
   for (const e of entries) {
-    if (e.value.length < MIN_REDACT_LENGTH) continue;
+    if (!redactable(e.value)) continue;
     names.set(e.value, e.name);
     // Tool inputs travel as JSON text inside strings: match the escaped form too.
     const escaped = JSON.stringify(e.value).slice(1, -1);
-    if (escaped !== e.value && escaped.length >= MIN_REDACT_LENGTH && !names.has(escaped)) names.set(escaped, e.name);
+    if (escaped !== e.value && !names.has(escaped)) names.set(escaped, e.name);
   }
   const built: Matcher | null = names.size === 0
     ? null
@@ -317,7 +382,7 @@ function matcherFor(entries: SecretEntry[]): Matcher | null {
   return built;
 }
 
-/** Replaces each secret value (>= 6 chars, longest first) with `[secret:NAME]`. */
+/** Replaces each secret value (see MIN_REDACT_*, longest first) with `[secret:NAME]`. */
 export function redactSecrets(text: string, entries: SecretEntry[]): string {
   if (entries.length === 0 || text.length === 0) return text;
   const m = matcherFor(entries);
@@ -325,7 +390,7 @@ export function redactSecrets(text: string, entries: SecretEntry[]): string {
   return text.replace(m.regex, hit => `[secret:${m.names.get(hit) ?? 'REDACTED'}]`);
 }
 
-/** Deep string walk; arrays and plain objects are copied only where something changed. */
+/** Deep string walk (keys too); arrays and plain objects are copied only where something changed. */
 export function redactDeep<T>(value: T, entries: SecretEntry[]): T {
   if (entries.length === 0 || !matcherFor(entries)) return value;
   return walk(value, entries) as T;
@@ -342,66 +407,73 @@ function walk(value: unknown, entries: SecretEntry[]): unknown {
     return out ?? value;
   }
   if (typeof value === 'object' && value !== null) {
-    let out: Record<string, unknown> | undefined;
-    for (const [key, item] of Object.entries(value)) {
+    const pairs = Object.entries(value);
+    let out: [string, unknown][] | undefined;
+    pairs.forEach(([key, item], i) => {
+      const nextKey = redactSecrets(key, entries);
       const next = walk(item, entries);
-      if (next !== item) (out ??= { ...(value as Record<string, unknown>) })[key] = next;
-    }
-    return out ?? value;
+      if (!out && (nextKey !== key || next !== item)) out = pairs.slice(0, i);
+      out?.push([nextKey, next]);
+    });
+    // fromEntries defines own properties, so a key such as "__proto__" stays plain data.
+    return out ? Object.fromEntries(out) : value;
   }
   return value;
 }
 
-// Per-cwd value lists for the event path: a short TTL (a new `git init` or an edited file is
-// picked up) and a full drop on every PUT/DELETE.
-const CACHE_TTL_MS = 5_000;
-const CACHE_MAX = 200;
-const byCwd = new Map<string, { at: number; entries: SecretEntry[] }>();
+let storeFailing = false;
 
-export function invalidateSecretCaches(): void {
-  byCwd.clear();
+/** The store for redaction: the current file, or the last good copy when it cannot be read (fail closed). */
+function storeForRedaction(): Store {
+  try {
+    const store = loadStore();
+    storeFailing = false;
+    return store;
+  } catch (err) {
+    if (!storeFailing) {
+      storeFailing = true;
+      console.error('Secrets store unreadable, redacting with the last good copy:', (err as Error).message);
+    }
+    return lastGood;
+  }
 }
 
-/** Cached `projectSecrets(cwd)`; a stable array per cwd, empty when the project has none. */
-export function secretEntriesForCwd(cwd: string): SecretEntry[] {
-  const now = Date.now();
-  const hit = byCwd.get(cwd);
-  if (hit && now - hit.at < CACHE_TTL_MS) return hit.entries;
-  if (byCwd.size >= CACHE_MAX) byCwd.clear();
-  const entries = projectSecrets(cwd);
-  byCwd.set(cwd, { at: now, entries });
+let union: { store: Store; version: number; entries: SecretEntry[] } | undefined;
+
+/**
+ * Every value that must never reach a browser: all projects' stored values plus everything injected
+ * since this process started, deduplicated, longest first. A stable array until the store file or the
+ * injected set changes, so the compiled matcher is reused for every event.
+ */
+export function allSecretEntries(): SecretEntry[] {
+  const store = storeForRedaction();
+  if (union && union.store === store && union.version === injectedVersion) return union.entries;
+  const byValue = new Map<string, string>();
+  for (const names of Object.values(store)) {
+    for (const [name, s] of Object.entries(names)) if (!byValue.has(s.value)) byValue.set(s.value, name);
+  }
+  for (const [value, name] of injected) if (!byValue.has(value)) byValue.set(value, name);
+  const entries = [...byValue].map(([value, name]) => ({ name, value })).sort((a, b) => b.value.length - a.value.length);
+  union = { store, version: injectedVersion, entries };
   return entries;
 }
 
-export interface SecretResolver {
-  /** Values for a session id; empty when unknown or without secrets. */
-  forSession(sessionId: string): SecretEntry[];
-  forCwd(cwd: string): SecretEntry[];
+/** Scrubs anything bound for a browser, a push or a new prompt; returns the same object when nothing changes. */
+export function redactAll<T>(value: T): T {
+  return redactDeep(value, allSecretEntries());
 }
 
-export function redactSummary(session: SessionSummary, resolver: SecretResolver): SessionSummary {
-  return redactDeep(session, resolver.forCwd(session.cwd));
+/** Scrubs one ServerEvent (every type, workers included) with the union of all secret values. */
+export function redactServerEvent(event: ServerEvent): ServerEvent {
+  return redactAll(event);
 }
 
-/** Scrubs one ServerEvent with the values of the project it belongs to; returns the same object when nothing changes. */
-export function redactServerEvent(event: ServerEvent, resolver: SecretResolver): ServerEvent {
-  switch (event.type) {
-    case 'hello': {
-      const sessions = event.sessions.map(s => redactSummary(s, resolver));
-      return sessions.some((s, i) => s !== event.sessions[i]) ? { ...event, sessions } : event;
-    }
-    case 'session.upsert': {
-      const session = redactSummary(event.session, resolver);
-      return session === event.session ? event : { ...event, session };
-    }
-    case 'node.upsert':
-      return redactDeep(event, resolver.forSession(event.node.sessionId));
-    case 'permission.request':
-      return redactDeep(event, resolver.forSession(event.request.sessionId));
-    case 'node.event':
-    case 'permission.resolved':
-      return redactDeep(event, resolver.forSession(event.sessionId));
-    default:
-      return event;
-  }
+/** Test hook: forget the cached store, the last good copy and every injected value. */
+export function resetSecretStateForTests(): void {
+  loaded = undefined;
+  lastGood = EMPTY_STORE;
+  storeFailing = false;
+  injected.clear();
+  injectedVersion++;
+  union = undefined;
 }

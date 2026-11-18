@@ -1,5 +1,6 @@
 // Fallback: when a Claude page session hits its plan limit, a free lane (agy or
 // opencode) takes over with a handoff prompt. Pure logic; index.ts wires it up.
+import { redactAll } from './secrets.ts';
 import type {
   ActivityEvent,
   AgentNode,
@@ -209,9 +210,12 @@ export function createLimitHandler(deps: LimitHandlerDeps): (
       return;
     }
     const permissionMode = deps.sdk.permissionModeOf?.(sessionId);
-    const prompt = buildHandoff(
-      { id: src.id, title: src.title, cwd: src.cwd, nodes: src.nodes, ...(permissionMode ? { permissionMode } : {}) },
-      info,
+    // The handoff quotes the old session's text; a secret the agent printed must not become a new prompt.
+    const prompt = redactAll(
+      buildHandoff(
+        { id: src.id, title: src.title, cwd: src.cwd, nodes: src.nodes, ...(permissionMode ? { permissionMode } : {}) },
+        info,
+      ),
     );
     const newId = deps.sdk.start({
       prompt,

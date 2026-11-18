@@ -1,7 +1,7 @@
 // Plan-limit fallback: lane picking, handoff prompt, limit handler, lane limits,
 // and rejected rate_limit_event recording.
 import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SDKRateLimitInfo } from '@anthropic-ai/claude-agent-sdk';
@@ -12,6 +12,7 @@ import {
   type HandoffSession,
   type LimitSdk,
 } from '../server/fallback.ts';
+import { putSecret, resetSecretStateForTests } from '../server/secrets.ts';
 import { createUsageState, getLaneLimits, getUsage, noteRateLimit, type UsageExec } from '../server/usage.ts';
 import type {
   ActivityEvent,
@@ -315,6 +316,32 @@ describe('createLimitHandler', () => {
     expect(notified).toEqual([
       { oldId: 'old', title: 'Old title', resetsAt: null, fallback: { sessionId: 'new-id', runtime: 'agy' } },
     ]);
+  });
+
+  it('redacts stored and injected secret values from the handoff prompt', async () => {
+    const config = await mkdtemp(join(tmpdir(), 'fleet-fallback-secrets-'));
+    const project = await mkdtemp(join(homedir(), 'fleet-fallback-project-'));
+    const prevXdg = process.env.XDG_CONFIG_HOME;
+    process.env.XDG_CONFIG_HOME = config;
+    try {
+      putSecret(project, 'API_KEY', 'sk-handoff-secret-1');
+      const { sdk, started } = fakeSdk({ ...handoffSession(), title: 'Deploy with sk-handoff-secret-1' });
+      const handler = createLimitHandler({
+        sdk,
+        getLaneLimits: async () => ({ agy: agyPart(agyLimits([10])), opencode: opencodePart(goLimits([5])) }),
+        runtimesStatus: () => runtimes(true, true),
+        notifyLimit: () => {},
+      });
+      await handler('old', limitInfo);
+      expect(started[0]!.prompt).toContain('Deploy with [secret:API_KEY]');
+      expect(started[0]!.prompt).not.toContain('sk-handoff-secret-1');
+    } finally {
+      if (prevXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = prevXdg;
+      resetSecretStateForTests();
+      await rm(config, { recursive: true, force: true });
+      await rm(project, { recursive: true, force: true });
+    }
   });
 
   it('uses opencode when agy is full', async () => {

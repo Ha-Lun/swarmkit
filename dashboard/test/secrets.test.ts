@@ -1,5 +1,5 @@
 // Per-project secrets: private storage, validation, project scoping, env injection and redaction.
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync, chmodSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync, chmodSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,10 +7,10 @@ import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { SdkSessions } from '../server/sdk/sessions.ts';
 import type { QueryFn } from '../server/sdk/sessions.ts';
 import {
-  deleteSecret, invalidateSecretCaches, listSecrets, projectRoot, putSecret, redactDeep, redactSecrets, redactServerEvent,
-  secretEnv, secretEntriesForCwd, secretsDirPath, secretsFilePath,
+  allSecretEntries, deleteSecret, listSecrets, projectRoot, putSecret, redactAll, redactDeep, redactSecrets, redactServerEvent,
+  resetSecretStateForTests, secretEnv, secretsDirPath, secretsFilePath,
 } from '../server/secrets.ts';
-import type { SecretEntry, SecretResolver } from '../server/secrets.ts';
+import type { SecretEntry } from '../server/secrets.ts';
 import type { ActivityEvent, ServerEvent, SessionSummary } from '../src/shared/types.ts';
 
 const mode = (p: string): number => lstatSync(p).mode & 0o777;
@@ -21,10 +21,11 @@ let prevXdg: string | undefined;
 
 beforeEach(() => {
   config = mkdtempSync(path.join(tmpdir(), 'fleet-secrets-config-'));
-  work = realpathSync(mkdtempSync(path.join(tmpdir(), 'fleet-secrets-work-')));
+  // Projects must live inside $HOME (like session cwds), so the work dir does too.
+  work = realpathSync(mkdtempSync(path.join(homedir(), 'fleet-secrets-work-')));
   prevXdg = process.env.XDG_CONFIG_HOME;
   process.env.XDG_CONFIG_HOME = config;
-  invalidateSecretCaches();
+  resetSecretStateForTests();
 });
 
 afterEach(() => {
@@ -109,8 +110,44 @@ describe('validation', () => {
 
   it.each(['PATH', 'HOME', 'PWD', 'SHELL', 'USER', 'ENV', 'BASH_ENV', 'IFS', 'TMPDIR', 'NODE_OPTIONS', 'NODE_PATH', 'PYTHONPATH', 'PYTHONSTARTUP',
     'LD_PRELOAD', 'DYLD_INSERT_LIBRARIES', 'SWARMKIT_ARTIFACTS_DIR', 'CLAUDE_CONFIG_DIR', 'ANTHROPIC_API_KEY', 'FLEET_TOKEN', 'XDG_CONFIG_HOME',
-    'OPENCODE_CONFIG', 'AGY_X', 'GIT_DIR'])('rejects the reserved name %s', name => {
+    'OPENCODE_CONFIG', 'AGY_X', 'GIT_DIR',
+    'NODE_EXTRA_CA_CERTS', 'NPM_CONFIG_REGISTRY', 'PYTHONHOME', 'PERL5OPT', 'RUBYOPT', 'BASH_FUNC_X', 'GLIBC_TUNABLES', 'MALLOC_CHECK_',
+    'OPENSSL_CONF', 'SSL_CERT_FILE', 'SSH_ASKPASS', 'LC_ALL', 'JAVA_TOOL_OPTIONS', 'JDK_JAVA_OPTIONS', 'GCONV_PATH',
+    'SHELLOPTS', 'PS1', 'PS2', 'PS3', 'PS4', 'PROMPT_COMMAND', 'CDPATH', 'GLOBIGNORE', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
+    'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE', 'EDITOR', 'VISUAL', 'PAGER', 'MANPAGER', 'LESSOPEN', 'LESSCLOSE', 'BROWSER', 'GNUPGHOME',
+    'LOCPATH', 'NLSPATH', 'HOSTALIASES', 'TERM', 'LANG', 'LANGUAGE', 'TZ'])('rejects the reserved name %s', name => {
     expect(() => putSecret(work, name, 'value-123456')).toThrow(/reserved/);
+  });
+
+  it('explains a reserved name and suggests another', () => {
+    expect(() => putSecret(work, 'HTTP_PROXY', 'value-123456')).toThrow(/changes how programs run.*MY_PROXY_URL/);
+  });
+
+  it('caps the secrets per project, the bytes per project and the store size', () => {
+    for (let i = 0; i < 64; i++) putSecret(work, `KEY_${i}`, `value-number-${i}`);
+    expect(() => putSecret(work, 'ONE_MORE', 'value-123456')).toThrow('too many secrets');
+    putSecret(work, 'KEY_0', 'replaced-value'); // replacing is not adding
+    expect(listSecrets(work).names).toHaveLength(64);
+
+    const big = path.join(work, 'big');
+    mkdirSync(big);
+    for (let i = 0; i < 16; i++) putSecret(big, `BIG_${i}`, 'x'.repeat(8 * 1024 - 1) + String(i % 10));
+    expect(() => putSecret(big, 'BIG_16', 'y'.repeat(8 * 1024))).toThrow(/too large/);
+    expect(() => putSecret(big, 'BIG_0', 'y'.repeat(8 * 1024))).not.toThrow(); // replacing within the cap is fine
+
+    // Many projects at the per-project cap fill the 1 MB store.
+    let full: unknown;
+    for (let p = 0; p < 12 && !full; p++) {
+      const dir = path.join(work, `fill-${p}`);
+      mkdirSync(dir);
+      try {
+        for (let i = 0; i < 16; i++) putSecret(dir, `FILL_${i}`, `${String.fromCharCode(97 + p)}${i}`.padEnd(8 * 1024, 'z'));
+      } catch (err) {
+        full = err;
+      }
+    }
+    expect((full as Error).message).toBe('secret store full');
+    expect(statSync(secretsFilePath()).size).toBeLessThanOrEqual(1024 * 1024);
   });
 
   it('accepts a 64 character name', () => {
@@ -188,6 +225,40 @@ describe('project scoping', () => {
     expect(secretEnv(link)).toEqual({ API_KEY: 'via-link-123', SWARMKIT_SECRET_NAMES: 'API_KEY' });
   });
 
+  it('rejects a cwd outside $HOME', () => {
+    const outside = realpathSync(mkdtempSync(path.join(tmpdir(), 'fleet-secrets-outside-')));
+    try {
+      expect(() => projectRoot(outside)).toThrow(/inside your home directory/);
+      expect(() => putSecret(outside, 'API_KEY', 'sk-test-123456')).toThrow(/home directory/);
+      expect(() => listSecrets(outside)).toThrow(/home directory/);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('does not let a .git at $HOME widen the scope', () => {
+    const prevHome = process.env.HOME;
+    const fakeHome = path.join(work, 'fakehome');
+    const sub = path.join(fakeHome, 'projects', 'app');
+    mkdirSync(path.join(fakeHome, '.git'), { recursive: true });
+    mkdirSync(sub, { recursive: true });
+    process.env.HOME = fakeHome;
+    try {
+      expect(projectRoot(sub)).toBe(sub);
+      expect(projectRoot(path.join(fakeHome, 'projects'))).toBe(path.join(fakeHome, 'projects'));
+      expect(projectRoot(fakeHome)).toBe(fakeHome);
+      // A repo below $HOME still scopes to its own toplevel.
+      mkdirSync(path.join(sub, '.git'));
+      mkdirSync(path.join(sub, 'src'));
+      expect(projectRoot(path.join(sub, 'src'))).toBe(sub);
+      putSecret(path.join(fakeHome, 'projects'), 'API_KEY', 'only-in-projects');
+      expect(secretEnv(sub)).toEqual({});
+    } finally {
+      if (prevHome === undefined) delete process.env.HOME;
+      else process.env.HOME = prevHome;
+    }
+  });
+
   it('GET never returns values', () => {
     putSecret(work, 'API_KEY', 'sk-test-123456');
     putSecret(work, 'DB_URL', 'postgres://u:p@h/db');
@@ -221,6 +292,12 @@ describe('redaction', () => {
     expect(redactSecrets('axb*c+(d)', entries(['ODD', 'a.b*c+(d)']))).toBe('axb*c+(d)');
   });
 
+  it('skips values with fewer than 4 distinct characters', () => {
+    expect(redactSecrets('x aaaaaaaaaa y', entries(['FLAT', 'aaaaaaaaaa']))).toBe('x aaaaaaaaaa y');
+    expect(redactSecrets('x 0101010101 y', entries(['BIN', '0101010101']))).toBe('x 0101010101 y');
+    expect(redactSecrets('x abcdabcdab y', entries(['OK', 'abcdabcdab']))).toBe('x [secret:OK] y');
+  });
+
   it('also catches the JSON-escaped form of a value', () => {
     const value = 'line1\nquote"end';
     const text = JSON.stringify({ command: `echo ${value}` });
@@ -239,55 +316,129 @@ describe('redaction', () => {
     expect(redactDeep(input, [])).toBe(input);
   });
 
+  it('redacts object keys too, rebuilding only the object whose key changed', () => {
+    const e = entries(['TOKEN', 'tok-abcdef-123']);
+    const clean = { a: 1 };
+    const input = { clean, ['key-tok-abcdef-123']: 'v', other: 'w', nested: [{ ['tok-abcdef-123']: { deep: 1 } }] };
+    const out = redactDeep(input, e);
+    expect(out).toEqual({ clean, 'key-[secret:TOKEN]': 'v', other: 'w', nested: [{ '[secret:TOKEN]': { deep: 1 } }] });
+    expect(out.clean).toBe(clean);
+    expect(Object.keys(input)).toContain('key-tok-abcdef-123'); // input untouched
+    const proto = JSON.parse('{"__proto__":"tok-abcdef-123"}');
+    const redacted = redactDeep(proto, e) as Record<string, unknown>;
+    expect(Object.getPrototypeOf(redacted)).toBe(Object.prototype);
+    expect(Object.keys(redacted)).toEqual(['__proto__']);
+  });
+
   describe('events', () => {
-    const projectA = '/proj/a';
-    const projectB = '/proj/b';
+    const projectA = path.join(homedir(), 'proj-a');
+    const projectB = path.join(homedir(), 'proj-b');
     const valueA = 'value-for-project-a';
-    const resolver: SecretResolver = {
-      forCwd: cwd => (cwd === projectA ? entries(['KEY_A', valueA]) : []),
-      forSession: id => (id === 's-a' ? entries(['KEY_A', valueA]) : []),
-    };
+    const valueB = 'value-for-project-b';
     const summary = (id: string, cwd: string, title: string): SessionSummary => ({
       id, source: 'page', project: path.basename(cwd), cwd, title, status: 'running', startedAt: 1, updatedAt: 1, costUsd: 0, nodeCount: 1, pendingPermissions: 0, resumable: false,
     }) as SessionSummary;
     const activity = (text: string): ActivityEvent => ({ kind: 'text', text, ts: 1 }) as unknown as ActivityEvent;
+    const twoProjects = (): void => {
+      mkdirSync(path.join(work, 'a'));
+      mkdirSync(path.join(work, 'b'));
+      putSecret(path.join(work, 'a'), 'KEY_A', valueA);
+      putSecret(path.join(work, 'b'), 'KEY_B', valueB);
+    };
 
-    it('scrubs titles in session.upsert and hello, per project', () => {
-      const a = summary('s-a', projectA, `deploy with ${valueA}`);
+    it('scrubs every project\'s values from titles in session.upsert and hello', () => {
+      twoProjects();
+      const a = summary('s-a', projectA, `deploy with ${valueA} and ${valueB}`);
       const b = summary('s-b', projectB, `deploy with ${valueA}`);
-      const up = redactServerEvent({ type: 'session.upsert', session: a }, resolver) as { session: SessionSummary };
-      expect(up.session.title).toBe('deploy with [secret:KEY_A]');
-      expect((redactServerEvent({ type: 'session.upsert', session: b }, resolver) as { session: SessionSummary }).session.title).toBe(`deploy with ${valueA}`);
-      const hello = redactServerEvent({ type: 'hello', sessions: [a, b] }, resolver) as { sessions: SessionSummary[] };
-      expect(hello.sessions.map(s => s.title)).toEqual(['deploy with [secret:KEY_A]', `deploy with ${valueA}`]);
+      const up = redactServerEvent({ type: 'session.upsert', session: a }) as { session: SessionSummary };
+      expect(up.session.title).toBe('deploy with [secret:KEY_A] and [secret:KEY_B]');
+      expect((redactServerEvent({ type: 'session.upsert', session: b }) as { session: SessionSummary }).session.title).toBe('deploy with [secret:KEY_A]');
+      const hello = redactServerEvent({ type: 'hello', sessions: [a, b] }) as { sessions: SessionSummary[] };
+      expect(hello.sessions.map(s => s.title)).toEqual(['deploy with [secret:KEY_A] and [secret:KEY_B]', 'deploy with [secret:KEY_A]']);
     });
 
-    it('scrubs nested node, permission and activity events of the owning session only', () => {
-      const ev = { type: 'node.event', sessionId: 's-a', nodeId: 'root', event: { kind: 'tool', input: { command: `echo ${valueA}`, list: [valueA] } } } as unknown as ServerEvent;
-      expect(JSON.stringify(redactServerEvent(ev, resolver))).not.toContain(valueA);
-      expect(JSON.stringify(redactServerEvent(ev, resolver))).toContain('[secret:KEY_A]');
-      const other = { ...ev, sessionId: 's-b' } as ServerEvent;
-      expect(redactServerEvent(other, resolver)).toBe(other);
-      const perm = { type: 'permission.request', request: { id: 'p', sessionId: 's-a', nodeId: 'root', tool: 'Bash', input: { command: `x ${valueA}` } } } as unknown as ServerEvent;
-      expect(JSON.stringify(redactServerEvent(perm, resolver))).not.toContain(valueA);
-      const node = { type: 'node.upsert', node: { id: 'root', sessionId: 's-a', label: valueA } } as unknown as ServerEvent;
-      expect(JSON.stringify(redactServerEvent(node, resolver))).not.toContain(valueA);
+    it('scrubs nested node, permission and activity events regardless of the session or project', () => {
+      twoProjects();
+      const ev = { type: 'node.event', sessionId: 's-x', nodeId: 'root', event: { kind: 'tool', input: { command: `echo ${valueA}`, list: [valueB] } } } as unknown as ServerEvent;
+      const out = JSON.stringify(redactServerEvent(ev));
+      expect(out).not.toContain(valueA);
+      expect(out).not.toContain(valueB);
+      expect(out).toContain('[secret:KEY_A]');
+      expect(out).toContain('[secret:KEY_B]');
+      const perm = { type: 'permission.request', request: { id: 'p', sessionId: 's-y', nodeId: 'root', tool: 'Bash', input: { command: `x ${valueA}` } } } as unknown as ServerEvent;
+      expect(JSON.stringify(redactServerEvent(perm))).not.toContain(valueA);
+      const node = { type: 'node.upsert', node: { id: 'root', sessionId: 's-z', label: valueB } } as unknown as ServerEvent;
+      expect(JSON.stringify(redactServerEvent(node))).not.toContain(valueB);
       const text = { type: 'node.event', sessionId: 's-a', nodeId: 'root', event: activity(valueA) } as ServerEvent;
-      expect(JSON.stringify(redactServerEvent(text, resolver))).toContain('[secret:KEY_A]');
+      expect(JSON.stringify(redactServerEvent(text))).toContain('[secret:KEY_A]');
     });
 
-    it('leaves events of other types alone', () => {
+    it('scrubs workers.update and other values with the union matcher', () => {
+      twoProjects();
+      const workers = { type: 'workers.update', workers: [{ slug: 'w1', title: `uses ${valueA}`, task: { note: valueB } }] } as unknown as ServerEvent;
+      const out = JSON.stringify(redactServerEvent(workers));
+      expect(out).not.toContain(valueA);
+      expect(out).not.toContain(valueB);
+      expect(redactAll({ lines: [`log ${valueB}`] })).toEqual({ lines: ['log [secret:KEY_B]'] });
+    });
+
+    it('leaves events without a secret alone (same object)', () => {
+      twoProjects();
       const removed: ServerEvent = { type: 'session.removed', sessionId: 's-a' };
-      expect(redactServerEvent(removed, resolver)).toBe(removed);
+      expect(redactServerEvent(removed)).toBe(removed);
     });
-  });
 
-  it('the cached per-cwd lists follow a PUT and a DELETE at once', () => {
-    expect(secretEntriesForCwd(work)).toEqual([]);
-    putSecret(work, 'API_KEY', 'sk-test-123456');
-    expect(secretEntriesForCwd(work)).toEqual([{ name: 'API_KEY', value: 'sk-test-123456' }]);
-    deleteSecret(work, 'API_KEY');
-    expect(secretEntriesForCwd(work)).toEqual([]);
+    it('keeps redacting a deleted or rotated value once it was injected', () => {
+      const project = path.join(work, 'inj');
+      mkdirSync(project);
+      putSecret(project, 'API_KEY', 'first-secret-value');
+      putSecret(project, 'GONE_KEY', 'second-secret-value');
+      secretEnv(project); // a session starts with both
+      putSecret(project, 'API_KEY', 'rotated-secret-value'); // rotated
+      deleteSecret(project, 'GONE_KEY'); // deleted
+      const ev = { type: 'node.event', sessionId: 's', nodeId: 'root', event: activity('first-secret-value second-secret-value rotated-secret-value') } as ServerEvent;
+      const out = JSON.stringify(redactServerEvent(ev));
+      expect(out).not.toMatch(/first-secret-value|second-secret-value|rotated-secret-value/);
+      expect(out).toContain('[secret:API_KEY]');
+      expect(out).toContain('[secret:GONE_KEY]');
+    });
+
+    it('does not redact a value that was stored but never injected once it is deleted', () => {
+      const project = path.join(work, 'never');
+      mkdirSync(project);
+      putSecret(project, 'API_KEY', 'never-used-secret');
+      expect(redactAll('never-used-secret')).toBe('[secret:API_KEY]');
+      deleteSecret(project, 'API_KEY');
+      expect(redactAll('never-used-secret')).toBe('never-used-secret');
+    });
+
+    it('falls back to the last good store when the file becomes unreadable', () => {
+      twoProjects();
+      expect(redactAll(`x ${valueA}`)).toBe('x [secret:KEY_A]');
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        writeFileSync(secretsFilePath(), '{not json', { mode: 0o600 });
+        expect(redactAll(`x ${valueA} ${valueB}`)).toBe('x [secret:KEY_A] [secret:KEY_B]');
+        expect(allSecretEntries().map(e => e.name).sort()).toEqual(['KEY_A', 'KEY_B']);
+        rmSync(secretsFilePath());
+        expect(redactAll(`x ${valueA}`)).toBe(`x ${valueA}`); // a missing file is an empty store, not a failure
+        expect(err).toHaveBeenCalledTimes(1); // logged once, not per event
+      } finally {
+        err.mockRestore();
+      }
+    });
+
+    it('dedupes values across projects and lists the longest first', () => {
+      mkdirSync(path.join(work, 'a'));
+      mkdirSync(path.join(work, 'b'));
+      putSecret(path.join(work, 'a'), 'SAME', 'shared-value-123');
+      putSecret(path.join(work, 'b'), 'OTHER', 'shared-value-123');
+      putSecret(path.join(work, 'b'), 'LONGER', 'shared-value-123-and-more');
+      const all = allSecretEntries();
+      expect(all.filter(e => e.value === 'shared-value-123')).toHaveLength(1);
+      expect(all[0]!.name).toBe('LONGER');
+      expect(allSecretEntries()).toBe(all); // stable until something changes
+    });
   });
 });
 
