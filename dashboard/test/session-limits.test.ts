@@ -3,14 +3,16 @@
 // (never "done") and close the queue. Overloads, 429s without the limit text,
 // stopped sessions, fallback sessions and non-Claude runtimes never call it.
 import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentNode, AgentNodeHead, ServerEvent } from '../src/shared/types';
 import type { SessionTree, TreeInit } from '../server/model/reducer';
-import { SdkSessions } from '../server/sdk/sessions';
+import { CAP_FLOOR_MS, EVICT_AFTER_MS, MAX_PAGE_SESSIONS, SdkSessions } from '../server/sdk/sessions';
 import type { QueryFn } from '../server/sdk/sessions';
+import { TranscriptWatcher } from '../server/watch/transcripts';
 
 // Same minimal tree fake as sessions.test.ts: applyMessage is a no-op, setStatus
 // pins the status. The limit path sets error explicitly, so it works with the fake too.
@@ -86,6 +88,7 @@ function limitQuery(opts: LimitStreamOptions): QueryFn {
 interface RawSession {
   consuming: boolean;
   stopped: boolean;
+  updatedAt: number;
   queue: { closed: boolean };
 }
 
@@ -233,5 +236,152 @@ describe('plan-limit detection', () => {
     });
     expect(onLimit).not.toHaveBeenCalled();
     expect(sdk.get(id)?.status).toBe('done');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// retention: an evicted page session whose transcript is on disk must not vanish
+// ---------------------------------------------------------------------------
+
+/** Fake query: the first `hold` streams stay open (running), the rest finish at once. */
+function mixedQuery(hold: number): QueryFn {
+  const gate = new Promise<void>(() => {});
+  let calls = 0;
+  return () => {
+    const held = calls++ < hold;
+    return (async function* generator(): AsyncGenerator<unknown, void> {
+      yield { type: 'system', subtype: 'init', model: 'test' };
+      if (held) await gate;
+      yield { type: 'result', subtype: 'success' };
+    })() as unknown as AsyncIterable<SDKMessage>;
+  };
+}
+
+function transcriptLines(cwd: string): string {
+  const user = JSON.stringify({
+    type: 'user',
+    uuid: 'u1',
+    timestamp: '2025-01-01T10:00:00.000Z',
+    cwd,
+    message: { role: 'user', content: 'Evicted but still here' },
+  });
+  const assistant = JSON.stringify({
+    type: 'assistant',
+    uuid: 'a1',
+    timestamp: '2025-01-01T10:00:05.000Z',
+    message: {
+      id: 'm1',
+      model: 'claude-opus-4-5',
+      content: [{ type: 'text', text: 'Still here.' }],
+      usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    },
+  });
+  return `${user}\n${assistant}\n`;
+}
+
+describe('eviction with a transcript on disk', () => {
+  /** A finished page session plus a watcher over a temp projects root, wired like index.ts. */
+  async function setup(withTranscript: boolean): Promise<{
+    sdk: SdkSessions;
+    watcher: TranscriptWatcher;
+    id: string;
+    seen: ServerEvent[];
+  }> {
+    const projects = path.join(homeDir, 'projects');
+    await mkdir(path.join(projects, 'proj'), { recursive: true });
+    const seen: ServerEvent[] = [];
+    const sdk = new SdkSessions(e => seen.push(e), limitQuery({}));
+    const id = sdk.start({ prompt: 'evict me', cwd: homeDir });
+    await vi.waitFor(() => {
+      expect(sdk.get(id)?.status).toBe('done');
+    });
+    if (withTranscript) await writeFile(path.join(projects, 'proj', `${id}.jsonl`), transcriptLines(homeDir));
+    const watcher = new TranscriptWatcher({ root: projects, emit: e => seen.push(e), skip: sid => sdk.owns(sid) });
+    sdk.setOnEvict(sid => watcher.adopt(sid));
+    return { sdk, watcher, id, seen };
+  }
+
+  it('re-lists the session as a terminal session: session.upsert, no session.removed, still listed', async () => {
+    const { sdk, watcher, id, seen } = await setup(true);
+    try {
+      raw(sdk, id).updatedAt = Date.now() - EVICT_AFTER_MS - 1_000;
+      const before = seen.length;
+      sdk.evict();
+      const after = seen.slice(before);
+      expect(sdk.owns(id)).toBe(false);
+      expect(after.some(e => e.type === 'session.removed')).toBe(false);
+      const ups = after.filter((e): e is Extract<ServerEvent, { type: 'session.upsert' }> => e.type === 'session.upsert');
+      expect(ups.some(e => e.session.id === id)).toBe(true);
+      // The session survives the eviction in both listings, exactly once in the merge.
+      expect(sdk.list().some(s => s.id === id)).toBe(false);
+      expect(watcher.list().some(s => s.id === id)).toBe(true);
+      expect([...sdk.list(), ...watcher.list()].filter(s => s.id === id)).toHaveLength(1);
+    } finally {
+      watcher.stop();
+    }
+  });
+
+  it('emits session.removed when no transcript exists', async () => {
+    const { sdk, watcher, id, seen } = await setup(false);
+    try {
+      raw(sdk, id).updatedAt = Date.now() - EVICT_AFTER_MS - 1_000;
+      const before = seen.length;
+      sdk.evict();
+      const after = seen.slice(before);
+      expect(sdk.owns(id)).toBe(false);
+      expect(after.some(e => e.type === 'session.removed' && e.sessionId === id)).toBe(true);
+    } finally {
+      watcher.stop();
+    }
+  });
+});
+
+describe('page session retention', () => {
+  it('counts finished sessions only: running ones never push a finished session out', async () => {
+    // The first three streams never finish (running), the rest do.
+    const sdk = new SdkSessions(() => {}, mixedQuery(3));
+    const live = [0, 1, 2].map(i => sdk.start({ prompt: `live ${i}`, cwd: homeDir }));
+    const finished = [0, 1].map(i => sdk.start({ prompt: `finished ${i}`, cwd: homeDir }));
+    await vi.waitFor(() => {
+      expect(finished.every(id => sdk.get(id)?.status === 'done')).toBe(true);
+      expect(live.every(id => raw(sdk, id).consuming)).toBe(true);
+    });
+    const now = Date.now();
+    for (const id of finished) raw(sdk, id).updatedAt = now - 2 * 3_600_000;
+    // Five sessions, but only two are finished: a cap of two is not exceeded.
+    sdk.evict(now, EVICT_AFTER_MS, 2, CAP_FLOOR_MS);
+    expect(finished.every(id => sdk.owns(id))).toBe(true);
+    expect(live.every(id => sdk.owns(id))).toBe(true);
+    // One more finished session overflows the cap: only the oldest finished one goes.
+    const extra = sdk.start({ prompt: 'finished 2', cwd: homeDir });
+    await vi.waitFor(() => {
+      expect(sdk.get(extra)?.status).toBe('done');
+    });
+    raw(sdk, extra).updatedAt = now - 3 * 3_600_000;
+    sdk.evict(now, EVICT_AFTER_MS, 2, CAP_FLOOR_MS);
+    expect(sdk.owns(extra)).toBe(false);
+    expect(finished.every(id => sdk.owns(id))).toBe(true);
+    expect(live.every(id => sdk.owns(id))).toBe(true);
+    expect(MAX_PAGE_SESSIONS).toBe(100);
+    for (const id of live) sdk.stop(id);
+  });
+
+  it('never caps away a finished session younger than an hour', async () => {
+    const sdk = new SdkSessions(() => {}, mixedQuery(0));
+    const ids = [0, 1, 2].map(i => sdk.start({ prompt: `finished ${i}`, cwd: homeDir }));
+    await vi.waitFor(() => {
+      expect(ids.every(id => sdk.get(id)?.status === 'done')).toBe(true);
+    });
+    const now = Date.now();
+    for (const id of ids) raw(sdk, id).updatedAt = now - 30 * 60_000;
+    // Over the cap, but every session is younger than the floor.
+    sdk.evict(now, EVICT_AFTER_MS, 1, CAP_FLOOR_MS);
+    expect(ids.every(id => sdk.owns(id))).toBe(true);
+    // Past the floor the cap applies again.
+    raw(sdk, ids[0]!).updatedAt = now - 2 * 3_600_000;
+    sdk.evict(now, EVICT_AFTER_MS, 1, CAP_FLOOR_MS);
+    expect(sdk.owns(ids[0]!)).toBe(false);
+    expect(sdk.owns(ids[1]!)).toBe(true);
+    expect(sdk.owns(ids[2]!)).toBe(true);
   });
 });

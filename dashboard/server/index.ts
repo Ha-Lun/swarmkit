@@ -292,6 +292,9 @@ async function main(): Promise<void> {
   void sdk.primeCommands(os.homedir()).catch(() => {});
   const watcher = new TranscriptWatcher({ emit: broadcast, skip: id => sdk.owns(id) });
   watcher.start();
+  // An evicted page session whose transcript exists is re-listed by the watcher at once,
+  // so it stays in the list instead of vanishing until the next reload.
+  sdk.setOnEvict(id => watcher.adopt(id));
 
   // Terminal Claude Code sessions relay AskUserQuestion / ExitPlanMode here through their
   // PermissionRequest hook; the secret is new on every start and lives only in the hook file.

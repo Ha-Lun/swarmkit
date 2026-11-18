@@ -36,9 +36,14 @@ const ACTIVE_MS = 60_000;
 /** Resume waits at most this long for the previous consume() to unwind. */
 const RESUME_UNWIND_MS = 5_000;
 /** Finished page sessions drop out of memory after this long (the watcher re-lists their transcripts). */
-export const EVICT_AFTER_MS = 6 * 60 * 60 * 1000;
-/** Max page sessions kept in memory (oldest finished ones are evicted first). */
-export const MAX_PAGE_SESSIONS = 50;
+export const EVICT_AFTER_MS = 24 * 60 * 60 * 1000;
+/** Max finished page sessions kept in memory (the oldest are evicted first); running ones never count. */
+export const MAX_PAGE_SESSIONS = 100;
+/**
+ * The size cap never drops a finished session younger than this: a burst of new sessions
+ * must not make a just-finished one vanish before anyone saw it. poll() passes it in.
+ */
+export const CAP_FLOOR_MS = 60 * 60 * 1000;
 
 /** Typed error so the HTTP layer can answer with the right status code. */
 export class SessionError extends Error {
@@ -60,6 +65,11 @@ export interface PageStartOptions extends StartSessionBody {
 /** Called once per session when a Claude turn is refused by the plan limit. */
 export interface SessionHooks {
   onLimit?: (sessionId: string, info: { window: string; resetsAt: string | null }) => void;
+  /**
+   * A finished session is being dropped: true when the transcript watcher adopted it
+   * (it re-broadcasts the session as a terminal one), so no session.removed is sent.
+   */
+  onEvict?: (sessionId: string) => boolean;
 }
 
 /** rateLimitType values that count as a plan-limit hit (usage.ts only records a subset). */
@@ -404,6 +414,14 @@ export class SdkSessions {
   /** Sets (or replaces) the plan-limit handler after construction (index.ts wiring). */
   setOnLimit(onLimit: SessionHooks['onLimit']): void {
     this.hooks = { ...this.hooks, onLimit };
+  }
+
+  /**
+   * Sets the eviction hand-off after construction (index.ts wiring): the transcript
+   * watcher re-lists an evicted session's transcript, so clients keep seeing it.
+   */
+  setOnEvict(onEvict: SessionHooks['onEvict']): void {
+    this.hooks = { ...this.hooks, onEvict };
   }
 
   /** Current permission mode of a page session, for the fallback handoff. */
@@ -1417,7 +1435,7 @@ export class SdkSessions {
   }
 
   private poll(): void {
-    this.evict();
+    this.evict(Date.now(), EVICT_AFTER_MS, MAX_PAGE_SESSIONS, CAP_FLOOR_MS);
     this.pruneImages();
     for (const session of this.sessions.values()) {
       if (this.polling.has(session.id)) continue;
@@ -1437,13 +1455,17 @@ export class SdkSessions {
 
   /**
    * Removes finished (stopped/done/error/stopped root) sessions that were idle for
-   * longer than `olderThanMs`, then the oldest finished ones beyond `maxSessions`.
-   * Removed transcripts re-appear as terminal sessions through the watcher.
+   * longer than `olderThanMs`, then the oldest finished ones while their count exceeds
+   * `maxSessions` (running sessions never count against the cap). `capFloorMs` spares
+   * just-finished sessions from the cap (poll passes CAP_FLOOR_MS).
+   * A dropped session whose transcript exists is handed to the watcher, which re-lists
+   * it as a terminal session; session.removed is sent only when the transcript is gone too.
    */
   evict(
     now: number = Date.now(),
     olderThanMs: number = EVICT_AFTER_MS,
     maxSessions: number = MAX_PAGE_SESSIONS,
+    capFloorMs: number = 0,
   ): void {
     const finished = (session: PageSession): boolean => {
       if (session.consuming) return false;
@@ -1452,20 +1474,31 @@ export class SdkSessions {
       return status === 'done' || status === 'error' || status === 'stopped';
     };
     for (const [id, session] of this.sessions) {
-      if (finished(session) && now - session.updatedAt > olderThanMs) {
-        if (session.hookSecret) this.bridge.unregister(session.hookSecret);
-        this.sessions.delete(id);
-        deleteImages(id);
-        this.emit({ type: 'session.removed', sessionId: id });
-      }
+      if (finished(session) && now - session.updatedAt > olderThanMs) this.dropSession(id, session);
     }
-    const oldest = [...this.sessions.values()].filter(finished).sort((a, b) => a.updatedAt - b.updatedAt);
-    while (this.sessions.size > maxSessions && oldest.length > 0) {
+    const oldest = [...this.sessions.values()]
+      .filter(session => finished(session) && now - session.updatedAt >= capFloorMs)
+      .sort((a, b) => a.updatedAt - b.updatedAt);
+    let over = [...this.sessions.values()].filter(finished).length - maxSessions;
+    while (over > 0 && oldest.length > 0) {
       const victim = oldest.shift()!;
-      if (victim.hookSecret) this.bridge.unregister(victim.hookSecret);
-      if (!this.sessions.delete(victim.id)) continue;
-      deleteImages(victim.id);
-      this.emit({ type: 'session.removed', sessionId: victim.id });
+      this.dropSession(victim.id, victim);
+      over--;
     }
+  }
+
+  /** Deletes one evicted session and tells the clients (removed, or adopted by the watcher). */
+  private dropSession(id: string, session: PageSession): void {
+    if (session.hookSecret) this.bridge.unregister(session.hookSecret);
+    if (!this.sessions.delete(id)) return;
+    deleteImages(id);
+    // The watcher owns the transcript from here on: it broadcasts the terminal summary.
+    let adopted = false;
+    try {
+      adopted = this.hooks?.onEvict?.(id) === true;
+    } catch (err) {
+      console.error(`Session ${id} onEvict failed:`, err);
+    }
+    if (!adopted) this.emit({ type: 'session.removed', sessionId: id });
   }
 }
