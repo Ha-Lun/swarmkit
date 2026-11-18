@@ -1,5 +1,7 @@
 // Per-project secrets: ${XDG_CONFIG_HOME:-~/.config}/swarmkit/secrets.json, shape
-// { [projectRoot]: { [NAME]: { value, updatedAt } } }. Values go to agent processes as env vars
+// { [projectRoot]: { [NAME]: { value, updatedAt } }, "__retired__"?: [{ value, name, retiredAt }] }.
+// "__retired__" can never be a project root (those are absolute paths), and an older build skips it
+// as a non-object entry, so the file stays readable both ways. Values go to agent processes as env vars
 // (never through the chat) and are scrubbed from everything the dashboard sends to a browser.
 // Private (dir 0700, file 0600, no symlinks followed). Everything here is synchronous on
 // purpose: the session start paths are synchronous, and with no awaits between a read and its
@@ -31,8 +33,18 @@ export const MIN_REDACT_DISTINCT_CHARS = 4;
 /** Per project: how many secrets, and the total value bytes (all of them land in one env block, so E2BIG is the limit). */
 export const MAX_SECRETS_PER_PROJECT = 64;
 export const MAX_PROJECT_SECRET_BYTES = 128 * 1024;
-/** Serialized store size at which a PUT is refused. */
+/** Serialized size of the projects section at which a PUT is refused. Retired values have their own budget below. */
 export const MAX_STORE_WRITE_BYTES = 1024 * 1024;
+/**
+ * Deleted or replaced values stay in the store (redaction only, never injected or listed) so a
+ * restart does not make an old transcript show them again. Own budget, separate from the 1 MB for
+ * live secrets: at most this many entries and this many serialized bytes, oldest dropped first.
+ */
+export const MAX_RETIRED_ENTRIES = 256;
+export const MAX_RETIRED_BYTES = 1024 * 1024;
+/** Values this process handed to agents that stay in memory for redaction (least recently injected dropped first). */
+export const MAX_INJECTED_VALUES = 512;
+const RETIRED_KEY = '__retired__';
 /** Hard cap on the store file we are willing to read. */
 const MAX_STORE_BYTES = 8 * 1024 * 1024;
 
@@ -65,7 +77,16 @@ interface StoredSecret {
   value: string;
   updatedAt: number;
 }
-type Store = Record<string, Record<string, StoredSecret>>;
+interface RetiredSecret {
+  value: string;
+  name: string;
+  retiredAt: number;
+}
+interface Store {
+  projects: Record<string, Record<string, StoredSecret>>;
+  /** Oldest first. */
+  retired: RetiredSecret[];
+}
 
 /** Directory of the store (not created): $XDG_CONFIG_HOME/swarmkit. */
 export function secretsDirPath(): string {
@@ -137,10 +158,41 @@ function ensurePrivateDir(dir: string): void {
   if ((st.mode & 0o077) !== 0) chmodSync(dir, 0o700);
 }
 
+function retiredBytes(entry: RetiredSecret): number {
+  return Buffer.byteLength(JSON.stringify(entry), 'utf8');
+}
+
+/** Newest-first walk under both caps: what survives is the most recent run of entries that fits. */
+function capRetired(list: RetiredSecret[]): RetiredSecret[] {
+  let bytes = 0;
+  let keep = 0;
+  for (let i = list.length - 1; i >= 0 && keep < MAX_RETIRED_ENTRIES; i--) {
+    bytes += retiredBytes(list[i]!);
+    if (bytes > MAX_RETIRED_BYTES) break;
+    keep++;
+  }
+  return keep === list.length ? list : list.slice(list.length - keep);
+}
+
 function sanitize(raw: unknown): Store {
-  const store: Store = {};
+  const store: Store = { projects: {}, retired: [] };
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return store;
   for (const [project, names] of Object.entries(raw as Record<string, unknown>)) {
+    if (project === RETIRED_KEY) {
+      if (!Array.isArray(names)) continue;
+      const list: RetiredSecret[] = [];
+      for (const item of names) {
+        const v = item as { value?: unknown; name?: unknown; retiredAt?: unknown } | null;
+        if (typeof v?.value !== 'string' || v.value.length === 0) continue;
+        list.push({
+          value: v.value,
+          name: typeof v.name === 'string' && SECRET_NAME_RE.test(v.name) ? v.name : 'REDACTED',
+          retiredAt: typeof v.retiredAt === 'number' ? v.retiredAt : 0,
+        });
+      }
+      store.retired = capRetired(list);
+      continue;
+    }
     if (typeof names !== 'object' || names === null || Array.isArray(names)) continue;
     const entries: Record<string, StoredSecret> = {};
     for (const [name, item] of Object.entries(names as Record<string, unknown>)) {
@@ -148,13 +200,13 @@ function sanitize(raw: unknown): Store {
       if (!SECRET_NAME_RE.test(name) || typeof v?.value !== 'string') continue;
       entries[name] = { value: v.value, updatedAt: typeof v.updatedAt === 'number' ? v.updatedAt : 0 };
     }
-    if (Object.keys(entries).length > 0) store[project] = entries;
+    if (Object.keys(entries).length > 0) store.projects[project] = entries;
   }
   return store;
 }
 
 let loaded: { file: string; sig: string; store: Store } | undefined;
-const EMPTY_STORE: Store = Object.freeze({});
+const EMPTY_STORE: Store = Object.freeze({ projects: Object.freeze({}), retired: Object.freeze([]) }) as unknown as Store;
 /** The last store that loaded or saved cleanly: redaction falls back to it when a reload fails. */
 let lastGood: Store = EMPTY_STORE;
 
@@ -214,7 +266,7 @@ function saveStore(store: Store): void {
   const fd = openSync(tmp, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o600);
   try {
     fchmodSync(fd, 0o600);
-    const data = Buffer.from(JSON.stringify(store), 'utf8');
+    const data = Buffer.from(JSON.stringify(store.retired.length > 0 ? { ...store.projects, [RETIRED_KEY]: store.retired } : store.projects), 'utf8');
     let off = 0;
     while (off < data.length) off += writeSync(fd, data, off, data.length - off);
     fsyncSync(fd);
@@ -271,10 +323,18 @@ export function validSecretValue(raw: unknown): string {
   return raw;
 }
 
+/** Moves a value that just left the live store into the capped retired list (newest last, no duplicates). */
+function retire(store: Store, value: string, name: string): void {
+  if (!redactable(value)) return;
+  const rest = store.retired.filter(r => r.value !== value);
+  rest.push({ value, name, retiredAt: Date.now() });
+  store.retired = capRetired(rest);
+}
+
 /** Names and update times of a project's secrets, never the values. */
 export function listSecrets(cwd: unknown): { project: string; names: { name: string; updatedAt: number }[] } {
   const project = projectRoot(cwd);
-  const names = Object.entries(loadStore()[project] ?? {})
+  const names = Object.entries(loadStore().projects[project] ?? {})
     .map(([name, s]) => ({ name, updatedAt: s.updatedAt }))
     .sort((a, b) => a.name.localeCompare(b.name));
   return { project, names };
@@ -285,15 +345,17 @@ export function putSecret(cwd: unknown, name: unknown, value: unknown): void {
   const n = validSecretName(name);
   const v = validSecretValue(value);
   const store = structuredClone(loadStore());
-  const own = (store[project] ??= {});
-  if (!own[n] && Object.keys(own).length >= MAX_SECRETS_PER_PROJECT) throw new ValidationError('too many secrets');
+  const own = (store.projects[project] ??= {});
+  const previous = own[n];
+  if (!previous && Object.keys(own).length >= MAX_SECRETS_PER_PROJECT) throw new ValidationError('too many secrets');
   own[n] = { value: v, updatedAt: Date.now() };
+  if (previous && previous.value !== v) retire(store, previous.value, n);
   // All of a project's values land in one env block: keep it far below the exec argument limit.
   const projectBytes = Object.values(own).reduce((sum, s) => sum + Buffer.byteLength(s.value, 'utf8'), 0);
   if (projectBytes > MAX_PROJECT_SECRET_BYTES) {
     throw new ValidationError(`this project's secrets are too large (max ${MAX_PROJECT_SECRET_BYTES / 1024} KB in total)`);
   }
-  if (Buffer.byteLength(JSON.stringify(store), 'utf8') > MAX_STORE_WRITE_BYTES) throw new ValidationError('secret store full');
+  if (Buffer.byteLength(JSON.stringify(store.projects), 'utf8') > MAX_STORE_WRITE_BYTES) throw new ValidationError('secret store full');
   saveStore(store);
 }
 
@@ -302,9 +364,11 @@ export function deleteSecret(cwd: unknown, name: unknown): void {
   const project = projectRoot(cwd);
   if (typeof name !== 'string' || !SECRET_NAME_RE.test(name)) throw new ValidationError('name must be a secret name');
   const store = structuredClone(loadStore());
-  if (!store[project]?.[name]) return;
-  delete store[project][name];
-  if (Object.keys(store[project]).length === 0) delete store[project];
+  const own = store.projects[project];
+  if (!own?.[name]) return;
+  retire(store, own[name].value, name);
+  delete own[name];
+  if (Object.keys(own).length === 0) delete store.projects[project];
   saveStore(store);
 }
 
@@ -313,7 +377,7 @@ export function deleteSecret(cwd: unknown, name: unknown): void {
 /** A session's project secrets; an unreadable store yields none (the session still starts). */
 export function projectSecrets(cwd: string): SecretEntry[] {
   try {
-    const own = loadStore()[projectRootLoose(cwd)] ?? {};
+    const own = loadStore().projects[projectRootLoose(cwd)] ?? {};
     return Object.entries(own).map(([name, s]) => ({ name, value: s.value }));
   } catch (err) {
     console.error('Secrets unavailable:', (err as Error).message);
@@ -321,8 +385,9 @@ export function projectSecrets(cwd: string): SecretEntry[] {
   }
 }
 
-// Every value this process ever handed to an agent. A value deleted or rotated while its session is
-// still running is gone from the store but not from that session's output: keep redacting it.
+// Values this process handed to agents, bounded (MAX_INJECTED_VALUES, least recently injected out first).
+// A value deleted or rotated while its session is still running is gone from the live store but not
+// from that session's output: keep redacting it. The retired list in the store covers restarts.
 const injected = new Map<string, string>();
 let injectedVersion = 0;
 
@@ -334,10 +399,16 @@ export function secretEnv(cwd: string): Record<string, string> {
   const entries = projectSecrets(cwd);
   if (entries.length === 0) return {};
   for (const e of entries) {
-    if (!injected.has(e.value)) {
-      injected.set(e.value, e.name);
+    if (injected.has(e.value)) {
+      injected.delete(e.value); // re-insert: most recently injected goes last
+    } else {
       injectedVersion++;
     }
+    injected.set(e.value, e.name);
+  }
+  while (injected.size > MAX_INJECTED_VALUES) {
+    injected.delete(injected.keys().next().value as string);
+    injectedVersion++;
   }
   const names = entries.map(s => s.name).sort().join(',');
   return { ...Object.fromEntries(entries.map(s => [s.name, s.value])), SWARMKIT_SECRET_NAMES: names };
@@ -441,17 +512,18 @@ function storeForRedaction(): Store {
 let union: { store: Store; version: number; entries: SecretEntry[] } | undefined;
 
 /**
- * Every value that must never reach a browser: all projects' stored values plus everything injected
- * since this process started, deduplicated, longest first. A stable array until the store file or the
+ * Every value that must never reach a browser: all projects' stored values, the retired ones and what
+ * this process injected recently, deduplicated, longest first. A stable array until the store file or the
  * injected set changes, so the compiled matcher is reused for every event.
  */
 export function allSecretEntries(): SecretEntry[] {
   const store = storeForRedaction();
   if (union && union.store === store && union.version === injectedVersion) return union.entries;
   const byValue = new Map<string, string>();
-  for (const names of Object.values(store)) {
+  for (const names of Object.values(store.projects)) {
     for (const [name, s] of Object.entries(names)) if (!byValue.has(s.value)) byValue.set(s.value, name);
   }
+  for (const r of store.retired) if (!byValue.has(r.value)) byValue.set(r.value, r.name);
   for (const [value, name] of injected) if (!byValue.has(value)) byValue.set(value, name);
   const entries = [...byValue].map(([value, name]) => ({ name, value })).sort((a, b) => b.value.length - a.value.length);
   union = { store, version: injectedVersion, entries };

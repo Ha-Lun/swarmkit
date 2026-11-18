@@ -1,5 +1,6 @@
 // Per-project secrets: private storage, validation, project scoping, env injection and redaction.
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync, chmodSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -99,7 +100,89 @@ describe('storage', () => {
     deleteSecret(work, 'API_KEY');
     deleteSecret(work, 'API_KEY');
     expect(listSecrets(work).names).toEqual([]);
-    expect(JSON.parse(readFileSync(secretsFilePath(), 'utf8'))).toEqual({});
+    const stored = JSON.parse(readFileSync(secretsFilePath(), 'utf8'));
+    expect(Object.keys(stored)).toEqual(['__retired__']);
+    expect(stored.__retired__.map((r: { value: string; name: string }) => [r.value, r.name])).toEqual([['first-value', 'API_KEY'], ['second-value', 'API_KEY']]);
+  });
+
+  describe('retired values', () => {
+    const retiredOf = (): { value: string; name: string; retiredAt: number }[] =>
+      JSON.parse(readFileSync(secretsFilePath(), 'utf8')).__retired__ ?? [];
+
+    it('keeps redacting a deleted or replaced value after a restart, but never lists or injects it', () => {
+      putSecret(work, 'API_KEY', 'first-secret-value');
+      putSecret(work, 'GONE_KEY', 'second-secret-value');
+      putSecret(work, 'API_KEY', 'rotated-secret-value');
+      deleteSecret(work, 'GONE_KEY');
+      resetSecretStateForTests(); // restart: no injected values, no cached store
+      expect(redactAll('first-secret-value second-secret-value rotated-secret-value'))
+        .toBe('[secret:API_KEY] [secret:GONE_KEY] [secret:API_KEY]');
+      expect(JSON.stringify(listSecrets(work))).not.toMatch(/secret-value/);
+      expect(secretEnv(work)).toEqual({ API_KEY: 'rotated-secret-value', SWARMKIT_SECRET_NAMES: 'API_KEY' });
+      expect(mode(secretsFilePath())).toBe(0o600);
+    });
+
+    it('does not retire a value that is rewritten unchanged, nor one too weak to redact', () => {
+      putSecret(work, 'API_KEY', 'same-secret-value');
+      putSecret(work, 'API_KEY', 'same-secret-value');
+      putSecret(work, 'WEAK_KEY', 'aaaaaa');
+      deleteSecret(work, 'WEAK_KEY');
+      expect(existsSync(secretsFilePath()) && retiredOf()).toEqual([]);
+    });
+
+    it('reads a file without the retired section, and a malformed one, and ignores older readers’ shape', () => {
+      mkdirSync(secretsDirPath(), { mode: 0o700 });
+      writeFileSync(secretsFilePath(), JSON.stringify({
+        [work]: { API_KEY: { value: 'legacy-secret-value', updatedAt: 1 } },
+        __retired__: [{ value: 'old-secret-value', name: 'lower', retiredAt: 'x' }, { value: 5 }, null, { value: '' }],
+      }), { mode: 0o600 });
+      expect(listSecrets(work).names.map(n => n.name)).toEqual(['API_KEY']);
+      expect(redactAll('legacy-secret-value old-secret-value')).toBe('[secret:API_KEY] [secret:REDACTED]');
+      putSecret(work, 'OTHER_KEY', 'other-secret-value'); // saving keeps the retired entry
+      expect(retiredOf().map(r => r.value)).toEqual(['old-secret-value']);
+    });
+
+    it('caps the retired list at 256 entries, oldest dropped first', () => {
+      for (let i = 0; i < 300; i++) putSecret(work, 'API_KEY', `value-generation-${i}`);
+      const list = retiredOf();
+      expect(list).toHaveLength(256);
+      expect(list[0]!.value).toBe('value-generation-43');
+      expect(list.at(-1)!.value).toBe('value-generation-298');
+      resetSecretStateForTests();
+      expect(redactAll('value-generation-42 value-generation-43')).toBe('value-generation-42 [secret:API_KEY]');
+    });
+
+    it('caps the retired list at 1 MB and keeps it out of the live secrets budget', () => {
+      for (let i = 0; i < 200; i++) putSecret(work, 'API_KEY', `${String(i).padStart(4, '0')}`.padEnd(8 * 1024, 'r'));
+      const size = statSync(secretsFilePath()).size;
+      expect(size).toBeLessThanOrEqual(1024 * 1024 + 8 * 1024 + 1024);
+      const list = retiredOf();
+      expect(list.length).toBeLessThan(256);
+      expect(list.at(-1)!.value.startsWith('0198')).toBe(true);
+      expect(list[0]!.value.startsWith('0000')).toBe(false);
+      // A full 1 MB of retired values does not stop a live secret from being stored.
+      const other = path.join(work, 'other');
+      mkdirSync(other);
+      expect(() => putSecret(other, 'NEW_KEY', 'a-brand-new-value')).not.toThrow();
+    });
+
+    it('bounds the in-memory injected set, least recently injected first', () => {
+      const project = path.join(work, 'many');
+      mkdirSync(project);
+      const stable = path.join(work, 'stable');
+      mkdirSync(stable);
+      putSecret(stable, 'STABLE_KEY', 'stable-secret-value');
+      secretEnv(stable);
+      deleteSecret(stable, 'STABLE_KEY'); // retired as well, so it must survive for another reason: touched below
+      for (let i = 0; i < 600; i++) {
+        putSecret(project, 'API_KEY', `inject-generation-${i}`);
+        secretEnv(project);
+      }
+      // 599 earlier values are retired (cap 256) or injected (cap 512); the injected map never exceeds 512.
+      const entries = allSecretEntries().filter(e => e.value.startsWith('inject-generation-'));
+      expect(entries.length).toBeLessThanOrEqual(512);
+      expect(entries.some(e => e.value === 'inject-generation-599')).toBe(true);
+    });
   });
 });
 
@@ -403,13 +486,53 @@ describe('redaction', () => {
       expect(out).toContain('[secret:GONE_KEY]');
     });
 
-    it('does not redact a value that was stored but never injected once it is deleted', () => {
+    it('keeps redacting a value that was stored but never injected once it is deleted (retired)', () => {
       const project = path.join(work, 'never');
       mkdirSync(project);
       putSecret(project, 'API_KEY', 'never-used-secret');
       expect(redactAll('never-used-secret')).toBe('[secret:API_KEY]');
       deleteSecret(project, 'API_KEY');
-      expect(redactAll('never-used-secret')).toBe('never-used-secret');
+      expect(redactAll('never-used-secret')).toBe('[secret:API_KEY]');
+    });
+
+    it('redacts a large value set across a session-detail-sized object in reasonable time', () => {
+      const project = path.join(work, 'bench');
+      mkdirSync(project);
+      const values: string[] = [];
+      for (let i = 0; i < 128; i++) {
+        let v = '';
+        while (v.length < 8 * 1024) v += randomBytes(6 * 1024).toString('base64').replace(/[+/=]/g, c => '-_.'[ '+/='.indexOf(c) ]);
+        values.push(v.slice(0, 8 * 1024));
+      }
+      // 128 x 8 KB in total: the first 64 live in the store, the other 64 were replaced and are retired.
+      values.forEach((v, i) => {
+        const dir = path.join(project, `p${Math.floor(i / 16)}`);
+        mkdirSync(dir, { recursive: true });
+        putSecret(dir, `KEY_${i % 16}`, v);
+        if (i >= 64) putSecret(dir, `KEY_${i % 16}`, `replacement-${i}-value`);
+      });
+      const detail = {
+        id: 's', title: 'a session',
+        events: Array.from({ length: 400 }, (_, i) => ({
+          type: 'text', text: `${randomBytes(200).toString('base64')} line ${i} `.repeat(2),
+          input: JSON.stringify({ cmd: `echo ${i}`, note: 'x'.repeat(100) }),
+        })),
+      };
+      (detail.events[3] as { text: string }).text += ` leaked ${values[7]} and ${values[100]} end`;
+      (detail.events[300] as { input: string }).input = JSON.stringify({ cmd: `curl -H "Authorization: ${values[42]!.slice(0, 40)}"`, tail: values[42] });
+      expect(JSON.stringify(detail).length).toBeGreaterThan(150 * 1024);
+      redactAll(detail); // warm: builds the matcher once, like the first event after a store change
+      const start = performance.now();
+      const out = redactAll(detail);
+      const ms = performance.now() - start;
+      console.info(`redactAll benchmark: ${ms.toFixed(1)} ms for ${JSON.stringify(detail).length} bytes against 128 x 8 KB values`);
+      expect(ms).toBeLessThan(500);
+      const text = JSON.stringify(out);
+      expect(text).not.toContain(values[7]!);
+      expect(text).not.toContain(values[100]!);
+      expect(text).not.toContain(values[42]!);
+      expect(text).toContain('[secret:KEY_7]');
+      expect(text).toContain('[secret:KEY_4]'); // values[100] is retired
     });
 
     it('falls back to the last good store when the file becomes unreadable', () => {
