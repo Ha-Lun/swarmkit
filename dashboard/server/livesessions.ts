@@ -17,6 +17,8 @@ export interface LiveHolder {
   kind?: string;
   status?: string;
   entrypoint?: string;
+  /** tmux pane id (`%6`) when the process runs in a pane; normalized from the `desk:@6.%6` registry value. */
+  tmux?: string;
 }
 
 /** Entrypoints of claude processes this dashboard itself spawned (agent SDK runs). */
@@ -60,19 +62,26 @@ function recordOf(raw: string): Record<string, unknown> | undefined {
 }
 
 /** Holder record from one parsed sessions-dir *.json entry. */
-const HOLDER_KEYS = ['kind', 'status', 'entrypoint'] as const;
+const HOLDER_KEYS = ['kind', 'status', 'entrypoint', 'tmux'] as const;
 
 /** LiveHolder extracted from a session record, or undefined when it is not a live holder. */
 function holderOf(rec: Record<string, unknown>, isAlive: (pid: number) => boolean): LiveHolder | undefined {
   const pid = rec.pid;
   if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return undefined;
   if (!isAlive(pid)) return undefined;
-  return {
+  const holder = {
     pid,
     ...Object.fromEntries(
       HOLDER_KEYS.filter((k) => typeof rec[k] === 'string').map((k) => [k, rec[k]]),
     ),
   } as LiveHolder;
+  // The registry stores the full target (`desk:@6.%6`): keep the pane id only.
+  if (typeof holder.tmux === 'string') {
+    const pane = /%\d+$/.exec(holder.tmux)?.[0];
+    if (pane === undefined) delete holder.tmux;
+    else holder.tmux = pane;
+  }
+  return holder;
 }
 
 /** One bulk read of the sessions dir: sessionId -> holder, first record per id wins. */

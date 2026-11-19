@@ -435,6 +435,15 @@ button {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
+/* terminal session marker: a pane the dashboard can paste into; dimmed while idle */
+.top-tab-term {
+  flex: none;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+}
+.top-tab-term.is-idle { color: var(--text-3); }
 .top-tab-new {
   flex: none;
   display: inline-flex;

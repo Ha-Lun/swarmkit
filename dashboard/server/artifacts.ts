@@ -1,6 +1,6 @@
 // Artifact store: files an agent hands the user, ${XDG_CACHE_HOME || ~/.cache}/swarmkit/artifacts/<sessionId>/.
 // Page sessions get the dir as $SWARMKIT_ARTIFACTS_DIR. Private (dir 0700, no symlinks followed).
-import { constants as fsConstants, lstatSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { constants as fsConstants, existsSync, lstatSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -161,9 +161,19 @@ export function pruneOrphanArtifacts(isKnown: (sessionId: string) => boolean, ma
   try {
     const root = artifactsRoot();
     for (const entry of readdirSync(root, { withFileTypes: true })) {
-      if (!entry.isDirectory() || entry.isSymbolicLink() || !IMAGE_SESSION_RE.test(entry.name) || isKnown(entry.name)) continue;
+      if (!IMAGE_SESSION_RE.test(entry.name) || isKnown(entry.name)) continue;
+      const dir = path.join(root, entry.name);
       try {
-        const dir = path.join(root, entry.name);
+        if (entry.isSymbolicLink()) {
+          // A fork adoption leaves a link at the placeholder id (the forked agent keeps
+          // writing through it). Unlink the link itself, never its target, once the
+          // target is gone or the link is older than maxAgeMs.
+          if (existsSync(dir) && now - lstatSync(dir).mtimeMs < maxAgeMs) continue;
+          rmSync(dir);
+          removed += 1;
+          continue;
+        }
+        if (!entry.isDirectory()) continue;
         let newest = lstatSync(dir).mtimeMs;
         for (const name of readdirSync(dir)) newest = Math.max(newest, lstatSync(path.join(dir, name)).mtimeMs);
         if (now - newest < maxAgeMs) continue;

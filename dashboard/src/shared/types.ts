@@ -137,6 +137,12 @@ export interface SessionSummary {
    * never resumable (the flag is not relevant while live).
    */
   resumable: boolean;
+  /**
+   * Set on every terminal session held by a live non-dashboard Claude process:
+   * `pane` says a tmux pane is known (a message can be injected into it),
+   * `busy` says the process reports anything other than idle.
+   */
+  terminal?: { pane: boolean; busy: boolean };
   /** True when the project settings for cwd are not trusted (no hasTrustDialogAccepted); only user settings are read. */
   untrustedProject?: boolean;
   /** Set on a Claude page session whose turn was refused by the plan limit (server/fallback.ts). */
@@ -415,7 +421,8 @@ export interface AgentsResponse {
 export interface DirEntry { name: string; path: string; isGitRepo: boolean }
 export interface DirListing { path: string; parent?: string; entries: DirEntry[] }
 export interface SetStarBody { path: string; starred: boolean }
-export interface ResumeSessionBody { text: string; model?: string; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; images?: ImageAttachment[]; files?: FileAttachment[] }
+/** `fork: true` continues a terminal session as a copy: a new session id, the source untouched. */
+export interface ResumeSessionBody { text: string; fork?: boolean; model?: string; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; images?: ImageAttachment[]; files?: FileAttachment[] }
 export interface SendMessageBody { text: string; images?: ImageAttachment[]; files?: FileAttachment[] }
 /** One `/` command the session's runtime accepts as message text (name without the slash). */
 export interface SlashCommandInfo { name: string; description?: string; argumentHint?: string }
