@@ -334,8 +334,8 @@ export const RUNTIME_MODELS: Record<Exclude<Runtime, 'claude'>, string[]> = {
     'gemini-4-hydrogen-high',
     'gemini-4-hydrogen-medium',
     'gemini-4-hydrogen-low',
-    'gemini-4-argon-high',
-    'gemini-4-argon-medium',
+    'gemini-4-neon-xhigh',
+    'gemini-4-neon-high',
   ],
 };
 
