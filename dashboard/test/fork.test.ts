@@ -140,7 +140,8 @@ describe('resume fork (terminal continue-as-a-copy)', () => {
   });
 
   it('times out a fork whose CLI never reports an id, and cleans up', async () => {
-    vi.useFakeTimers();
+    // Only the timeout clock is fake: setImmediate stays real so resume's own I/O progresses.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     // The query never yields anything: consume waits forever on the iterator.
     const hangingQuery: QueryFn = () =>
       (async function* generator(): AsyncGenerator<SDKMessage, void> {
@@ -158,14 +159,15 @@ describe('resume fork (terminal continue-as-a-copy)', () => {
       throw err;
     });
     const assertion = expect(pending).rejects.toMatchObject({ status: 504, message: /did not start in time/ });
-    // resume reaches the 60 s race after its own real-I/O awaits: keep advancing
-    // the fake clock until the timer fires and the race settles.
-    for (let i = 0; i < 40 && !settled; i++) {
+    // resume reaches the 60 s race after its own real-I/O awaits (slow under load):
+    // give the event loop a real turn, then advance the fake clock, until it settles.
+    for (let i = 0; i < 2_000 && !settled; i++) {
+      await new Promise(resolve => setImmediate(resolve));
       await vi.advanceTimersByTimeAsync(5_000);
     }
     await assertion;
     // The placeholder was torn down; the source stays unowned.
     expect(sdk.list()).toEqual([]);
     expect(sdk.owns('fork-source-id')).toBe(false);
-  });
+  }, 20_000);
 });

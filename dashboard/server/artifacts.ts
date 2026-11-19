@@ -1,6 +1,6 @@
 // Artifact store: files an agent hands the user, ${XDG_CACHE_HOME || ~/.cache}/swarmkit/artifacts/<sessionId>/.
 // Page sessions get the dir as $SWARMKIT_ARTIFACTS_DIR. Private (dir 0700, no symlinks followed).
-import { constants as fsConstants, lstatSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { constants as fsConstants, existsSync, lstatSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -165,9 +165,10 @@ export function pruneOrphanArtifacts(isKnown: (sessionId: string) => boolean, ma
       const dir = path.join(root, entry.name);
       try {
         if (entry.isSymbolicLink()) {
-          // A fork adoption leaves a link at the placeholder id (and an agent could
-          // plant one): unlink the link itself — never follow it — when the id is
-          // no longer a known session (or its target is gone).
+          // A fork adoption leaves a link at the placeholder id (the forked agent keeps
+          // writing through it). Unlink the link itself, never its target, once the
+          // target is gone or the link is older than maxAgeMs.
+          if (existsSync(dir) && now - lstatSync(dir).mtimeMs < maxAgeMs) continue;
           rmSync(dir);
           removed += 1;
           continue;

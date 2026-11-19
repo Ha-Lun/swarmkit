@@ -95,7 +95,7 @@ const ECHO_AND_BOX = [
 ].join('\n');
 
 /** Fake tmux: records calls, answers display/capture (prompts queue, last repeats).
- *  Without a prompts queue, the first capture shows the idle box and later captures
+ *  Without a prompts queue, captures show the idle box until paste-buffer ran, then
  *  echo the text that load-buffer carried (the paste landed). */
 function makeExec(opts: { paneInfo?: string; prompts?: string[]; pasteFails?: boolean; hangAt?: string; failAt?: string } = {}) {
   const calls: Call[] = [];
@@ -103,6 +103,7 @@ function makeExec(opts: { paneInfo?: string; prompts?: string[]; pasteFails?: bo
   let hung = false;
   let captureCount = 0;
   let lastInput: string | undefined;
+  let pasted = false;
   const exec: TmuxExec = (args, input) => {
     calls.push({ args, input });
     if (opts.hangAt === args[0] && !hung) {
@@ -117,12 +118,13 @@ function makeExec(opts: { paneInfo?: string; prompts?: string[]; pasteFails?: bo
     if (args[0] === 'capture-pane') {
       if (opts.prompts) return Promise.resolve(opts.prompts[Math.min(captureCount++, opts.prompts.length - 1)]);
       return Promise.resolve(
-        captureCount++ === 0
+        !pasted
           ? IDLE_BOX
           : [rule(RULE), `\x1b[39m❯\u00a0${lastInput ?? ''}`, rule(RULE)].join('\n'),
       );
     }
     if (args[0] === 'paste-buffer' && opts.pasteFails) return Promise.reject(new Error('paste failed'));
+    if (args[0] === 'paste-buffer') pasted = true;
     return Promise.resolve('');
   };
   return { calls, exec, release: (v: string) => release(v) };
@@ -173,7 +175,9 @@ describe('capture parsing (visible / findInputBox / prompt checks)', () => {
   it('visible strips dim spans and remaining SGR', () => {
     expect(visible('\x1b[39m❯\u00a0\x1b[2mTry "x"\x1b[0m')).toBe('❯\u00a0');
     expect(visible('\x1b[38;5;153m❯\x1b[39m 2. Sonnet')).toBe('❯ 2. Sonnet');
-    expect(visible('\x1b[39m❯\u00a0\x1b[2mYes, do all three')).toBe('❯\u00a0'); // dim to end of line
+    // tmux ends every attributed line with \x1b[0m; an unterminated span stays as text (fails closed).
+    expect(visible('\x1b[39m❯\u00a0\x1b[2mYes, do all three')).toBe('❯\u00a0Yes, do all three');
+    expect(visible('\x1b[39m❯\u00a0\x1b[2mTry\x1b[0;1mdraft\x1b[0m')).toBe('❯\u00a0draft');
   });
 
   it('finds the last rule-bracketed box and ignores echoes and footer lines', () => {
@@ -212,11 +216,21 @@ describe('capture parsing (visible / findInputBox / prompt checks)', () => {
       '\x1b[39m❯\u00a0hello there',
       rule(RULE),
     ].join('\n');
-    expect(() => requirePastedPrompt(pasted)).not.toThrow();
-    expect(() => requirePastedPrompt(PASTE_CHIP)).not.toThrow(); // the chip is our paste
-    expect(() => requirePastedPrompt(BASH_BOX)).toThrow('not at its main input');
-    expect(() => requirePastedPrompt(PICKER)).toThrow('input box is gone');
-    expect(() => requirePastedPrompt(IDLE_BOX)).toThrow('did not land');
+    expect(() => requirePastedPrompt(pasted, 'hello there')).not.toThrow();
+    expect(() => requirePastedPrompt(PASTE_CHIP, 'a long paste')).not.toThrow(); // the chip is our paste
+    expect(() => requirePastedPrompt(BASH_BOX, 'hello there')).toThrow('not at its main input');
+    expect(() => requirePastedPrompt(PICKER, 'hello there')).toThrow('input box is gone');
+    expect(() => requirePastedPrompt(IDLE_BOX, 'hello there')).toThrow('did not land');
+    // A `/` the user typed between the capture and the paste: not our text, no Enter.
+    const slashed = [rule(RULE), '\x1b[39m❯\u00a0/hello there', rule(RULE)].join('\n');
+    expect(() => requirePastedPrompt(slashed, 'hello there')).toThrow('did not land');
+  });
+
+  it('dim spans end at combined resets and an unterminated one counts as text', () => {
+    const combined = [rule(RULE), '\x1b[39m❯\u00a0\x1b[2mTry it\x1b[0;1mdraft', rule(RULE)].join('\n');
+    expect(() => requireEmptyPrompt(combined)).toThrow('already has text');
+    const unterminated = [rule(RULE), '\x1b[39m❯\u00a0\x1b[2mdraft', rule(RULE)].join('\n');
+    expect(() => requireEmptyPrompt(unterminated)).toThrow('already has text');
   });
 });
 
@@ -358,11 +372,11 @@ describe('sendTerminalMessage inject', () => {
     const { exec, calls } = makeExec();
     await sendTerminalMessage('t1', HOLDER, 'Fix the overlay', baseOpts({ exec }));
     const names = calls.map(c => c.args[0]);
-    // check (display) -> prompt (capture) -> load -> re-check (display) -> paste ->
-    // delete -> re-check (display) + capture -> Enter.
+    // check (display) -> prompt (capture) -> load -> re-check (display) + capture ->
+    // paste -> delete -> re-check (display) + capture -> Enter.
     expect(names).toEqual([
       'display-message', 'capture-pane', 'load-buffer',
-      'display-message', 'paste-buffer', 'delete-buffer',
+      'display-message', 'capture-pane', 'paste-buffer', 'delete-buffer',
       'display-message', 'capture-pane', 'send-keys',
     ]);
     expect(calls[0].args).toContain('-t');
@@ -376,9 +390,9 @@ describe('sendTerminalMessage inject', () => {
     expect(bufferName).toMatch(/^sk-[0-9a-f]+$/);
     expect(calls[2].args[3]).toBe('-'); // the text rides in on stdin
     expect(calls[2].input).toBe('Fix the overlay');
-    expect(calls[4].args).toEqual(['paste-buffer', '-p', '-b', bufferName, '-t', '%3']);
-    expect(calls[5].args).toEqual(['delete-buffer', '-b', bufferName]);
-    expect(calls[8].args).toEqual(['send-keys', '-t', '%3', 'Enter']);
+    expect(calls[5].args).toEqual(['paste-buffer', '-p', '-b', bufferName, '-t', '%3']);
+    expect(calls[6].args).toEqual(['delete-buffer', '-b', bufferName]);
+    expect(calls[9].args).toEqual(['send-keys', '-t', '%3', 'Enter']);
   });
 
   it('accepts the idle box and appends a space for an @token', async () => {
@@ -399,9 +413,9 @@ describe('sendTerminalMessage inject', () => {
     names = failedPaste.calls.map(c => c.args[0]);
     expect(names).toEqual([
       'display-message', 'capture-pane', 'load-buffer',
-      'display-message', 'paste-buffer', 'delete-buffer',
+      'display-message', 'capture-pane', 'paste-buffer', 'delete-buffer',
     ]);
-    expect(failedPaste.calls[4].args).toEqual(['paste-buffer', '-p', '-b', failedPaste.calls[2].args[2], '-t', '%3']);
+    expect(failedPaste.calls[5].args).toEqual(['paste-buffer', '-p', '-b', failedPaste.calls[2].args[2], '-t', '%3']);
   });
 
   it('never sends Enter when claude lost the foreground between paste and Enter', async () => {
@@ -426,16 +440,26 @@ describe('sendTerminalMessage inject', () => {
   });
 
   it('never sends Enter when the capture before Enter shows bash mode', async () => {
-    // First capture (pre-load): idle. Second capture (pre-Enter): the user
-    // switched to bash mode — the pasted text must not be submitted there.
-    const { exec, calls } = makeExec({ prompts: [IDLE_BOX, BASH_BOX] });
+    // Captures before the load and before the paste: idle. Third (pre-Enter): the
+    // user switched to bash mode — the pasted text must not be submitted there.
+    const { exec, calls } = makeExec({ prompts: [IDLE_BOX, IDLE_BOX, BASH_BOX] });
     await expect(
       sendTerminalMessage('t6', HOLDER, 'hi', baseOpts({ exec })),
     ).rejects.toThrow('pasted but not sent');
     const names = calls.map(c => c.args[0]);
     expect(names).toContain('paste-buffer');
-    expect(names.filter(n => n === 'capture-pane')).toHaveLength(2);
+    expect(names.filter(n => n === 'capture-pane')).toHaveLength(3);
     expect(names).not.toContain('send-keys');
+  });
+
+  it('never pastes when the user typed between the first capture and the paste', async () => {
+    const { exec, calls } = makeExec({ prompts: [IDLE_BOX, MULTILINE_DRAFT] });
+    await expect(
+      sendTerminalMessage('t6b', HOLDER, 'hi', baseOpts({ exec })),
+    ).rejects.toThrow('already has text');
+    const names = calls.map(c => c.args[0]);
+    expect(names).not.toContain('paste-buffer');
+    expect(names).toContain('delete-buffer');
   });
 
   it('re-checks before the paste: a pane that dies after load-buffer is refused', async () => {

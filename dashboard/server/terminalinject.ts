@@ -175,8 +175,12 @@ export const COOLDOWN_MS = 5_000;
 
 /** SGR escape sequences (colors and attributes) captured with `-e`. */
 const SGR_RE = /\x1b\[[0-9;]*m/g;
-/** Dim spans: suggestion placeholders, from \x1b[2m to the next reset or end of line. */
-const DIM_SPAN_RE = /\x1b\[2m[\s\S]*?(?:\x1b\[0m|\x1b\[22m|$)/g;
+/**
+ * Dim spans: suggestion placeholders, from \x1b[2m to the next SGR that resets dim
+ * (`0`, `22` or an empty first param, alone or combined like `0;1`). An unterminated
+ * span is left in place, so its text counts as typed text (fails closed).
+ */
+const DIM_SPAN_RE = /\x1b\[2m[\s\S]*?\x1b\[(?:0|22)?(?:;[0-9;]*)?m/g;
 /** claude's main input marker: ❯ (U+276F) followed by a no-break or normal space. */
 const PROMPT_MARKERS = ['❯\u00a0', '❯ '] as const;
 
@@ -359,7 +363,7 @@ export function requireEmptyPrompt(capture: string): void {
  * with ❯ and has visible content (the text or a `[Pasted text` chip). A missing box
  * or a `!` marker (the user switched to bash mode) refuses: no Enter is sent.
  */
-export function requirePastedPrompt(capture: string): void {
+export function requirePastedPrompt(capture: string, sent: string): void {
   const box = findInputBox(capture);
   if (!box) throw new TerminalInjectError("claude's input box is gone");
   const first = visible(box[0]!);
@@ -367,10 +371,12 @@ export function requirePastedPrompt(capture: string): void {
   if (marker === undefined || !marker.startsWith('❯')) {
     throw new TerminalInjectError("claude's prompt is not at its main input");
   }
-  const hasText =
-    first.slice(marker.length).trim().length > 0 ||
-    box.slice(1).some(line => visible(line).trim().length > 0);
-  if (!hasText) throw new TerminalInjectError('the pasted text did not land in the prompt');
+  // The box must start with OUR text (or claude's chip for a long paste): any text is
+  // not enough, since a `/` or `#` the user typed in the gap would turn Enter into a command.
+  const rest = first.slice(marker.length).trimStart();
+  const expected = (sent.split('\n')[0] ?? '').split('\t')[0]!.trim().slice(0, 16);
+  const ours = /^\[Pasted text #\d+/.test(rest) || (expected.length > 0 && rest.startsWith(expected));
+  if (!ours) throw new TerminalInjectError('the pasted text did not land in the prompt');
 }
 
 /** Refuses a stopped (Ctrl-Z / $EDITOR) claude, a foreign pid, or a lost foreground. */
@@ -531,6 +537,8 @@ export async function sendTerminalMessage(
         // load-buffer may still have stored the buffer.
         await exec(['load-buffer', '-b', buffer, '-'], /@\S+$/.test(cleaned) ? `${cleaned} ` : cleaned);
         await check();
+        // Capture again right before the paste: the user may have typed since the first one.
+        requireEmptyPrompt(await capture());
         await exec(['paste-buffer', '-p', '-b', buffer, '-t', pane]);
         pasted = true;
         // The cooldown starts as soon as the pane has the text, Enter or not.
@@ -542,7 +550,7 @@ export async function sendTerminalMessage(
       await delay(opts.enterDelayMs ?? 200);
       try {
         await check();
-        requirePastedPrompt(await capture());
+        requirePastedPrompt(await capture(), cleaned);
       } catch (err) {
         throw new TerminalInjectError(
           `claude lost the terminal foreground; the message was pasted but not sent (${(err as Error).message})`,
