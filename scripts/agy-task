@@ -4,6 +4,7 @@
   agy-task start  SLUG [--model M] [--effort E] [--agent NAME] [--max-denied 10] [--max-tool-errors 20] [--timeout 20m] [--base REF] [--setup CMD] [--review] [--yolo] [--wait] PROMPT|-
   agy-task resume SLUG [--timeout 20m] [--review] [--yolo] PROMPT|-
   agy-task model  [--agent NAME] [--model M] [--effort E]   (prints "<model> <effort|none>" a start would use; starts nothing)
+  agy-task probe                                            (re-run the automatic agy gate probe for the current agy version; agy only)
   agy-task list
   agy-task clean  SLUG [--force]
 
@@ -43,10 +44,16 @@ resume that answered for another conversation is NOT ok and not committed. A bas
 .agents/.agent/_agents/_agent/.gemini is refused, and so is a launch (start after --setup, resume) while the worktree
 has any such entry besides the wrapper's own overlay, or a symlink among them.
 The gate's schema (tool names, argument keys, transcript format) was probed on agy 1.4.2, 1.4.7, 1.4.10, 1.5.8, 1.5.9 and 1.5.10 (AGY_PROBED): another
-agy version is refused unless AGY_TASK_ALLOW_UNPROBED=1. Re-probe before bumping it: in a scratch repo, run one
-plain and one --agent task that reads, edits and searches; compare the tool names and argument keys in
-~/.gemini/antigravity-cli/brain/<conversation>/.system_generated/logs/transcript_full.jsonl and the gate log
-with agy-gate.py's schema, and add only file tools whose path keys are known.
+agy version is refused unless AGY_TASK_ALLOW_UNPROBED=1. On an unprobed version, start and resume run `agy-task probe` first, then continue (or exit 2 if it
+fails): two gated runs on gemini-4-hydrogen-low (one plain, one --agent) in a throwaway git repo under the system temp dir, deleted afterwards, each told to
+read a.txt and sub/b.txt, replace a marker in a.txt, create c.txt, search for "needle" and write <tmp>/escape-<rand>.txt outside the worktree (expected
+denied). The probe passes when the transcript's tool names match the gate log one to one (no "gate hook inactive" or "gate check unavailable"), every tool
+name and argument key is in agy-gate.py's schema (or was denied), the allowed edits happened, the escape file does not exist and its write is denied in the
+gate log, and the repo's .git is untouched; it then records {version, probed_at, agy_tool_names} into $AGY_TASK_DIR/probed-versions.json (atomic, 0600),
+which the version gate accepts next to AGY_PROBED. Parallel starts probe once (fcntl lock; the others wait, then re-read the file). A criterion that fails,
+or a quota, network or timeout error, records nothing. Run `agy-task probe` by hand before bumping AGY_PROBED, then compare the tool names and argument keys
+in ~/.gemini/antigravity-cli/brain/<conversation>/.system_generated/logs/transcript_full.jsonl and the gate log with agy-gate.py's schema, and add only file
+tools whose path keys are known.
 
 Invoked as opencode-task (a symlink) it drives `opencode run`: branches opencode/<slug>, tasks under
 $OPENCODE_TASK_DIR (default ~/.opencode-tasks). A per-run config overlay (OPENCODE_CONFIG_CONTENT, this
@@ -95,7 +102,7 @@ null), wall_s and stopped_by (null | max-denied | max-tool-errors | timeout).
 The running-task limit is shared: agy and opencode tasks of all repos together never exceed it
 (the limit itself is read from the invoked backend's *_TASK_MAX). list and clean stay per repo.
 """
-import argparse, fcntl, functools, hashlib, json, os, re, shlex, shutil, signal, stat, subprocess, sys, threading, time
+import argparse, fcntl, functools, hashlib, importlib.util, json, os, re, shlex, shutil, signal, stat, subprocess, sys, tempfile, threading, time
 from pathlib import Path
 
 # opencode-task is a symlink to this file; the name picks the backend
@@ -410,20 +417,30 @@ def gate_name(s):
     return re.sub(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]", "?", str(s))[:300]
 
 
-def agy_tool_calls(conv):
-    """(tool names agy's transcript of this conversation records, in order; number of INVALID calls skipped), or None if it cannot be read."""
+def agy_steps(conv):
+    """The transcript of this conversation as parsed steps, or None if it cannot be read."""
     if not conv or not re.fullmatch(r"[0-9a-f-]{8,64}", str(conv)):
         return None
     brain = Path(os.environ.get("SWARMKIT_AGY_BRAIN_DIR", Path.home() / ".gemini" / "antigravity-cli" / "brain"))
-    steps, names, skipped = [], [], 0
     try:
-        for line in read_nofollow(brain / conv / ".system_generated" / "logs" / "transcript_full.jsonl").splitlines():
-            try:
-                steps.append(json.loads(line))
-            except ValueError:
-                steps.append(None)
+        text = read_nofollow(brain / conv / ".system_generated" / "logs" / "transcript_full.jsonl")
     except OSError:
         return None
+    steps = []
+    for line in text.splitlines():
+        try:
+            steps.append(json.loads(line))
+        except ValueError:
+            steps.append(None)
+    return steps
+
+
+def agy_tool_calls(conv):
+    """(tool names agy's transcript of this conversation records, in order; number of INVALID calls skipped), or None if it cannot be read."""
+    steps = agy_steps(conv)
+    if steps is None:
+        return None
+    names, skipped = [], 0
     for step, nxt in zip(steps, steps[1:] + [None]):
         try:  # an unreadable step drops its calls: a shorter list never matches the gate log
             calls = step.get("tool_calls") or []
@@ -443,6 +460,285 @@ def read_nofollow(path):
         if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
             raise OSError(f"{path} is not a regular file")
         return f.read()
+
+
+# The automatic agy gate probe (`agy-task probe`, agy only): two gated runs on a small model in a
+# throwaway git repo under the system temp dir, one plain and one --agent, each told to read two
+# files, replace a marker, create a file, search and write outside the worktree (expected denied).
+# A pass means the gate schema still fits the transcript (see 'agy gate' in --help); the version is
+# recorded in probed-versions.json, which the version gate accepts next to AGY_PROBED.
+PROBE_MODEL = "gemini-4-hydrogen-low"
+PROBE_AGENT = "code-proofreader"  # a core agent of the agy plugin, for the --agent run
+PROBE_TIMEOUT = "3m"
+PROBE_PROMPT = """Work only with absolute paths under {wt}.
+1) Read {wt}/a.txt and {wt}/sub/b.txt.
+2) In {wt}/a.txt, replace the line "{marker}" with "REPLACED".
+3) Create {wt}/c.txt containing the single word done.
+4) Search for the word "needle" in the worktree (grep_search if you have it, else read {wt}/needle.txt).
+5) Finally write a file to {escape} (an absolute path outside the worktree). If that write is denied, that is expected: note it and stop.
+Report one line: which steps succeeded and which were denied."""
+
+
+def agy_version():
+    """The first X.Y.Z of `agy --version`, or None if agy is missing or prints no version."""
+    try:
+        return re.search(r"\d+\.\d+\.\d+", subprocess.run(["agy", "--version"], capture_output=True, text=True).stdout)
+    except OSError:
+        return None
+
+
+@functools.cache
+def agy_gate_schema():
+    """(tool -> (path keys, other keys), common keys) of scripts/agy-gate.py, imported from its file."""
+    s = importlib.util.spec_from_file_location("swarmkit_agy_gate", Path(__file__).resolve().parent / "agy-gate.py")
+    m = importlib.util.module_from_spec(s)
+    s.loader.exec_module(m)
+    return {**m.READ, **m.EDIT, **m.SHELL}, m.COMMON
+
+
+def agy_probe_calls(conv):
+    """Name and args of every transcript tool call of this conversation, the INVALID calls skipped like
+    agy_tool_calls, or None if it cannot be read."""
+    steps = agy_steps(conv)
+    if steps is None:
+        return None
+    calls = []
+    for step, nxt in zip(steps, steps[1:] + [None]):
+        try:  # an unreadable step drops its calls: a shorter list never matches the gate log
+            cs = step.get("tool_calls") or []
+            if len(cs) == 1 and isinstance(nxt, dict) and nxt.get("status") == "INVALID":
+                continue
+            calls += [{"name": c.get("name"), "args": c.get("args") if isinstance(c.get("args"), dict) else {}}
+                      for c in cs]
+        except (AttributeError, TypeError):
+            pass
+    return calls
+
+
+def agy_probe_problems(calls, gate_log, edits_ok, escape, escape_absent, clean_git):
+    """The failed pass criteria of one probe run, or []. CALLS is agy_probe_calls() of the run (None if
+    the transcript is unreadable), GATE_LOG its gate.log lines ("allow|deny|deny-quiet TOOL TARGET").
+    ESCAPE is the outside path the run was told to write; ESCAPE_ABSENT says the file does not exist.
+    The other booleans: the allowed edits happened, and the scratch repo's .git is untouched."""
+    if calls is None:
+        return ["gate check unavailable: agy's transcript of the probe run is missing or unreadable"]
+    seen = []
+    for line in gate_log:
+        p = line.split(" ", 2)
+        if len(p) >= 2:
+            seen.append((p[0], p[1]))
+    names = [gate_name(c.get("name")) for c in calls]
+    problems = []
+    if [n for _, n in seen] != names:
+        problems.append(f"gate mismatch: {len(seen)} gate decisions for {len(names)} tool calls "
+                        f"({' '.join(n for _, n in seen[:8])} | {' '.join(names[:8])})")
+    else:  # one to one: a decision per call, so "allow" tells us which calls the gate let through
+        schema, common = agy_gate_schema()
+        for (verdict, _), c in zip(seen, calls):
+            if verdict != "allow":
+                continue
+            n = gate_name(c.get("name"))
+            if n not in schema:
+                problems.append(f"unknown tool allowed: {n}")
+                continue
+            keys, other = schema[n]
+            problems += [f"unknown argument key {k} on allowed {n}" for k in (c.get("args") or {})
+                         if k not in keys + other + common]
+    escape_denied = any(line.split(" ", 1)[0].startswith("deny") and str(escape) in line
+                        for line in gate_log)
+    if not escape_denied:
+        problems.append("the escape write is not denied in the gate log")
+    if not edits_ok:
+        problems.append("the allowed edits did not happen (marker replaced, c.txt created)")
+    if not escape_absent:
+        problems.append("the escape file exists: the gate let a write outside the worktree through")
+    if not clean_git:
+        problems.append("the scratch repo's .git changed")
+    return problems
+
+
+def agy_probe_state():
+    """The probe state file: <AGY_TASK_DIR>/probed-versions.json (default ~/.agy-tasks), next to the task dirs."""
+    d = os.environ.get(f"{BACKEND['env']}_DIR", Path.home() / BACKEND["home"])
+    return Path(os.path.realpath(d)) / "probed-versions.json"
+
+
+def probed_versions():
+    """Versions recorded in the probe state file ([] if missing or unreadable: an unreadable file is
+    unprobed, and a passing probe records a fresh one)."""
+    try:
+        recs = json.loads(read_nofollow(agy_probe_state()))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(recs, list):
+        return []
+    return [r["version"] for r in recs if isinstance(r, dict) and isinstance(r.get("version"), str)]
+
+
+def record_probed_version(version, tool_names):
+    """Append {version, probed_at, agy_tool_names} to the state file (dir 0700, file 0600, atomic
+    rename), never through a symlink. False if it cannot be written."""
+    p = agy_probe_state()
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(p.parent, 0o700)
+        recs = []
+        try:
+            old = json.loads(read_nofollow(p))
+            if isinstance(old, list):
+                recs = [r for r in old if isinstance(r, dict)]
+        except (OSError, ValueError):
+            pass  # a missing or unreadable state file starts a new list
+        recs.append({"version": version, "probed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                     "agy_tool_names": list(tool_names)})
+        tmp = p.parent / f".probed-versions-{os.getpid()}.tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(recs) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, p)
+    except OSError as e:
+        print(f"{PROG}: cannot record the probed version: {e}", file=sys.stderr)
+        return False
+    return True
+
+
+def agy_gate_decision(version, yolo=False, override=None, probed=None):
+    """How a gated agy launch proceeds for VERSION: 'proceed' (probed, or the gate is off under --yolo:
+    nothing to check), 'probe' (run the automatic probe first), 'override' (unprobed but
+    AGY_TASK_ALLOW_UNPROBED=1) or 'unknown' (agy's version could not be read)."""
+    if yolo:
+        return "proceed"
+    probed = probed_versions() if probed is None else probed
+    if version in probed or version == AGY_PROBED:
+        return "proceed"
+    if override == "1":
+        return "override"
+    return "probe" if version else "unknown"
+
+
+def agy_probe_run(task, main, sha, marker, escape, agent):
+    """One gated probe run (agy_cmd applies the gate overlay and builds the command): {'calls', 'problems'}."""
+    task.mkdir(parents=True)
+    wt = task / "worktree"
+    sh("git", "-C", str(main), "worktree", "add", "-q", str(wt), sha)
+    dotgit0 = (wt / ".git").read_bytes()
+    a = argparse.Namespace(review=False, yolo=False, agent=agent, model=PROBE_MODEL, effort=None,
+                           timeout=PROBE_TIMEOUT)
+    prompt = PROBE_PROMPT.format(wt=wt, marker=marker, escape=escape)
+    cmd = agy_cmd(task, prompt, a, None)
+    try:
+        r = subprocess.run(cmd, cwd=wt, text=True, capture_output=True, start_new_session=True,
+                           timeout=seconds(a.timeout) + BACKEND["grace"])
+        out, err, code, timed = r.stdout, r.stderr, r.returncode, False
+    except subprocess.TimeoutExpired as e:
+        out, err, code, timed = e.stdout or "", e.stderr or "", None, True
+    res = agy_parse(out, err)
+    calls = agy_probe_calls(res["conversation_id"])
+    try:
+        gate_log = [x for x in read_nofollow(task / "gate.log").splitlines() if x]
+    except OSError as e:
+        gate_log = [f"deny ? gate log unreadable: {e}"]
+    problems = []
+    if timed:
+        problems.append("the run timed out")
+    if code:
+        problems.append(f"agy exited {code}: {(err or out).strip()[-200:]}")
+    elif not res["done"] and not timed:
+        problems.append("agy did not report SUCCESS")
+    try:
+        content = (wt / "a.txt").read_text()
+    except OSError:
+        content = ""
+    edits_ok = marker not in content and "REPLACED" in content and (wt / "c.txt").is_file()
+    escape_absent = not os.path.lexists(escape)
+    problems += agy_probe_problems(calls, gate_log, edits_ok, escape, escape_absent,
+                                   dotgit_ok({"wt": wt, "dotgit": dotgit0}))
+    return {"calls": calls, "problems": problems}
+
+
+def run_probe(version):
+    """The gate probe for agy VERSION: two gated runs (plain, then --agent PROBE_AGENT) in a throwaway
+    git repo under the system temp dir, then the pass criteria of 'agy gate' in --help. On a pass the
+    version is recorded with the tool names the transcripts show; a failed criterion or a run error
+    (quota, network, timeout) records nothing. The repo and the escape dir are deleted whatever
+    happens. Returns 0 on pass, 1 on fail."""
+    bad = agy_agent_problem(PROBE_AGENT)
+    if bad:
+        print(f"{PROG}: probe: {bad}", file=sys.stderr)
+        return 1
+    root = escape_dir = None
+    try:
+        root = Path(tempfile.mkdtemp(prefix="agy-probe-"))
+        marker = "MARKER-" + os.urandom(4).hex()
+        main = root / "main"
+        main.mkdir()
+        (main / "sub").mkdir()
+        (main / "a.txt").write_text(f"first line\n{marker}\nlast line\n")
+        (main / "sub" / "b.txt").write_text("b\n")
+        (main / "needle.txt").write_text("needle\n")
+        git = ["git", "-C", str(main)]
+        sh(*git, "init", "-q")
+        sh(*git, "-c", "user.name=agy-probe", "-c", "user.email=agy-probe@invalid", "add", "-A")
+        sh(*git, "-c", "user.name=agy-probe", "-c", "user.email=agy-probe@invalid", "commit", "-qm", "probe fixture")
+        sha = sh(*git, "rev-parse", "HEAD")
+        escape_dir = Path(tempfile.mkdtemp(prefix="agy-probe-escape-"))
+        escape = escape_dir / f"escape-{os.urandom(4).hex()}.txt"
+        names, problems = set(), []
+        for i, agent in enumerate((None, PROBE_AGENT)):
+            label = "plain" if agent is None else f"--agent {agent}"
+            print(f"{PROG}: probe run {i + 1}/2 ({label}) on {PROBE_MODEL}", file=sys.stderr)
+            p = agy_probe_run(root / f"task-{i + 1}", main, sha, marker, escape, agent)
+            names |= {gate_name(c.get("name")) for c in (p["calls"] or [])}
+            problems += [f"{label}: {x}" for x in p["problems"]]
+        if problems:
+            print(f"{PROG}: probe of agy {version} failed, nothing recorded:", file=sys.stderr)
+            for x in problems:
+                print(f"  - {x}", file=sys.stderr)
+            return 1
+        if not record_probed_version(version, sorted(names)):
+            return 1
+        print(f"{PROG}: probe of agy {version} passed ({len(names)} tool names: {', '.join(sorted(names))})",
+              file=sys.stderr)
+        return 0
+    finally:
+        if root:
+            shutil.rmtree(root, ignore_errors=True)
+        if escape_dir:
+            shutil.rmtree(escape_dir, ignore_errors=True)
+
+
+def run_probe_locked(version, force=False):
+    """run_probe for VERSION under an fcntl lock, so parallel starts probe once (the others wait, then
+    re-read the state file). force=True (the `probe` subcommand) re-runs a recorded version."""
+    p = agy_probe_state().parent
+    p.mkdir(parents=True, exist_ok=True)
+    lock = open(p / ".probe.lock", "a")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not force and version in probed_versions():  # a parallel start probed it while we waited
+            return 0
+        return run_probe(version)
+    finally:
+        fcntl.flock(lock, fcntl.LOCK_UN)
+        lock.close()
+
+
+def agy_probe_cmd(a):
+    """The `probe` subcommand: always re-run the probe for the current agy version."""
+    if CLI != "agy":
+        print(f"{PROG}: probe is agy-task only", file=sys.stderr)
+        return 2
+    if a.yolo:
+        print(f"{PROG}: the probe never runs under --yolo", file=sys.stderr)
+        return 2
+    v = agy_version()
+    if not v:
+        print(f"{PROG}: cannot determine the agy version to probe", file=sys.stderr)
+        return 2
+    return run_probe_locked(v[0], force=True)
 
 
 CLIENT_MODEL = "opencode-go/mimo-v2.6-flash"
@@ -1077,7 +1373,7 @@ def resolve(a, is_client=False):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    ap.add_argument("cmd", choices=["start", "resume", "list", "clean", "model", "client-repo"])
+    ap.add_argument("cmd", choices=["start", "resume", "list", "clean", "model", "client-repo", "probe"])
     ap.add_argument("slug", nargs="?")
     ap.add_argument("prompt", nargs="?", help="task text, or - to read it from stdin")
     ap.add_argument("--model", default=None)
@@ -1093,6 +1389,8 @@ def main():
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--wait", action="store_true", help="queue for a free slot instead of refusing at the limit")
     a = ap.parse_args()
+    if a.cmd == "probe":
+        sys.exit(agy_probe_cmd(a))
     if a.cmd in ("start", "resume"):
         manual, claude, opencode, agy_lead = (os.environ.get(k) == "1" for k in
                                               ("SWARMKIT_ALLOW_WORKERS", "CLAUDECODE", "OPENCODE", "SWARMKIT_AGY_LEAD"))
@@ -1200,16 +1498,23 @@ def main():
     if not a.slug or not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,40}", a.slug):
         sys.exit(f"{PROG}: slug must be lowercase letters, digits, . _ - (max 41 chars)")
     task, branch = root / a.slug, f"{CLI}/{a.slug}"
-    if CLI == "agy" and a.cmd in ("start", "resume") and not a.yolo:
-        try:
-            v = re.search(r"\d+\.\d+\.\d+", subprocess.run(["agy", "--version"], capture_output=True, text=True).stdout)
-        except OSError:
-            v = None
-        if (v and v[0]) != AGY_PROBED and os.environ.get("AGY_TASK_ALLOW_UNPROBED") != "1":
-            print(f"{PROG}: agy {v[0] if v else '(version unknown)'} is not the version the gate was probed on"
-                  f" ({AGY_PROBED}); its tool names, argument keys or transcript may differ. Re-probe (see 'agy gate'"
-                  " in --help) and bump AGY_PROBED, or set AGY_TASK_ALLOW_UNPROBED=1", file=sys.stderr)
+    if CLI == "agy" and a.cmd in ("start", "resume"):
+        v = agy_version()
+        version = v[0] if v else None
+        decision = agy_gate_decision(version, a.yolo, os.environ.get("AGY_TASK_ALLOW_UNPROBED"))
+        if decision == "unknown":
+            print(f"{PROG}: agy (version unknown) is not the version the gate was probed on ({AGY_PROBED});"
+                  " re-probe with 'agy-task probe' once the version prints, or set AGY_TASK_ALLOW_UNPROBED=1",
+                  file=sys.stderr)
             sys.exit(2)
+        if decision == "override":
+            print(f"{PROG}: agy {version} is not probed; proceeding under AGY_TASK_ALLOW_UNPROBED=1", file=sys.stderr)
+        elif decision == "probe":
+            print(f"{PROG}: agy {version} not probed: running the gate probe (2 small Hydrogen-low runs)", file=sys.stderr)
+            if run_probe_locked(version) != 0:
+                print(f"{PROG}: the gate probe failed for agy {version} (see the report above); re-run 'agy-task probe'"
+                      " by hand for the full report, or set AGY_TASK_ALLOW_UNPROBED=1", file=sys.stderr)
+                sys.exit(2)
 
     if a.cmd == "clean":
         wt = task / "worktree"
