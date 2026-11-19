@@ -216,6 +216,14 @@ interface PageSession {
   fallbackOf?: { sessionId: string; title: string };
   /** Terminal slash commands from the init message (filtered out of commands()). */
   terminalCommands?: Set<string>;
+  /**
+   * Fork resume (terminal continue-as-a-copy): the source session id the query resumes,
+   * while this PageSession lives under a fresh id until the init message names the
+   * CLI's new session id (adopted in consume(), which clears this). Upserts stay
+   * suppressed while it is set.
+   */
+  forkOf?: string;
+  forkInit?: { promise: Promise<void>; resolve: () => void };
   upsertThrottle: { lastSent: number; timer: NodeJS.Timeout | null };
 }
 
@@ -451,6 +459,14 @@ export class SdkSessions {
     session.generation += 1;
     const generation = session.generation;
     session.abort = new AbortController();
+    // A fork resume resolves on the init message (id adopted) or when the query ends.
+    if (session.forkOf && !session.forkInit) {
+      let resolve!: () => void;
+      const promise = new Promise<void>(r => {
+        resolve = r;
+      });
+      session.forkInit = { promise, resolve };
+    }
     // Untrusted projects only get user settings: project/local settings files would be attacker-controlled.
     session.untrustedProject = !isProjectTrusted(session.cwd);
     const artifactsDir = this.artifactsDirFor(session);
@@ -469,7 +485,9 @@ export class SdkSessions {
         env: { ...(process.env as Record<string, string>), ...secretEnv(session.cwd), ...(artifactsDir ? { SWARMKIT_ARTIFACTS_DIR: artifactsDir } : {}) },
         ...(artifactsDir ? { additionalDirectories: [artifactsDir] } : {}),
         // A resumed session keeps its id and drops the fixed sessionId (the SDK continues the old one).
-        ...(resume ? { resume: session.id } : { sessionId: session.id }),
+        // A fork resumes the source id under a new session id (the init message names it).
+        ...(resume ? { resume: session.forkOf ?? session.id } : { sessionId: session.id }),
+        ...(session.forkOf ? { forkSession: true } : {}),
         ...(session.agent ? { agent: session.agent } : {}),
         ...(model ? { model } : {}),
         ...(effort ? { effort } : {}),
@@ -675,6 +693,22 @@ export class SdkSessions {
         if (init.type === 'system' && (init.subtype === 'init' || init.subtype === 'status') && typeof init.permissionMode === 'string') {
           session.permissionMode = init.permissionMode as NonNullable<Options['permissionMode']>;
         }
+        // A fork resume adopts the CLI's new session id from the init message: the
+        // PageSession was created under a fresh placeholder id, and the transcript
+        // continues under the id the CLI picked. Afterwards the session is its own
+        // (later resumes continue it normally).
+        if (session.forkOf && init.type === 'system' && init.subtype === 'init') {
+          const sid = (message as unknown as { session_id?: unknown }).session_id;
+          if (typeof sid === 'string' && sid.length > 0 && sid !== session.id && !this.sessions.has(sid)) {
+            this.sessions.delete(session.id);
+            session.id = sid;
+            session.tree.sessionId = sid;
+            for (const node of session.tree.nodes.values()) node.sessionId = sid;
+            this.sessions.set(sid, session);
+          }
+          session.forkOf = undefined;
+          session.forkInit?.resolve();
+        }
         if (init.type === 'system' && init.subtype === 'init' && Array.isArray(init.terminal_slash_commands)) {
           session.terminalCommands = new Set(
             init.terminal_slash_commands.filter((v): v is string => typeof v === 'string'),
@@ -730,6 +764,8 @@ export class SdkSessions {
     } finally {
       session.consuming = false;
       if (generation === session.generation) session.query = null;
+      // A fork resume waiting for the adoption returns as soon as the stream ends.
+      session.forkInit?.resolve();
     }
   }
 
@@ -1019,15 +1055,18 @@ export class SdkSessions {
     }
     // A live heartbeat file from any process (terminal or SDK run) forked by adoption
     // is the dangerous case this guard exists for: refuse before anything else moves.
+    // A fork (`fork: true`) never touches the source: it continues as a copy under a
+    // new session id, so a holder and a fresh transcript are both fine there.
     const holder = await liveHolder(id);
-    if (holder) throw new SessionError(409, holderMessage(holder.pid));
+    if (holder && !body?.fork) throw new SessionError(409, holderMessage(holder.pid));
     const stillLive =
       info.transcriptMtimeMs !== undefined && Date.now() - info.transcriptMtimeMs < ACTIVE_MS;
-    if (stillLive) throw new SessionError(409, 'This session is still active in a terminal');
+    if (stillLive && !body?.fork) throw new SessionError(409, 'This session is still active in a terminal');
     if (effort === undefined && isOpusModel(model) && !isOpusModel(priorRoot?.model)) effort = 'high';
     const priorNodes = info.nodes ?? [];
     const title = info.title ?? priorRoot?.description ?? 'Resumed session';
-    const tree = this.rebuildTree(id, priorNodes, title);
+    const sessionId = body?.fork === true ? randomUUID() : id;
+    const tree = this.rebuildTree(sessionId, priorNodes, title);
     const priorModel = priorRoot?.model && priorRoot.model !== '<synthetic>' ? priorRoot.model : undefined;
     const sessionModel = model ?? priorModel;
     if (model) {
@@ -1035,13 +1074,14 @@ export class SdkSessions {
       if (root) root.model = model;
     }
     const session: PageSession = {
-      id,
+      id: sessionId,
       cwd,
       ...(storedAgent ? { agent: storedAgent } : {}),
       ...(sessionModel ? { model: sessionModel } : {}),
       ...(effort ? { effort } : {}),
       // Terminal adoptions are always Claude Code sessions (non-Claude models refuse above).
       runtime: 'claude',
+      ...(body?.fork === true ? { forkOf: id } : {}),
       title: firstPromptLine(title),
       startedAt: priorRoot?.startedAt ?? Date.now(),
       updatedAt: Date.now(),
@@ -1057,9 +1097,19 @@ export class SdkSessions {
       untrustedProject: false,
       upsertThrottle: { lastSent: 0, timer: null },
     };
-    this.sessions.set(id, session);
+    this.sessions.set(sessionId, session);
     this.startQuery(session, text, session.model, effort, true, images, files);
-    return id;
+    if (session.forkOf) {
+      // Wait for the init message so the caller gets the id the transcript really
+      // continues under (the CLI picks it when forking). A stream that ends without
+      // one resolves too: the placeholder id stands in.
+      await Promise.race([
+        session.forkInit?.promise,
+        new Promise<void>(resolve => setTimeout(resolve, 60_000).unref()),
+      ]);
+      session.forkInit = undefined;
+    }
+    return session.id;
   }
 
   /**
@@ -1392,8 +1442,9 @@ export class SdkSessions {
     };
   }
 
-  /** At most one session.upsert per UPSERT_MS per session. */
+  /** At most one session.upsert per UPSERT_MS per session; silent until a fork adopted its id. */
   private scheduleUpsert(session: PageSession): void {
+    if (session.forkOf) return;
     session.updatedAt = Date.now();
     const since = session.updatedAt - session.upsertThrottle.lastSent;
     const send = () => {
@@ -1412,8 +1463,9 @@ export class SdkSessions {
     session.upsertThrottle.timer.unref();
   }
 
-  /** Always sends one final session.upsert (after done/error/stopped). */
+  /** Always sends one final session.upsert (after done/error/stopped); silent for an un-adopted fork. */
   private flushUpsert(session: PageSession): void {
+    if (session.forkOf) return;
     if (session.upsertThrottle.timer) {
       clearTimeout(session.upsertThrottle.timer);
       session.upsertThrottle.timer = null;

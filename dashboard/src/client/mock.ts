@@ -157,6 +157,7 @@ export function createMockBackend(): FleetBackend {
     nodeCount: 1,
     pendingPermissions: 0,
     resumable: true,
+    terminal: { pane: true, busy: false },
   };
   const t2: SessionSummary = {
     id: 'mock-term-2',
@@ -171,6 +172,7 @@ export function createMockBackend(): FleetBackend {
     nodeCount: 2,
     pendingPermissions: 0,
     resumable: true,
+    terminal: { pane: true, busy: false },
   };
   const t3: SessionSummary = {
     id: 'mock-term-3',
@@ -413,6 +415,7 @@ export function createMockBackend(): FleetBackend {
     nodeCount: 1,
     pendingPermissions: 2,
     resumable: false,
+    terminal: { pane: true, busy: true },
   };
   sessions.set(t5.id, t5);
   nodeMaps.set(t5.id, new Map());
@@ -1441,6 +1444,23 @@ A claim with a footnote.[^1]
       bumpSession(sessionId);
       return Promise.resolve({ ok: true });
     },
+    terminalMessage: (sessionId, text) => {
+      const map = nodeMaps.get(sessionId);
+      const s = sessions.get(sessionId);
+      if (!map || !s || s.source !== 'terminal') {
+        return Promise.reject(new Error('mock: no terminal session'));
+      }
+      if (s.terminal?.busy) return Promise.reject(new ApiError(409, 'busy in terminal'));
+      const n = map.get('root');
+      if (n) {
+        pushEvent(n, 'user', text.split('\n')[0], { detail: text });
+        at(1600, () => {
+          if (n.status !== 'running') pushEvent(n, 'text', 'Pasted into the terminal pane (mock).');
+        });
+      }
+      bumpSession(sessionId);
+      return Promise.resolve({ ok: true });
+    },
     stop: (sessionId) => {
       const map = nodeMaps.get(sessionId);
       const s = sessions.get(sessionId);
@@ -1572,6 +1592,54 @@ A claim with a footnote.[^1]
       const s = sessions.get(sessionId);
       const map = nodeMaps.get(sessionId);
       if (!s || !map) return Promise.reject(new ApiError(404, 'session not found'));
+      if (body.fork) {
+        // Continue as a copy: a new page session; the terminal source is untouched.
+        const id = uid('page');
+        const now = Date.now();
+        const copy: SessionSummary = {
+          ...s,
+          id,
+          source: 'page',
+          status: 'running',
+          startedAt: now,
+          updatedAt: now,
+          costUsd: 0,
+          nodeCount: 1,
+          pendingPermissions: 0,
+          resumable: false,
+          terminal: undefined,
+        };
+        sessions.set(id, copy);
+        permLists.set(id, []);
+        nodeMaps.set(id, new Map());
+        const n: AgentNode = {
+          id: 'root',
+          sessionId: id,
+          parentId: null,
+          kind: 'main',
+          agentType: s.agent ?? 'main',
+          model: body.model ?? s.model,
+          description: s.title,
+          prompt: body.text,
+          status: 'running',
+          startedAt: now,
+          costUsd: 0,
+          tokens: tu(0, 0, 0, 0),
+          toolCounts: {},
+          events: [{ id: uid('ev'), ts: now, kind: 'user', summary: body.text.split('\n')[0], detail: body.text }],
+          lastActivity: body.text.split('\n')[0],
+        };
+        nodeMaps.get(id)!.set('root', n);
+        emit?.({ type: 'session.upsert', session: { ...copy } });
+        upsertHead(n);
+        at(1800, () => {
+          if (n.status === 'running') pushEvent(n, 'text', 'Continuing the copy — scripted mock reply.');
+        });
+        at(3600, () => {
+          if (n.status === 'running') finishNode(n, 'Copy continued and finished (mock).', 0.012, tu(2400, 700));
+        });
+        return Promise.resolve({ sessionId: id } satisfies StartSessionResponse);
+      }
       const root = map.get('root');
       if (s.status === 'running' || s.status === 'waiting') {
         return Promise.reject(new ApiError(409, 'This session is still active in a terminal'));

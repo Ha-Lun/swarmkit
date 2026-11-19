@@ -26,6 +26,7 @@ import { startPresence } from './presence';
 import { parseDeepLink, pushSupported, registerWorker, stripDeepLink } from './push';
 import type { DeepLink } from './push';
 import { StatusBar } from './StatusBar';
+import { TerminalComposer } from './TerminalComposer';
 import { initialState, nodeById, reducer } from './state';
 import { SecretsContext, useSecretsDialog } from './Secrets';
 import type { SecretsRestart } from './Secrets';
@@ -906,6 +907,16 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
     [backend, guardSilent],
   );
 
+  // A fork (terminal continue-as-a-copy) creates a new id: select it too, or the UI
+  // stays on the untouched terminal session even though the detail is the copy's.
+  const handleForked = useCallback(
+    (id: string) => {
+      dispatch({ type: 'select', sessionId: id });
+      handleResumed(id);
+    },
+    [dispatch, handleResumed],
+  );
+
   const returnName = activeNode
     ? [agentLabel(activeNode), agentSubtitle(activeNode)].filter(Boolean).join(' — ').slice(0, 80)
     : '';
@@ -1158,6 +1169,14 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
                 }}
                 loadCommands={() => backend.commands(selected.id).then((r) => r.commands)}
               />
+            ) : selected.source === 'terminal' && selected.terminal?.pane ? (
+              <TerminalComposer
+                key={`term-composer:${selected.id}`}
+                session={selected}
+                onSend={(text) => guardSilent(backend.terminalMessage(selected.id, text)).then((r) => {
+                  if (r === undefined) throw new Error('Could not send into the terminal.');
+                })}
+              />
             ) : running ? (
               <div className="readonly-bar">
                 Read-only — this session is running in a terminal. Continue becomes available when it stops.
@@ -1177,7 +1196,8 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
                 git={gitInfo}
                 sessionId={selected.id}
                 source={selected.source}
-                onResumed={handleResumed}
+                fork={selected.source === 'terminal' && !selected.terminal?.pane}
+                onResumed={selected.source === 'terminal' && !selected.terminal?.pane ? handleForked : handleResumed}
                 loadCommands={() => backend.commands(selected.id).then((r) => r.commands)}
               />
             ) : null

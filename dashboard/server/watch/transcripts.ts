@@ -5,6 +5,7 @@ import type { Dirent } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type { PermissionRequest, ServerEvent, SessionDetail, SessionSummary } from '../../src/shared/types.ts';
 import { applyMessage, createTree, ensureNode, markPlaceholder, setStatus, upsertEvent, type SessionTree } from '../model/reducer.ts';
+import { DASHBOARD_ENTRYPOINTS } from '../livesessions.ts';
 import type { LiveHolder } from '../livesessions.ts';
 import { liveHolders } from '../livesessions.ts';
 import { pollWorkers } from '../model/workers.ts';
@@ -91,6 +92,10 @@ export class TranscriptWatcher {
   private metaCache = new Map<string, { mtimeMs: number; size: number; data: Record<string, unknown> }>();
   /** Live-registry snapshot (sessionId -> holder), refreshed from liveHolders() at most every 2 s. */
   private holders = new Map<string, LiveHolder>();
+  /** Head cache for held sessions read on demand (outside heads / the listing window). */
+  private heldHeads = new Map<string, HeadEntry>();
+  /** Resolved once the first scanNow() ran: holders are populated before the first list(). */
+  private firstScan: Promise<void> = Promise.resolve();
   /** Terminal permission prompts relayed through the Claude Code hook: sessionId -> id -> request. */
   private terminalPending = new Map<string, Map<string, PermissionRequest>>();
   private timer: ReturnType<typeof setInterval> | undefined;
@@ -111,7 +116,12 @@ export class TranscriptWatcher {
       void this.scanNow().catch(() => {});
     }, SCAN_MS);
     this.timer.unref?.();
-    void this.scanNow().catch(() => {});
+    this.firstScan = this.scanNow().catch(() => {});
+  }
+
+  /** Resolves when the initial scan finished (holders populated); safe to await repeatedly. */
+  ready(): Promise<void> {
+    return this.firstScan;
   }
 
   stop(): void {
@@ -127,7 +137,9 @@ export class TranscriptWatcher {
     this.scanning = true;
     try {
       this.refreshHeadsSync();
+      const prevHolders = this.holders;
       await this.refreshHolders();
+      this.emitHolderChanges(prevHolders, this.holders);
       const now = Date.now();
       await this.evictLive(now);
       // Only sessions modified in the last 2 min are parsed eagerly (at most 2 per tick).
@@ -172,6 +184,7 @@ export class TranscriptWatcher {
   private async evictLive(now: number): Promise<void> {
     const drop: string[] = [];
     for (const [id, live] of [...this.live.entries()]) {
+      if (this.holders.has(id)) continue; // a live claude process holds this session: keep it
       if (this.terminalPending.has(id) && !this.skipFn(id)) continue; // a hook holds this session open
       const stale = now - live.mtimeMs > LIVE_MS;
       const unaccessed = now - live.lastAccess > ACCESS_MS;
@@ -195,7 +208,7 @@ export class TranscriptWatcher {
   /** Cap-only LRU trim (used after eager parses): no file probing needed. */
   private async trimLiveToCap(): Promise<void> {
     if (this.live.size <= MAX_LIVE) return;
-    const candidates = [...this.live.keys()].filter(id => !this.terminalPending.has(id));
+    const candidates = [...this.live.keys()].filter(id => !this.terminalPending.has(id) && !this.holders.has(id));
     candidates.sort((a, b) => {
       const la = this.live.get(a)!;
       const lb = this.live.get(b)!;
@@ -242,6 +255,14 @@ export class TranscriptWatcher {
       if (!summary.title && head) summary.title = head.title;
       if (!summary.agent && head?.agent) summary.agent = head.agent;
       out.set(id, summary);
+    }
+    // Held sessions outside heads (older than the listing window or capped away) stay
+    // listed while their claude process lives: their transcript head is read on demand.
+    for (const id of this.holders.keys()) {
+      if (out.has(id) || this.skipFn(id)) continue;
+      const head = this.heldHead(id);
+      if (!head) continue; // no transcript yet: nothing to show
+      out.set(id, headSummary(head, this.holders, this.pendingCount(id)));
     }
     return [...out.values()].sort((a, b) => b.updatedAt - a.updatedAt);
   }
@@ -415,6 +436,65 @@ export class TranscriptWatcher {
   /** Fresh live-registry snapshot (cached in livesessions, at most one dir read per 2 s). */
   private async refreshHolders(): Promise<void> {
     this.holders = await liveHolders();
+  }
+
+  /**
+   * Diffs the live-registry snapshots and emits session.upsert for every id whose holder
+   * appeared, changed (pid or status) or disappeared: without this a tab whose claude just
+   * exited (or turned busy/idle in the terminal) keeps its stale summary until the next
+   * transcript write.
+   */
+  private emitHolderChanges(prev: Map<string, LiveHolder>, next: Map<string, LiveHolder>): void {
+    const ids = new Set([...prev.keys(), ...next.keys()]);
+    for (const id of ids) {
+      if (this.skipFn(id)) continue;
+      const before = prev.get(id);
+      const after = next.get(id);
+      if (before && after && before.pid === after.pid && before.status === after.status) continue;
+      const summary = this.holderSummary(id);
+      if (!summary) continue;
+      this.emitFn({ type: 'session.upsert', session: summary });
+    }
+    // Head entries read on demand for gone holders are no longer needed.
+    for (const id of prev.keys()) {
+      if (!next.has(id)) this.heldHeads.delete(id);
+    }
+  }
+
+  /** The best summary the watcher can build for a holder id right now, undefined when none. */
+  private holderSummary(id: string): SessionSummary | undefined {
+    if (this.skipFn(id)) return undefined;
+    const live = this.live.get(id);
+    if (live) return liveSummary(live, this.holders, this.pendingCount(id));
+    const head = this.heads.get(id) ?? this.heldHead(id);
+    if (!head) return undefined;
+    return headSummary(head, this.holders, this.pendingCount(id));
+  }
+
+  /**
+   * Head read on demand for a held session outside heads (older than the listing window or
+   * capped away). Cached per path:mtime:size so repeated list() calls cost one stat.
+   */
+  private heldHead(id: string): HeadEntry | undefined {
+    const path = this.findFileSync(id);
+    if (!path) return undefined;
+    let st: { mtimeMs: number; size: number };
+    try {
+      const s = statSync(path);
+      if (!s.isFile()) return undefined;
+      st = { mtimeMs: s.mtimeMs, size: s.size };
+    } catch {
+      return undefined;
+    }
+    const key = `${path}:${st.mtimeMs}:${st.size}`;
+    const cur = this.heldHeads.get(id);
+    try {
+      const head = cur && cur.key === key ? cur : readHeadSync(path, st, key);
+      this.heldHeads.set(id, head);
+      return head;
+    } catch {
+      return undefined; // a holder with no readable .jsonl yet is skipped
+    }
   }
 
   private flushEvents(events: ServerEvent[], live: LiveSession): void {
@@ -711,6 +791,7 @@ export class TranscriptWatcher {
   /** Emits session.removed for a head-cache drop that orphans a listed session. */
   private emitRemovedIfOrphan(id: string): void {
     if (this.live.has(id)) return;
+    if (this.holders.has(id)) return; // still held: list() keeps it via the on-demand head
     if (this.skipFn(id)) return;
     this.emitFn({ type: 'session.removed', sessionId: id });
   }
@@ -920,6 +1001,16 @@ function endedStatus(status: SessionSummary['status']): boolean {
   return status === 'done' || status === 'error' || status === 'stopped';
 }
 
+/**
+ * Terminal pane info for a session held by a live non-dashboard claude process,
+ * undefined otherwise (page sessions and unheld terminal sessions never set it).
+ */
+function terminalInfo(holders: Map<string, LiveHolder>, sessionId: string): SessionSummary['terminal'] | undefined {
+  const holder = holders.get(sessionId);
+  if (!holder || DASHBOARD_ENTRYPOINTS.has(holder.entrypoint ?? '')) return undefined;
+  return { pane: !!holder.tmux, busy: holder.status !== 'idle' };
+}
+
 function liveSummary(live: LiveSession, holders: Map<string, LiveHolder>, pending: number): SessionSummary {
   const nodes = [...live.tree.nodes.values()];
   const root = nodes.find((n) => n.id === 'root');
@@ -931,6 +1022,7 @@ function liveSummary(live: LiveSession, holders: Map<string, LiveHolder>, pendin
     pending > 0 || nodes.some((n) => n.status === 'waiting'),
     holders,
   );
+  const terminal = terminalInfo(holders, live.id);
   let resumable = false;
   if (endedStatus(status)) {
     try {
@@ -955,6 +1047,7 @@ function liveSummary(live: LiveSession, holders: Map<string, LiveHolder>, pendin
     nodeCount: nodes.length,
     pendingPermissions: pending,
     resumable,
+    ...(terminal ? { terminal } : {}),
   };
 }
 
@@ -978,7 +1071,9 @@ function terminalStatus(
 
 function headSummary(head: HeadEntry, holders: Map<string, LiveHolder>, pending: number): SessionSummary {
   const now = Date.now();
-  const status = terminalStatus(now, head.mtimeMs, basename(head.path, '.jsonl'), pending > 0, holders);
+  const id = basename(head.path, '.jsonl');
+  const status = terminalStatus(now, head.mtimeMs, id, pending > 0, holders);
+  const terminal = terminalInfo(holders, id);
   let resumable = false;
   if (endedStatus(status)) {
     try {
@@ -989,7 +1084,7 @@ function headSummary(head: HeadEntry, holders: Map<string, LiveHolder>, pending:
     }
   }
   return {
-    id: basename(head.path, '.jsonl'),
+    id,
     source: 'terminal',
     project: basename(head.cwd),
     cwd: head.cwd,
@@ -1002,6 +1097,7 @@ function headSummary(head: HeadEntry, holders: Map<string, LiveHolder>, pending:
     nodeCount: 1,
     pendingPermissions: pending,
     resumable,
+    ...(terminal ? { terminal } : {}),
   };
 }
 

@@ -23,13 +23,15 @@ interface Props {
   initialText?: string;
   /** The server just refused a message because the session has ended. */
   ended?: boolean;
+  /** Continue as a copy: a new page session, the terminal source session untouched. */
+  fork?: boolean;
   loadCommands: () => Promise<SlashCommandInfo[]>;
   /** "Use Opus" for the next resume; owned by App so it survives the remount when the draft moves here. */
   useOpus: boolean;
   onUseOpus: (on: boolean) => void;
 }
 
-export function Continue({ backend, guard, session, git, sessionId, source, onResumed, initialText = '', ended = false, loadCommands, useOpus, onUseOpus }: Props) {
+export function Continue({ backend, guard, session, git, sessionId, source, onResumed, initialText = '', ended = false, fork = false, loadCommands, useOpus, onUseOpus }: Props) {
   const [text, setText] = useState(initialText);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,8 +44,8 @@ export function Continue({ backend, guard, session, git, sessionId, source, onRe
 
   const submit = async (force = false) => {
     const t = text.trim();
-    const images = attachments.toPayload();
-    const files = attachments.toFiles();
+    const images = fork ? [] : attachments.toPayload();
+    const files = fork ? [] : attachments.toFiles();
     if ((!t && images.length === 0 && files.length === 0) || busy) return;
     if (!force && secretGuard.check(t)) return;
     setBusy(true);
@@ -52,6 +54,7 @@ export function Continue({ backend, guard, session, git, sessionId, source, onRe
       const res = await guard(
         backend.resume(sessionId, {
           text: t,
+          ...(fork ? { fork: true } : {}),
           ...(opusOffered && useOpus ? { model: 'opus' } : {}),
           ...(images.length > 0 ? { images } : {}),
           ...(files.length > 0 ? { files } : {}),
@@ -67,7 +70,8 @@ export function Continue({ backend, guard, session, git, sessionId, source, onRe
     }
   };
 
-  const canSend = text.trim().length > 0 || attachments.items.length > 0;
+  // A fork is prompt text only: it cannot carry attachments.
+  const canSend = fork ? text.trim().length > 0 : text.trim().length > 0 || attachments.items.length > 0;
 
   // Slash menu wins over Enter: while it is open, Enter picks the command.
   const enterToSend = useEnterToSend(ref, () => {
@@ -82,6 +86,7 @@ export function Continue({ backend, guard, session, git, sessionId, source, onRe
   }, [text]);
 
   const runtime = session.runtime ?? 'claude';
+  const tray = fork ? null : <AttachmentTray items={attachments.items} files={attachments.files} onRemove={attachments.remove} onRemoveFile={attachments.removeFile} />;
 
   return (
     <>
@@ -91,8 +96,8 @@ export function Continue({ backend, guard, session, git, sessionId, source, onRe
           e.preventDefault();
           void submit();
         }}
-        onFiles={attachments.addFiles}
-        tray={<AttachmentTray items={attachments.items} files={attachments.files} onRemove={attachments.remove} onRemoveFile={attachments.removeFile} />}
+        onFiles={fork ? () => { /* a fork is text only */ } : attachments.addFiles}
+        tray={tray}
         menu={slash.menu}
         textarea={
           <textarea
@@ -109,6 +114,7 @@ export function Continue({ backend, guard, session, git, sessionId, source, onRe
               slash.onChange();
             }}
             onPaste={(e) => {
+              if (fork) return; // a fork is text only
               const files = filesFromPaste(e);
               if (files.length > 0) attachments.addFiles(files);
             }}
@@ -146,8 +152,12 @@ export function Continue({ backend, guard, session, git, sessionId, source, onRe
         right={
           <>
             {ended && <span className="continue-hint">Session has ended; use Continue.</span>}
-            {source === 'terminal' && <span className="continue-hint">Continuing makes it page-owned.</span>}
-            <AttachButton onFiles={attachments.addFiles} />
+            {fork ? (
+              <span className="continue-hint">Continues as a copy; the terminal session is untouched</span>
+            ) : (
+              source === 'terminal' && <span className="continue-hint">Continuing makes it page-owned.</span>
+            )}
+            {!fork && <AttachButton onFiles={attachments.addFiles} />}
             <button type="submit" className="btn btn-primary btn-sm" disabled={!canSend || busy}>
               {busy ? 'continuing…' : 'continue'}
             </button>
