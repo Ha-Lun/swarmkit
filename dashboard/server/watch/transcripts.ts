@@ -141,6 +141,11 @@ export class TranscriptWatcher {
       await this.refreshHolders();
       this.refreshHeadsSync();
       const now = Date.now();
+      // Holder-gone marks older than FRESH_MS no longer matter: the transcript is
+      // stale by then, so the status is ended regardless.
+      for (const [id, goneAt] of this.holderGone) {
+        if (now - goneAt >= FRESH_MS) this.holderGone.delete(id);
+      }
       await this.evictLive(now);
       // Only sessions modified in the last 2 min are parsed eagerly (at most 2 per tick).
       const fresh: { id: string; head: HeadEntry }[] = [];
@@ -208,7 +213,8 @@ export class TranscriptWatcher {
   /** Cap-only LRU trim (used after eager parses): no file probing needed. */
   private async trimLiveToCap(): Promise<void> {
     if (this.live.size <= MAX_LIVE) return;
-    const candidates = [...this.live.keys()].filter(id => !this.terminalPending.has(id) && (this.skipFn(id) || !this.holders.has(id)));
+    // SkipFn ids are always trim candidates; others only when no hook or holder keeps them.
+    const candidates = [...this.live.keys()].filter(id => this.skipFn(id) || (!this.terminalPending.has(id) && !this.holders.has(id)));
     candidates.sort((a, b) => {
       const la = this.live.get(a)!;
       const lb = this.live.get(b)!;
@@ -220,16 +226,21 @@ export class TranscriptWatcher {
     await this.dropLive(candidates.slice(0, over));
   }
 
-  /** The shared drop step: final session.upsert then delete. */
+  /** The shared drop step: final session.upsert (never for a skipFn id: a page-owned
+   *  session must not be overwritten as terminal) then delete. */
   private async dropLive(ids: string[]): Promise<void> {
     for (const id of ids) {
       const live = this.live.get(id);
       if (!live) continue;
-      const head = this.heads.get(id);
-      this.emitFn({
-        type: 'session.upsert',
-        session: head ? headSummary(head, this.holders, this.pendingCount(id), this.holderGone.has(id)) : liveSummary(live, this.holders, this.pendingCount(id), this.holderGone.has(id)),
-      });
+      if (!this.skipFn(id)) {
+        const head = this.heads.get(id);
+        this.emitFn({
+          type: 'session.upsert',
+          session: head
+            ? headSummary(head, this.holders, this.pendingCount(id), this.holderGone.has(id))
+            : liveSummary(live, this.holders, this.pendingCount(id), this.holderGone.has(id)),
+        });
+      }
       this.live.delete(id);
     }
   }
@@ -271,6 +282,9 @@ export class TranscriptWatcher {
   async get(sessionId: string): Promise<SessionDetail | undefined> {
     if (this.skipFn(sessionId)) return undefined;
     let live = this.live.get(sessionId);
+    // Holders (and their diff) before the first summary leaves: the detail must not
+    // report a stale holder state the diff has not emitted yet.
+    await this.refreshHolders();
     if (!live) {
       const file = await this.findFile(sessionId);
       if (!file) return undefined;
@@ -285,7 +299,6 @@ export class TranscriptWatcher {
     }
     const events = await this.refreshLive(live);
     live.lastAccess = Date.now();
-    await this.refreshHolders();
     this.flushEvents(events, live);
     return this.detailFor(live);
   }
@@ -315,21 +328,24 @@ export class TranscriptWatcher {
   }
 
   /** cwd and transcript mtime of a terminal session, when the file is known. Old held
-   *  sessions (outside heads) fall back to the on-demand held head, so resume/commands
-   *  and artifacts routes keep working while the claude process lives. */
+   *  sessions (outside heads) fall back to the on-demand held head — only while a live
+   *  holder actually holds them — so resume/commands/artifacts keep working. */
   fileInfo(id: string): { cwd: string; mtimeMs: number } | undefined {
     const live = this.live.get(id);
     if (live) return { cwd: live.cwd, mtimeMs: live.mtimeMs };
     const head = this.heads.get(id);
     if (head) return { cwd: head.cwd, mtimeMs: head.mtimeMs };
-    const held = this.heldHead(id);
-    if (held) return { cwd: held.cwd, mtimeMs: held.mtimeMs };
+    if (!this.skipFn(id) && this.holders.has(id)) {
+      const held = this.heldHead(id);
+      if (held) return { cwd: held.cwd, mtimeMs: held.mtimeMs };
+    }
     return undefined;
   }
 
   /** The transcript file followed for a terminal session, when known. */
   transcriptPath(id: string): string | undefined {
-    return this.live.get(id)?.path ?? this.heads.get(id)?.path ?? this.heldHead(id)?.path;
+    const held = !this.skipFn(id) && this.holders.has(id) ? this.heldHead(id) : undefined;
+    return this.live.get(id)?.path ?? this.heads.get(id)?.path ?? held?.path;
   }
 
   /**
@@ -437,13 +453,36 @@ export class TranscriptWatcher {
 
   // -------------------------------------------------------------------------
 
+  /** One refresh in flight; a concurrent caller queues behind it (see refreshHolders). */
+  private refreshInFlight: Promise<void> | undefined;
+
   /**
    * Fresh live-registry snapshot (cached in livesessions, at most one dir read per 2 s)
    * plus the diff against the last one. The diff lives here so every caller — the scan
    * loop and get() alike — reports appearing, changing and disappearing holders;
    * otherwise a holder could vanish between two scans and no client would ever hear it.
+   * Serialized: a call while one is running awaits it and then runs again, so the prev
+   * capture, the holders assignment and the diff never interleave (a slow out-of-order
+   * read must not overwrite a newer snapshot without diffing it).
    */
   private async refreshHolders(): Promise<void> {
+    while (this.refreshInFlight) {
+      try {
+        await this.refreshInFlight;
+      } catch {
+        // A failed run already surfaced what it could; run again on fresh data.
+      }
+    }
+    const run = this.doRefreshHolders();
+    this.refreshInFlight = run;
+    try {
+      await run;
+    } finally {
+      if (this.refreshInFlight === run) this.refreshInFlight = undefined;
+    }
+  }
+
+  private async doRefreshHolders(): Promise<void> {
     const prev = this.holders;
     this.holders = await liveHolders();
     this.emitHolderChanges(prev, this.holders);
@@ -456,12 +495,18 @@ export class TranscriptWatcher {
    * next transcript write.
    */
   private emitHolderChanges(prev: Map<string, LiveHolder>, next: Map<string, LiveHolder>): void {
+    // Marks for ids that became page-owned (skipFn) are cleared even when the id no
+    // longer appears in the registry diff at all.
+    for (const id of this.holderGone.keys()) {
+      if (this.skipFn(id)) this.holderGone.delete(id);
+    }
     const ids = new Set([...prev.keys(), ...next.keys()]);
     for (const id of ids) {
-      if (this.skipFn(id)) continue;
       const before = prev.get(id);
       const after = next.get(id);
-      if (after) this.holderGone.delete(id); // a claude process is back: freshness counts again
+      // A holder is back, or the id became page-owned (skipFn): freshness counts again.
+      if (after || this.skipFn(id)) this.holderGone.delete(id);
+      if (this.skipFn(id)) continue;
       if (
         before && after &&
         before.pid === after.pid &&
@@ -470,9 +515,17 @@ export class TranscriptWatcher {
         before.entrypoint === after.entrypoint &&
         before.kind === after.kind
       ) continue;
-      if (!after) this.noteHolderGone(id);
-      const summary = this.holderSummary(id, after === undefined);
+      if (!before && !after) continue;
+      const gone = after === undefined;
+      // The disappearance was already reported: keep the original goneAt.
+      if (gone && this.holderGone.has(id)) continue;
+      if (gone) this.noteHolderGone(id);
+      const summary = this.holderSummary(id);
       if (!summary) continue;
+      // The next flushEvents() would build the same summary: record the key so it
+      // does not emit a duplicate.
+      const live = this.live.get(id);
+      if (live) live.lastSummary = JSON.stringify(summary);
       this.emitFn({ type: 'session.upsert', session: summary });
     }
     // Head entries read on demand for gone holders are no longer needed.
@@ -482,21 +535,23 @@ export class TranscriptWatcher {
   }
 
   /**
-   * Session ids whose holder just disappeared: their summaries read ended (done) even
-   * while the transcript is still fresh — the writing process is gone, so the
-   * FRESH_MS "running" guess must not resurrect the tab. Cleared when a holder
-   * appears again (a new claude process claimed the id).
+   * Session ids whose holder disappeared, with the time it went away: their summaries
+   * read ended (done) even while the transcript is still fresh — the writing process
+   * is gone, so the FRESH_MS "running" guess must not resurrect the tab. scanNow()
+   * prunes entries older than FRESH_MS (the transcript is stale by then anyway);
+   * the cap is only a safety bound.
    */
-  private holderGone = new Set<string>();
+  private holderGone = new Map<string, number>();
 
   private noteHolderGone(id: string): void {
     if (this.holderGone.size >= 200) this.holderGone.delete(this.holderGone.keys().next().value!);
-    this.holderGone.add(id);
+    this.holderGone.set(id, Date.now());
   }
 
   /** The best summary the watcher can build for a holder id right now, undefined when none. */
-  private holderSummary(id: string, holderGone = false): SessionSummary | undefined {
+  private holderSummary(id: string): SessionSummary | undefined {
     if (this.skipFn(id)) return undefined;
+    const holderGone = this.holderGone.has(id);
     const live = this.live.get(id);
     if (live) return liveSummary(live, this.holders, this.pendingCount(id), holderGone);
     const head = this.heads.get(id) ?? this.heldHead(id);
@@ -506,10 +561,11 @@ export class TranscriptWatcher {
 
   /**
    * Head read on demand for a held session outside heads (older than the listing window or
-   * capped away). Cached per path:mtime:size so repeated list() calls cost one stat.
+   * capped away). The cached entry's path is tried before any project-dir scan; cached
+   * per path:mtime:size so repeated list() calls cost one stat.
    */
   private heldHead(id: string): HeadEntry | undefined {
-    const path = this.findFileSync(id);
+    const path = this.heldHeads.get(id)?.path ?? this.findFileSync(id);
     if (!path) return undefined;
     let st: { mtimeMs: number; size: number };
     try {

@@ -161,9 +161,18 @@ export function pruneOrphanArtifacts(isKnown: (sessionId: string) => boolean, ma
   try {
     const root = artifactsRoot();
     for (const entry of readdirSync(root, { withFileTypes: true })) {
-      if (!entry.isDirectory() || entry.isSymbolicLink() || !IMAGE_SESSION_RE.test(entry.name) || isKnown(entry.name)) continue;
+      if (!IMAGE_SESSION_RE.test(entry.name) || isKnown(entry.name)) continue;
+      const dir = path.join(root, entry.name);
       try {
-        const dir = path.join(root, entry.name);
+        if (entry.isSymbolicLink()) {
+          // A fork adoption leaves a link at the placeholder id (and an agent could
+          // plant one): unlink the link itself — never follow it — when the id is
+          // no longer a known session (or its target is gone).
+          rmSync(dir);
+          removed += 1;
+          continue;
+        }
+        if (!entry.isDirectory()) continue;
         let newest = lstatSync(dir).mtimeMs;
         for (const name of readdirSync(dir)) newest = Math.max(newest, lstatSync(path.join(dir, name)).mtimeMs);
         if (now - newest < maxAgeMs) continue;

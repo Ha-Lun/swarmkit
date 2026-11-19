@@ -190,12 +190,28 @@ describe('pruneOrphanArtifacts', () => {
     const root = path.dirname(artifactDir('art-old'));
     mkdirSync(path.join(root, 'bad.name'));
     utimesSync(path.join(root, 'bad.name'), old, old);
-    symlinkSync(path.join(scratch, 'outside'), path.join(root, 'art-link'));
+    // A symlink whose name is not a session id is left alone.
+    symlinkSync(path.join(scratch, 'outside'), path.join(root, 'art.link'));
     expect(pruneOrphanArtifacts(id => id === 'art-live', 30 * 86_400_000)).toBe(1);
     expect(readdirSync(root).sort()).toEqual(
-      expect.arrayContaining(['art-fresh', 'art-live', 'art-link', 'bad.name']),
+      expect.arrayContaining(['art-fresh', 'art-live', 'art.link', 'bad.name']),
     );
     expect(readdirSync(root)).not.toContain('art-old');
+  });
+
+  it('unlinks orphaned session-id symlinks without following them', () => {
+    const root = path.dirname(artifactDir('art-old'));
+    const targetDir = path.join(root, 'real-target');
+    mkdirSync(targetDir, { recursive: true });
+    writeFileSync(path.join(targetDir, 'keep.txt'), 'keep');
+    // The adoption link of a gone placeholder id, plus a dangling one: both unlinked.
+    symlinkSync(targetDir, path.join(root, 'art-ph'));
+    symlinkSync(path.join(root, 'gone-target'), path.join(root, 'art-dangling'));
+    expect(pruneOrphanArtifacts(id => id === 'art-live', 30 * 86_400_000)).toBeGreaterThanOrEqual(2);
+    expect(readdirSync(root)).not.toContain('art-ph');
+    expect(readdirSync(root)).not.toContain('art-dangling');
+    // The link's target was never followed.
+    expect(readdirSync(targetDir)).toContain('keep.txt');
   });
 });
 

@@ -61,15 +61,14 @@ function CloseConfirm({
   );
 }
 
+/** A live held terminal session (pane or not): tabbed, and its close button is a no-op. */
+function isHeldTerminal(s: SessionSummary): boolean {
+  return s.terminal !== undefined && s.status !== 'done' && s.status !== 'error' && s.status !== 'stopped';
+}
+
 export function TopBar({ sessions, selectedId, onHome, onSelect, onNew, onClose, isLivePage, backend, guard, pushEnabled }: Props) {
   const tabs = sessions.filter(
-    (s) =>
-      s.status === 'running' ||
-      s.status === 'waiting' ||
-      // A held terminal session (pane or not) stays tabbed: a pane-less one is
-      // selected to be continued as a copy.
-      (s.terminal !== undefined && s.status !== 'done' && s.status !== 'error' && s.status !== 'stopped') ||
-      s.id === selectedId,
+    (s) => s.status === 'running' || s.status === 'waiting' || isHeldTerminal(s) || s.id === selectedId,
   );
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const anchorRef = useRef<HTMLButtonElement | null>(null);
@@ -144,7 +143,7 @@ export function TopBar({ sessions, selectedId, onHome, onSelect, onNew, onClose,
                   </span>
                 )}
               </button>
-              {s.terminal?.pane ? null : (
+              {isHeldTerminal(s) ? null : (
                 <button
                   type="button"
                   className="top-tab-close"

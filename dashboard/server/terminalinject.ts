@@ -1,8 +1,8 @@
 // Sending a user message into a terminal Claude Code session through its tmux pane.
 // The message is pasted (bracketed paste, so the TUI treats it as one string) and
 // submitted with a single Enter — but only while claude owns the terminal foreground
-// and its prompt is empty, so the worst race outcome is a pasted line sitting in the
-// prompt, never a command the shell would run. The alternative (the registry's
+// and its main input box is empty, so the worst race outcome is a pasted line sitting
+// in the prompt, never a command the shell would run. The alternative (the registry's
 // messagingSocketPath peer protocol) is safer but the receiving session would see the
 // message as coming from another session, not from the user.
 //
@@ -98,7 +98,8 @@ async function defaultListDescendants(pid: number): Promise<number[]> {
   try {
     names = await readdir('/proc');
   } catch {
-    return [];
+    // Without /proc the child check cannot run: refuse instead of passing blind.
+    throw new TerminalInjectError("cannot inspect the terminal session's children");
   }
   const ppidOf = new Map<number, number>();
   for (const name of names) {
@@ -124,13 +125,26 @@ async function defaultListDescendants(pid: number): Promise<number[]> {
   return out;
 }
 
-/** Where a process's stdin (fd 0) points, or undefined when it cannot be read. */
-async function defaultFd0(pid: number): Promise<string | undefined> {
+/** Where a process's open file descriptors point (readlink results), or [] when gone. */
+async function defaultFds(pid: number): Promise<string[]> {
+  let names: string[];
   try {
-    return await readlink(`/proc/${pid}/fd/0`);
-  } catch {
-    return undefined;
+    names = await readdir(`/proc/${pid}/fd`);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []; // the process just left
+    // EACCES and friends (e.g. a setuid child): cannot verify — refuse.
+    throw new TerminalInjectError("cannot inspect the terminal session's children");
   }
+  const out: string[] = [];
+  for (const name of names) {
+    try {
+      out.push(await readlink(`/proc/${pid}/fd/${name}`));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue; // fd closed meanwhile
+      throw new TerminalInjectError("cannot inspect the terminal session's children");
+    }
+  }
+  return out;
 }
 
 /** Fresh registry read for the cooldown gate (injected so tests stay hermetic). */
@@ -142,10 +156,10 @@ export interface TerminalInjectOptions {
   readStat?: (pid: number) => Promise<string>;
   /** rdev of a device path (the pane tty); injected in tests. */
   stat?: (path: string) => Promise<number>;
-  /** Transitive children of a pid (fd-0 ownership check); injected in tests. */
+  /** Transitive children of a pid (fd ownership check); injected in tests. */
   listDescendants?: (pid: number) => Promise<number[]>;
-  /** Where a pid's stdin points, or undefined. */
-  fd0?: (pid: number) => Promise<string | undefined>;
+  /** Readlink targets of a pid's open fds; an inspection error is a refusal. */
+  fds?: (pid: number) => Promise<string[]>;
   /** Registry read for the cooldown gate; defaults to the live-holder file. */
   readHolder?: HolderReader;
   /** Wait between the paste and the Enter key (ms). */
@@ -161,8 +175,10 @@ export const COOLDOWN_MS = 5_000;
 
 /** SGR escape sequences (colors and attributes) captured with `-e`. */
 const SGR_RE = /\x1b\[[0-9;]*m/g;
-/** claude's main input prompt marker: ❯ (U+276F) followed by a no-break space. */
-const PROMPT_MARK = '❯\u00a0';
+/** Dim spans: suggestion placeholders, from \x1b[2m to the next reset or end of line. */
+const DIM_SPAN_RE = /\x1b\[2m[\s\S]*?(?:\x1b\[0m|\x1b\[22m|$)/g;
+/** claude's main input marker: ❯ (U+276F) followed by a no-break or normal space. */
+const PROMPT_MARKERS = ['❯\u00a0', '❯ '] as const;
 
 /**
  * Text sanitizer for a tmux paste: strips C0 control characters except \n and \t
@@ -181,15 +197,19 @@ export function sanitizeTerminalText(raw: string): string {
 }
 
 /**
- * Parses /proc/<pid>/stat after the last ')': state, ppid, pgrp, tty_nr and tpgid.
- * The comm before it may contain spaces and parentheses, so the split starts at field 3.
+ * Parses /proc/<pid>/stat after the last ')': comm, state, ppid, pgrp, tty_nr and
+ * tpgid. The comm may contain spaces and parentheses, so the split starts after the
+ * last ')' — the comm itself is the text between the first '(' and that one.
  */
-export function parseProcStat(raw: string): { state: string; ppid: number; pgrp: number; tty: number; tpgid: number } {
+export function parseProcStat(raw: string): { comm: string; state: string; ppid: number; pgrp: number; tty: number; tpgid: number } {
+  const open = raw.indexOf('(');
   const cut = raw.lastIndexOf(')');
-  if (cut < 0) throw new TerminalInjectError('malformed /proc/<pid>/stat');
+  if (open < 0 || cut < 0 || cut < open) throw new TerminalInjectError('malformed /proc/<pid>/stat');
+  const comm = raw.slice(open + 1, cut);
   const fields = raw.slice(cut + 1).trim().split(/\s+/);
   // state, ppid, pgrp, session, tty_nr, tpgid, ...
   return {
+    comm,
     state: fields[0] ?? '',
     ppid: Number(fields[1]),
     pgrp: Number(fields[2]),
@@ -277,22 +297,83 @@ function noteHolderStatus(sessionId: string, holder: LiveHolder, cooldownMs: num
   if (holder.status === 'busy') state.busySeen = true;
 }
 
-/**
- * One prompt line's leftover text after the ❯ marker: dim spans (suggestion
- * placeholders) are removed first, then the remaining SGR — undefined when the
- * line is not claude's prompt at all.
- */
-export function promptRest(line: string): string | undefined {
-  if (!line.replace(SGR_RE, '').includes(PROMPT_MARK)) return undefined;
-  const rawIdx = line.indexOf(PROMPT_MARK);
-  if (rawIdx < 0) return ''; // marker split by an SGR sequence: treat as empty
-  // From \x1b[2m to the next \x1b[0m or \x1b[22m: dim suggestion text, not user input.
-  let after = line.slice(rawIdx + PROMPT_MARK.length);
-  after = after.replace(/\x1b\[2m[\s\S]*?(?:\x1b\[0m|\x1b\[22m)/g, '');
-  return after.replace(SGR_RE, '').trim();
+// ---------------------------------------------------------------------------
+// capture-pane parsing: claude's input box is the last pair of rule lines
+// ---------------------------------------------------------------------------
+
+/** Visible text of one capture line: dim spans removed, then all SGR stripped. */
+export function visible(line: string): string {
+  return line.replace(DIM_SPAN_RE, '').replace(SGR_RE, '');
 }
 
-/** Refuses a stopped (Ctrl-Z / $EDITOR) claude or one that lost the terminal foreground. */
+/** True for the rule lines that bracket claude's input box (20+ box-drawing dashes). */
+function isRule(line: string): boolean {
+  return /^─{20,}$/.test(visible(line).trim());
+}
+
+/** The content lines between the LAST pair of rule lines, or undefined without a box. */
+export function findInputBox(capture: string): string[] | undefined {
+  const lines = capture.split('\n');
+  const rules: number[] = [];
+  lines.forEach((line, i) => {
+    if (isRule(line)) rules.push(i);
+  });
+  for (let k = rules.length - 1; k >= 1; k--) {
+    const open = rules[k - 1]!;
+    const close = rules[k]!;
+    if (close - open >= 2) return lines.slice(open + 1, close);
+  }
+  return undefined;
+}
+
+/** The prompt marker of a visible box line, or undefined when the line is not the prompt. */
+function promptMarker(visibleLine: string): string | undefined {
+  return PROMPT_MARKERS.find(m => visibleLine.startsWith(m));
+}
+
+/**
+ * Pre-paste check: the box must hold claude's EMPTY main prompt — the first line
+ * starts with ❯ and nothing follows it, and no further line inside the box has
+ * text (a multi-line draft, a paste chip, a picker row: all refused).
+ */
+export function requireEmptyPrompt(capture: string): void {
+  const box = findInputBox(capture);
+  if (!box) throw new TerminalInjectError("cannot see claude's prompt");
+  const first = visible(box[0]!);
+  const marker = promptMarker(first);
+  if (marker === undefined || !marker.startsWith('❯')) {
+    throw new TerminalInjectError("claude's prompt is not at its main input");
+  }
+  if (first.slice(marker.length).trim().length > 0) {
+    throw new TerminalInjectError('the terminal prompt already has text in it');
+  }
+  for (const line of box.slice(1)) {
+    if (visible(line).trim().length > 0) {
+      throw new TerminalInjectError('the terminal prompt already has text in it');
+    }
+  }
+}
+
+/**
+ * Pre-Enter check: the box must still hold our pasted text — the first line starts
+ * with ❯ and has visible content (the text or a `[Pasted text` chip). A missing box
+ * or a `!` marker (the user switched to bash mode) refuses: no Enter is sent.
+ */
+export function requirePastedPrompt(capture: string): void {
+  const box = findInputBox(capture);
+  if (!box) throw new TerminalInjectError("claude's input box is gone");
+  const first = visible(box[0]!);
+  const marker = promptMarker(first);
+  if (marker === undefined || !marker.startsWith('❯')) {
+    throw new TerminalInjectError("claude's prompt is not at its main input");
+  }
+  const hasText =
+    first.slice(marker.length).trim().length > 0 ||
+    box.slice(1).some(line => visible(line).trim().length > 0);
+  if (!hasText) throw new TerminalInjectError('the pasted text did not land in the prompt');
+}
+
+/** Refuses a stopped (Ctrl-Z / $EDITOR) claude, a foreign pid, or a lost foreground. */
 async function checkForeground(
   pid: number,
   readStat: (pid: number) => Promise<string>,
@@ -303,6 +384,10 @@ async function checkForeground(
   } catch (err) {
     if (err instanceof TerminalInjectError) throw err;
     throw new TerminalInjectError('the terminal process is gone');
+  }
+  // The pid must still be the claude process (or its node runner), not a recycled pid.
+  if (!(st.comm === 'claude' || st.comm === 'node' || st.comm.startsWith('claude'))) {
+    throw new TerminalInjectError('pid no longer belongs to claude');
   }
   if ('TtZX'.includes(st.state)) throw new TerminalInjectError('the terminal session is stopped (suspended)');
   if (st.pgrp !== st.tpgid) {
@@ -324,17 +409,19 @@ async function checkTty(
   }
 }
 
-/** Refuses when a child of claude (an editor, a picker) owns the terminal input. */
+/** Refuses when any child of claude holds the pane tty (or /dev/tty) open on any fd. */
 async function checkChildren(
   holderPid: number,
   paneTty: string,
   listDescendants: (pid: number) => Promise<number[]>,
-  fd0: (pid: number) => Promise<string | undefined>,
+  fds: (pid: number) => Promise<string[]>,
 ): Promise<void> {
   const kids = await listDescendants(holderPid);
   for (const kid of kids) {
-    if ((await fd0(kid)) === paneTty) {
-      throw new TerminalInjectError('a child process (e.g. an editor) owns the terminal input');
+    for (const fd of await fds(kid)) {
+      if (fd === paneTty || fd === '/dev/tty') {
+        throw new TerminalInjectError('a child process (e.g. an editor) owns the terminal input');
+      }
     }
   }
 }
@@ -367,23 +454,6 @@ async function readPane(pane: string, exec: TmuxExec): Promise<PaneState> {
   return { panePid, paneTty };
 }
 
-/** claude's main prompt, seen through capture-pane, must be empty. */
-async function checkPromptEmpty(pane: string, exec: TmuxExec): Promise<void> {
-  let out: string;
-  try {
-    out = await exec(['capture-pane', '-p', '-e', '-t', pane]);
-  } catch {
-    throw new TerminalInjectError("cannot see claude's prompt");
-  }
-  let rest: string | undefined;
-  for (const line of out.split('\n')) {
-    const r = promptRest(line);
-    if (r !== undefined) rest = r; // the last prompt line wins
-  }
-  if (rest === undefined) throw new TerminalInjectError("cannot see claude's prompt");
-  if (rest.length > 0) throw new TerminalInjectError('the terminal prompt already has text in it');
-}
-
 /** Sends `text` into the tmux pane that holds the terminal session, or throws TerminalInjectError. */
 export async function sendTerminalMessage(
   sessionId: string,
@@ -396,7 +466,7 @@ export async function sendTerminalMessage(
   const readStat = opts.readStat ?? defaultReadStat;
   const statRdev = opts.stat ?? defaultStat;
   const listDescendants = opts.listDescendants ?? defaultListDescendants;
-  const fd0 = opts.fd0 ?? defaultFd0;
+  const fds = opts.fds ?? defaultFds;
   const readHolder = opts.readHolder ?? liveHolder;
   const cooldownMs = opts.cooldownMs ?? COOLDOWN_MS;
 
@@ -412,8 +482,10 @@ export async function sendTerminalMessage(
   if (cleaned.length > MAX_TERMINAL_TEXT) {
     throw new TerminalInjectError(`message must be at most ${MAX_TERMINAL_TEXT} characters`);
   }
-  if (/^[!/#&]/.test(cleaned)) {
-    throw new TerminalInjectError('messages starting with !, /, # or & run in the terminal as shell, slash, comment or background commands; send them from the terminal itself');
+  // Every line: a leading !, /, # or & would run as a shell, slash, comment or
+  // background command once the prompt takes the text.
+  if (cleaned.split('\n').some(line => /^\s*[!/#&]/.test(line))) {
+    throw new TerminalInjectError('lines starting with !, /, # or & run in the terminal as shell, slash, comment or background commands; send them from the terminal itself');
   }
 
   if (locks.has(sessionId)) throw new TerminalInjectError('a message is already being sent');
@@ -424,7 +496,7 @@ export async function sendTerminalMessage(
 
       const pane = holder.tmux!;
       // One full liveness check: pane identity (pid ancestry, mode, synchronize, tty),
-      // process state (stopped, foreground) and child fd-0 ownership.
+      // process identity and state (claude, not stopped, foreground) and child fd ownership.
       const check = async (): Promise<PaneState> => {
         const state = await readPane(pane, exec);
         if (!(await isDescendant(holder.pid, state.panePid, readStat))) {
@@ -432,22 +504,32 @@ export async function sendTerminalMessage(
         }
         await checkForeground(holder.pid, readStat);
         await checkTty(holder.pid, state.paneTty, readStat, statRdev);
-        await checkChildren(holder.pid, state.paneTty, listDescendants, fd0);
+        await checkChildren(holder.pid, state.paneTty, listDescendants, fds);
         return state;
+      };
+      const capture = async (): Promise<string> => {
+        try {
+          return await exec(['capture-pane', '-p', '-e', '-t', pane]);
+        } catch {
+          throw new TerminalInjectError("cannot see claude's prompt");
+        }
       };
 
       await check();
-      // The prompt must be claude's empty main prompt — checked once, before the paste.
-      await checkPromptEmpty(pane, exec);
+      // The prompt must be claude's empty main input box — last check before the paste.
+      requireEmptyPrompt(await capture());
 
-      // 1) load the text into a named buffer, 2) re-check, 3) bracketed-paste it into
-      // the pane, 4) drop the buffer even when the paste failed, 5) Enter after a
-      // short wait — but only after one more re-check. An @token at the end gets a
-      // trailing space so Enter cannot pick an autocomplete entry.
+      // 1) load the text into a named buffer (deleted in the finally even when the
+      // load itself timed out with a stored buffer), 2) re-check, 3) bracketed-paste
+      // into the pane, 4) Enter after a short wait — but only after one more
+      // re-check and a capture that still shows our text in claude's ❯ box. An
+      // @token at the end gets a trailing space so Enter cannot pick an autocomplete.
       const buffer = `sk-${randomBytes(8).toString('hex')}`;
       let pasted = false;
-      await exec(['load-buffer', '-b', buffer, '-'], /@\S+$/.test(cleaned) ? `${cleaned} ` : cleaned);
       try {
+        // T4: the load is inside the finally-protected block — a timed-out
+        // load-buffer may still have stored the buffer.
+        await exec(['load-buffer', '-b', buffer, '-'], /@\S+$/.test(cleaned) ? `${cleaned} ` : cleaned);
         await check();
         await exec(['paste-buffer', '-p', '-b', buffer, '-t', pane]);
         pasted = true;
@@ -460,6 +542,7 @@ export async function sendTerminalMessage(
       await delay(opts.enterDelayMs ?? 200);
       try {
         await check();
+        requirePastedPrompt(await capture());
       } catch (err) {
         throw new TerminalInjectError(
           `claude lost the terminal foreground; the message was pasted but not sent (${(err as Error).message})`,

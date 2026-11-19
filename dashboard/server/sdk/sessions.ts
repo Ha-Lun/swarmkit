@@ -36,6 +36,8 @@ const POLL_MS = 3_000;
 const ACTIVE_MS = 60_000;
 /** Resume waits at most this long for the previous consume() to unwind. */
 const RESUME_UNWIND_MS = 5_000;
+/** A fork resume waits at most this long for the init message that names the new id. */
+const FORK_INIT_TIMEOUT_MS = 60_000;
 /** Finished page sessions drop out of memory after this long (the watcher re-lists their transcripts). */
 export const EVICT_AFTER_MS = 24 * 60 * 60 * 1000;
 /** Max finished page sessions kept in memory (the oldest are evicted first); running ones never count. */
@@ -701,26 +703,38 @@ export class SdkSessions {
         // (later resumes continue it normally).
         if (session.forkOf && init.type === 'system' && init.subtype === 'init') {
           const sid = (message as unknown as { session_id?: unknown }).session_id;
-          if (typeof sid === 'string' && sid.length > 0 && sid !== session.id && sid === session.forkOf) {
-            // The CLI resumed the source without forking: never re-adopt the source
-            // id (the terminal process still owns it) — kill the copy and fail the fork.
+          if (
+            typeof sid === 'string' && sid.length > 0 && sid !== session.id &&
+            (sid === session.forkOf || this.sessions.has(sid))
+          ) {
+            // Fail closed: the CLI resumed the source without forking, or it reported
+            // an id another session already owns. Never adopt either — kill the copy,
+            // drop the placeholder and its artifacts, and stop consuming (no further
+            // events for a session that no longer exists).
             session.abort.abort();
+            session.stopped = true;
+            session.queue.close();
+            deleteArtifacts(session.id);
             this.sessions.delete(session.id);
-            session.forkInit?.reject(new SessionError(500, 'the forked session reported its source session id; the copy was aborted'));
-            // forkOf stays set: upserts stay suppressed, the finally below cleans up.
-          } else {
-            if (typeof sid === 'string' && sid.length > 0 && sid !== session.id && !this.sessions.has(sid)) {
-              const placeholderId = session.id;
-              this.sessions.delete(session.id);
-              session.id = sid;
-              session.tree.sessionId = sid;
-              for (const node of session.tree.nodes.values()) node.sessionId = sid;
-              this.sessions.set(sid, session);
-              this.relinkForkArtifacts(placeholderId, sid);
-            }
-            session.forkOf = undefined;
-            session.forkInit?.resolve();
+            session.forkInit?.reject(new SessionError(
+              500,
+              sid === session.forkOf
+                ? 'the forked session reported its source session id; the copy was aborted'
+                : 'the forked session reported an id the dashboard already owns; the copy was aborted',
+            ));
+            break;
           }
+          if (typeof sid === 'string' && sid.length > 0 && sid !== session.id) {
+            const placeholderId = session.id;
+            this.sessions.delete(session.id);
+            session.id = sid;
+            session.tree.sessionId = sid;
+            for (const node of session.tree.nodes.values()) node.sessionId = sid;
+            this.sessions.set(sid, session);
+            this.relinkForkArtifacts(placeholderId, sid);
+          }
+          session.forkOf = undefined;
+          session.forkInit?.resolve();
         }
         if (init.type === 'system' && init.subtype === 'init' && Array.isArray(init.terminal_slash_commands)) {
           session.terminalCommands = new Set(
@@ -779,9 +793,10 @@ export class SdkSessions {
       if (generation === session.generation) session.query = null;
       if (session.forkOf) {
         // The init message never arrived: the fork failed. Drop the placeholder
-        // session (nothing owns it) and surface the failure to the waiting caller.
+        // session and its artifacts, and surface the failure to the waiting caller.
         this.sessions.delete(session.id);
         session.forkOf = undefined;
+        deleteArtifacts(session.id);
         session.forkInit?.reject(new SessionError(500, 'the forked session ended before it reported its new session id'));
       } else {
         session.forkInit?.resolve();
@@ -984,6 +999,10 @@ export class SdkSessions {
     } catch (err) {
       throw new SessionError(400, (err as Error).message);
     }
+    // A fork is a plain prompt-text copy: it cannot carry attachments.
+    if (body?.fork === true && ((images?.length ?? 0) > 0 || (files?.length ?? 0) > 0)) {
+      throw new SessionError(400, 'a fork cannot carry attachments');
+    }
     // Same cwd validation as the start path, plus the agent regex on the stored agent.
     const cwd = await resolveResumeCwd(info?.cwd);
     const existing = this.sessions.get(id);
@@ -1129,17 +1148,32 @@ export class SdkSessions {
       // Like start(): a half-started fork must not linger as an ownable session.
       this.sessions.delete(sessionId);
       session.forkOf = undefined;
+      deleteArtifacts(sessionId);
       throw err;
     }
     if (session.forkOf) {
       // Wait for the init message so the caller gets the id the transcript really
-      // continues under (the CLI picks it when forking). A stream that ends without
-      // one resolves too: the placeholder id stands in.
-      await Promise.race([
-        session.forkInit?.promise,
-        new Promise<void>(resolve => setTimeout(resolve, 60_000).unref()),
-      ]);
-      session.forkInit = undefined;
+      // continues under (the CLI picks it when forking). On a timeout — or when the
+      // waiting promise rejects (a failed-closed fork) — tear the copy down.
+      let timer: NodeJS.Timeout | undefined;
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new SessionError(504, 'the copy did not start in time')), FORK_INIT_TIMEOUT_MS);
+        timer.unref();
+      });
+      try {
+        await Promise.race([session.forkInit!.promise, timeout]);
+      } catch (err) {
+        session.abort.abort();
+        session.stopped = true;
+        session.queue.close();
+        session.forkOf = undefined;
+        this.sessions.delete(session.id);
+        deleteArtifacts(session.id);
+        throw err instanceof SessionError ? err : new SessionError(500, (err as Error).message);
+      } finally {
+        clearTimeout(timer);
+        session.forkInit = undefined;
+      }
     }
     return session.id;
   }

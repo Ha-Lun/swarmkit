@@ -180,4 +180,43 @@ describe('TranscriptWatcher held sessions', () => {
     expect(info?.cwd).toBe('/repo/oldheld');
     expect(watcher.transcriptPath('old-held-id')).toBe(oldFile);
   });
+
+  it('expires holder-gone marks after FRESH_MS and clears ids that become page-owned', async () => {
+    const goneOf = (w: TranscriptWatcher) => (w as unknown as { holderGone: Map<string, number> }).holderGone;
+    const seen: ServerEvent[] = [];
+    const skipped = new Set<string>();
+    const w = new TranscriptWatcher({
+      root: projectsDir,
+      emit: (e) => seen.push(e),
+      skip: (id) => skipped.has(id),
+      maxAgeMs: 14 * 24 * 60 * 60_000,
+    });
+    // Fresh transcript held by a busy claude, then the holder vanishes: marked gone.
+    const file = path.join(projectsDir, 'proj-old', 'gone-marks.jsonl');
+    await writeFile(file, `${userLine}\n${assistantLine}\n`);
+    const holderFile2 = path.join(sessionsDir, 'gone-marks.json');
+    await writeFile(holderFile2, JSON.stringify({
+      pid: process.pid,
+      sessionId: 'gone-marks',
+      cwd: '/repo/oldheld',
+      kind: 'interactive',
+      status: 'busy',
+    }));
+    await w.scanNow();
+    await rm(holderFile2);
+    await w.scanNow();
+    expect(goneOf(w).get('gone-marks')).toBeGreaterThan(0);
+
+    // The id is resumed as a page session (skipFn turns true): the mark is cleared
+    // before the skip continue, so a later holder-less scan reads it normally.
+    skipped.add('gone-marks');
+    await w.scanNow();
+    expect(goneOf(w).get('gone-marks')).toBeUndefined();
+
+    // A mark older than FRESH_MS is pruned by the scan (the transcript is stale by then).
+    goneOf(w).set('expired-mark', Date.now() - 11 * 60_000);
+    await w.scanNow();
+    expect(goneOf(w).get('expired-mark')).toBeUndefined();
+    w.stop();
+  });
 });
