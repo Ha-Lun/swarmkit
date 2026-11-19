@@ -807,9 +807,9 @@ button {
 /* Fold control: a small chip straddling the bottom edge of a parent whose done children are shown */
 .fold-chip {
   position: absolute;
-  right: var(--space-3);
+  left: 50%;
   bottom: 0;
-  transform: translateY(50%);
+  transform: translate(-50%, 50%);
   z-index: 1;
   display: inline-flex;
   align-items: center;
@@ -817,7 +817,7 @@ button {
   height: 24px;
   padding: 0 var(--space-2) 0 var(--space-1);
   border: 1px solid var(--border-2);
-  border-radius: var(--radius);
+  border-radius: 999px;
   background: var(--surface-2);
   font: inherit;
   font-size: 11px;
@@ -843,10 +843,12 @@ button {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-4) var(--space-3) var(--space-5);
+  /* pill (short cards) or rounded oval (tall ones): a 60px radius is a full pill up to 120px tall
+     and never clips the corners of taller cards; the side padding keeps text clear of the curve */
+  padding: var(--space-3) var(--space-7) var(--space-3) var(--space-8);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 60px;
   overflow: hidden;
   cursor: pointer;
   text-align: left;
@@ -855,14 +857,21 @@ button {
 .agent-card:hover { border-color: var(--border-2); background: var(--surface-2); }
 .agent-card:has(.agent-open:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
 .agent-card.is-open { border-color: var(--violet); }
-/* status rail */
+/* a card holding a permission panel is too tall for a pill: rounded corners, the old padding */
+.agent-card:has(.perm) {
+  border-radius: 20px;
+  padding: var(--space-3) var(--space-4) var(--space-3) var(--space-5);
+}
+.agent-card:has(.perm)::before { left: 7px; top: var(--space-5); bottom: var(--space-5); }
+/* status tick, inset inside the rounded left end */
 .agent-card::before {
   content: '';
   position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
+  left: 14px;
+  top: 30%;
+  bottom: 30%;
   width: 3px;
+  border-radius: 2px;
   background: var(--border-2);
 }
 .agent-card.st-running::before { background: var(--teal); }
