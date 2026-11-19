@@ -310,6 +310,7 @@ function applyAssistant(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerE
       const text = rawText ? unwrapAgentText(rawText) : '';
       if (!text) return;
       node.lastActivity = firstLine(text, 200);
+      node.lastTool = undefined;
       node.result = cap(text);
       dirty = true;
       out.touch(node, { id: key, ts, kind: 'text', summary: firstLine(text, 200), detail: cap(text) });
@@ -336,7 +337,10 @@ function applyAssistant(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerE
       const summary = toolSummary(name, input);
       // The hand-back tool call itself is invisible on cards: its tool_result (the
       // subagent's report envelope) is ignored too, so the previous text stands.
-      if (name !== 'SubagentHandback') node.lastActivity = summary;
+      if (name !== 'SubagentHandback') {
+        node.lastActivity = summary;
+        node.lastTool = summary;
+      }
       dirty = true;
       out.touch(node, {
         id: `${toolUseId}:use`,
@@ -390,6 +394,7 @@ function applyUser(tree: SessionTree, m: Raw, opts?: ApplyOptions): ServerEvent[
       dirty = true;
     }
     node.lastActivity = firstLine(shown, 200);
+    node.lastTool = undefined;
     dirty = true;
     out.touch(node, {
       id: key,
@@ -629,6 +634,7 @@ function applyResult(tree: SessionTree, m: Raw): ServerEvent[] {
     out.touch(root);
   }
   const result = stringified(m.result);
+  root.lastTool = undefined;
   if (result && root.result !== result) {
     root.result = result;
     out.touch(root);

@@ -75,6 +75,8 @@ export interface AgentNode {
   toolCounts: Record<string, number>;
   /** Summary of the latest event. */
   lastActivity?: string;
+  /** Latest tool summary, while a tool call is the newest thing; cleared when text, a user turn or the result arrives. */
+  lastTool?: string;
   /** Final text of the agent, or the worker's result summary. */
   result?: string;
   worker?: WorkerInfo;

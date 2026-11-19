@@ -932,3 +932,61 @@ describe('reducer: background task-notifications in user text', () => {
     expect(sub.endedAt).toBe(1_700_000_003_000);
   });
 });
+
+describe('reducer: lastTool', () => {
+  const bashUse = {
+    type: 'assistant' as const,
+    uuid: 'a-use',
+    timestamp: 1_700_000_001_000,
+    message: {
+      id: 'msg_b1',
+      model: 'claude-opus-4-5',
+      content: [{ type: 'tool_use', id: 'toolu_b1', name: 'Bash', input: { command: 'npm test' } }],
+    },
+  };
+  const text = (uuid: string, body: string) => ({
+    type: 'assistant' as const,
+    uuid,
+    timestamp: 1_700_000_002_000,
+    message: { id: `msg_${uuid}`, model: 'claude-opus-4-5', content: [{ type: 'text', text: body }] },
+  });
+  const userTurn = (uuid: string, body: string) => ({
+    type: 'user' as const,
+    uuid,
+    timestamp: 1_700_000_003_000,
+    message: { role: 'user' as const, content: body },
+  });
+  const result = (body: string) => ({
+    type: 'result' as const,
+    subtype: 'success',
+    timestamp: 1_700_000_004_000,
+    is_error: false,
+    result: body,
+  });
+
+  it('is set to the tool summary by a tool_use', () => {
+    const tree = createTree('lt1', { startedAt: 1_700_000_000_000 });
+    applyMessage(tree, bashUse);
+    const root = tree.nodes.get('root')!;
+    expect(root.lastTool).toBe('npm test');
+    expect(root.lastActivity).toBe('npm test');
+  });
+
+  it('is cleared by assistant text, a user turn and the result', () => {
+    const tree = createTree('lt2', { startedAt: 1_700_000_000_000 });
+    applyMessage(tree, bashUse);
+    applyMessage(tree, text('a-text', 'Running the suite now.'));
+    expect(tree.nodes.get('root')!.lastTool).toBeUndefined();
+    expect(tree.nodes.get('root')!.lastActivity).toBe('Running the suite now.');
+
+    applyMessage(tree, bashUse);
+    applyMessage(tree, userTurn('u1', 'Go again'));
+    expect(tree.nodes.get('root')!.lastTool).toBeUndefined();
+    expect(tree.nodes.get('root')!.lastActivity).toBe('Go again');
+
+    applyMessage(tree, bashUse);
+    applyMessage(tree, result('All finished.'));
+    expect(tree.nodes.get('root')!.lastTool).toBeUndefined();
+    expect(tree.nodes.get('root')!.lastActivity).toBe('All finished.');
+  });
+});
