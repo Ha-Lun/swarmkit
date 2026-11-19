@@ -15,10 +15,10 @@ agy is the default worker lane. Use `opencode-task` instead only when the worker
 |---|---|
 | `--model hydrogen` (`gemini-4-hydrogen-high`, the default) | implementation from an approved plan, `--agent <specialist>` work, writing tests, surveys and briefs (`--review`) |
 | `--model hydrogen --effort medium` or `low` | trivial bulk or mechanical edits |
-| `--model hydrogen --effort xhigh` (`gemini-4-hydrogen-xhigh`) | second-opinion review of your own diff (`--review`), cross-review of an OpenCode worker's branch (`--review`), hard implementation (tricky logic, multi-file refactors), the plan critic's fallback when the Neon run fails, and the fresh-start retry after a Hydrogen high task failed its one resume |
-| `--model neon --effort xhigh` (`gemini-4-neon-xhigh`) | the plan critic (`--review`, the plan on stdin); if it fails, rerun on Hydrogen xhigh. Neon shares the Gemini quota with Hydrogen; Argon is retired |
+| `--model hydrogen --effort xhigh` (`gemini-4-hydrogen-xhigh`) | hard implementation (tricky logic, multi-file refactors), the fresh-start retry after a Hydrogen high task failed its one resume, and the fallback when a Neon review fails |
+| `--model neon --effort xhigh` (`gemini-4-neon-xhigh`) | every review (`--review`): the plan critic (the plan on stdin), a second-opinion review of your own diff, cross-review of an OpenCode worker's branch; if it fails, rerun on Hydrogen xhigh. Neon shares the Gemini quota with Hydrogen; Argon is retired |
 
-Every branch an agy worker wrote is reviewed by `opencode-task --review` (its lane default); a branch an OpenCode worker wrote is reviewed by `agy-task --review --model hydrogen --effort xhigh`. Run 2-3 independent tasks at once, never more: the box has 8 cores and little spare RAM.
+Every branch an agy worker wrote is reviewed by `opencode-task --review` (its lane default); a branch an OpenCode worker wrote is reviewed by `agy-task --review --model neon --effort xhigh`. Run 2-3 independent tasks at once, never more: the box has 8 cores and little spare RAM.
 
 Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'): on agy, Hydrogen and Neon low/medium/high/xhigh, chosen by the table above. Never add a model without the owner's OK. agy workers have no shell, so run the verify yourself after an agy task lands; only `opencode-task` workers get the test/build runners in `RUNNERS` (`scripts/agy-task`).
 

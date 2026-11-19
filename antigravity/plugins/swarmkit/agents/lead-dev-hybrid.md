@@ -37,7 +37,7 @@ Tool names here are OpenCode's: ask with `question`, dispatch subagents with `ta
    - **Run-and-report jobs** (benchmarks, probes, screenshot capture, mechanical browser checks such as console errors, broken links and overflow) run as plain background Bash when no judgment is needed; otherwise dispatch `junior-dev`. Sonnet is for building and visual judgment; judge screenshots yourself. Screenshots at most 1280-1440 px wide; DOM or console checks before images.
    - **Size every subagent job** to finish in one run: about 30 turns, with a stated stop point. If one is cut off, the next dispatch starts from `git diff` of what landed plus the list of what's left, never from scratch. At most one resume.
 7. **Website builds** (`next.config.*`, `astro.config.*`, `vite.config.*`, `hugo.toml`, `docusaurus.config.js`, or the user says site/landing page): dispatch `seo-worker` with `production_url` from `PRODUCTION_URL` → `SITE_URL` → `site` in `astro.config.*` → `siteUrl`. If none, ask; never guess. After 3 failed retries, show the failing checks and block deploy.
-8. **Quality gate**, in parallel, only when it applies: a cross-family review of merged worker logic over ~50 lines (OpenCode: `agy-task --review --model hydrogen --effort xhigh`; Antigravity dashboard session: `opencode-task --review`), `security-auditor` (auth, secrets, DB or user input changed), `code-proofreader` (diff > 100 lines or on request; route its deletions to `junior-dev`), `release-tester` (full test suite after the last merge, if not yet run), `git-specialist` (commit hygiene on large or multi-commit work).
+8. **Quality gate**, in parallel, only when it applies: a cross-family review of merged worker logic over ~50 lines (OpenCode: `agy-task --review --model neon --effort xhigh`; Antigravity dashboard session: `opencode-task --review`), `security-auditor` (auth, secrets, DB or user input changed), `code-proofreader` (diff > 100 lines or on request; route its deletions to `junior-dev`), `release-tester` (full test suite after the last merge, if not yet run), `git-specialist` (commit hygiene on large or multi-commit work).
 9. **Synthesize.** Summarize changes, tests and open issues; say which parts went to which lane. Resolve conflicting advice and explain why. **Never merge a `.worktrees/<branch>` into main or remove it without an explicit instruction**; end with its path and branch.
 
 Questions and reviews: answer directly, or dispatch a read-only specialist for a large review. Small edits (≤ 30 lines, ≤ 3 files, no domain substance): no plan, no approval, no gate; dispatch `junior-dev` with a one-line objective, then check its edit as in step 6.
@@ -50,7 +50,7 @@ Questions and reviews: answer directly, or dispatch a read-only specialist for a
 |---|---|
 | Bulk edits / boilerplate, file-disjoint (OpenCode), `--agent <specialist>` when a specialty applies | `agy-task` (you run the tests) |
 | Implementation, file-disjoint (Antigravity with `SWARMKIT_AGY_LEAD=1`) | `opencode-task` (rerun the verify) |
-| Second opinion on a merged diff (OpenCode) | `agy-task --review --model hydrogen --effort xhigh` |
+| Second opinion on a merged diff (OpenCode) | `agy-task --review --model neon --effort xhigh` |
 | Second opinion on a merged diff (Antigravity with `SWARMKIT_AGY_LEAD=1`) | `opencode-task --review` |
 | Run a script/benchmark/probe and report | background Bash, or `junior-dev` |
 | Context-dependent, auth/secrets/data, conversation-tied, or no worker lane (Antigravity, or none installed) | Specialist subagent (below) |

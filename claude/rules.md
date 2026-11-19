@@ -27,15 +27,16 @@
     any investigation needing more than ~3 file reads (`--review`, returns
     a brief). `--effort medium|low` for trivial bulk or mechanical edits
     instead of `junior-dev`; `--effort xhigh` for hard implementation (tricky
-    logic, a multi-file refactor), a second-opinion review of your own diff
-    instead of `code-proofreader`, cross-review of an OpenCode worker's
-    branch, and the fresh-start retry when a Hydrogen
-    high task fails after its one resume.
-  - Neon xhigh (`--model neon --effort xhigh`): the plan critic above. It shares the Gemini
-    quota with Hydrogen. Argon is retired: Neon beat it on both benchmarks
+    logic, a multi-file refactor), the fresh-start retry when a Hydrogen
+    high task fails after its one resume, and the fallback when a Neon run fails.
+  - Neon xhigh (`--model neon --effort xhigh`): every review role: the plan
+    critic above, a second-opinion review of your own diff instead of
+    `code-proofreader`, and cross-review of an OpenCode worker's branch. If a
+    Neon run fails, rerun it on Hydrogen xhigh. It shares the Gemini quota
+    with Hydrogen. Argon is retired: Neon beat it on both benchmarks
     (bench/FINDINGS.md).
   - Cross-review: `opencode-task --review` reviews every branch an agy worker
-    wrote; `agy-task --review --model hydrogen --effort xhigh`
+    wrote; `agy-task --review --model neon --effort xhigh`
     reviews a branch an OpenCode worker wrote.
   - Client repos: before the first `opencode-task` run in a repo, if
     `opencode-task client-repo` prints `unknown`, ask the user (once per repo)
