@@ -77,6 +77,21 @@ class ProbeCriteria(unittest.TestCase):
         self.assertTrue(any("not denied" in p for p in ps), ps)
         self.assertTrue(any("gate mismatch" in p for p in ps), ps)  # one call now has no decision
 
+    def test_escape_denied_only_as_read(self):
+        calls = good_calls()[:-1] + [{"name": "read_file", "args": {"Path": ESCAPE}}]
+        log = good_log()[:-1] + [f"deny read_file {ESCAPE}"]
+        self.assertTrue(any("escape" in p for p in problems(calls, log)))
+
+    def test_args_not_a_dict(self):
+        calls = good_calls()
+        calls[2]["args"] = json.dumps(calls[2]["args"])
+        self.assertTrue(any("path keys" in p for p in problems(calls, good_log())))
+
+    def test_args_without_path_key(self):
+        calls = good_calls()
+        calls[3]["args"] = {"Content": "done"}
+        self.assertTrue(any("path keys" in p for p in problems(calls, good_log())))
+
     def test_gate_mismatch(self):
         log = good_log()[:3] + good_log()[4:]  # one allow dropped: the counts no longer line up
         ps = problems(good_calls(), log)

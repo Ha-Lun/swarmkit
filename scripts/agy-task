@@ -153,7 +153,7 @@ EFFORT_DEFAULTS = {  # probed 2026-10-29 on opencode 2.1.3: these accept #high; 
 }
 
 
-AGY_FAMILIES = {"argon": "gemini-4-argon", "hydrogen": "gemini-4-hydrogen"}
+AGY_FAMILIES = {"argon": "gemini-4-argon", "hydrogen": "gemini-4-hydrogen", "neon": "gemini-4-neon"}
 AGY_LEVELS = ("low", "medium", "high", "xhigh", "max")
 
 
@@ -488,11 +488,17 @@ def agy_version():
 
 
 @functools.cache
-def agy_gate_schema():
-    """(tool -> (path keys, other keys), common keys) of scripts/agy-gate.py, imported from its file."""
+def agy_gate_module():
+    """scripts/agy-gate.py, imported from its file (its hook main() is guarded by __main__)."""
     s = importlib.util.spec_from_file_location("swarmkit_agy_gate", Path(__file__).resolve().parent / "agy-gate.py")
     m = importlib.util.module_from_spec(s)
     s.loader.exec_module(m)
+    return m
+
+
+def agy_gate_schema():
+    """(tool -> (path keys, other keys), common keys) of scripts/agy-gate.py."""
+    m = agy_gate_module()
     return {**m.READ, **m.EDIT, **m.SHELL}, m.COMMON
 
 
@@ -508,8 +514,7 @@ def agy_probe_calls(conv):
             cs = step.get("tool_calls") or []
             if len(cs) == 1 and isinstance(nxt, dict) and nxt.get("status") == "INVALID":
                 continue
-            calls += [{"name": c.get("name"), "args": c.get("args") if isinstance(c.get("args"), dict) else {}}
-                      for c in cs]
+            calls += [{"name": c.get("name"), "args": c.get("args")} for c in cs]  # raw: a non-dict fails the probe
         except (AttributeError, TypeError):
             pass
     return calls
@@ -542,10 +547,16 @@ def agy_probe_problems(calls, gate_log, edits_ok, escape, escape_absent, clean_g
                 problems.append(f"unknown tool allowed: {n}")
                 continue
             keys, other = schema[n]
-            problems += [f"unknown argument key {k} on allowed {n}" for k in (c.get("args") or {})
+            args = c.get("args")
+            if not isinstance(args, dict) or not set(keys) <= set(args):
+                # args stored differently, or the path under another key: the key check would see nothing
+                problems.append(f"transcript args missing or without path keys on allowed {n}")
+                continue
+            problems += [f"unknown argument key {k} on allowed {n}" for k in args
                          if k not in keys + other + common]
-    escape_denied = any(line.split(" ", 1)[0].startswith("deny") and str(escape) in line
-                        for line in gate_log)
+    edit_tools = set(agy_gate_module().EDIT)
+    escape_denied = any(len(p) == 3 and p[0].startswith("deny") and p[1] in edit_tools and str(escape) in p[2]
+                        for p in (line.split(" ", 2) for line in gate_log))
     if not escape_denied:
         problems.append("the escape write is not denied in the gate log")
     if not edits_ok:
@@ -591,8 +602,7 @@ def record_probed_version(version, tool_names):
             pass  # a missing or unreadable state file starts a new list
         recs.append({"version": version, "probed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                      "agy_tool_names": list(tool_names)})
-        tmp = p.parent / f".probed-versions-{os.getpid()}.tmp"
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=".probed-versions-", suffix=".tmp")  # O_EXCL, 0600
         with os.fdopen(fd, "w") as f:
             f.write(json.dumps(recs) + "\n")
             f.flush()
@@ -619,11 +629,21 @@ def agy_gate_decision(version, yolo=False, override=None, probed=None):
     return "probe" if version else "unknown"
 
 
+def probe_git(*cmd):
+    """A git call of the probe's scratch repo, without the caller's GIT_* variables (a GIT_DIR or
+    GIT_INDEX_FILE from a hook must not make the fixture commit land in the caller's repo)."""
+    p = subprocess.run(cmd, text=True, capture_output=True,
+                       env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
+    if p.returncode:
+        sys.exit(f"{PROG}: probe: {' '.join(cmd[:3])} failed: {p.stderr.strip() or p.stdout.strip()}")
+    return p.stdout.strip()
+
+
 def agy_probe_run(task, main, sha, marker, escape, agent):
     """One gated probe run (agy_cmd applies the gate overlay and builds the command): {'calls', 'problems'}."""
     task.mkdir(parents=True)
     wt = task / "worktree"
-    sh("git", "-C", str(main), "worktree", "add", "-q", str(wt), sha)
+    probe_git("git", "-C", str(main), "-c", "core.hooksPath=/dev/null", "worktree", "add", "-q", str(wt), sha)
     dotgit0 = (wt / ".git").read_bytes()
     a = argparse.Namespace(review=False, yolo=False, agent=agent, model=PROBE_MODEL, effort=None,
                            timeout=PROBE_TIMEOUT)
@@ -679,11 +699,12 @@ def run_probe(version):
         (main / "a.txt").write_text(f"first line\n{marker}\nlast line\n")
         (main / "sub" / "b.txt").write_text("b\n")
         (main / "needle.txt").write_text("needle\n")
-        git = ["git", "-C", str(main)]
-        sh(*git, "init", "-q")
-        sh(*git, "-c", "user.name=agy-probe", "-c", "user.email=agy-probe@invalid", "add", "-A")
-        sh(*git, "-c", "user.name=agy-probe", "-c", "user.email=agy-probe@invalid", "commit", "-qm", "probe fixture")
-        sha = sh(*git, "rev-parse", "HEAD")
+        git = ["git", "-C", str(main), "-c", "core.hooksPath=/dev/null",
+               "-c", "user.name=agy-probe", "-c", "user.email=agy-probe@invalid"]
+        probe_git(*git, "init", "-q")
+        probe_git(*git, "add", "-A")
+        probe_git(*git, "commit", "-qm", "probe fixture")
+        sha = probe_git(*git, "rev-parse", "HEAD")
         escape_dir = Path(tempfile.mkdtemp(prefix="agy-probe-escape-"))
         escape = escape_dir / f"escape-{os.urandom(4).hex()}.txt"
         names, problems = set(), []
@@ -715,7 +736,8 @@ def run_probe_locked(version, force=False):
     re-read the state file). force=True (the `probe` subcommand) re-runs a recorded version."""
     p = agy_probe_state().parent
     p.mkdir(parents=True, exist_ok=True)
-    lock = open(p / ".probe.lock", "a")
+    os.chmod(p, 0o700)
+    lock = os.fdopen(os.open(p / ".probe.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600), "r+")
     try:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if not force and version in probed_versions():  # a parallel start probed it while we waited
@@ -900,7 +922,9 @@ BACKENDS = {
                  "model": "gemini-4-hydrogen-high", "cmd": agy_cmd, "parse": agy_parse, "grace": 30,
                  "allowed": ("gemini-4-argon-low", "gemini-4-argon-medium", "gemini-4-argon-high",
                              "gemini-4-hydrogen-low", "gemini-4-hydrogen-medium", "gemini-4-hydrogen-high",
-                             "gemini-4-hydrogen-xhigh")},
+                             "gemini-4-hydrogen-xhigh"),
+                 # benchmark candidates: accepted only under SWARMKIT_BENCH=1, never for real work
+                 "bench_only": ("gemini-4-neon-low", "gemini-4-neon-medium", "gemini-4-neon-high", "gemini-4-neon-xhigh")},
     "opencode-task": {"cli": "opencode", "env": "OPENCODE_TASK", "home": ".opencode-tasks",
                       "model": "opencode-go/muse-spark-1.3-contributor", "cmd": opencode_cmd,
                       "parse": opencode_parse, "grace": 0, "proc_env": opencode_env, "watch": tool_failure,
