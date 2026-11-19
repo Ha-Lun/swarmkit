@@ -125,4 +125,59 @@ describe('TranscriptWatcher held sessions', () => {
     // Gone from the listing again: outside the window and no longer held.
     expect(watcher.list().find(s => s.id === 'old-held-id')).toBeUndefined();
   });
+
+  it('reports a vanished holder through get() too, and a fresh transcript reads ended', async () => {
+    // Fresh transcript (mtime now) held by a busy claude: listed as running.
+    const file = path.join(projectsDir, 'proj-old', 'gone-via-get.jsonl');
+    await writeFile(file, `${userLine}\n${assistantLine}\n`);
+    const holderFile2 = path.join(sessionsDir, 'gone-get.json');
+    await writeFile(holderFile2, JSON.stringify({
+      pid: process.pid,
+      sessionId: 'gone-via-get',
+      cwd: '/repo/oldheld',
+      kind: 'interactive',
+      entrypoint: 'cli',
+      status: 'busy',
+      tmux: '%8',
+    }));
+    const seen: ServerEvent[] = [];
+    const w = new TranscriptWatcher({
+      root: projectsDir,
+      emit: (e) => seen.push(e),
+      skip: () => false,
+      maxAgeMs: 14 * 24 * 60 * 60_000,
+    });
+    await w.scanNow();
+    seen.length = 0;
+    await rm(holderFile2);
+    // get() refreshes the holders as well: the disappearance must surface here too,
+    // and the fresh mtime must not read as "running" once the holder is gone.
+    const detail = await w.get('gone-via-get');
+    const upserts = seen.filter((e): e is Extract<ServerEvent, { type: 'session.upsert' }> =>
+      e.type === 'session.upsert' && e.session.id === 'gone-via-get');
+    expect(upserts.length).toBeGreaterThanOrEqual(1);
+    const after = upserts[upserts.length - 1]!.session;
+    expect(after.status).toBe('done');
+    expect(after.terminal).toBeUndefined();
+    expect(detail).toBeDefined();
+    w.stop();
+  });
+
+  it('answers fileInfo and transcriptPath for a held session outside heads', async () => {
+    // The 20-day-old session's holder again: it is outside the listing window, so
+    // resume/commands/artifacts must still find it through the held head.
+    await writeFile(holderFile, JSON.stringify({
+      pid: process.pid,
+      sessionId: 'old-held-id',
+      cwd: '/repo/oldheld',
+      kind: 'interactive',
+      entrypoint: 'cli',
+      status: 'idle',
+      tmux: 'desk:@6.%5',
+    }));
+    await watcher.scanNow();
+    const info = watcher.fileInfo('old-held-id');
+    expect(info?.cwd).toBe('/repo/oldheld');
+    expect(watcher.transcriptPath('old-held-id')).toBe(oldFile);
+  });
 });

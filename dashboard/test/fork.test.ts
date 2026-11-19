@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ServerEvent } from '../src/shared/types.ts';
-import { SdkSessions } from '../server/sdk/sessions.ts';
+import { SdkSessions, SessionError } from '../server/sdk/sessions.ts';
 import type { QueryFn } from '../server/sdk/sessions.ts';
 
 /** Real scratch dir under $HOME: resume() validates cwds like the start path does. */
@@ -17,6 +17,16 @@ function makeForkQuery(newId: string, seen: Record<string, unknown>[]): QueryFn 
     seen.push(params.options as Record<string, unknown>);
     return (async function* generator(): AsyncGenerator<SDKMessage, void> {
       yield { type: 'system', subtype: 'init', session_id: newId, model: 'claude-opus-5-5' } as unknown as SDKMessage;
+      yield { type: 'result', subtype: 'success' } as unknown as SDKMessage;
+    })() as unknown as AsyncIterable<SDKMessage>;
+  };
+}
+
+/** Fake CLI query that ends without ever reporting a session id (the fork fails). */
+function makeRecordingNoInitQuery(seen: Record<string, unknown>[]): QueryFn {
+  return (params) => {
+    seen.push(params.options as Record<string, unknown>);
+    return (async function* generator(): AsyncGenerator<SDKMessage, void> {
       yield { type: 'result', subtype: 'success' } as unknown as SDKMessage;
     })() as unknown as AsyncIterable<SDKMessage>;
   };
@@ -55,5 +65,44 @@ describe('resume fork (terminal continue-as-a-copy)', () => {
     expect(sdk.owns('plain-terminal-id')).toBe(true);
     expect(seen[0]!.resume).toBe('plain-terminal-id');
     expect(seen[0]!.forkSession).toBeUndefined();
+  });
+
+  it('never adopts the source id: the copy is aborted and the fork fails', async () => {
+    const events: ServerEvent[] = [];
+    const seen: Record<string, unknown>[] = [];
+    // The CLI answered init with the SOURCE id: it did not fork after all.
+    const sdk = new SdkSessions(e => events.push(e), makeForkQuery('fork-source-id', seen));
+    await expect(
+      sdk.resume('fork-source-id', { text: 'continue as a copy', fork: true }, { cwd: homeDir, title: 'Resumed session' }),
+    ).rejects.toThrow(/source session id/);
+    // Nothing was adopted and no session lingers: the source stays unowned.
+    expect(sdk.owns('fork-source-id')).toBe(false);
+    expect(sdk.list()).toEqual([]);
+    // The aborted query was told to resume the source with forkSession.
+    expect(seen[0]).toMatchObject({ resume: 'fork-source-id', forkSession: true });
+  });
+
+  it('refuses a fork of a dashboard-owned session with 409', async () => {
+    const events: ServerEvent[] = [];
+    const seen: Record<string, unknown>[] = [];
+    const sdk = new SdkSessions(e => events.push(e), makeForkQuery('unused-id', seen));
+    const id = sdk.start({ prompt: 'own the fleet', cwd: homeDir, agent: 'lead-dev-hybrid' });
+    const queriesBefore = seen.length;
+    await expect(
+      sdk.resume(id, { text: 'try to fork a page session', fork: true }, { cwd: homeDir }),
+    ).rejects.toMatchObject({ status: 409 });
+    // The live session was never touched and no fork query was started.
+    expect(sdk.owns(id)).toBe(true);
+    expect(seen.length).toBe(queriesBefore);
+  });
+
+  it('drops the placeholder session when the forked query ends without an init id', async () => {
+    const seen: Record<string, unknown>[] = [];
+    const sdk = new SdkSessions(() => {}, makeRecordingNoInitQuery(seen));
+    await expect(
+      sdk.resume('fork-source-id', { text: 'continue as a copy', fork: true }, { cwd: homeDir, title: 'Resumed session' }),
+    ).rejects.toThrow(/new session id/);
+    expect(sdk.list()).toEqual([]);
+    expect(sdk.owns('fork-source-id')).toBe(false);
   });
 });

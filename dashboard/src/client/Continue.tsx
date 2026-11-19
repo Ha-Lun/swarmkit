@@ -71,7 +71,9 @@ export function Continue({ backend, guard, session, git, sessionId, source, onRe
   };
 
   // A fork is prompt text only: it cannot carry attachments.
-  const canSend = fork ? text.trim().length > 0 : text.trim().length > 0 || attachments.items.length > 0;
+  const canSend = fork
+    ? text.trim().length > 0
+    : text.trim().length > 0 || attachments.items.length > 0 || attachments.files.length > 0;
 
   // Slash menu wins over Enter: while it is open, Enter picks the command.
   const enterToSend = useEnterToSend(ref, () => {

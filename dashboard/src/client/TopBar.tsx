@@ -66,7 +66,9 @@ export function TopBar({ sessions, selectedId, onHome, onSelect, onNew, onClose,
     (s) =>
       s.status === 'running' ||
       s.status === 'waiting' ||
-      (s.terminal?.pane && s.status !== 'done' && s.status !== 'error' && s.status !== 'stopped') ||
+      // A held terminal session (pane or not) stays tabbed: a pane-less one is
+      // selected to be continued as a copy.
+      (s.terminal !== undefined && s.status !== 'done' && s.status !== 'error' && s.status !== 'stopped') ||
       s.id === selectedId,
   );
   const [confirmingId, setConfirmingId] = useState<string | null>(null);

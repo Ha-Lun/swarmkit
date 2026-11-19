@@ -336,6 +336,9 @@ async function main(): Promise<void> {
       if (raw.fork !== undefined && typeof raw.fork !== 'boolean') {
         throw new ValidationError('fork must be a boolean');
       }
+      if (raw.fork === true && (images || files)) {
+        throw new ValidationError('a fork cannot carry attachments');
+      }
       body = { text };
       if (raw.fork === true) body.fork = true;
       if (images) body.images = images;

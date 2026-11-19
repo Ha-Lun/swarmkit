@@ -1,7 +1,7 @@
 // Page sessions driven by the Claude Agent SDK: one query per browser-started session,
 // permission prompts resolved from the dashboard, a live agent tree per session.
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { closeSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, symlinkSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
@@ -23,7 +23,7 @@ import type { AgyHookResponse, AgyOptions } from '../runtimes/agy.ts';
 import { claudeConfigDir, resolveDirInHome } from '../paths.ts';
 import { CommandCache } from '../commandcache.ts';
 import { deleteImages, imageDir, pruneOrphanImages, saveFiles, saveImages } from '../images.ts';
-import { deleteArtifacts, ensureArtifactDir, pruneOrphanArtifacts } from '../artifacts.ts';
+import { deleteArtifacts, ensureArtifactDir, artifactDir, pruneOrphanArtifacts } from '../artifacts.ts';
 
 /** Main-thread agent names must start alphanumerically and stay short (no '../', no path tricks). */
 export { AGENT_RE };
@@ -223,7 +223,7 @@ interface PageSession {
    * suppressed while it is set.
    */
   forkOf?: string;
-  forkInit?: { promise: Promise<void>; resolve: () => void };
+  forkInit?: { promise: Promise<void>; resolve: () => void; reject: (err: Error) => void };
   upsertThrottle: { lastSent: number; timer: NodeJS.Timeout | null };
 }
 
@@ -462,10 +462,12 @@ export class SdkSessions {
     // A fork resume resolves on the init message (id adopted) or when the query ends.
     if (session.forkOf && !session.forkInit) {
       let resolve!: () => void;
-      const promise = new Promise<void>(r => {
-        resolve = r;
+      let reject!: (err: Error) => void;
+      const promise = new Promise<void>((res, rej) => {
+        resolve = res;
+        reject = rej;
       });
-      session.forkInit = { promise, resolve };
+      session.forkInit = { promise, resolve, reject };
     }
     // Untrusted projects only get user settings: project/local settings files would be attacker-controlled.
     session.untrustedProject = !isProjectTrusted(session.cwd);
@@ -699,15 +701,26 @@ export class SdkSessions {
         // (later resumes continue it normally).
         if (session.forkOf && init.type === 'system' && init.subtype === 'init') {
           const sid = (message as unknown as { session_id?: unknown }).session_id;
-          if (typeof sid === 'string' && sid.length > 0 && sid !== session.id && !this.sessions.has(sid)) {
+          if (typeof sid === 'string' && sid.length > 0 && sid !== session.id && sid === session.forkOf) {
+            // The CLI resumed the source without forking: never re-adopt the source
+            // id (the terminal process still owns it) — kill the copy and fail the fork.
+            session.abort.abort();
             this.sessions.delete(session.id);
-            session.id = sid;
-            session.tree.sessionId = sid;
-            for (const node of session.tree.nodes.values()) node.sessionId = sid;
-            this.sessions.set(sid, session);
+            session.forkInit?.reject(new SessionError(500, 'the forked session reported its source session id; the copy was aborted'));
+            // forkOf stays set: upserts stay suppressed, the finally below cleans up.
+          } else {
+            if (typeof sid === 'string' && sid.length > 0 && sid !== session.id && !this.sessions.has(sid)) {
+              const placeholderId = session.id;
+              this.sessions.delete(session.id);
+              session.id = sid;
+              session.tree.sessionId = sid;
+              for (const node of session.tree.nodes.values()) node.sessionId = sid;
+              this.sessions.set(sid, session);
+              this.relinkForkArtifacts(placeholderId, sid);
+            }
+            session.forkOf = undefined;
+            session.forkInit?.resolve();
           }
-          session.forkOf = undefined;
-          session.forkInit?.resolve();
         }
         if (init.type === 'system' && init.subtype === 'init' && Array.isArray(init.terminal_slash_commands)) {
           session.terminalCommands = new Set(
@@ -764,8 +777,15 @@ export class SdkSessions {
     } finally {
       session.consuming = false;
       if (generation === session.generation) session.query = null;
-      // A fork resume waiting for the adoption returns as soon as the stream ends.
-      session.forkInit?.resolve();
+      if (session.forkOf) {
+        // The init message never arrived: the fork failed. Drop the placeholder
+        // session (nothing owns it) and surface the failure to the waiting caller.
+        this.sessions.delete(session.id);
+        session.forkOf = undefined;
+        session.forkInit?.reject(new SessionError(500, 'the forked session ended before it reported its new session id'));
+      } else {
+        session.forkInit?.resolve();
+      }
     }
   }
 
@@ -967,6 +987,11 @@ export class SdkSessions {
     // Same cwd validation as the start path, plus the agent regex on the stored agent.
     const cwd = await resolveResumeCwd(info?.cwd);
     const existing = this.sessions.get(id);
+    if (body?.fork === true && existing) {
+      // A fork is a terminal continue-as-a-copy: a dashboard-owned session has no
+      // terminal source to copy — never write to the live one.
+      throw new SessionError(409, 'fork is only for terminal sessions; this session already belongs to the dashboard');
+    }
     const priorRoot = info.nodes?.find(n => n.id === 'root');
     const storedAgent =
       existing?.agent ??
@@ -1098,7 +1123,14 @@ export class SdkSessions {
       upsertThrottle: { lastSent: 0, timer: null },
     };
     this.sessions.set(sessionId, session);
-    this.startQuery(session, text, session.model, effort, true, images, files);
+    try {
+      this.startQuery(session, text, session.model, effort, true, images, files);
+    } catch (err) {
+      // Like start(): a half-started fork must not linger as an ownable session.
+      this.sessions.delete(sessionId);
+      session.forkOf = undefined;
+      throw err;
+    }
     if (session.forkOf) {
       // Wait for the init message so the caller gets the id the transcript really
       // continues under (the CLI picks it when forking). A stream that ends without
@@ -1200,6 +1232,34 @@ export class SdkSessions {
     await this.unwind(session);
     this.startQuery(session, text, session.model, session.effort, true);
     return id;
+  }
+
+  /** Rebuilds a SessionTree from transcript nodes: statuses become terminal states, the root restarts. */
+  /**
+   * The forked CLI process got the placeholder id's artifacts dir in
+   * SWARMKIT_ARTIFACTS_DIR. After adopting the real id, move the dir to the new id
+   * and leave a symlink at the placeholder path, so the child keeps writing into
+   * the store that GET /api/sessions/<newId>/artifacts reads. Best effort.
+   */
+  private relinkForkArtifacts(fromId: string, toId: string): void {
+    try {
+      const from = artifactDir(fromId);
+      const to = artifactDir(toId);
+      if (!existsSync(from) || existsSync(to)) return;
+      renameSync(from, to);
+      try {
+        symlinkSync(to, from);
+      } catch {
+        // Without the link the child writes to a missing dir: put the store back.
+        try {
+          renameSync(to, from);
+        } catch {
+          // Nothing more to do; the store stays at the new id.
+        }
+      }
+    } catch {
+      // Not a path-safe id or a missing store: keep the artifacts where they are.
+    }
   }
 
   /** Rebuilds a SessionTree from transcript nodes: statuses become terminal states, the root restarts. */

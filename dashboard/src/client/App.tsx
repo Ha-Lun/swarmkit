@@ -952,6 +952,9 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   const viewOnly =
     !!selected && !running && !ended && !selected.resumable && ['done', 'error', 'stopped'].includes(selected.status);
   const canContinue = !!selected && !running && !viewOnly;
+  // A held terminal session without a pane continues as a copy (fork); one with a pane
+  // gets the terminal composer. Ended sessions without a holder resume normally.
+  const forkMode = !!selected && selected.source === 'terminal' && !!selected.terminal && !selected.terminal.pane;
 
   const isLivePageSession = (s: SessionSummary) =>
     s.source === 'page' && (s.status === 'running' || s.status === 'waiting');
@@ -1173,9 +1176,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
               <TerminalComposer
                 key={`term-composer:${selected.id}`}
                 session={selected}
-                onSend={(text) => guardSilent(backend.terminalMessage(selected.id, text)).then((r) => {
-                  if (r === undefined) throw new Error('Could not send into the terminal.');
-                })}
+                onSend={(text) => guard(backend.terminalMessage(selected.id, text)).then(() => undefined)}
               />
             ) : running ? (
               <div className="readonly-bar">
@@ -1185,7 +1186,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
               <div className="readonly-bar">View only — this session has ended and can’t be continued.</div>
             ) : canContinue ? (
               <Continue
-                key={`${selected.id}:${ended ? 'ended' : ''}`}
+                key={`${selected.id}:${ended ? 'ended' : ''}:${forkMode ? 'fork' : ''}`}
                 initialText={ended ? endedDraft?.text : undefined}
                 useOpus={opusFor === selected.id}
                 onUseOpus={(on) => setOpusFor(on ? selected.id : null)}
@@ -1196,8 +1197,8 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
                 git={gitInfo}
                 sessionId={selected.id}
                 source={selected.source}
-                fork={selected.source === 'terminal' && !selected.terminal?.pane}
-                onResumed={selected.source === 'terminal' && !selected.terminal?.pane ? handleForked : handleResumed}
+                fork={forkMode}
+                onResumed={forkMode ? handleForked : handleResumed}
                 loadCommands={() => backend.commands(selected.id).then((r) => r.commands)}
               />
             ) : null

@@ -136,10 +136,10 @@ export class TranscriptWatcher {
     if (this.scanning) return;
     this.scanning = true;
     try {
-      this.refreshHeadsSync();
-      const prevHolders = this.holders;
+      // Holders first: the head refresh below must not orphan ids that are still held,
+      // and appearing/disappearing holders are reported against the last snapshot.
       await this.refreshHolders();
-      this.emitHolderChanges(prevHolders, this.holders);
+      this.refreshHeadsSync();
       const now = Date.now();
       await this.evictLive(now);
       // Only sessions modified in the last 2 min are parsed eagerly (at most 2 per tick).
@@ -184,7 +184,7 @@ export class TranscriptWatcher {
   private async evictLive(now: number): Promise<void> {
     const drop: string[] = [];
     for (const [id, live] of [...this.live.entries()]) {
-      if (this.holders.has(id)) continue; // a live claude process holds this session: keep it
+      if (!this.skipFn(id) && this.holders.has(id)) continue; // a live claude process holds this session: keep it
       if (this.terminalPending.has(id) && !this.skipFn(id)) continue; // a hook holds this session open
       const stale = now - live.mtimeMs > LIVE_MS;
       const unaccessed = now - live.lastAccess > ACCESS_MS;
@@ -208,7 +208,7 @@ export class TranscriptWatcher {
   /** Cap-only LRU trim (used after eager parses): no file probing needed. */
   private async trimLiveToCap(): Promise<void> {
     if (this.live.size <= MAX_LIVE) return;
-    const candidates = [...this.live.keys()].filter(id => !this.terminalPending.has(id) && !this.holders.has(id));
+    const candidates = [...this.live.keys()].filter(id => !this.terminalPending.has(id) && (this.skipFn(id) || !this.holders.has(id)));
     candidates.sort((a, b) => {
       const la = this.live.get(a)!;
       const lb = this.live.get(b)!;
@@ -228,7 +228,7 @@ export class TranscriptWatcher {
       const head = this.heads.get(id);
       this.emitFn({
         type: 'session.upsert',
-        session: head ? headSummary(head, this.holders, this.pendingCount(id)) : liveSummary(live, this.holders, this.pendingCount(id)),
+        session: head ? headSummary(head, this.holders, this.pendingCount(id), this.holderGone.has(id)) : liveSummary(live, this.holders, this.pendingCount(id), this.holderGone.has(id)),
       });
       this.live.delete(id);
     }
@@ -242,12 +242,12 @@ export class TranscriptWatcher {
     const out = new Map<string, SessionSummary>();
     for (const [id, head] of this.heads) {
       if (this.skipFn(id)) continue;
-      out.set(id, headSummary(head, this.holders, this.pendingCount(id)));
+      out.set(id, headSummary(head, this.holders, this.pendingCount(id), this.holderGone.has(id)));
     }
     for (const [id, live] of this.live) {
       if (this.skipFn(id)) continue;
       const head = this.heads.get(id);
-      const summary = liveSummary(live, this.holders, this.pendingCount(id));
+      const summary = liveSummary(live, this.holders, this.pendingCount(id), this.holderGone.has(id));
       if (!summary.cwd && head) {
         summary.cwd = head.cwd;
         summary.project = basename(head.cwd);
@@ -262,7 +262,7 @@ export class TranscriptWatcher {
       if (out.has(id) || this.skipFn(id)) continue;
       const head = this.heldHead(id);
       if (!head) continue; // no transcript yet: nothing to show
-      out.set(id, headSummary(head, this.holders, this.pendingCount(id)));
+      out.set(id, headSummary(head, this.holders, this.pendingCount(id), this.holderGone.has(id)));
     }
     return [...out.values()].sort((a, b) => b.updatedAt - a.updatedAt);
   }
@@ -314,18 +314,22 @@ export class TranscriptWatcher {
     return undefined;
   }
 
-  /** cwd and transcript mtime of a terminal session, when the file is known. */
+  /** cwd and transcript mtime of a terminal session, when the file is known. Old held
+   *  sessions (outside heads) fall back to the on-demand held head, so resume/commands
+   *  and artifacts routes keep working while the claude process lives. */
   fileInfo(id: string): { cwd: string; mtimeMs: number } | undefined {
     const live = this.live.get(id);
     if (live) return { cwd: live.cwd, mtimeMs: live.mtimeMs };
     const head = this.heads.get(id);
     if (head) return { cwd: head.cwd, mtimeMs: head.mtimeMs };
+    const held = this.heldHead(id);
+    if (held) return { cwd: held.cwd, mtimeMs: held.mtimeMs };
     return undefined;
   }
 
   /** The transcript file followed for a terminal session, when known. */
   transcriptPath(id: string): string | undefined {
-    return this.live.get(id)?.path ?? this.heads.get(id)?.path;
+    return this.live.get(id)?.path ?? this.heads.get(id)?.path ?? this.heldHead(id)?.path;
   }
 
   /**
@@ -359,8 +363,8 @@ export class TranscriptWatcher {
     // Older than the newest MAX_HEAD_SESSIONS transcripts: not listed, so not adopted.
     if (!live && this.heads.get(sessionId) !== head) return false;
     const summary = live
-      ? liveSummary(live, this.holders, this.pendingCount(sessionId))
-      : headSummary(head, this.holders, this.pendingCount(sessionId));
+      ? liveSummary(live, this.holders, this.pendingCount(sessionId), this.holderGone.has(sessionId))
+      : headSummary(head, this.holders, this.pendingCount(sessionId), this.holderGone.has(sessionId));
     this.emitFn({ type: 'session.upsert', session: summary });
     return true;
   }
@@ -433,16 +437,23 @@ export class TranscriptWatcher {
 
   // -------------------------------------------------------------------------
 
-  /** Fresh live-registry snapshot (cached in livesessions, at most one dir read per 2 s). */
+  /**
+   * Fresh live-registry snapshot (cached in livesessions, at most one dir read per 2 s)
+   * plus the diff against the last one. The diff lives here so every caller — the scan
+   * loop and get() alike — reports appearing, changing and disappearing holders;
+   * otherwise a holder could vanish between two scans and no client would ever hear it.
+   */
   private async refreshHolders(): Promise<void> {
+    const prev = this.holders;
     this.holders = await liveHolders();
+    this.emitHolderChanges(prev, this.holders);
   }
 
   /**
-   * Diffs the live-registry snapshots and emits session.upsert for every id whose holder
-   * appeared, changed (pid or status) or disappeared: without this a tab whose claude just
-   * exited (or turned busy/idle in the terminal) keeps its stale summary until the next
-   * transcript write.
+   * Emits session.upsert for every id whose holder appeared, changed (pid, status,
+   * pane, entrypoint or kind) or disappeared: without this a tab whose claude just
+   * exited (or turned busy/idle in the terminal) keeps its stale summary until the
+   * next transcript write.
    */
   private emitHolderChanges(prev: Map<string, LiveHolder>, next: Map<string, LiveHolder>): void {
     const ids = new Set([...prev.keys(), ...next.keys()]);
@@ -450,8 +461,17 @@ export class TranscriptWatcher {
       if (this.skipFn(id)) continue;
       const before = prev.get(id);
       const after = next.get(id);
-      if (before && after && before.pid === after.pid && before.status === after.status) continue;
-      const summary = this.holderSummary(id);
+      if (after) this.holderGone.delete(id); // a claude process is back: freshness counts again
+      if (
+        before && after &&
+        before.pid === after.pid &&
+        before.status === after.status &&
+        before.tmux === after.tmux &&
+        before.entrypoint === after.entrypoint &&
+        before.kind === after.kind
+      ) continue;
+      if (!after) this.noteHolderGone(id);
+      const summary = this.holderSummary(id, after === undefined);
       if (!summary) continue;
       this.emitFn({ type: 'session.upsert', session: summary });
     }
@@ -461,14 +481,27 @@ export class TranscriptWatcher {
     }
   }
 
+  /**
+   * Session ids whose holder just disappeared: their summaries read ended (done) even
+   * while the transcript is still fresh — the writing process is gone, so the
+   * FRESH_MS "running" guess must not resurrect the tab. Cleared when a holder
+   * appears again (a new claude process claimed the id).
+   */
+  private holderGone = new Set<string>();
+
+  private noteHolderGone(id: string): void {
+    if (this.holderGone.size >= 200) this.holderGone.delete(this.holderGone.keys().next().value!);
+    this.holderGone.add(id);
+  }
+
   /** The best summary the watcher can build for a holder id right now, undefined when none. */
-  private holderSummary(id: string): SessionSummary | undefined {
+  private holderSummary(id: string, holderGone = false): SessionSummary | undefined {
     if (this.skipFn(id)) return undefined;
     const live = this.live.get(id);
-    if (live) return liveSummary(live, this.holders, this.pendingCount(id));
+    if (live) return liveSummary(live, this.holders, this.pendingCount(id), holderGone);
     const head = this.heads.get(id) ?? this.heldHead(id);
     if (!head) return undefined;
-    return headSummary(head, this.holders, this.pendingCount(id));
+    return headSummary(head, this.holders, this.pendingCount(id), holderGone);
   }
 
   /**
@@ -499,7 +532,7 @@ export class TranscriptWatcher {
 
   private flushEvents(events: ServerEvent[], live: LiveSession): void {
     for (const e of events) this.emitFn(e);
-    const summary = liveSummary(live, this.holders, this.pendingCount(live.id));
+    const summary = liveSummary(live, this.holders, this.pendingCount(live.id), this.holderGone.has(live.id));
     const key = JSON.stringify(summary);
     if (key !== live.lastSummary) {
       live.lastSummary = key;
@@ -644,7 +677,7 @@ export class TranscriptWatcher {
       for (const node of parsed.live.tree.nodes.values()) {
         events.push(upsertEvent(node));
       }
-      events.push({ type: 'session.upsert', session: liveSummary(parsed.live, this.holders, this.pendingCount(parsed.live.id)) });
+      events.push({ type: 'session.upsert', session: liveSummary(parsed.live, this.holders, this.pendingCount(parsed.live.id), this.holderGone.has(parsed.live.id)) });
     } catch {
       // file vanished mid-rebuild: the old state stands
     }
@@ -929,7 +962,7 @@ export class TranscriptWatcher {
   }
 
   private detailFor(live: LiveSession): SessionDetail {
-    const summary = liveSummary(live, this.holders, this.pendingCount(live.id));
+    const summary = liveSummary(live, this.holders, this.pendingCount(live.id), this.holderGone.has(live.id));
     const head = this.heads.get(live.id);
     if (!summary.cwd && head) summary.cwd = head.cwd;
     if (!summary.title && head) summary.title = head.title;
@@ -1008,10 +1041,11 @@ function endedStatus(status: SessionSummary['status']): boolean {
 function terminalInfo(holders: Map<string, LiveHolder>, sessionId: string): SessionSummary['terminal'] | undefined {
   const holder = holders.get(sessionId);
   if (!holder || DASHBOARD_ENTRYPOINTS.has(holder.entrypoint ?? '')) return undefined;
-  return { pane: !!holder.tmux, busy: holder.status !== 'idle' };
+  // A pane the dashboard can paste into needs an interactive claude with a known pane.
+  return { pane: holder.kind === 'interactive' && !!holder.tmux, busy: holder.status !== 'idle' };
 }
 
-function liveSummary(live: LiveSession, holders: Map<string, LiveHolder>, pending: number): SessionSummary {
+function liveSummary(live: LiveSession, holders: Map<string, LiveHolder>, pending: number, holderGone = false): SessionSummary {
   const nodes = [...live.tree.nodes.values()];
   const root = nodes.find((n) => n.id === 'root');
   const now = Date.now();
@@ -1021,6 +1055,7 @@ function liveSummary(live: LiveSession, holders: Map<string, LiveHolder>, pendin
     live.id,
     pending > 0 || nodes.some((n) => n.status === 'waiting'),
     holders,
+    holderGone,
   );
   const terminal = terminalInfo(holders, live.id);
   let resumable = false;
@@ -1054,7 +1089,8 @@ function liveSummary(live: LiveSession, holders: Map<string, LiveHolder>, pendin
 /**
  * Terminal status: a live holder wins (running while busy, idle when idle), waiting
  * permissions still beat it, and without a holder the mtime cap decides (running
- * only while the file was written within 30 s, done afterwards).
+ * only while the file was written within 30 s, done afterwards). A holder that just
+ * left (`holderGone`) never counts freshness as running: the process is gone.
  */
 function terminalStatus(
   now: number,
@@ -1062,17 +1098,19 @@ function terminalStatus(
   sessionId: string,
   waiting: boolean,
   holders: Map<string, LiveHolder>,
+  holderGone = false,
 ): SessionSummary['status'] {
   if (waiting) return 'waiting';
   const holder = holders.get(sessionId);
   if (holder) return holder.status === 'idle' ? 'idle' : 'running';
+  if (holderGone) return 'done';
   return now - mtimeMs < FRESH_MS ? 'running' : 'done';
 }
 
-function headSummary(head: HeadEntry, holders: Map<string, LiveHolder>, pending: number): SessionSummary {
+function headSummary(head: HeadEntry, holders: Map<string, LiveHolder>, pending: number, holderGone = false): SessionSummary {
   const now = Date.now();
   const id = basename(head.path, '.jsonl');
-  const status = terminalStatus(now, head.mtimeMs, id, pending > 0, holders);
+  const status = terminalStatus(now, head.mtimeMs, id, pending > 0, holders, holderGone);
   const terminal = terminalInfo(holders, id);
   let resumable = false;
   if (endedStatus(status)) {
