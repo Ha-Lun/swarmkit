@@ -2,11 +2,11 @@
 
 - Large or risky work: call `EnterPlanMode` first; `ExitPlanMode` is the
   approval request. Before `ExitPlanMode` on a plan touching ~3+ files, or
-  auth, data, CI or infra, have an Argon worker critique it: pipe a short
+  auth, data, CI or infra, have a Neon worker critique it: pipe a short
   ask ("critique this plan: gaps, risks, wrong assumptions; file read tools
   only, no shell; read <files>") plus the plan into
-  `agy-task start plan-<slug> --review --model argon -`. If that run fails or
-  Argon's quota is out, rerun it with `--model hydrogen --effort xhigh`.
+  `agy-task start plan-<slug> --review --model neon --effort xhigh -`. If that run fails,
+  rerun it with `--model hydrogen --effort xhigh`.
   Weigh its findings, ask for approval, then `agy-task clean plan-<slug> --force`.
   Skip it for client repos the user hasn't cleared for Google.
 - After an approved plan, hand implementation to agy or OpenCode
@@ -31,8 +31,9 @@
     instead of `code-proofreader`, cross-review of an OpenCode worker's
     branch, and the fresh-start retry when a Hydrogen
     high task fails after its one resume.
-  - Argon (`--model argon`): the plan critic above and nothing else; it has
-    its own small weekly quota.
+  - Neon xhigh (`--model neon --effort xhigh`): the plan critic above. It shares the Gemini
+    quota with Hydrogen. Argon is retired: Neon beat it on both benchmarks
+    (bench/FINDINGS.md).
   - Cross-review: `opencode-task --review` reviews every branch an agy worker
     wrote; `agy-task --review --model hydrogen --effort xhigh`
     reviews a branch an OpenCode worker wrote.

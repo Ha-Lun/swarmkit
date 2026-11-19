@@ -65,3 +65,29 @@ python3 bench/compare.py --dry-run                                            # 
 python3 bench/compare.py --yes --case features --model opus --timeout 3000 --budget 8
 python3 bench/compare.py --yes --case all --model opus --repeat 3             # statistics
 ```
+
+## Neon vs Argon (2026-11-19, agy 1.5.12)
+
+Two identical `--review` tasks per model, graded by hand. Plan critique: the
+live-sessions dashboard plan. Branch review: the resulting `dash-live` branch,
+graded against a `security-auditor` report (9 findings) as the reference.
+
+| Task | Model | Wall | Tokens | Result |
+|---|---|---|---|---|
+| Plan critique | Argon high | 445 s | 326k | 11 findings; 10 shared with Neon high, 1 unique (already known) |
+| Plan critique | Neon high | 228 s | 148k | 11 findings; about 5–6 unique and real, including a client merge bug that shipped otherwise |
+| Plan critique | Neon xhigh | 343 s | 300k | 10 findings; the only run to flag the terminal-identity class (`tty_nr` vs pane tty, unsent draft or open modal, stopped/zombie states) at plan time |
+| Branch review | Argon high | 527 s | 491k | 10 real; 2 of 9 auditor findings; 1 unique (pane-less held sessions unreachable) |
+| Branch review | Neon high | 455 s | 240k | 12 real or plausible; 3 of 9 auditor findings; about 5 unique, including a stdin EPIPE server crash |
+
+Findings:
+1. Neon matched or beat Argon on every task at about half the time and tokens.
+2. Neither model at high caught the security-auditor's terminal-identity
+   findings on the branch; keep `security-auditor` for injection and auth paths.
+3. xhigh was accepted on 1.5.12 and thought more than high (24.6k vs 14.2k
+   thinking tokens), so the reported reduced-thinking issue did not block it.
+4. agy's `/usage` lists no Neon group: Neon draws on the shared "Gemini Models"
+   quota with Hydrogen, while Argon had its own small weekly quota.
+
+Decision: Argon is retired from the worker allowlist; Neon xhigh is the plan
+critic, Hydrogen xhigh its fallback.

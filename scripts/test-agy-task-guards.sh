@@ -846,10 +846,11 @@ mkagent mres-pinvar "model: opencode-go/glm-5.3-flash#high
 [ "$("$AGY_TASK" model)" = "gemini-4-hydrogen-high high" ] || fail "agy model default"
 [ "$("$AGY_TASK" model --model hydrogen --effort xhigh)" = "gemini-4-hydrogen-xhigh xhigh" ] || fail "agy family + effort"
 [ "$("$AGY_TASK" model --model gemini-4-hydrogen)" = "gemini-4-hydrogen-high high" ] || fail "agy family default effort"
-[ "$("$AGY_TASK" model --model gemini-4-argon-low)" = "gemini-4-argon-low low" ] || fail "agy full ID effort"
-"$AGY_TASK" model --model argon --effort xhigh >/dev/null 2>&1 && fail "agy accepted argon xhigh"
+[ "$("$AGY_TASK" model --model gemini-4-neon-low)" = "gemini-4-neon-low low" ] || fail "agy full ID effort"
+[ "$("$AGY_TASK" model --model neon --effort xhigh)" = "gemini-4-neon-xhigh xhigh" ] || fail "agy neon xhigh"
+"$AGY_TASK" model --model argon >/dev/null 2>&1 && fail "agy accepted the retired Argon"
 "$AGY_TASK" model --model gemini-3.8-flash-high >/dev/null 2>&1 && fail "agy accepted the removed 3.8 Flash"
-"$AGY_TASK" model --model gemini-4-argon-high --effort low >/dev/null 2>&1 && fail "agy accepted a full ID with a conflicting effort"
+"$AGY_TASK" model --model gemini-4-neon-high --effort low >/dev/null 2>&1 && fail "agy accepted a full ID with a conflicting effort"
 unset SWARMKIT_OPENCODE_AGENTS_DIR
 
 # --- client repo: ask once per repo, client repos run on mimo
