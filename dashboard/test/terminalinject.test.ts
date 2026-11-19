@@ -71,16 +71,6 @@ function treeReadStat(lines: Record<number, string> = TREE): (pid: number) => Pr
   };
 }
 
-/** Sequential stat reads: each checkForeground/descendant walk takes the next line. */
-function seqReadStat(lines: string[]): (pid: number) => Promise<string> {
-  let i = 0;
-  return async () => {
-    const line = lines[Math.min(i++, lines.length - 1)];
-    if (line === undefined) throw new TerminalInjectError('the terminal process is gone');
-    return line;
-  };
-}
-
 const baseOpts = (over: Record<string, unknown> = {}): Parameters<typeof sendTerminalMessage>[3] => ({
   exec: makeExec().exec,
   probe: () => {},
@@ -215,20 +205,32 @@ describe('sendTerminalMessage inject', () => {
     await expect(sendTerminalMessage('t3', HOLDER, 'hi', baseOpts({ exec }))).rejects.toThrow('tmux send failed');
     const names = calls.map(c => c.args[0]);
     expect(names).toEqual(['display-message', 'load-buffer', 'paste-buffer', 'delete-buffer']);
-    expect(calls[2].args).toEqual(['paste-buffer', '-p', '-b', calls[1].args[3], '-t', '%3']);
+    expect(calls[2].args).toEqual(['paste-buffer', '-p', '-b', calls[1].args[2], '-t', '%3']);
     expect(names).not.toContain('send-keys');
   });
 
   it('never sends Enter when claude lost the foreground between paste and Enter', async () => {
-    // stat reads: descendant walk, foreground check 1, foreground check 2 (now foreign).
-    const lines = [
+    // The descendant walk needs the real tree; the holder's own stat reads come in
+    // sequence: foreground check 1 (owns it), then the re-check after the paste (lost).
+    const holderReads = [
       statLine(4242, { ppid: 3500 }),
       statLine(4242, { ppid: 3500 }),
       statLine(4242, { ppid: 3500, pgrp: 4242, tpgid: 5000 }),
     ];
+    let holderCall = 0;
+    const readStat = async (pid: number): Promise<string> => {
+      if (pid !== HOLDER.pid) {
+        const line = TREE[pid];
+        if (line === undefined) throw new TerminalInjectError('the terminal process is gone');
+        return line;
+      }
+      const line = holderReads[Math.min(holderCall++, holderReads.length - 1)];
+      if (line === undefined) throw new TerminalInjectError('the terminal process is gone');
+      return line;
+    };
     const { exec, calls } = makeExec();
     await expect(
-      sendTerminalMessage('t4', HOLDER, 'hi', baseOpts({ exec, readStat: seqReadStat(lines) })),
+      sendTerminalMessage('t4', HOLDER, 'hi', baseOpts({ exec, readStat })),
     ).rejects.toThrow('pasted but not sent');
     const names = calls.map(c => c.args[0]);
     expect(names).toContain('paste-buffer');

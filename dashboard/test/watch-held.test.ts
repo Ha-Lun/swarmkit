@@ -101,11 +101,14 @@ describe('TranscriptWatcher held sessions', () => {
   });
 
   it('emits a session.upsert when a holder appears and again when it disappears', async () => {
+    const upsertsFor = (id: string) =>
+      events.filter((e): e is Extract<ServerEvent, { type: 'session.upsert' }> =>
+        e.type === 'session.upsert' && e.session.id === id);
     // The holder is present from beforeAll: the first scan emitted the "appeared" upsert
     // and list() shows the held summary with its terminal marker.
-    const appeared = events.filter(e => e.type === 'session.upsert' && (e as { session: { id: string } }).session.id === 'old-held-id');
+    const appeared = upsertsFor('old-held-id');
     expect(appeared.length).toBeGreaterThanOrEqual(1);
-    const before = appeared[appeared.length - 1]!.session as { status: string; terminal?: { pane: boolean; busy: boolean } };
+    const before = appeared[appeared.length - 1]!.session;
     expect(before.status).toBe('idle');
     expect(before.terminal).toEqual({ pane: true, busy: false });
 
@@ -114,9 +117,9 @@ describe('TranscriptWatcher held sessions', () => {
     await rm(holderFile);
     events.length = 0;
     await watcher.scanNow();
-    const upserts = events.filter(e => e.type === 'session.upsert' && (e as { session: { id: string } }).session.id === 'old-held-id');
+    const upserts = upsertsFor('old-held-id');
     expect(upserts.length).toBeGreaterThanOrEqual(1);
-    const after = upserts[upserts.length - 1]!.session as { status: string; terminal?: unknown };
+    const after = upserts[upserts.length - 1]!.session;
     expect(after.status).toBe('done'); // old mtime, no holder: the session ended
     expect(after.terminal).toBeUndefined();
     // Gone from the listing again: outside the window and no longer held.
