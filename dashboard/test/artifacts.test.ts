@@ -1,7 +1,7 @@
 // Downloadable artifacts: store listing, name checks, the hardened open, written files,
 // orphan pruning, the download headers and the HTTP serving (statuses, headers, HEAD,
 // streaming) over a harness that drives the same server helpers as server/index.ts.
-import { linkSync, mkdirSync, mkdtempSync, realpathSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { linkSync, mkdirSync, mkdtempSync, realpathSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync, lutimesSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -190,12 +190,33 @@ describe('pruneOrphanArtifacts', () => {
     const root = path.dirname(artifactDir('art-old'));
     mkdirSync(path.join(root, 'bad.name'));
     utimesSync(path.join(root, 'bad.name'), old, old);
-    symlinkSync(path.join(scratch, 'outside'), path.join(root, 'art-link'));
+    // A symlink whose name is not a session id is left alone.
+    symlinkSync(path.join(scratch, 'outside'), path.join(root, 'art.link'));
     expect(pruneOrphanArtifacts(id => id === 'art-live', 30 * 86_400_000)).toBe(1);
     expect(readdirSync(root).sort()).toEqual(
-      expect.arrayContaining(['art-fresh', 'art-live', 'art-link', 'bad.name']),
+      expect.arrayContaining(['art-fresh', 'art-live', 'art.link', 'bad.name']),
     );
     expect(readdirSync(root)).not.toContain('art-old');
+  });
+
+  it('unlinks orphaned session-id symlinks without following them', () => {
+    const root = path.dirname(artifactDir('art-old'));
+    const targetDir = path.join(root, 'real-target');
+    mkdirSync(targetDir, { recursive: true });
+    writeFileSync(path.join(targetDir, 'keep.txt'), 'keep');
+    // A live fork's adoption link (fresh, target exists) stays: the agent writes through it.
+    symlinkSync(targetDir, path.join(root, 'art-fresh-ph'));
+    // An old adoption link and a dangling one: both unlinked.
+    symlinkSync(targetDir, path.join(root, 'art-ph'));
+    const old = new Date(Date.now() - 31 * 86_400_000);
+    lutimesSync(path.join(root, 'art-ph'), old, old);
+    symlinkSync(path.join(root, 'gone-target'), path.join(root, 'art-dangling'));
+    expect(pruneOrphanArtifacts(id => id === 'art-live', 30 * 86_400_000)).toBeGreaterThanOrEqual(2);
+    expect(readdirSync(root)).toContain('art-fresh-ph');
+    expect(readdirSync(root)).not.toContain('art-ph');
+    expect(readdirSync(root)).not.toContain('art-dangling');
+    // The link's target was never followed.
+    expect(readdirSync(targetDir)).toContain('keep.txt');
   });
 });
 

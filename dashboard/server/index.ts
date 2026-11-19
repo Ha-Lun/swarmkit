@@ -36,7 +36,7 @@ import { SdkSessions, SessionError } from './sdk/sessions.ts';
 import { triageStartBody } from './triage.ts';
 import { createLimitHandler } from './fallback.ts';
 import { deleteSecret, listSecrets, putSecret, redactAll, redactServerEvent } from './secrets.ts';
-import { validAttachmentTotals, validFiles, validImages, validMessageText, validRuntime, validRuntimeAgent, validRuntimeEffort, validRuntimeModel, ValidationError } from './validate.ts';
+import { validAttachmentTotals, validFiles, validImages, validMessageText, validRuntime, validRuntimeAgent, validRuntimeEffort, validRuntimeModel, validText, ValidationError } from './validate.ts';
 import { imageEtag, readImage } from './images.ts';
 import {
   downloadHeaders,
@@ -53,6 +53,7 @@ import { abortUsageProbe, getLaneLimits, getUsage } from './usage.ts';
 import { freshTranscriptMtimeMs, holderMessage, liveHolder } from './livesessions.ts';
 import { TranscriptWatcher } from './watch/transcripts.ts';
 import { createRemoteControls } from './remotecontrol.ts';
+import { sendTerminalMessage, TerminalInjectError } from './terminalinject.ts';
 import { ClaudeHookBridge, Presence, removeClaudeHookFile, startClaudeHookServer, writeClaudeHookFile } from './claudehook.ts';
 import type { HookSocketServer } from './claudehook.ts';
 import { isLoopback } from './hookauth.ts';
@@ -332,7 +333,14 @@ async function main(): Promise<void> {
       const text = validMessageText(raw.text, images, files);
       const model = validRuntimeModel(runtime, raw.model);
       const effort = validRuntimeEffort(runtime, raw.effort);
+      if (raw.fork !== undefined && typeof raw.fork !== 'boolean') {
+        throw new ValidationError('fork must be a boolean');
+      }
+      if (raw.fork === true && (images || files)) {
+        throw new ValidationError('a fork cannot carry attachments');
+      }
       body = { text };
+      if (raw.fork === true) body.fork = true;
       if (images) body.images = images;
       if (files) body.files = files;
       if (model !== undefined) body.model = model;
@@ -357,8 +365,10 @@ async function main(): Promise<void> {
       if (!file) return sendJson(res, 404, { error: 'session not found' });
       // A terminal claude still holding this session id must not be forked: refuse
       // before anything else moves (the cached-mtime check below can be stale).
+      // A fork (`fork: true`) continues as a copy under a new id instead: the holder
+      // may stay, the source transcript is never touched.
       const holder = await liveHolder(id);
-      if (holder) return sendJson(res, 409, { error: holderMessage(holder.pid) });
+      if (holder && !body.fork) return sendJson(res, 409, { error: holderMessage(holder.pid) });
       // Rebuild the tree from the watcher's current parse so the continued session keeps
       // its nodes; unknown cwd constellations fall back to the defaults inside resume().
       const detail = await watcher.get(id);
@@ -379,6 +389,29 @@ async function main(): Promise<void> {
       if (err instanceof SessionError) {
         return sendJson(res, err.status, { error: err.message });
       }
+      throw err;
+    }
+  }
+
+  /** POST /api/sessions/:id/terminal-message: paste a message into the session's tmux pane. */
+  async function terminalMessage(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
+    const raw = requireObject(await readJson(req));
+    try {
+      if (raw.images !== undefined || raw.files !== undefined) {
+        throw new ValidationError('terminal messages cannot carry attachments');
+      }
+      const text = validText(raw.text);
+      const holder = await liveHolder(id);
+      if (!holder) return sendJson(res, 404, { error: 'session not found' });
+      try {
+        await sendTerminalMessage(id, holder, text);
+      } catch (err) {
+        if (err instanceof TerminalInjectError) return sendJson(res, 409, { error: err.message });
+        throw err;
+      }
+      return sendJson(res, 202, { ok: true });
+    } catch (err) {
+      if (err instanceof ValidationError) return sendJson(res, 400, { error: err.message });
       throw err;
     }
   }
@@ -822,6 +855,9 @@ async function main(): Promise<void> {
       if (parts.length === 4 && parts[3] === 'resume' && method === 'POST') {
         return resumeSession(req, res, id);
       }
+      if (parts.length === 4 && parts[3] === 'terminal-message' && method === 'POST') {
+        return terminalMessage(req, res, id);
+      }
       if (parts.length === 4 && parts[3] === 'restart' && method === 'POST') {
         return restartSession(req, res, id);
       }
@@ -1051,6 +1087,8 @@ async function main(): Promise<void> {
   process.once('SIGTERM', shutdown);
 
   await viteReady;
+  // The first list() answers with the live-registry holders: populate them before serving.
+  await watcher.ready();
 
   server.listen(PORT, HOST, () => {
     const shown = HOST === '0.0.0.0' ? 'localhost' : HOST;

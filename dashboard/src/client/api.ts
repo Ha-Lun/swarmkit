@@ -79,6 +79,8 @@ export interface FleetBackend {
   detail(id: string): Promise<SessionDetail>;
   start(body: StartSessionBody): Promise<StartSessionResponse>;
   send(sessionId: string, text: string, images?: ImageAttachment[], files?: FileAttachment[]): Promise<unknown>;
+  /** Paste a message into a terminal session's tmux pane (202; the TUI submits it). */
+  terminalMessage(sessionId: string, text: string): Promise<unknown>;
   interrupt(sessionId: string): Promise<unknown>;
   stop(sessionId: string): Promise<unknown>;
   resume(sessionId: string, body: ResumeSessionBody): Promise<StartSessionResponse>;
@@ -139,6 +141,11 @@ export const apiBackend: FleetBackend = {
   },
   interrupt: (sessionId) =>
     request(`/api/sessions/${encodeURIComponent(sessionId)}/interrupt`, { method: 'POST' }),
+  terminalMessage: (sessionId, text) =>
+    request(`/api/sessions/${encodeURIComponent(sessionId)}/terminal-message`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
   stop: (sessionId) => request(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }),
   resume: (sessionId, body) =>
     request(`/api/sessions/${encodeURIComponent(sessionId)}/resume`, {

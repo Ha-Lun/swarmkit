@@ -61,9 +61,14 @@ function CloseConfirm({
   );
 }
 
+/** A live held terminal session (pane or not): tabbed, and its close button is a no-op. */
+function isHeldTerminal(s: SessionSummary): boolean {
+  return s.terminal !== undefined && s.status !== 'done' && s.status !== 'error' && s.status !== 'stopped';
+}
+
 export function TopBar({ sessions, selectedId, onHome, onSelect, onNew, onClose, isLivePage, backend, guard, pushEnabled }: Props) {
   const tabs = sessions.filter(
-    (s) => s.status === 'running' || s.status === 'waiting' || s.id === selectedId,
+    (s) => s.status === 'running' || s.status === 'waiting' || isHeldTerminal(s) || s.id === selectedId,
   );
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const anchorRef = useRef<HTMLButtonElement | null>(null);
@@ -122,6 +127,15 @@ export function TopBar({ sessions, selectedId, onHome, onSelect, onNew, onClose,
                 onClick={() => onSelect(s.id)}
               >
                 <i className={`dot st-${s.status}`} aria-hidden="true" />
+                {s.terminal?.pane && (
+                  <span
+                    className={`top-tab-term${s.terminal.busy ? '' : ' is-idle'}`}
+                    aria-hidden="true"
+                    title="Terminal session"
+                  >
+                    &gt;_
+                  </span>
+                )}
                 <span className="top-tab-title">{title}</span>
                 {s.pendingPermissions > 0 && (
                   <span className="top-tab-pending" aria-hidden="true">
@@ -129,22 +143,24 @@ export function TopBar({ sessions, selectedId, onHome, onSelect, onNew, onClose,
                   </span>
                 )}
               </button>
-              <button
-                type="button"
-                className="top-tab-close"
-                aria-label={`Close ${title}`}
-                title={`Close ${title}`}
-                onClick={(e) => {
-                  if (live) {
-                    anchorRef.current = e.currentTarget;
-                    setConfirmingId(s.id);
-                  } else {
-                    onClose(s.id);
-                  }
-                }}
-              >
-                <span aria-hidden="true">×</span>
-              </button>
+              {isHeldTerminal(s) ? null : (
+                <button
+                  type="button"
+                  className="top-tab-close"
+                  aria-label={`Close ${title}`}
+                  title={`Close ${title}`}
+                  onClick={(e) => {
+                    if (live) {
+                      anchorRef.current = e.currentTarget;
+                      setConfirmingId(s.id);
+                    } else {
+                      onClose(s.id);
+                    }
+                  }}
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              )}
             </div>
           );
         })}

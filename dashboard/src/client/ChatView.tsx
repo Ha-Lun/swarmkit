@@ -337,7 +337,7 @@ function ThinkingStatus({ node, color, waiting }: { node: AgentNode; color: stri
       <Scanner size="sm" state={state} color={color} />
       <span className="chat-thinking-label">{base}</span>
       <span className="chat-thinking-elapsed" aria-label={`${secs} seconds`}>· {secs}s</span>
-      {node.lastActivity && <span className="chat-thinking-activity">{node.lastActivity}</span>}
+      {node.lastTool && <span className="chat-thinking-activity">{node.lastTool}</span>}
     </div>
   );
 }

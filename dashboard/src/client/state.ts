@@ -42,7 +42,8 @@ function mergeHead(detail: SessionDetail, head: AgentNodeHead): SessionDetail {
   const i = detail.nodes.findIndex((n) => n.id === head.id);
   const nodes: AgentNode[] =
     i >= 0
-      ? detail.nodes.map((n) => (n.id === head.id ? { ...n, ...head, events: n.events } : n))
+      ? // lastTool is optional: JSON drops a cleared (undefined) one, so take it from the head, never keep the old one
+        detail.nodes.map((n) => (n.id === head.id ? { ...n, ...head, lastTool: head.lastTool, events: n.events } : n))
       : [...detail.nodes, { ...head, events: [] }];
   return { ...detail, nodes };
 }
