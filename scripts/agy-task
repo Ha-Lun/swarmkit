@@ -51,7 +51,7 @@ denied). The probe passes when the transcript's tool names match the gate log on
 name and argument key is in agy-gate.py's schema (or was denied), the allowed edits happened, the escape file does not exist and its write is denied in the
 gate log, and the repo's .git is untouched; it then records {version, probed_at, agy_tool_names} into $AGY_TASK_DIR/probed-versions.json (atomic, 0600),
 which the version gate accepts next to AGY_PROBED. Parallel starts probe once (fcntl lock; the others wait, then re-read the file). A criterion that fails,
-or a quota, network or timeout error, records nothing. Run `agy-task probe` by hand before bumping AGY_PROBED, then compare the tool names and argument keys
+or a quota, network or timeout error, is not marked probed and instead records a 1 h cooldown in $AGY_TASK_DIR/probe-failed.json (run `agy-task probe` to retry now). Run `agy-task probe` by hand before bumping AGY_PROBED, then compare the tool names and argument keys
 in ~/.gemini/antigravity-cli/brain/<conversation>/.system_generated/logs/transcript_full.jsonl and the gate log with agy-gate.py's schema, and add only file
 tools whose path keys are known.
 
@@ -102,7 +102,7 @@ null), wall_s and stopped_by (null | max-denied | max-tool-errors | timeout).
 The running-task limit is shared: agy and opencode tasks of all repos together never exceed it
 (the limit itself is read from the invoked backend's *_TASK_MAX). list and clean stay per repo.
 """
-import argparse, fcntl, functools, hashlib, importlib.util, json, os, re, shlex, shutil, signal, stat, subprocess, sys, tempfile, threading, time
+import argparse, fcntl, functools, hashlib, importlib.util, json, math, os, re, shlex, shutil, signal, stat, subprocess, sys, tempfile, threading, time
 from pathlib import Path
 
 # opencode-task is a symlink to this file; the name picks the backend
@@ -568,10 +568,39 @@ def agy_probe_problems(calls, gate_log, edits_ok, escape, escape_absent, clean_g
     return problems
 
 
+PROBE_FAIL_COOLDOWN = 3600  # seconds before an automatic gate probe retry after a failure
+PROBE_COOLDOWN = 2          # distinct return code from run_probe_locked when skipped for cooldown
+
+
 def agy_probe_state():
     """The probe state file: <AGY_TASK_DIR>/probed-versions.json (default ~/.agy-tasks), next to the task dirs."""
     d = os.environ.get(f"{BACKEND['env']}_DIR", Path.home() / BACKEND["home"])
     return Path(os.path.realpath(d)) / "probed-versions.json"
+
+
+def agy_probe_failed_state():
+    """The probe failure cooldown file: <AGY_TASK_DIR>/probe-failed.json."""
+    return agy_probe_state().parent / "probe-failed.json"
+
+
+def _write_probe_json(p, data, prefix):
+    """Write JSON DATA atomically (dir 0700, file 0600), never through a symlink."""
+    p.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(p.parent, 0o700)
+    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=prefix, suffix=".tmp")  # O_EXCL, 0600
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(data) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, p)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def probed_versions():
@@ -591,8 +620,6 @@ def record_probed_version(version, tool_names):
     rename), never through a symlink. False if it cannot be written."""
     p = agy_probe_state()
     try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        os.chmod(p.parent, 0o700)
         recs = []
         try:
             old = json.loads(read_nofollow(p))
@@ -602,17 +629,52 @@ def record_probed_version(version, tool_names):
             pass  # a missing or unreadable state file starts a new list
         recs.append({"version": version, "probed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                      "agy_tool_names": list(tool_names)})
-        fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=".probed-versions-", suffix=".tmp")  # O_EXCL, 0600
-        with os.fdopen(fd, "w") as f:
-            f.write(json.dumps(recs) + "\n")
-            f.flush()
-            os.fsync(f.fileno())
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, p)
+        _write_probe_json(p, recs, ".probed-versions-")
     except OSError as e:
         print(f"{PROG}: cannot record the probed version: {e}", file=sys.stderr)
         return False
     return True
+
+
+def read_probe_failures():
+    """{version: failed_at_epoch} from probe-failed.json ({} if missing, symlinked, or unreadable)."""
+    try:
+        raw = json.loads(read_nofollow(agy_probe_failed_state()))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {k: v for k, v in raw.items()
+            if isinstance(k, str) and isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)}
+
+
+def record_probe_failure(version):
+    """Record {version: epoch} in probe-failed.json (dir 0700, file 0600, atomic rename), never through a symlink."""
+    p = agy_probe_failed_state()
+    recs = read_probe_failures()
+    recs[version] = time.time()
+    try:
+        _write_probe_json(p, recs, ".probe-failed-")
+    except OSError as e:
+        print(f"{PROG}: cannot record probe failure: {e}", file=sys.stderr)
+
+
+def clear_probe_failure(version):
+    """Remove VERSION from probe-failed.json if present; an absent entry or file is left untouched."""
+    p = agy_probe_failed_state()
+    if not os.path.lexists(p):
+        return
+    try:
+        raw = json.loads(read_nofollow(p))
+    except (OSError, ValueError):
+        return
+    if not isinstance(raw, dict) or version not in raw:
+        return
+    recs = {k: v for k, v in raw.items() if k != version}
+    try:
+        _write_probe_json(p, recs, ".probe-failed-")
+    except OSError as e:
+        print(f"{PROG}: cannot update {p.name}: {e}", file=sys.stderr)
 
 
 def agy_gate_decision(version, yolo=False, override=None, probed=None):
@@ -654,7 +716,9 @@ def agy_probe_run(task, main, sha, marker, escape, agent):
                            timeout=seconds(a.timeout) + BACKEND["grace"])
         out, err, code, timed = r.stdout, r.stderr, r.returncode, False
     except subprocess.TimeoutExpired as e:
-        out, err, code, timed = e.stdout or "", e.stderr or "", None, True
+        out = e.stdout.decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
+        err = e.stderr.decode(errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
+        code, timed = None, True
     res = agy_parse(out, err)
     calls = agy_probe_calls(res["conversation_id"])
     try:
@@ -683,8 +747,9 @@ def run_probe(version):
     """The gate probe for agy VERSION: two gated runs (plain, then --agent PROBE_AGENT) in a throwaway
     git repo under the system temp dir, then the pass criteria of 'agy gate' in --help. On a pass the
     version is recorded with the tool names the transcripts show; a failed criterion or a run error
-    (quota, network, timeout) records nothing. The repo and the escape dir are deleted whatever
-    happens. Returns 0 on pass, 1 on fail."""
+    (quota, network, timeout) is not marked probed (run_probe_locked records a cooldown in
+    probe-failed.json instead). The repo and the escape dir are deleted whatever happens. Returns 0 on
+    pass, 1 on fail."""
     bad = agy_agent_problem(PROBE_AGENT)
     if bad:
         print(f"{PROG}: probe: {bad}", file=sys.stderr)
@@ -715,7 +780,7 @@ def run_probe(version):
             names |= {gate_name(c.get("name")) for c in (p["calls"] or [])}
             problems += [f"{label}: {x}" for x in p["problems"]]
         if problems:
-            print(f"{PROG}: probe of agy {version} failed, nothing recorded:", file=sys.stderr)
+            print(f"{PROG}: probe of agy {version} failed (not marked probed):", file=sys.stderr)
             for x in problems:
                 print(f"  - {x}", file=sys.stderr)
             return 1
@@ -733,7 +798,9 @@ def run_probe(version):
 
 def run_probe_locked(version, force=False):
     """run_probe for VERSION under an fcntl lock, so parallel starts probe once (the others wait, then
-    re-read the state file). force=True (the `probe` subcommand) re-runs a recorded version."""
+    re-read the state files). force=True (the `probe` subcommand) re-runs a recorded version and ignores
+    the failure cooldown. Returns 0 on pass or already-probed, PROBE_COOLDOWN when skipped for cooldown,
+    or 1 on failure."""
     p = agy_probe_state().parent
     p.mkdir(parents=True, exist_ok=True)
     os.chmod(p, 0o700)
@@ -742,7 +809,24 @@ def run_probe_locked(version, force=False):
         fcntl.flock(lock, fcntl.LOCK_EX)
         if not force and version in probed_versions():  # a parallel start probed it while we waited
             return 0
-        return run_probe(version)
+        if not force:
+            failed_at = read_probe_failures().get(version)
+            if failed_at is not None:
+                elapsed = time.time() - failed_at
+                if 0 <= elapsed < PROBE_FAIL_COOLDOWN:
+                    print(f"{PROG}: the gate probe for agy {version} failed {int(elapsed // 60)} min ago; "
+                          "run 'agy-task probe' to retry now, or set AGY_TASK_ALLOW_UNPROBED=1", file=sys.stderr)
+                    return PROBE_COOLDOWN
+            print(f"{PROG}: agy {version} not probed: running the gate probe (2 small Hydrogen-low runs)",
+                  file=sys.stderr)
+        else:
+            print(f"{PROG}: running the gate probe for agy {version} (2 small Hydrogen-low runs)", file=sys.stderr)
+        rc = run_probe(version)
+        if rc == 0:
+            clear_probe_failure(version)
+        else:
+            record_probe_failure(version)
+        return rc
     finally:
         fcntl.flock(lock, fcntl.LOCK_UN)
         lock.close()
@@ -1430,53 +1514,52 @@ def main():
     if a.cmd == "client-repo" and PROG != "opencode-task":
         print(f"{PROG}: client-repo is opencode-task only", file=sys.stderr)
         sys.exit(2)
-    # Repo discovery runs before the model early return and before resolve() finishes, so start,
-    # resume and model all know the repo. `model` outside a git repo skips the check instead of failing.
-    def base_for_client(b):
+    def base(b):  # resolved, so the worktree path git records is the one we check against
         return Path(os.path.realpath(os.environ.get(f"{b['env']}_DIR", Path.home() / b["home"])))
-    cwd_for_client = Path(os.path.realpath(Path.cwd()))
+    # Before any git call: from inside a task dir, git here would follow the worker's .git.
+    cwd = Path(os.path.realpath(Path.cwd()))
     for b in BACKENDS.values():
-        if cwd_for_client == base_for_client(b) or base_for_client(b) in cwd_for_client.parents:
-            sys.exit(f"{PROG}: run {PROG} from the main checkout, not from inside a task dir ({base_for_client(b)})")
-    repo_for_client, root_for_client = None, None
-    bench_skip = os.environ.get("SWARMKIT_BENCH") == "1"
-    if a.cmd in ("start", "resume", "model", "client-repo"):
-        if a.cmd == "model":
-            r = subprocess.run(["git", "worktree", "list", "--porcelain"], text=True, capture_output=True)
-            if r.returncode == 0 and r.stdout.strip():
-                try:
-                    repo_for_client = Path(r.stdout.splitlines()[0].split(" ", 1)[1])
-                    here_for_client = Path(sh("git", "rev-parse", "--show-toplevel"))
-                    key_for_client = f"{repo_for_client.name}-{hashlib.sha1(str(repo_for_client).encode()).hexdigest()[:6]}"
-                    root_for_client = base_for_client(BACKEND) / key_for_client
-                except SystemExit:
-                    repo_for_client, root_for_client = None, None
-        else:
-            repo_for_client = Path(sh("git", "worktree", "list", "--porcelain").splitlines()[0].split(" ", 1)[1])
-            here_for_client = Path(sh("git", "rev-parse", "--show-toplevel"))
-            key_for_client = f"{repo_for_client.name}-{hashlib.sha1(str(repo_for_client).encode()).hexdigest()[:6]}"
-            root_for_client = base_for_client(BACKEND) / key_for_client
+        if cwd == base(b) or base(b) in cwd.parents:
+            sys.exit(f"{PROG}: run {PROG} from the main checkout, not from inside a task dir ({base(b)})")
+    # The first `git worktree list` entry is the main working tree, also when run from a linked
+    # worktree or a submodule: it keys the task dirs, so every worktree shares one list and cap.
+    # `here` is the checkout we were invoked from: HEAD (default base, merged check) means its HEAD.
+    # `model` outside a git repo skips repo-level checks instead of failing.
+    repo = here = key = root = None
+    try:
+        wt_out = sh("git", "worktree", "list", "--porcelain")
+        if not wt_out:
+            raise SystemExit(f"{PROG}: git worktree list failed")
+        repo = Path(wt_out.splitlines()[0].split(" ", 1)[1])
+        here = Path(sh("git", "rev-parse", "--show-toplevel"))
+        key = f"{repo.name}-{hashlib.sha1(str(repo).encode()).hexdigest()[:6]}"
+        root = base(BACKEND) / key
+    except SystemExit:
+        if a.cmd != "model":
+            raise
+        repo = here = key = root = None
     if a.cmd == "client-repo":
         if a.prompt is not None:
             sys.exit(f"{PROG}: client-repo takes only yes or no")
         if a.slug is None:
-            s = client_state(root_for_client) if root_for_client is not None else None
+            s = client_state(root)
             print("client" if s is True else "not client" if s is False else "unknown")
             return 0
         if a.slug not in ("yes", "no"):
             sys.exit(f"{PROG}: client-repo takes only yes or no")
-        record_client(root_for_client, a.slug == "yes")
+        record_client(root, a.slug == "yes")
         print("client" if a.slug == "yes" else "not client")
         return 0
-    is_client_for_run = False
-    if PROG == "opencode-task" and root_for_client is not None and a.cmd in ("start", "resume", "model"):
-        s = client_state(root_for_client)
+    is_client = False
+    bench_skip = os.environ.get("SWARMKIT_BENCH") == "1"
+    if PROG == "opencode-task" and root is not None and a.cmd in ("start", "resume", "model"):
+        s = client_state(root)
         if a.cmd in ("start", "resume") and s is None and not bench_skip:
-            print(ask_message(repo_for_client.name), file=sys.stderr)
+            print(ask_message(repo.name), file=sys.stderr)
             sys.exit(2)
-        is_client_for_run = (s is True)
+        is_client = (s is True)
     if a.cmd in ("start", "model"):
-        resolve(a, is_client_for_run)
+        resolve(a, is_client)
         if a.cmd == "model":
             print(a.model, a.effort or "none")
             return 0
@@ -1488,19 +1571,6 @@ def main():
             sys.exit(2)
         if a.effort is None:
             a.effort = EFFORT_DEFAULTS.get(a.model, "")
-
-    def base(b):  # resolved, so the worktree path git records is the one we check against
-        return Path(os.path.realpath(os.environ.get(f"{b['env']}_DIR", Path.home() / b["home"])))
-    # Before any git call: from inside a task dir, git here would follow the worker's .git.
-    cwd = Path(os.path.realpath(Path.cwd()))
-    for b in BACKENDS.values():
-        if cwd == base(b) or base(b) in cwd.parents:
-            sys.exit(f"{PROG}: run {PROG} from the main checkout, not from inside a task dir ({base(b)})")
-    # The first `git worktree list` entry is the main working tree, also when run from a linked
-    # worktree or a submodule: it keys the task dirs, so every worktree shares one list and cap.
-    # `here` is the checkout we were invoked from: HEAD (default base, merged check) means its HEAD.
-    repo = Path(sh("git", "worktree", "list", "--porcelain").splitlines()[0].split(" ", 1)[1])
-    here = Path(sh("git", "rev-parse", "--show-toplevel"))
     if a.cmd == "start" and CLI == "agy":  # the gate overlay lives in .agents/, which the gate keeps off limits
         tracked = [f for f in sh("git", "ls-tree", "-r", "--name-only", "-z", a.base, cwd=here, check=False).split("\0")
                    if {c.lower() for c in f.split("/")} & set(AGY_ROOTS)]
@@ -1508,8 +1578,6 @@ def main():
             print(f"{PROG}: {a.base} tracks {tracked[0]}: agy's customization dirs ({', '.join(AGY_ROOTS)}) cannot be in a "
                   "worker's base", file=sys.stderr)
             sys.exit(2)
-    key = f"{repo.name}-{hashlib.sha1(str(repo).encode()).hexdigest()[:6]}"
-    root = base(BACKEND) / key
     if a.cmd == "list":
         for d in sorted(root.glob("*/")) if root.exists() else []:
             r = json.loads((d / "result.json").read_text()) if (d / "result.json").exists() else {}
@@ -1532,8 +1600,10 @@ def main():
         if decision == "override":
             print(f"{PROG}: agy {version} is not probed; proceeding under AGY_TASK_ALLOW_UNPROBED=1", file=sys.stderr)
         elif decision == "probe":
-            print(f"{PROG}: agy {version} not probed: running the gate probe (2 small Hydrogen-low runs)", file=sys.stderr)
-            if run_probe_locked(version) != 0:
+            rc = run_probe_locked(version)
+            if rc == PROBE_COOLDOWN:
+                sys.exit(2)
+            if rc != 0:
                 print(f"{PROG}: the gate probe failed for agy {version} (see the report above); re-run 'agy-task probe'"
                       " by hand for the full report, or set AGY_TASK_ALLOW_UNPROBED=1", file=sys.stderr)
                 sys.exit(2)
