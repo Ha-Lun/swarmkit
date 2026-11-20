@@ -91,3 +91,53 @@ Findings:
 
 Decision: Argon is retired from the worker allowlist; Neon xhigh is the plan
 critic, Hydrogen xhigh its fallback.
+
+## Neon vs Hydrogen (2026-11-20)
+
+Tasks have known answers from later commits in this repo. Every run started
+from a clean worktree at the parent commit.
+- **R1:** read-only review of b0506e5 (secrets redaction cache). The key is
+  03c0666: an empty store gets cached for 1 s, leaving secrets unredacted.
+- **R2:** read-only review of 7f03ee7's `dashboard/server` diff. The key is
+  4b658d0:
+  - (a) the fsutil turn scan trusts the stat size taken before open;
+  - (b) the held-head cache is not cleared when a transcript is missing.
+- **I1:** implement b0506e5 from a spec, graded by b0506e5's tests plus the
+  03c0666 bug test.
+
+Cost is the drop in the shared "Gemini Models" 5-hour quota during the run.
+`/usage` reads come from lagging replicas, so the bench takes the lowest of 5
+reads. Treat small deltas as ±0.5 points. The weekly bucket was too coarse to
+use. The run was stopped after 9 of 12 runs to save quota, so Neon xhigh on R2
+and Neon on I1 were not measured.
+
+| Task | Model | Wall | Tokens | 5 h quota | Result |
+|---|---|---|---|---|---|
+| R1 | Hydrogen high | 102 s | 91k | 0.4% | miss; reported no bugs |
+| R1 | Hydrogen xhigh | 289 s | 267k | 2.6% | miss; 1 minor stale-cache finding |
+| R1 | Neon high | 407 s | 136k | 3.0% | **hit**: the empty-store cache fails open for 1 s; fix matches 03c0666 |
+| R1 | Neon xhigh | 725 s | 647k | 9.2% | **hit**: same findings as Neon high |
+| R2 | Hydrogen high | 199 s | 137k | 1.3% | (a) yes, (b) no; plus the stale `head.key` bug, 1 minor |
+| R2 | Hydrogen xhigh | 450 s | 290k | 3.8% | (a) yes, (b) no; plus `head.key`, fork-timeout zombie upsert |
+| R2 | Neon high | 550 s | 234k | 5.4% | (a) yes, (b) no; plus `head.key`, fork timeout, 4 more (7 total) |
+| I1 | Hydrogen high | 123 s | 76k | 1.0% | 122/122 key tests, tsc ok; fails the 03c0666 bug test |
+| I1 | Hydrogen xhigh | 268 s | 142k | 1.1% | same as high |
+
+Findings:
+1. Only Neon caught the R1 security bug. Hydrogen missed it at both efforts,
+   and high reported the commit clean.
+2. Neon xhigh found nothing that Neon high missed on R1, at about 3x the quota
+   and 1.8x the wall time.
+3. Neon costs about twice as much per token as Hydrogen: roughly 0.02 vs 0.01
+   points of 5 h quota per 1k tokens. It also uses more tokens, so Neon high
+   costs about 4-7x Hydrogen high and about 1.3x Hydrogen xhigh.
+4. Every R2 run missed the held-head bug (b). Every R2 run found a bug the key
+   lacks, still on main: `transcripts.ts` `headSummary` passes the cached
+   `head.key` to `fileHasTurn` along with a fresh `st.size`, so `resumable`
+   can be stale.
+5. On implementation, Hydrogen high matched xhigh at the same quota and half
+   the time. Neither avoided the empty-store pitfall the spec left out.
+
+Decision (approved 2026-11-20): reviews and plan critiques move from Neon xhigh to Neon
+high. Hydrogen high stays the implementation default and becomes the dashboard's
+agy lead default.

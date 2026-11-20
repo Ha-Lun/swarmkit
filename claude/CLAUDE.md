@@ -51,7 +51,7 @@ chat.
   auth, data, CI or infra, have a Neon worker critique it: pipe a short
   ask ("critique this plan: gaps, risks, wrong assumptions; file read tools
   only, no shell; read <files>") plus the plan into
-  `agy-task start plan-<slug> --review --model neon --effort xhigh -`. If that run fails,
+  `agy-task start plan-<slug> --review --model neon --effort high -`. If that run fails,
   rerun it with `--model hydrogen --effort xhigh`.
   Weigh its findings, ask for approval, then `agy-task clean plan-<slug> --force`.
   Skip it for client repos the user hasn't cleared for Google.
@@ -75,14 +75,15 @@ chat.
     instead of `junior-dev`; `--effort xhigh` for hard implementation (tricky
     logic, a multi-file refactor), the fresh-start retry when a Hydrogen
     high task fails after its one resume, and the fallback when a Neon run fails.
-  - Neon xhigh (`--model neon --effort xhigh`): every review role: the plan
+  - Neon high (`--model neon --effort high`): every review role: the plan
     critic above, a second-opinion review of your own diff instead of
     `code-proofreader`, and cross-review of an OpenCode worker's branch. If a
     Neon run fails, rerun it on Hydrogen xhigh. It shares the Gemini quota
-    with Hydrogen. Argon is retired: Neon beat it on both benchmarks
-    (bench/FINDINGS.md).
+    with Hydrogen at about twice the cost per token. Neon high caught a
+    security bug Hydrogen missed; Neon xhigh found nothing more at 3x the
+    quota. Argon is retired (bench/FINDINGS.md).
   - Cross-review: `opencode-task --review` reviews every branch an agy worker
-    wrote; `agy-task --review --model neon --effort xhigh`
+    wrote; `agy-task --review --model neon --effort high`
     reviews a branch an OpenCode worker wrote.
   - Client repos: before the first `opencode-task` run in a repo, if
     `opencode-task client-repo` prints `unknown`, ask the user (once per repo)

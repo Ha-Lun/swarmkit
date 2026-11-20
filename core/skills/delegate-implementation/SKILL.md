@@ -30,7 +30,7 @@ Everything else in the plan goes to a worker.
 | Trivial bulk or mechanical edits | `agy-task --model hydrogen --effort low` |
 | Hard implementation (tricky logic, multi-file refactor), or the fresh-start retry after Hydrogen high failed its one resume | `agy-task --model hydrogen --effort xhigh` |
 | Implementation where the worker must iterate on a test run itself (failing test, TDD, debugging) | `opencode-task` (free `opencode-go/` model), `--agent <specialist>` when a specialty applies (lane model, never `lead-dev-hybrid`), see `opencode-delegate` |
-| Second opinion on your own diff | `agy-task --review --model neon --effort xhigh` |
+| Second opinion on your own diff | `agy-task --review --model neon --effort high` |
 | Cross-review of a worker's branch | see below |
 
 In Claude Code, UI, styling, motion and 3D work never goes to a worker: it goes to the Claude `frontend-specialist` / `animation-specialist` subagent (Sonnet). agy first: a task goes to `opencode-task` only when the worker must run tests itself.
@@ -41,7 +41,7 @@ Client repos: before the first `opencode-task` run in a repo, if `opencode-task 
 
 Workers may only use the allowlisted models in scripts/agy-task (BACKENDS 'allowed'); pick the agy model from the tiers in `agy-delegate`, use the opencode lane default unless the owner names a model (also with `--agent` unless the agent pins an allowlisted `opencode.model`), and never add a model without the owner's OK. A worker's shell only allows the test/build runners in `RUNNERS` (`scripts/agy-task`). Give it a verify command from that list, or run the verify yourself after it lands. For a project in a subdirectory, give the worker `npm --prefix <dir> test` or `npm --prefix <dir> run typecheck` as verify, and pass `--setup 'ln -s <main checkout>/<dir>/node_modules <dir>/node_modules'` so its dependencies exist (setup artifacts are not committed).
 
-Cross-review: `opencode-task --review` (lane default model) reviews every branch an agy worker wrote; `agy-task --review --model neon --effort xhigh` reviews a branch an OpenCode worker wrote.
+Cross-review: `opencode-task --review` (lane default model) reviews every branch an agy worker wrote; `agy-task --review --model neon --effort high` reviews a branch an OpenCode worker wrote.
 
 If a Hydrogen high task fails after its one resume, start it fresh on Hydrogen xhigh (`--model hydrogen --effort xhigh`). If the preferred worker fails twice on the same kind of task, use another one. If none is available, Claude's own `junior-dev` (mechanical edits) and `test-writer` (tests) subagents are the fallback.
 
