@@ -19,6 +19,8 @@ export interface LiveHolder {
   entrypoint?: string;
   /** tmux pane id (`%6`) when the process runs in a pane; normalized from the `desk:@6.%6` registry value. */
   tmux?: string;
+  /** Remote Control bridge id (`session_…`) when the process was started by `claude rc`. */
+  bridgeSessionId?: string;
 }
 
 /** Entrypoints of claude processes this dashboard itself spawned (agent SDK runs). */
@@ -62,7 +64,7 @@ function recordOf(raw: string): Record<string, unknown> | undefined {
 }
 
 /** Holder record from one parsed sessions-dir *.json entry. */
-const HOLDER_KEYS = ['kind', 'status', 'entrypoint', 'tmux'] as const;
+const HOLDER_KEYS = ['kind', 'status', 'entrypoint', 'tmux', 'bridgeSessionId'] as const;
 
 /** LiveHolder extracted from a session record, or undefined when it is not a live holder. */
 function holderOf(rec: Record<string, unknown>, isAlive: (pid: number) => boolean): LiveHolder | undefined {
