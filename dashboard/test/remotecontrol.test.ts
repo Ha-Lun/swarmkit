@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createRemoteControls, nameFrom } from '../server/remotecontrol.ts';
+import { createRemoteControls, isRemoteControlCommand, nameFrom } from '../server/remotecontrol.ts';
 
 const S = '\u001f';
 const row = (...f: string[]) => f.join(S);
@@ -44,6 +44,17 @@ describe('remote-control panes', () => {
     expect(nameFrom('"claude rc --name Server-Admin"')).toBe('Server-Admin');
     expect(nameFrom("claude remote-control --name='my game'")).toBe('my game');
     expect(nameFrom('claude rc')).toBeUndefined();
+    expect(nameFrom('"claude --resume 2585cb86 --remote-control desk"')).toBe('desk');
+    expect(nameFrom('claude --remote-control --resume x')).toBeUndefined();
+  });
+
+  it('recognises an interactive claude started with --remote-control', () => {
+    expect(isRemoteControlCommand('"claude --resume 2585cb86 --remote-control desk"')).toBe(true);
+    expect(isRemoteControlCommand('claude --remote-control')).toBe(true);
+    expect(isRemoteControlCommand('"claude rc --name Server-Admin"')).toBe(true);
+    expect(isRemoteControlCommand('claude --remote-controlled')).toBe(false);
+    expect(isRemoteControlCommand('vim notes-about-claude-rc.md')).toBe(false);
+    expect(isRemoteControlCommand('claude --resume x')).toBe(false);
   });
 
   it('lists only live claude remote-control panes, with the latest capacity and their session', async () => {
