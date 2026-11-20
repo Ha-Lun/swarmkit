@@ -225,7 +225,7 @@ An agy version the gate schema was not probed on (`AGY_PROBED` in scripts/agy-ta
 | Worker | Runs | Can run tests? | Notes |
 |---|---|---|---|
 | `agy-task` | `agy -p`, Gemini on agy's quota, Gemini 3.8 Flash only (allowlist) | No: edit-only, Claude runs the tests | `agy-delegate` skill. `--yolo` allows shell, unsandboxed |
-| `opencode-task` | `opencode run --standalone`, allowlisted opencode-go models (default muse-spark-1.3-contributor; OpenCode Go subscription) | Yes: shell limited to test/build runners and read-only git, a guard against accidents rather than a sandbox | `opencode-delegate` skill. A per-run config overlay; your own OpenCode config is untouched |
+| `opencode-task` | `opencode run --standalone`, muse-spark-1.3-contributor (default) or deepseek-v4.1-flash only; client repos always mimo-v2.6-flash (OpenCode Go subscription) | Yes: shell limited to test/build runners and read-only git, a guard against accidents rather than a sandbox | `opencode-delegate` skill. A per-run config overlay; your own OpenCode config is untouched |
 
 ```bash
 agy-task start diff-review "Review the auth refactor for regressions" --review

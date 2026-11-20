@@ -1014,10 +1014,8 @@ BACKENDS = {
     "opencode-task": {"cli": "opencode", "env": "OPENCODE_TASK", "home": ".opencode-tasks",
                       "model": "opencode-go/muse-spark-1.3-contributor", "cmd": opencode_cmd,
                       "parse": opencode_parse, "grace": 0, "proc_env": opencode_env, "watch": tool_failure,
-                      "allowed": ("opencode-go/glm-5.3-flash", "opencode-go/mimo-v2.6-flash",
-                                  "opencode-go/mimo-v2.6-pro", "opencode-go/deepseek-v4.1-flash", "opencode-go/muse-spark-1.3-contributor",
-                                  # TODO: remove beam-free when its free period ends
-                                  "opencode-go/beam-free"),
+                      # muse or deepseek flash for every task; client repos get CLIENT_MODEL (mimo flash) only, see resolve()
+                      "allowed": ("opencode-go/muse-spark-1.3-contributor", "opencode-go/deepseek-v4.1-flash"),
                       # benchmark candidates: accepted only under SWARMKIT_BENCH=1 (bench/worker_models.py), never for real work
                       "bench_only": ("opencode-go/iceman-contributor-free",)},
 }
@@ -1445,7 +1443,8 @@ def resolve(a, is_client=False):
     if CLI == "agy":
         a.model, a.effort = agy_model(a.model, a.effort)
     bench = os.environ.get("SWARMKIT_BENCH") == "1" and a.model in BACKEND.get("bench_only", ())
-    if a.model not in BACKEND["allowed"] and not bench:
+    client_pick = is_client and CLI == "opencode" and a.model == CLIENT_MODEL
+    if a.model not in BACKEND["allowed"] and not bench and not client_pick:
         print(f"{PROG}: model not on the worker allowlist: {a.model} (allowed: {', '.join(BACKEND['allowed'])})", file=sys.stderr)
         sys.exit(2)
     if a.agent and CLI == "agy":

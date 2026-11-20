@@ -99,16 +99,21 @@ mkrepo r1; cd "$T/r1"
 D=opencode-go/muse-spark-1.3-contributor
 "$TASK" start e1 "p" >/dev/null 2>&1 || true
 [ "$(last_model)" = "$D#high" ] || fail "default model should get its table effort, got $(last_model)"
-"$TASK" start e2 --model opencode-go/mimo-v2.6-flash "p" >/dev/null 2>&1 || true
-[ "$(last_model)" = "opencode-go/mimo-v2.6-flash" ] || fail "model outside the table should get no effort, got $(last_model)"
+"$TASK" start e2 --model opencode-go/deepseek-v4.1-flash --effort "" "p" >/dev/null 2>&1 || true
+[ "$(last_model)" = "opencode-go/deepseek-v4.1-flash" ] || fail "empty --effort on deepseek should mean none, got $(last_model)"
+# workers run muse or deepseek flash only; mimo flash only in a client repo
+for m in opencode-go/mimo-v2.6-flash opencode-go/glm-5.3-flash opencode-go/mimo-v2.6-pro opencode-go/beam-free; do
+  rc=0; "$TASK" start e5 --model "$m" "p" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "$m must be refused outside a client repo, rc=$rc"
+done
 "$TASK" start e3 --model "$D" --effort "" "p" >/dev/null 2>&1 || true
 [ "$(last_model)" = "$D" ] || fail "empty --effort should mean none, got $(last_model)"
-"$TASK" start e4 --model opencode-go/glm-5.3-flash --effort high "p" >/dev/null 2>&1 || true
-[ "$(last_model)" = "opencode-go/glm-5.3-flash#high" ] || fail "explicit effort ignored, got $(last_model)"
+"$TASK" start e4 --model opencode-go/deepseek-v4.1-flash --effort max "p" >/dev/null 2>&1 || true
+[ "$(last_model)" = "opencode-go/deepseek-v4.1-flash#max" ] || fail "explicit effort ignored, got $(last_model)"
 "$TASK" resume e1 --effort high "again" >/dev/null 2>&1 || true
 [ "$(last_model)" = "$D#high" ] || fail "resume must keep start's effort, got $(last_model)"
 "$TASK" resume e2 --effort max "again" >/dev/null 2>&1 || true
-[ "$(last_model)" = "opencode-go/mimo-v2.6-flash" ] || fail "resume must keep start's (empty) effort, got $(last_model)"
+[ "$(last_model)" = "opencode-go/deepseek-v4.1-flash" ] || fail "resume must keep start's (empty) effort, got $(last_model)"
 for s in e1 e2 e3 e4; do "$TASK" clean $s --force; done
 # build.py's OPENCODE_EFFORT and agy-task's EFFORT_DEFAULTS must name the same models at the same effort; agy-task is
 # only ast-parsed (never run), build.py is loaded for its tables (its main() sits behind __main__)
@@ -301,22 +306,27 @@ for s in ag1 ag2; do "$TASK" clean $s --force; done
 # --agent model: the agent's pinned model when allowlisted, else the lane default (with a notice for a pin off the
 # allowlist); a tier-derived model (build.py's `# tier ...` comment) is no pin
 mkagent() { printf -- "---\n%s---\n" "$2" > "$SWARMKIT_OPENCODE_AGENTS_DIR/$1.md"; }
-mkagent m-glm "model: opencode-go/glm-5.3-flash
+mkagent m-deep "model: opencode-go/deepseek-v4.1-flash
+"
+mkagent m-mimo "model: opencode-go/mimo-v2.6-flash
 "
 mkagent m-kimi "model: opencode-go/kimi-k2.7-code
 "
 mkagent m-none "description: x
 "
 task_model() { jq -r .model "$(ls -d "$OPENCODE_TASK_DIR"/*/"$1"/opts.json 2>/dev/null | head -1)"; }
-"$TASK" start am1 --agent m-glm "p" >/dev/null 2>&1 || true
-[ "$(task_model am1)" = "opencode-go/glm-5.3-flash" ] || fail "agent model not used: $(task_model am1)"
+"$TASK" start am1 --agent m-deep "p" >/dev/null 2>&1 || true
+[ "$(task_model am1)" = "opencode-go/deepseek-v4.1-flash" ] || fail "agent model not used: $(task_model am1)"
+err=$("$TASK" start am8 --agent m-mimo "p" 2>&1 >/dev/null) || true
+[ "$(task_model am8)" = "opencode-go/muse-spark-1.3-contributor" ] || fail "mimo pin outside a client repo must fall back to muse: $(task_model am8)"
+echo "$err" | grep -q "not on the worker allowlist; using opencode-go/muse-spark-1.3-contributor" || fail "mimo fallback notice: $err"
 err=$("$TASK" start am2 --agent m-kimi "p" 2>&1 >/dev/null) || true
 [ "$(task_model am2)" = "opencode-go/muse-spark-1.3-contributor" ] || fail "kimi agent must fall back to muse: $(task_model am2)"
 echo "$err" | grep -q "^opencode-task: agent m-kimi model opencode-go/kimi-k2.7-code is not on the worker allowlist; using opencode-go/muse-spark-1.3-contributor" || fail "kimi fallback notice: $err"
 err=$("$TASK" start am3 --agent m-none "p" 2>&1 >/dev/null) || true
 [ "$(task_model am3)" = "opencode-go/muse-spark-1.3-contributor" ] || fail "agent without model must use muse: $(task_model am3)"
 echo "$err" | grep -q "allowlist" && fail "agent without model must not print a notice: $err"
-"$TASK" start am4 --agent m-glm --model opencode-go/deepseek-v4.1-flash "p" >/dev/null 2>&1 || true
+"$TASK" start am4 --agent m-mimo --model opencode-go/deepseek-v4.1-flash "p" >/dev/null 2>&1 || true
 [ "$(task_model am4)" = "opencode-go/deepseek-v4.1-flash" ] || fail "--model must win over the agent: $(task_model am4)"
 "$TASK" start am5 "p" >/dev/null 2>&1 || true
 [ "$(task_model am5)" = "opencode-go/muse-spark-1.3-contributor" ] || fail "no --agent must use muse: $(task_model am5)"
@@ -329,7 +339,7 @@ mkagent m-pinq "model: 'opencode-go/deepseek-v4.1-flash' # pinned for reasons
 "
 "$TASK" start am7 --agent m-pinq "p" >/dev/null 2>&1 || true
 [ "$(task_model am7)" = "opencode-go/deepseek-v4.1-flash" ] || fail "quoted pin with a comment not used: $(task_model am7)"
-for s in am1 am2 am3 am4 am5 am6 am7; do "$TASK" clean $s --force; done
+for s in am1 am2 am3 am4 am5 am6 am7 am8; do "$TASK" clean $s --force; done
 unset SWARMKIT_OPENCODE_AGENTS_DIR
 
 # --- git isolation: a worker that points .git at a gitdir it planted gets nothing run or committed there
@@ -835,25 +845,25 @@ for s in cc2 cc3 cc5 cc7 cc8 cc9 cc10 cc13; do "$TASK" clean $s --force >/dev/nu
 export SWARMKIT_OPENCODE_AGENTS_DIR="$T/magents"; mkdir -p "$SWARMKIT_OPENCODE_AGENTS_DIR"
 mkagent() { printf -- "---\n%s---\n" "$2" > "$SWARMKIT_OPENCODE_AGENTS_DIR/$1.md"; }
 oc_def=$("$TASK" model | cut -d' ' -f1); [ -n "$oc_def" ] || fail "model printed nothing"
-mkagent mres-other "model: opencode-go/mimo-v2.6-flash
+mkagent mres-other "model: opencode-go/deepseek-v4.1-flash
 "
 mkagent mres-bad "model: anthropic/claude-x
 "
-[ "$("$TASK" model --agent mres-other)" = "opencode-go/mimo-v2.6-flash none" ] || fail "model --agent: agent model not used"
+[ "$("$TASK" model --agent mres-other)" = "opencode-go/deepseek-v4.1-flash high" ] || fail "model --agent: agent model not used"
 mkagent mres-tier "model: opencode-go/glm-5.3-flash  # tier standard
 "
 [ "$("$TASK" model --agent mres-tier)" = "$oc_def high" ] || fail "model --agent: tier-derived model not replaced by lane default"
 [ "$("$TASK" model --agent mres-bad 2>/dev/null)" = "$oc_def high" ] || fail "model --agent: non-allowlisted agent model not replaced by lane default"
 "$TASK" model --agent mres-bad 2>&1 >/dev/null | grep -q "not on the worker allowlist" || fail "model: no notice for non-allowlisted agent model"
-[ "$("$TASK" model --model opencode-go/glm-5.3-flash)" = "opencode-go/glm-5.3-flash high" ] || fail "model --model"
-[ "$("$TASK" model --model opencode-go/mimo-v2.6-flash)" = "opencode-go/mimo-v2.6-flash none" ] || fail "model --model outside the table"
-[ "$("$TASK" model --model opencode-go/glm-5.3-flash --effort "")" = "opencode-go/glm-5.3-flash none" ] || fail "model --effort empty"
+[ "$("$TASK" model --model opencode-go/deepseek-v4.1-flash)" = "opencode-go/deepseek-v4.1-flash high" ] || fail "model --model"
+rc=0; "$TASK" model --model opencode-go/mimo-v2.6-flash >/dev/null 2>&1 || rc=$?; [ "$rc" = 2 ] || fail "model --model mimo outside a client repo must be refused, rc=$rc"
+[ "$("$TASK" model --model opencode-go/deepseek-v4.1-flash --effort "")" = "opencode-go/deepseek-v4.1-flash none" ] || fail "model --effort empty"
 mkagent mres-var "model: opencode-go/glm-5.3-flash#high  # tier standard
 "
 [ "$("$TASK" model --agent mres-var)" = "$oc_def high" ] || fail "model --agent: tier note after #variant counted as a pin"
-mkagent mres-pinvar "model: opencode-go/glm-5.3-flash#high
+mkagent mres-pinvar "model: opencode-go/deepseek-v4.1-flash#high
 "
-[ "$("$TASK" model --agent mres-pinvar)" = "opencode-go/glm-5.3-flash high" ] || fail "model --agent: pinned model with #variant: $("$TASK" model --agent mres-pinvar)"
+[ "$("$TASK" model --agent mres-pinvar)" = "opencode-go/deepseek-v4.1-flash high" ] || fail "model --agent: pinned model with #variant: $("$TASK" model --agent mres-pinvar)"
 "$TASK" model --model nope/x >/dev/null 2>&1 && fail "model accepted a model off the allowlist"
 "$TASK" model --agent no-such-agent >/dev/null 2>&1 && fail "model accepted an unknown agent"
 [ "$("$AGY_TASK" model)" = "gemini-4-hydrogen-high high" ] || fail "agy model default"
@@ -886,6 +896,8 @@ echo "$err" | grep -q "instead of model $D" || fail "no override note for explic
 err=$("$TASK" start cruc3 --effort high "p" 2>&1 >/dev/null) || true
 [ "$(last_model)" = "opencode-go/mimo-v2.6-flash" ] || fail "explicit effort in client repo not cleared, got $(last_model)"
 echo "$err" | grep -q "effort high" || fail "note does not name replaced effort: $err"
+rc=0; "$TASK" start cruc5 --model opencode-go/mimo-v2.6-flash "p" >/dev/null 2>&1 || rc=$?
+[ "$rc" != 2 ] && [ "$(last_model)" = "opencode-go/mimo-v2.6-flash" ] || fail "explicit mimo in a client repo refused, rc=$rc $(last_model)"
 export SWARMKIT_OPENCODE_AGENTS_DIR="$T/cagents"; mkdir -p "$SWARMKIT_OPENCODE_AGENTS_DIR"
 printf -- "---\nmodel: opencode-go/glm-5.3-flash\n---\n" > "$SWARMKIT_OPENCODE_AGENTS_DIR/m-glm.md"
 "$TASK" start cruc4 --agent m-glm "p" >/dev/null 2>&1 || true
@@ -898,7 +910,7 @@ git worktree add -q "$T/cru-wt"
 [ "$(cd "$T/cru-wt" && "$TASK" client-repo)" = client ] || fail "second worktree did not see client answer"
 [ "$(cd "$T/cru-wt" && "$TASK" model)" = "opencode-go/mimo-v2.6-flash none" ] || fail "second worktree model not mimo"
 git worktree remove --force "$T/cru-wt"
-for s in cruc1 cruc2 cruc3 cruc4; do "$TASK" clean $s --force; done
+for s in cruc1 cruc2 cruc3 cruc4 cruc5; do "$TASK" clean $s --force; done
 mkrepo crr; (cd "$T/crr" && "$TASK" client-repo no >/dev/null)
 (cd "$T/crr" && "$TASK" start r1 "p" >/dev/null 2>&1 || true)
 [ "$(last_model)" = "$D#high" ] || fail "not-client start should run on muse, got $(last_model)"
