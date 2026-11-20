@@ -209,6 +209,10 @@ let loaded: { file: string; sig: string; store: Store } | undefined;
 const EMPTY_STORE: Store = Object.freeze({ projects: Object.freeze({}), retired: Object.freeze([]) }) as unknown as Store;
 /** The last store that loaded or saved cleanly: redaction falls back to it when a reload fails. */
 let lastGood: Store = EMPTY_STORE;
+/** How long redaction reuses its last store before it looks at the secrets file again. */
+const REDACTION_RECHECK_MS = 1000;
+/** The store redaction last used, the file it came from and when it was checked (stamped on failures too). */
+let redactionCache: { file: string; at: number; store: Store } | undefined;
 
 /** Reads the store (missing file = empty). A file we cannot trust or parse throws; callers never overwrite it blind. */
 function loadStore(): Store {
@@ -292,6 +296,7 @@ function saveStore(store: Store): void {
   }
   loaded = undefined;
   lastGood = store;
+  redactionCache = undefined;
   try {
     const dfd = openSync(dir, fsConstants.O_RDONLY);
     try {
@@ -494,19 +499,30 @@ function walk(value: unknown, entries: SecretEntry[]): unknown {
 
 let storeFailing = false;
 
-/** The store for redaction: the current file, or the last good copy when it cannot be read (fail closed). */
+/**
+ * The store for redaction: the current file, or the last good copy when it cannot be read (fail closed).
+ * Reused for REDACTION_RECHECK_MS so the broadcast hot path does not open the file per event; saveStore
+ * drops it, so this process's own writes apply at once. The same Store object keeps the union matcher cached.
+ */
 function storeForRedaction(): Store {
+  const file = secretsFilePath();
+  const now = Date.now();
+  if (redactionCache && redactionCache.file === file && now - redactionCache.at >= 0 && now - redactionCache.at < REDACTION_RECHECK_MS) {
+    return redactionCache.store;
+  }
+  let store: Store;
   try {
-    const store = loadStore();
+    store = loadStore();
     storeFailing = false;
-    return store;
   } catch (err) {
     if (!storeFailing) {
       storeFailing = true;
       console.error('Secrets store unreadable, redacting with the last good copy:', (err as Error).message);
     }
-    return lastGood;
+    store = lastGood;
   }
+  redactionCache = { file, at: now, store };
+  return store;
 }
 
 let union: { store: Store; version: number; entries: SecretEntry[] } | undefined;
@@ -544,6 +560,7 @@ export function redactServerEvent(event: ServerEvent): ServerEvent {
 export function resetSecretStateForTests(): void {
   loaded = undefined;
   lastGood = EMPTY_STORE;
+  redactionCache = undefined;
   storeFailing = false;
   injected.clear();
   injectedVersion++;

@@ -537,17 +537,57 @@ describe('redaction', () => {
 
     it('falls back to the last good store when the file becomes unreadable', () => {
       twoProjects();
-      expect(redactAll(`x ${valueA}`)).toBe('x [secret:KEY_A]');
+      vi.useFakeTimers();
       const err = vi.spyOn(console, 'error').mockImplementation(() => {});
       try {
+        expect(redactAll(`x ${valueA}`)).toBe('x [secret:KEY_A]');
         writeFileSync(secretsFilePath(), '{not json', { mode: 0o600 });
+        vi.advanceTimersByTime(1000);
         expect(redactAll(`x ${valueA} ${valueB}`)).toBe('x [secret:KEY_A] [secret:KEY_B]');
         expect(allSecretEntries().map(e => e.name).sort()).toEqual(['KEY_A', 'KEY_B']);
+        expect(err).toHaveBeenCalledTimes(1);
+        vi.advanceTimersByTime(1000);
+        expect(redactAll(`x ${valueA} ${valueB}`)).toBe('x [secret:KEY_A] [secret:KEY_B]'); // still failing: still the last good copy
         rmSync(secretsFilePath());
+        vi.advanceTimersByTime(1000);
         expect(redactAll(`x ${valueA}`)).toBe(`x ${valueA}`); // a missing file is an empty store, not a failure
         expect(err).toHaveBeenCalledTimes(1); // logged once, not per event
       } finally {
         err.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+
+    it('redacts a value from putSecret at once, and reuses the store between events', () => {
+      vi.useFakeTimers();
+      try {
+        mkdirSync(path.join(work, 'a'));
+        putSecret(path.join(work, 'a'), 'KEY_A', valueA);
+        expect(redactAll(`x ${valueA}`)).toBe('x [secret:KEY_A]');
+        const all = allSecretEntries();
+        expect(allSecretEntries()).toBe(all); // within the recheck window the same store, so the same matcher
+        putSecret(path.join(work, 'a'), 'KEY_NEW', 'brand-new-value-1');
+        expect(redactAll('y brand-new-value-1')).toBe('y [secret:KEY_NEW]'); // no time advance
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('sees an external write or delete of the file only after the recheck interval', () => {
+      vi.useFakeTimers();
+      try {
+        twoProjects();
+        expect(redactAll(`x ${valueA}`)).toBe('x [secret:KEY_A]'); // warm
+        writeFileSync(secretsFilePath(), JSON.stringify({ ext: { KEY_EXT: { value: 'external-edit-value-9', updatedAt: 1 } } }), { mode: 0o600 });
+        expect(redactAll('y external-edit-value-9')).toBe('y external-edit-value-9'); // still the cached store
+        vi.advanceTimersByTime(1000);
+        expect(redactAll(`y external-edit-value-9 ${valueA}`)).toBe(`y [secret:KEY_EXT] ${valueA}`);
+        rmSync(secretsFilePath());
+        expect(redactAll('y external-edit-value-9')).toBe('y [secret:KEY_EXT]'); // cached until the interval passes
+        vi.advanceTimersByTime(1000);
+        expect(redactAll('y external-edit-value-9')).toBe('y external-edit-value-9');
+      } finally {
+        vi.useRealTimers();
       }
     });
 
