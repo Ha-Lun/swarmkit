@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, utimes, writeFile, readFile, rename } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { rmSync } from 'node:fs';
 import path from 'node:path';
@@ -87,6 +87,32 @@ describe('TranscriptWatcher held sessions', () => {
     expect(held!.title).toBe('Old held session prompt');
     expect(held!.project).toBe('oldheld');
     expect(held!.terminal).toEqual({ pane: true, busy: false });
+  });
+
+  it('marks a Remote Control holder read-only with its claude.ai link, never a pane', async () => {
+    const original = await readFile(holderFile, 'utf8');
+    // Replace via rename so the sessions dir mtime changes and the 2 s holder cache refills.
+    const put = async (text: string) => {
+      await writeFile(`${holderFile}.tmp`, text);
+      await rename(`${holderFile}.tmp`, holderFile);
+    };
+    await put(JSON.stringify({
+      ...JSON.parse(original),
+      entrypoint: 'sdk-cli',
+      bridgeSessionId: 'session_01ABCdef',
+    }));
+    try {
+      await watcher.scanNow();
+      const held = watcher.list().find(s => s.id === 'old-held-id');
+      expect(held!.terminal).toEqual({ pane: false, busy: false, remote: 'https://claude.ai/code/session_01ABCdef' });
+      // A malformed bridge id is not turned into a link; the SDK entrypoint then hides it as before.
+      await put(JSON.stringify({ ...JSON.parse(original), entrypoint: 'sdk-cli', bridgeSessionId: 'session_x/../evil' }));
+      await watcher.scanNow();
+      expect(watcher.list().find(s => s.id === 'old-held-id')?.terminal).toBeUndefined();
+    } finally {
+      await put(original);
+      await watcher.scanNow();
+    }
   });
 
   it('skips a holder whose transcript does not exist yet', async () => {

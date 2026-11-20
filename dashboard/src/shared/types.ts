@@ -142,7 +142,7 @@ export interface SessionSummary {
    * `pane` says a tmux pane is known (a message can be injected into it),
    * `busy` says the process reports anything other than idle.
    */
-  terminal?: { pane: boolean; busy: boolean };
+  terminal?: { pane: boolean; busy: boolean; remote?: string };
   /** True when the project settings for cwd are not trusted (no hasTrustDialogAccepted); only user settings are read. */
   untrustedProject?: boolean;
   /** Set on a Claude page session whose turn was refused by the plan limit (server/fallback.ts). */

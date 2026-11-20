@@ -954,7 +954,7 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
   const canContinue = !!selected && !running && !viewOnly;
   // A held terminal session without a pane continues as a copy (fork); one with a pane
   // gets the terminal composer. Ended sessions without a holder resume normally.
-  const forkMode = !!selected && selected.source === 'terminal' && !!selected.terminal && !selected.terminal.pane;
+  const forkMode = !!selected && selected.source === 'terminal' && !!selected.terminal && !selected.terminal.pane && !selected.terminal.remote;
 
   const isLivePageSession = (s: SessionSummary) =>
     s.source === 'page' && (s.status === 'running' || s.status === 'waiting');
@@ -1172,6 +1172,14 @@ function App({ backend, mock }: { backend: FleetBackend; mock: boolean }) {
                 }}
                 loadCommands={() => backend.commands(selected.id).then((r) => r.commands)}
               />
+            ) : selected.source === 'terminal' && selected.terminal?.remote ? (
+              <div className="readonly-bar">
+                Remote Control session — continue it at{' '}
+                <a href={selected.terminal.remote} target="_blank" rel="noopener noreferrer">
+                  claude.ai
+                </a>
+                .
+              </div>
             ) : selected.source === 'terminal' && selected.terminal?.pane ? (
               <TerminalComposer
                 key={`term-composer:${selected.id}`}

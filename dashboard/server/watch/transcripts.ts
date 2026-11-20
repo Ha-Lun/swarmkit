@@ -1096,7 +1096,13 @@ function endedStatus(status: SessionSummary['status']): boolean {
  */
 function terminalInfo(holders: Map<string, LiveHolder>, sessionId: string): SessionSummary['terminal'] | undefined {
   const holder = holders.get(sessionId);
-  if (!holder || DASHBOARD_ENTRYPOINTS.has(holder.entrypoint ?? '')) return undefined;
+  if (!holder) return undefined;
+  // A Remote Control session (`claude rc`) runs on the SDK entrypoint but is driven from
+  // claude.ai: read-only here, with its claude.ai link. Never a pane, never a fork.
+  if (holder.bridgeSessionId && /^session_[A-Za-z0-9]+$/.test(holder.bridgeSessionId)) {
+    return { pane: false, busy: holder.status !== 'idle', remote: `https://claude.ai/code/${holder.bridgeSessionId}` };
+  }
+  if (DASHBOARD_ENTRYPOINTS.has(holder.entrypoint ?? '')) return undefined;
   // A pane the dashboard can paste into needs an interactive claude with a known pane.
   return { pane: holder.kind === 'interactive' && !!holder.tmux, busy: holder.status !== 'idle' };
 }
