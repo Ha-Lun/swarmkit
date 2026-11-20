@@ -318,4 +318,43 @@ describe('TranscriptWatcher held sessions', () => {
       await rm(missTranscript, { force: true });
     }
   });
+
+  it('does not re-scan a held id whose transcript path exists as a directory on a second list()', async () => {
+    const w = new TranscriptWatcher({
+      root: projectsDir,
+      emit: () => {},
+      skip: () => false,
+      maxAgeMs: 14 * 24 * 60 * 60_000,
+    });
+    const dirHolder = path.join(sessionsDir, 'dir-held.json');
+    const dirTranscript = path.join(projectsDir, 'proj-old', 'dir-held.jsonl');
+    try {
+      await mkdir(dirTranscript, { recursive: true });
+      await writeFile(dirHolder, JSON.stringify({
+        pid: process.pid,
+        sessionId: 'dir-held',
+        cwd: '/repo/oldheld',
+        kind: 'interactive',
+        entrypoint: 'cli',
+        status: 'idle',
+      }));
+      await w.scanNow();
+
+      const spy = vi.spyOn(
+        w as unknown as { findFileSync: (id: string) => string | undefined },
+        'findFileSync',
+      );
+      expect(w.list().find(s => s.id === 'dir-held')).toBeUndefined();
+      const callsAfterFirstList = spy.mock.calls.length;
+      expect(spy.mock.calls.filter(([id]) => id === 'dir-held').length).toBe(1);
+
+      // Second list() with an unchanged snapshot skips findFileSync completely.
+      expect(w.list().find(s => s.id === 'dir-held')).toBeUndefined();
+      expect(spy.mock.calls.length).toBe(callsAfterFirstList);
+    } finally {
+      w.stop();
+      await rm(dirHolder, { force: true });
+      await rm(dirTranscript, { recursive: true, force: true });
+    }
+  });
 });
