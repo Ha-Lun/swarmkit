@@ -821,7 +821,11 @@ def run_probe_locked(version, force=False):
                   file=sys.stderr)
         else:
             print(f"{PROG}: running the gate probe for agy {version} (2 small Hydrogen-low runs)", file=sys.stderr)
-        rc = run_probe(version)
+        try:
+            rc = run_probe(version)
+        except SystemExit:
+            record_probe_failure(version)  # a fixture git failure still cools down
+            raise
         if rc == 0:
             clear_probe_failure(version)
         else:
