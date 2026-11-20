@@ -1016,6 +1016,13 @@ describe('SdkSessions', () => {
         expect(sdk.list().find(s => s.id === id)?.resumable).toBe(true);
       });
     });
+
+    it('fileHasTurnScan scans from actual file size when the caller size hint is larger than the file', () => {
+      const file = transcript(cwdDir, 'stale-larger-size');
+      mkdirSync(path.join(projectsDir, encoded(cwdDir)), { recursive: true });
+      writeFileSync(file, `${userLine}\n${assistantLine}\n`);
+      expect(fileHasTurnScan(file, statSync(file).size + 100_000)).toBe(true);
+    });
   });
 
   describe('images', () => {

@@ -583,9 +583,15 @@ export class TranscriptWatcher {
     let st: { mtimeMs: number; size: number };
     try {
       const s = statSync(path);
-      if (!s.isFile()) return undefined;
+      if (!s.isFile()) {
+        if (cur) this.heldHeads.delete(id);
+        else this.heldMiss.add(id);
+        return undefined;
+      }
       st = { mtimeMs: s.mtimeMs, size: s.size };
     } catch {
+      if (cur) this.heldHeads.delete(id);
+      else this.heldMiss.add(id);
       return undefined;
     }
     const key = `${path}:${st.mtimeMs}:${st.size}`;
@@ -594,6 +600,7 @@ export class TranscriptWatcher {
       this.heldHeads.set(id, head);
       return head;
     } catch {
+      if (!cur) this.heldMiss.add(id);
       return undefined; // a holder with no readable .jsonl yet is skipped
     }
   }

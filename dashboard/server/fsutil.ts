@@ -1,6 +1,6 @@
 // Shared file helpers: bounded reads, line splitting and tolerant JSON object parsing.
 // Used by the transcript watcher and the worker registry (not the data-model files).
-import { closeSync, openSync, readSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 import { open } from 'node:fs/promises';
 
 const TURN_SCAN_CHUNK = 64 * 1024;
@@ -15,8 +15,10 @@ export function fileHasTurnScan(file: string, size: number): boolean {
   if (size <= 0) return false;
   const fd = openSync(file, 'r');
   try {
-    const buf = Buffer.alloc(Math.min(TURN_SCAN_CHUNK, size));
-    let end = size;
+    const actualSize = fstatSync(fd).size;
+    if (actualSize <= 0) return false;
+    const buf = Buffer.alloc(Math.min(TURN_SCAN_CHUNK, actualSize));
+    let end = actualSize;
     while (end > 0) {
       const offset = Math.max(0, end - TURN_SCAN_CHUNK);
       const bytesRead = readSync(fd, buf, 0, end - offset, offset);
