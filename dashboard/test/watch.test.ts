@@ -503,6 +503,12 @@ describe('TranscriptWatcher resumable', () => {
         expect(list.find((s) => s.id === 'noturn')!.resumable).toBe(false);
         expect(list.find((s) => s.id === 'nocwd')!.status).toBe('done');
         expect(list.find((s) => s.id === 'nocwd')!.resumable).toBe(false);
+        // A turn appended within list()'s 1 s refresh throttle: the cached head is stale,
+        // so the turn check must key on the fresh stat, not the old head.key.
+        const noturn = join(projects, 'p', 'noturn.jsonl');
+        await appendFile(noturn, `${baseAssistant}\n`);
+        await utimes(noturn, old / 1000 + 1, old / 1000 + 1);
+        expect(watcher.list().find((s) => s.id === 'noturn')!.resumable).toBe(true);
       } finally {
         if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR;
         else process.env.CLAUDE_CONFIG_DIR = prev;

@@ -1187,7 +1187,10 @@ function headSummary(head: HeadEntry, holders: Map<string, LiveHolder>, pending:
     try {
       const st = statSync(head.path);
       resumable =
-        st.isFile() && cwdIsDir(head.cwd) && fileHasTurn(head.key, head.path, st.size);
+        st.isFile() &&
+        cwdIsDir(head.cwd) &&
+        // key on this stat, not head.key: the cached head may predate an append or rewrite
+        fileHasTurn(`${head.path}:${st.mtimeMs}:${st.size}`, head.path, st.size);
     } catch {
       resumable = false;
     }
