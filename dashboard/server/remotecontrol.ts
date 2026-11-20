@@ -31,11 +31,20 @@ const FORMAT = FIELDS.map((f) => `#{${f}}`).join(SEP);
 
 /** `claude remote-control …` or `claude rc …`, possibly quoted by tmux. */
 const RC_COMMAND = /(?:^|[\s"'/])claude\s+(?:remote-control|rc)\b/;
+/** An interactive `claude … --remote-control [name]` session. */
+const RC_FLAG = /(?:^|[\s"'/])claude\s(?:.*\s)?--remote-control(?=$|[\s="'])/;
+
+/** True for a pane start command that runs a Remote Control claude. */
+export function isRemoteControlCommand(command: string): boolean {
+  return RC_COMMAND.test(command) || RC_FLAG.test(command);
+}
 const CAPACITY = /Capacity:\s*(\d+)\s*\/\s*(\d+)/g;
 
 /** `--name X` / `--name=X` from the start command, unquoted. */
 export function nameFrom(command: string): string | undefined {
-  const m = /--name(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(\S+))/.exec(command);
+  const m =
+    /--name(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(\S+))/.exec(command) ??
+    /--remote-control(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s"'-]\S*))/.exec(command);
   const raw = m?.[1] ?? m?.[2] ?? m?.[3];
   return raw?.replace(/["']+$/, '') || undefined;
 }
@@ -103,7 +112,7 @@ export function createRemoteControls({
       .split('\n')
       .filter(Boolean)
       .map((line) => Object.fromEntries(line.split(SEP).map((v, i) => [FIELDS[i], v])) as Record<(typeof FIELDS)[number], string>)
-      .filter((r) => r.pane_dead !== '1' && RC_COMMAND.test(r.pane_start_command ?? ''));
+      .filter((r) => r.pane_dead !== '1' && isRemoteControlCommand(r.pane_start_command ?? ''));
     const sessions = await paneSessions(sessionsDir);
 
     const list = await Promise.all(

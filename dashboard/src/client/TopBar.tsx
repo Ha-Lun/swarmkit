@@ -67,8 +67,9 @@ function isHeldTerminal(s: SessionSummary): boolean {
 }
 
 export function TopBar({ sessions, selectedId, onHome, onSelect, onNew, onClose, isLivePage, backend, guard, pushEnabled }: Props) {
+  // Remote Control sessions live in the left rail only, never as tabs.
   const tabs = sessions.filter(
-    (s) => s.status === 'running' || s.status === 'waiting' || isHeldTerminal(s) || s.id === selectedId,
+    (s) => !s.terminal?.remote && (s.status === 'running' || s.status === 'waiting' || isHeldTerminal(s) || s.id === selectedId),
   );
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const anchorRef = useRef<HTMLButtonElement | null>(null);
