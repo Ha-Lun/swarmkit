@@ -10,7 +10,7 @@ import type { LiveHolder } from '../livesessions.ts';
 import { liveHolders } from '../livesessions.ts';
 import { pollWorkers } from '../model/workers.ts';
 import { claudeConfigDir } from '../paths.ts';
-import { extractLines, parseObject, readRange } from '../fsutil.ts';
+import { extractLines, fileHasTurnScan, parseObject, readRange } from '../fsutil.ts';
 
 export interface WatcherOptions {
   /** Defaults to ~/.claude/projects. */
@@ -94,6 +94,8 @@ export class TranscriptWatcher {
   private holders = new Map<string, LiveHolder>();
   /** Head cache for held sessions read on demand (outside heads / the listing window). */
   private heldHeads = new Map<string, HeadEntry>();
+  /** Held session ids whose transcript was not found on disk yet (skip repeated scans). */
+  private heldMiss = new Set<string>();
   /** Resolved once the first scanNow() ran: holders are populated before the first list(). */
   private firstScan: Promise<void> = Promise.resolve();
   /** Terminal permission prompts relayed through the Claude Code hook: sessionId -> id -> request. */
@@ -500,21 +502,27 @@ export class TranscriptWatcher {
     for (const id of this.holderGone.keys()) {
       if (this.skipFn(id)) this.holderGone.delete(id);
     }
+    const holderSame = (a: LiveHolder | undefined, b: LiveHolder | undefined): boolean =>
+      !!a && !!b &&
+      a.pid === b.pid &&
+      a.status === b.status &&
+      a.tmux === b.tmux &&
+      a.entrypoint === b.entrypoint &&
+      a.kind === b.kind;
     const ids = new Set([...prev.keys(), ...next.keys()]);
+    // Clear miss marks for changed and gone holders before building summaries below.
+    for (const id of ids) {
+      if (!next.has(id) || !holderSame(prev.get(id), next.get(id))) {
+        this.heldMiss.delete(id);
+      }
+    }
     for (const id of ids) {
       const before = prev.get(id);
       const after = next.get(id);
       // A holder is back, or the id became page-owned (skipFn): freshness counts again.
       if (after || this.skipFn(id)) this.holderGone.delete(id);
       if (this.skipFn(id)) continue;
-      if (
-        before && after &&
-        before.pid === after.pid &&
-        before.status === after.status &&
-        before.tmux === after.tmux &&
-        before.entrypoint === after.entrypoint &&
-        before.kind === after.kind
-      ) continue;
+      if (holderSame(before, after)) continue;
       if (!before && !after) continue;
       const gone = after === undefined;
       // The disappearance was already reported: keep the original goneAt.
@@ -565,8 +573,13 @@ export class TranscriptWatcher {
    * per path:mtime:size so repeated list() calls cost one stat.
    */
   private heldHead(id: string): HeadEntry | undefined {
-    const path = this.heldHeads.get(id)?.path ?? this.findFileSync(id);
-    if (!path) return undefined;
+    const cur = this.heldHeads.get(id);
+    if (!cur && this.heldMiss.has(id)) return undefined;
+    const path = cur?.path ?? this.findFileSync(id);
+    if (!path) {
+      this.heldMiss.add(id);
+      return undefined;
+    }
     let st: { mtimeMs: number; size: number };
     try {
       const s = statSync(path);
@@ -576,7 +589,6 @@ export class TranscriptWatcher {
       return undefined;
     }
     const key = `${path}:${st.mtimeMs}:${st.size}`;
-    const cur = this.heldHeads.get(id);
     try {
       const head = cur && cur.key === key ? cur : readHeadSync(path, st, key);
       this.heldHeads.set(id, head);
@@ -887,6 +899,7 @@ export class TranscriptWatcher {
 
   private refreshHeadsSync(): void {
     this.lastRefreshMs = Date.now();
+    this.heldMiss.clear();
     let projects: Dirent[];
     try {
       projects = readdirSync(this.root, { withFileTypes: true });
@@ -1048,24 +1061,12 @@ function cwdIsDir(cwd: string): boolean {
 
 /** Tail of a transcript names an assistant or result message (a session that died
  *  before the first response has only user lines). Cached per head cache key. */
-function fileHasTurn(key: string, file: string): boolean {
+function fileHasTurn(key: string, file: string, size: number): boolean {
   const hit = turnCache.get(key);
   if (hit !== undefined) return hit;
   let value = false;
   try {
-    const st = statSync(file);
-    const fd = openSync(file, 'r');
-    try {
-      const len = Math.min(32 * 1024, st.size);
-      if (len > 0) {
-        const buf = Buffer.alloc(len);
-        readSync(fd, buf, 0, len, Math.max(0, st.size - len));
-        const tail = buf.toString('utf8');
-        value = tail.includes('"type":"assistant"') || tail.includes('"type":"result"');
-      }
-    } finally {
-      closeSync(fd);
-    }
+    value = fileHasTurnScan(file, size);
   } catch {
     value = false;
   }
@@ -1177,8 +1178,9 @@ function headSummary(head: HeadEntry, holders: Map<string, LiveHolder>, pending:
   let resumable = false;
   if (endedStatus(status)) {
     try {
+      const st = statSync(head.path);
       resumable =
-        statSync(head.path).isFile() && cwdIsDir(head.cwd) && fileHasTurn(head.key, head.path);
+        st.isFile() && cwdIsDir(head.cwd) && fileHasTurn(head.key, head.path, st.size);
     } catch {
       resumable = false;
     }

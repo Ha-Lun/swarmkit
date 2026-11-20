@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -9,6 +9,7 @@ import { AGENT_RE, EVICT_AFTER_MS, SdkSessions, SessionError } from '../server/s
 import type { QueryFn, ResumeInfo } from '../server/sdk/sessions';
 import { validEffort, ValidationError } from '../server/validate.ts';
 import { deleteImages, imageDir, imagesRoot } from '../server/images.ts';
+import { fileHasTurnScan } from '../server/fsutil.ts';
 
 // The data-model team builds the real reducer in parallel this checkout only
 // has the throwing stub, so stand in a minimal tree fake with the final signatures.
@@ -964,6 +965,55 @@ describe('SdkSessions', () => {
         expect(summary.status === 'running' || summary.status === 'waiting').toBe(true);
         expect(summary.resumable).toBe(false);
         expect(sdk.stop(id)).toBe(true);
+      });
+    });
+
+    it('assistant line followed by > 64 KB of user/tool_result reads as resumable; turnless > 64 KB reads false', async () => {
+      await withConfigDir(async () => {
+        const bigToolUser = JSON.stringify({
+          type: 'user',
+          uuid: 'u-big',
+          message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'x'.repeat(70 * 1024) }] },
+        });
+
+        const sdk = new SdkSessions(() => {}, makeRecordingQuery([]));
+        const resumableId = sdk.start({ prompt: 'long tail', cwd: cwdDir });
+        const turnlessId = sdk.start({ prompt: 'turnless tail', cwd: cwdDir });
+        await vi.waitFor(() => {
+          expect(sdk.get(resumableId)?.status).toBe('done');
+          expect(sdk.get(turnlessId)?.status).toBe('done');
+        });
+
+        mkdirSync(path.join(projectsDir, encoded(cwdDir)), { recursive: true });
+        writeFileSync(transcript(cwdDir, resumableId), `${userLine}\n${assistantLine}\n${bigToolUser}\n`);
+        writeFileSync(transcript(cwdDir, turnlessId), `${userLine}\n${bigToolUser}\n`);
+
+        expect(sdk.list().find(s => s.id === resumableId)?.resumable).toBe(true);
+        expect(sdk.list().find(s => s.id === turnlessId)?.resumable).toBe(false);
+      });
+    });
+
+    it('finds a turn needle that straddles a 64 KB chunk boundary', async () => {
+      await withConfigDir(async () => {
+        const sdk = new SdkSessions(() => {}, makeRecordingQuery([]));
+        const id = sdk.start({ prompt: 'boundary', cwd: cwdDir });
+        await vi.waitFor(() => {
+          expect(sdk.get(id)?.status).toBe('done');
+        });
+
+        // Place '"type":"assistant"' so its midpoint lands exactly at size - 64 KB,
+        // forcing the first 64 KB tail chunk to cut through the needle.
+        const prefix = JSON.stringify({ type: 'user', uuid: 'u0', message: { role: 'user', content: 'p'.repeat(70_000) } });
+        const afterNeedle = assistantLine.slice(19) + '\n';
+        const padShell = JSON.stringify({ type: 'user', uuid: 'u-pad', message: { role: 'user', content: '' } });
+        const padLen = 64 * 1024 - 9 - Buffer.byteLength(afterNeedle) - Buffer.byteLength(padShell + '\n');
+        const padLine = JSON.stringify({ type: 'user', uuid: 'u-pad', message: { role: 'user', content: 'x'.repeat(padLen) } });
+        const file = transcript(cwdDir, id);
+        mkdirSync(path.join(projectsDir, encoded(cwdDir)), { recursive: true });
+        writeFileSync(file, `${prefix}\n${assistantLine}\n${padLine}\n`);
+
+        expect(fileHasTurnScan(file, statSync(file).size)).toBe(true);
+        expect(sdk.list().find(s => s.id === id)?.resumable).toBe(true);
       });
     });
   });

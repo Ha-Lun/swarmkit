@@ -1,7 +1,7 @@
 // Page sessions driven by the Claude Agent SDK: one query per browser-started session,
 // permission prompts resolved from the dashboard, a live agent tree per session.
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { closeSync, existsSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, symlinkSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, renameSync, statSync, symlinkSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
@@ -24,6 +24,7 @@ import { claudeConfigDir, resolveDirInHome } from '../paths.ts';
 import { CommandCache } from '../commandcache.ts';
 import { deleteImages, imageDir, pruneOrphanImages, saveFiles, saveImages } from '../images.ts';
 import { deleteArtifacts, ensureArtifactDir, artifactDir, pruneOrphanArtifacts } from '../artifacts.ts';
+import { fileHasTurnScan } from '../fsutil.ts';
 
 /** Main-thread agent names must start alphanumerically and stay short (no '../', no path tricks). */
 export { AGENT_RE };
@@ -305,18 +306,7 @@ export function transcriptHasTurn(file: string, mtimeMs: number, size: number): 
   if (hit && hit.key === key) return hit.value;
   let value = false;
   try {
-    const fd = openSync(file, 'r');
-    try {
-      const len = Math.min(32 * 1024, size);
-      if (len > 0) {
-        const buf = Buffer.alloc(len);
-        readSync(fd, buf, 0, len, Math.max(0, size - len));
-        const tail = buf.toString('utf8');
-        value = tail.includes('"type":"assistant"') || tail.includes('"type":"result"');
-      }
-    } finally {
-      closeSync(fd);
-    }
+    value = fileHasTurnScan(file, size);
   } catch {
     value = false;
   }
@@ -715,7 +705,7 @@ export class SdkSessions {
             session.stopped = true;
             session.queue.close();
             deleteArtifacts(session.id);
-            this.sessions.delete(session.id);
+            this.dropForkPlaceholder(session.id);
             session.forkInit?.reject(new SessionError(
               500,
               sid === session.forkOf
@@ -726,7 +716,7 @@ export class SdkSessions {
           }
           if (typeof sid === 'string' && sid.length > 0 && sid !== session.id) {
             const placeholderId = session.id;
-            this.sessions.delete(session.id);
+            this.dropForkPlaceholder(placeholderId);
             session.id = sid;
             session.tree.sessionId = sid;
             for (const node of session.tree.nodes.values()) node.sessionId = sid;
@@ -794,7 +784,7 @@ export class SdkSessions {
       if (session.forkOf) {
         // The init message never arrived: the fork failed. Drop the placeholder
         // session and its artifacts, and surface the failure to the waiting caller.
-        this.sessions.delete(session.id);
+        this.dropForkPlaceholder(session.id);
         session.forkOf = undefined;
         deleteArtifacts(session.id);
         session.forkInit?.reject(new SessionError(500, 'the forked session ended before it reported its new session id'));
@@ -1146,8 +1136,10 @@ export class SdkSessions {
       this.startQuery(session, text, session.model, effort, true, images, files);
     } catch (err) {
       // Like start(): a half-started fork must not linger as an ownable session.
-      this.sessions.delete(sessionId);
+      const wasFork = !!session.forkOf;
       session.forkOf = undefined;
+      if (wasFork) this.dropForkPlaceholder(sessionId);
+      else this.sessions.delete(sessionId);
       deleteArtifacts(sessionId);
       throw err;
     }
@@ -1167,7 +1159,7 @@ export class SdkSessions {
         session.stopped = true;
         session.queue.close();
         session.forkOf = undefined;
-        this.sessions.delete(session.id);
+        this.dropForkPlaceholder(session.id);
         deleteArtifacts(session.id);
         throw err instanceof SessionError ? err : new SessionError(500, (err as Error).message);
       } finally {
@@ -1474,13 +1466,20 @@ export class SdkSessions {
     return this.bridge.handle(secret, body, signal);
   }
 
+  /** Drops a fork placeholder from the session map and broadcasts session.removed once. */
+  private dropForkPlaceholder(id: string): void {
+    if (this.sessions.delete(id)) {
+      this.emit({ type: 'session.removed', sessionId: id });
+    }
+  }
+
   list(): SessionSummary[] {
-    return [...this.sessions.values()].map(s => this.summarize(s));
+    return [...this.sessions.values()].filter(s => !s.forkOf).map(s => this.summarize(s));
   }
 
   get(id: string): SessionDetail | undefined {
     const session = this.sessions.get(id);
-    if (!session) return undefined;
+    if (!session || session.forkOf) return undefined;
     return {
       ...this.summarize(session),
       nodes: [...session.tree.nodes.values()].map(node => ({ ...node, events: [...node.events] })),
@@ -1587,6 +1586,7 @@ export class SdkSessions {
     this.evict(Date.now(), EVICT_AFTER_MS, MAX_PAGE_SESSIONS, CAP_FLOOR_MS);
     this.pruneImages();
     for (const session of this.sessions.values()) {
+      if (session.forkOf) continue;
       if (this.polling.has(session.id)) continue;
       const root = session.tree.nodes.get('root');
       const hasRunningWorker = [...session.tree.nodes.values()]

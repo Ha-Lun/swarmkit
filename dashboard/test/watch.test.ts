@@ -541,6 +541,62 @@ describe('TranscriptWatcher resumable', () => {
       await rm(temp, { recursive: true, force: true });
     }
   });
+
+  it('scans past 64 KB of trailing user/tool_result lines and finds needles straddling chunk boundaries', async () => {
+    const temp = await mkdtemp(join(tmpdir(), 'fleet-resumable-big-'));
+    const projects = join(temp, 'projects');
+    const sessionsDir = join(temp, 'sessions');
+    await mkdir(join(projects, 'p'), { recursive: true });
+    await mkdir(sessionsDir, { recursive: true });
+    const cwdDir = await mkdtemp(join(tmpdir(), 'fleet-resumable-big-cwd-'));
+    const watcher = new TranscriptWatcher({ root: projects, emit: () => {}, skip: () => false });
+    try {
+      const userHead = JSON.stringify({
+        type: 'user',
+        uuid: 'u1',
+        timestamp: T1,
+        cwd: cwdDir,
+        message: { role: 'user', content: 'Long tail session' },
+      });
+      const bigToolUser = JSON.stringify({
+        type: 'user',
+        uuid: 'u-tool',
+        timestamp: T2,
+        message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'x'.repeat(70 * 1024) }] },
+      });
+      // Straddling boundary: '"type":"assistant"' midpoint at size - 64 KB.
+      const prefix = JSON.stringify({ type: 'user', uuid: 'u0', message: { role: 'user', content: 'p'.repeat(70_000) } });
+      const afterNeedle = baseAssistant.slice(19) + '\n';
+      const padShell = JSON.stringify({ type: 'user', uuid: 'u-pad', message: { role: 'user', content: '' } });
+      const padLen = 64 * 1024 - 9 - Buffer.byteLength(afterNeedle) - Buffer.byteLength(padShell + '\n');
+      const padLine = JSON.stringify({ type: 'user', uuid: 'u-pad', message: { role: 'user', content: 'x'.repeat(padLen) } });
+
+      await writeFile(join(projects, 'p', 'long-turn.jsonl'), `${userHead}\n${baseAssistant}\n${bigToolUser}\n`);
+      await writeFile(join(projects, 'p', 'boundary.jsonl'), `${userHead}\n${prefix}\n${baseAssistant}\n${padLine}\n`);
+      await writeFile(join(projects, 'p', 'long-turnless.jsonl'), `${userHead}\n${bigToolUser}\n`);
+
+      const old = Date.now() - 180_000;
+      for (const f of ['long-turn.jsonl', 'boundary.jsonl', 'long-turnless.jsonl']) {
+        await utimes(join(projects, 'p', f), old / 1000, old / 1000);
+      }
+      const prev = process.env.CLAUDE_CONFIG_DIR;
+      process.env.CLAUDE_CONFIG_DIR = temp;
+      try {
+        await watcher.scanNow();
+        const list = watcher.list();
+        expect(list.find((s) => s.id === 'long-turn')!.resumable).toBe(true);
+        expect(list.find((s) => s.id === 'boundary')!.resumable).toBe(true);
+        expect(list.find((s) => s.id === 'long-turnless')!.resumable).toBe(false);
+      } finally {
+        if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+        else process.env.CLAUDE_CONFIG_DIR = prev;
+      }
+    } finally {
+      watcher.stop();
+      await rm(temp, { recursive: true, force: true });
+      await rm(cwdDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('TranscriptWatcher retention', () => {
