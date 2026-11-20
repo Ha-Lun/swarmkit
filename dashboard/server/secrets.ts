@@ -521,7 +521,9 @@ function storeForRedaction(): Store {
     }
     store = lastGood;
   }
-  redactionCache = { file, at: now, store };
+  // A missing file is rechecked on every call: that is cheap (open fails at once) and never pins an empty store.
+  if (store !== EMPTY_STORE) redactionCache = { file, at: now, store };
+  else redactionCache = undefined;
   return store;
 }
 

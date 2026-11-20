@@ -586,6 +586,9 @@ describe('redaction', () => {
         expect(redactAll('y external-edit-value-9')).toBe('y [secret:KEY_EXT]'); // cached until the interval passes
         vi.advanceTimersByTime(1000);
         expect(redactAll('y external-edit-value-9')).toBe('y external-edit-value-9');
+        // an empty (missing-file) result is never cached, so a re-created file is seen at once
+        writeFileSync(secretsFilePath(), JSON.stringify({ back: { KEY_BACK: { value: 'recreated-value-77', updatedAt: 2 } } }), { mode: 0o600 });
+        expect(redactAll('z recreated-value-77')).toBe('z [secret:KEY_BACK]'); // no time advance
       } finally {
         vi.useRealTimers();
       }
