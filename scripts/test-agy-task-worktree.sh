@@ -12,6 +12,7 @@ mkdir -p "$T/bin" && printf '#!/bin/sh\necho stub > stub.txt\n' > "$T/bin/openco
 fail() { echo "FAIL: $*"; exit 1; }
 
 git init -q "$T/main" && cd "$T/main" && git commit -q --allow-empty -m one
+"$TASK" client-repo no >/dev/null
 git worktree add -q -b side "$T/side" && cd "$T/side" && git commit -q --allow-empty -m two
 side_head=$(git rev-parse HEAD)
 

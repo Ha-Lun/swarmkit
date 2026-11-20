@@ -62,10 +62,10 @@ chmod +x "$T/bin/opencode"
 # agy did not run). Its transcript (in the --conversation, else a new one; STUB_CONV overrides) records that call
 # (named STUB_TNAME if set, plus a STUB_EXTRA call), then a STUB_INVALID call whose next step has status
 # $STUB_INVALID_STATUS (INVALID: agy rejected its arguments before the hook); STUB_NOTRANSCRIPT writes none; STUB_ONLYINVALID drops the first call.
-# --version prints $STUB_VERSION (1.5.9).
+# --version prints $STUB_VERSION (1.5.10).
 cat > "$T/bin/agy" <<'S'
 #!/bin/sh
-[ "$1" = --version ] && { echo "agy ${STUB_VERSION:-1.5.9}"; exit 0; }
+[ "$1" = --version ] && { echo "agy ${STUB_VERSION:-1.5.10}"; exit 0; }
 printf '%s\n' "$*" >> "$STUB_ARGS.agy"
 hook=$(jq -r '.[].PreToolUse[0].hooks[0].command' .agents/hooks.json 2>/dev/null)
 call=${STUB_CALL:-"{\"toolCall\":{\"name\":\"write_to_file\",\"args\":{\"TargetFile\":\"$PWD/stub.txt\",\"CodeContent\":\"x\"}}}"}
@@ -566,10 +566,23 @@ STUB_CONV=0a1b2c3d-0000-4000-8000-000000000002 "$AGY_TASK" resume gp1 "again" >/
 ares gp1 '.warnings[]' | grep -q "^gate check failed: agy answered for conversation 0a1b2c3d-0000-4000-8000-000000000002" \
   || fail "conversation check: $(ares gp1 .warnings)"
 [ "$(git -C "$(adir gp1)/worktree" rev-parse HEAD)" = "$h" ] || fail "resume in another conversation was committed"
-# an agy version other than the probed one is refused unless overridden
+# an agy version other than the probed one triggers the gate probe (with a 1h cooldown on failure) unless overridden
+printf -- '---\nname: code-proofreader\ndescription: d\n---\nBODY\n' > "$SWARMKIT_AGY_AGENTS_DIR/code-proofreader.md"
+n0=$(wc -l < "$STUB_ARGS.agy")
 rc=0; out=$(STUB_VERSION=1.5.0 "$AGY_TASK" start gv1 "p" 2>&1) || rc=$?
-[ "$rc" = 2 ] && echo "$out" | grep -q "agy 1.5.0 is not the version the gate was probed on (1.5.9)" || fail "unprobed agy ($rc): $out"
+[ "$rc" = 2 ] && echo "$out" | grep -q "the gate probe failed for agy 1.5.0" || fail "unprobed agy ($rc): $out"
 [ ! -e "$AGY_TASK_DIR"/*/gv1 ] || fail "unprobed agy left a task dir"
+jq -e '.["1.5.0"] | type == "number"' "$AGY_TASK_DIR/probe-failed.json" >/dev/null || fail "probe-failed.json missing 1.5.0"
+n1=$(wc -l < "$STUB_ARGS.agy"); [ "$n1" -gt "$n0" ] || fail "probe did not run the stub ($n0 -> $n1)"
+rc=0; out=$(STUB_VERSION=1.5.0 "$AGY_TASK" start gv1 "p" 2>&1) || rc=$?
+[ "$rc" = 2 ] && echo "$out" | grep -q "the gate probe for agy 1.5.0 failed [0-9]* min ago; run 'agy-task probe' to retry now, or set AGY_TASK_ALLOW_UNPROBED=1" \
+  || fail "cooldown message ($rc): $out"
+echo "$out" | grep -q "the gate probe failed for agy" && fail "cooldown also printed probe-failed text: $out"
+[ ! -e "$AGY_TASK_DIR"/*/gv1 ] || fail "cooldown run left a task dir"
+n2=$(wc -l < "$STUB_ARGS.agy"); [ "$n2" = "$n1" ] || fail "cooldown re-ran the stub ($n1 -> $n2)"
+rc=0; STUB_VERSION=1.5.0 "$AGY_TASK" probe >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "manual probe exit code: $rc"
+n3=$(wc -l < "$STUB_ARGS.agy"); [ "$n3" -gt "$n2" ] || fail "manual probe did not bypass cooldown ($n2 -> $n3)"
 STUB_VERSION=1.5.0 AGY_TASK_ALLOW_UNPROBED=1 "$AGY_TASK" start gv1 "p" >/dev/null 2>&1 || fail "override not honoured: $(ares gv1 .warnings)"
 # a launch is refused while the worktree has agy customization entries besides the overlay, or symlinks among them
 for s in 'mkdir -p sub/.agents && echo {} > sub/.agents/hooks.json' 'ln -s /tmp .agents' 'mkdir _agent' \

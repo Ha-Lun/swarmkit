@@ -57,11 +57,16 @@ def sh(*cmd, cwd=None, timeout=60, stdin=None):
     return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, timeout=timeout, input=stdin)
 
 
-def task_dir(fx, slug):
-    """Mirror agy-task: <root>/<repo name>-<sha1(path)[:6]>/<slug>, keyed by the first worktree entry."""
+def task_root(fx):
+    """Mirror agy-task: <root>/<repo name>-<sha1(path)[:6]>, keyed by the first worktree entry."""
     import hashlib
     first = sh('git', 'worktree', 'list', '--porcelain', cwd=fx).stdout.splitlines()[0].split(' ', 1)[1]
-    return os.path.join(TASK_ROOT, f'{os.path.basename(first)}-{hashlib.sha1(first.encode()).hexdigest()[:6]}', slug)
+    return os.path.join(os.path.realpath(TASK_ROOT),
+                        f'{os.path.basename(first)}-{hashlib.sha1(first.encode()).hexdigest()[:6]}')
+
+
+def task_dir(fx, slug):
+    return os.path.join(task_root(fx), slug)
 
 
 def bare(names):
@@ -174,10 +179,12 @@ def run_worker(job, args, state):
 
 
 def finish_cell(cell, args, state):
-    """All 8 workers of a cell are done: record main-checkout leaks, delete the fixture."""
+    """All 8 workers of a cell are done: record main-checkout leaks, delete the fixture and its task root."""
     cell['leak'] = bare(l[3:] for l in sh('git', 'status', '--porcelain', '-uall', cwd=cell['fx']).stdout.splitlines())
     state['cells'].append({'model_label': cell['model_label'], 'repeat': cell['rep'], 'main_leak_files': cell['leak']})
+    tr = cell.get('task_root') or task_root(cell['fx'])
     shutil.rmtree(cell['fx'], ignore_errors=True)
+    shutil.rmtree(tr, ignore_errors=True)
     sh('git', 'worktree', 'prune', cwd=BENCH)
 
 
@@ -202,8 +209,13 @@ def load_spec(fixture):
 
 def make_cell(model_label, rep, spec, args):
     fx = run.make_fixture(spec, args.fixture, BENCH, 'opencode', tempfile.mkdtemp(prefix='wm-', dir=args.tmp))
+    p = sh('opencode-task', 'client-repo', 'no', cwd=fx)
+    if p.returncode:
+        shutil.rmtree(fx, ignore_errors=True)
+        sys.exit(p.stderr.strip() or p.stdout.strip() or f'opencode-task client-repo exited {p.returncode}')
     base = sh('git', 'rev-parse', 'HEAD', cwd=fx).stdout.strip()
-    return {'model_label': model_label, 'rep': rep, 'fx': fx, 'base': base, 'left': len(args.modules), 'init': False}
+    return {'model_label': model_label, 'rep': rep, 'fx': fx, 'task_root': task_root(fx),
+            'base': base, 'left': len(args.modules), 'init': False}
 
 
 def med(xs):
