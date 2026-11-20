@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, utimes, writeFile, readFile, rename } from 'node:fs
 import { homedir, tmpdir } from 'node:os';
 import { rmSync } from 'node:fs';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { TranscriptWatcher } from '../server/watch/transcripts.ts';
 import type { ServerEvent } from '../src/shared/types.ts';
 
@@ -244,5 +244,78 @@ describe('TranscriptWatcher held sessions', () => {
     await w.scanNow();
     expect(goneOf(w).get('expired-mark')).toBeUndefined();
     w.stop();
+  });
+
+  it('caches missing held transcripts across unchanged list() calls until a rescan or holder change', async () => {
+    const seen: ServerEvent[] = [];
+    const w = new TranscriptWatcher({
+      root: projectsDir,
+      emit: (e) => seen.push(e),
+      skip: () => false,
+      maxAgeMs: 14 * 24 * 60 * 60_000,
+    });
+    const missHolder = path.join(sessionsDir, 'missing-held.json');
+    const missTranscript = path.join(projectsDir, 'proj-old', 'missing-held.jsonl');
+    const putHolder = async (status: string) => {
+      await writeFile(`${missHolder}.tmp`, JSON.stringify({
+        pid: process.pid,
+        sessionId: 'missing-held',
+        cwd: '/repo/oldheld',
+        kind: 'interactive',
+        entrypoint: 'cli',
+        status,
+      }));
+      await rename(`${missHolder}.tmp`, missHolder);
+    };
+    try {
+      await putHolder('idle');
+      await w.scanNow();
+
+      const spy = vi.spyOn(
+        w as unknown as { findFileSync: (id: string) => string | undefined },
+        'findFileSync',
+      );
+      expect(w.list().find(s => s.id === 'missing-held')).toBeUndefined();
+      const callsAfterFirstList = spy.mock.calls.length;
+      const missCallsAfterFirst = spy.mock.calls.filter(([id]) => id === 'missing-held').length;
+      expect(missCallsAfterFirst).toBe(1);
+
+      // Second list() with an unchanged snapshot skips findFileSync completely.
+      expect(w.list().find(s => s.id === 'missing-held')).toBeUndefined();
+      expect(spy.mock.calls.length).toBe(callsAfterFirstList);
+
+      // Creating the transcript outside the 14-day window: found after a holder change
+      // via refreshHolders() (get() triggers refreshHolders without refreshHeadsSync).
+      await writeFile(missTranscript, `${userLine}\n${assistantLine}\n`);
+      const old = new Date(Date.now() - 20 * 24 * 60 * 60_000);
+      await utimes(missTranscript, old, old);
+      await putHolder('busy');
+      seen.length = 0;
+      await w.get('nonexistent-trigger');
+      expect(seen.some(
+        e => e.type === 'session.upsert' && e.session.id === 'missing-held' && e.session.status === 'running',
+      )).toBe(true);
+      expect(spy.mock.calls.filter(([id]) => id === 'missing-held').length).toBe(2);
+
+      // Also verify rescan clears heldMiss: remove the transcript, re-miss it, recreate it, then scanNow().
+      await rm(missTranscript);
+      (w as unknown as { heldHeads: Map<string, unknown> }).heldHeads.delete('missing-held');
+      await w.scanNow(); // clears heldMiss; list() misses again
+      expect(w.list().find(s => s.id === 'missing-held')).toBeUndefined();
+      expect(w.list().find(s => s.id === 'missing-held')).toBeUndefined();
+      expect(spy.mock.calls.filter(([id]) => id === 'missing-held').length).toBe(3);
+
+      await writeFile(missTranscript, `${userLine}\n${assistantLine}\n`);
+      await utimes(missTranscript, old, old);
+      await w.scanNow();
+      const found = w.list().find(s => s.id === 'missing-held');
+      expect(found).toBeDefined();
+      expect(found!.status).toBe('running');
+      expect(spy.mock.calls.filter(([id]) => id === 'missing-held').length).toBe(4);
+    } finally {
+      w.stop();
+      await rm(missHolder, { force: true });
+      await rm(missTranscript, { force: true });
+    }
   });
 });

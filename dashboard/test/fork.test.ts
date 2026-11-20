@@ -56,6 +56,42 @@ describe('resume fork (terminal continue-as-a-copy)', () => {
     expect(upsertIds).not.toContain('fork-source-id');
   });
 
+  it('hides the placeholder from list()/get() while init is pending, then emits session.removed on adoption', async () => {
+    const events: ServerEvent[] = [];
+    let releaseInit!: () => void;
+    const initGate = new Promise<void>(resolve => {
+      releaseInit = resolve;
+    });
+    const gatedQuery: QueryFn = () =>
+      (async function* generator(): AsyncGenerator<SDKMessage, void> {
+        await initGate;
+        yield { type: 'system', subtype: 'init', session_id: 'forked-after-gate', model: 'claude-opus-5-5' } as unknown as SDKMessage;
+        yield { type: 'result', subtype: 'success' } as unknown as SDKMessage;
+      })() as unknown as AsyncIterable<SDKMessage>;
+
+    const sdk = new SdkSessions(e => events.push(e), gatedQuery);
+    const pending = sdk.resume(
+      'fork-source-id',
+      { text: 'continue this as a copy', fork: true },
+      { cwd: homeDir, title: 'Resumed session' },
+    );
+
+    await vi.waitFor(() => {
+      expect(events.some(e => e.type === 'node.event')).toBe(true);
+    });
+    const placeholderId = (events.find(e => e.type === 'node.event') as Extract<ServerEvent, { type: 'node.event' }>).sessionId;
+    expect(placeholderId).not.toBe('fork-source-id');
+    expect(sdk.owns(placeholderId)).toBe(true);
+    expect(sdk.list()).toEqual([]);
+    expect(sdk.get(placeholderId)).toBeUndefined();
+
+    releaseInit();
+    await expect(pending).resolves.toBe('forked-after-gate');
+    expect(sdk.list().map(s => s.id)).toEqual(['forked-after-gate']);
+    expect(sdk.get('forked-after-gate')).toBeDefined();
+    expect(events.filter(e => e.type === 'session.removed' && e.sessionId === placeholderId)).toHaveLength(1);
+  });
+
   it('never adopts the source id: the copy is killed, silenced and the fork fails', async () => {
     const events: ServerEvent[] = [];
     const seen: Record<string, unknown>[] = [];
@@ -65,6 +101,8 @@ describe('resume fork (terminal continue-as-a-copy)', () => {
     await expect(
       sdk.resume('fork-source-id', { text: 'continue as a copy', fork: true }, { cwd: homeDir, title: 'Resumed session' }),
     ).rejects.toThrow(/source session id/);
+    const placeholderId = (events.find(e => e.type === 'node.event') as Extract<ServerEvent, { type: 'node.event' }>).sessionId;
+    expect(events.filter(e => e.type === 'session.removed' && e.sessionId === placeholderId)).toHaveLength(1);
     // Give the (aborted) consume loop a moment, then pin the event count: nothing
     // may be emitted for the deleted placeholder after the rejection.
     await new Promise(r => setTimeout(r, 30));
@@ -130,11 +168,14 @@ describe('resume fork (terminal continue-as-a-copy)', () => {
   });
 
   it('drops the placeholder session when the forked query ends without an init id', async () => {
+    const events: ServerEvent[] = [];
     const seen: Record<string, unknown>[] = [];
-    const sdk = new SdkSessions(() => {}, makeInitQuery({ value: undefined }, seen));
+    const sdk = new SdkSessions(e => events.push(e), makeInitQuery({ value: undefined }, seen));
     await expect(
       sdk.resume('fork-source-id', { text: 'continue as a copy', fork: true }, { cwd: homeDir, title: 'Resumed session' }),
     ).rejects.toThrow(/new session id/);
+    const placeholderId = (events.find(e => e.type === 'node.event') as Extract<ServerEvent, { type: 'node.event' }>).sessionId;
+    expect(events.filter(e => e.type === 'session.removed' && e.sessionId === placeholderId)).toHaveLength(1);
     expect(sdk.list()).toEqual([]);
     expect(sdk.owns('fork-source-id')).toBe(false);
   });
@@ -148,7 +189,8 @@ describe('resume fork (terminal continue-as-a-copy)', () => {
         await new Promise<never>(() => {});
         yield { type: 'result' } as unknown as SDKMessage; // unreachable
       })() as unknown as AsyncIterable<SDKMessage>;
-    const sdk = new SdkSessions(() => {}, hangingQuery);
+    const events: ServerEvent[] = [];
+    const sdk = new SdkSessions(e => events.push(e), hangingQuery);
     let settled = false;
     const pending = sdk.resume(
       'fork-source-id',
@@ -167,6 +209,8 @@ describe('resume fork (terminal continue-as-a-copy)', () => {
     }
     await assertion;
     // The placeholder was torn down; the source stays unowned.
+    const placeholderId = (events.find(e => e.type === 'node.event') as Extract<ServerEvent, { type: 'node.event' }>).sessionId;
+    expect(events.filter(e => e.type === 'session.removed' && e.sessionId === placeholderId)).toHaveLength(1);
     expect(sdk.list()).toEqual([]);
     expect(sdk.owns('fork-source-id')).toBe(false);
   }, 20_000);
