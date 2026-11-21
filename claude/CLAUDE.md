@@ -62,12 +62,20 @@ chat.
   context costs more to write down than to make, or a security fix.
 - **Spend Claude on the main session.** Your Opus turns go to planning, review,
   security and context-heavy edits. Work a worker can do goes to a worker, not
-  a Claude subagent; keep up to 3 running in parallel. **agy first**:
-  `agy-task` (Gemini 4) is the default lane, `opencode-task` only when the
-  worker must run tests itself (TDD, debugging a failing run). agy has no
-  shell, so you run the verify after an agy task lands (cap its output,
-  e.g. `| tail -n 40`).
-  - Hydrogen (`--model hydrogen`, high by default): implementation from an
+  a Claude subagent; keep up to 3 running in parallel. **Pick the lane by
+  quota**: before each implementation or investigation worker, run
+  `agy-task lane` (`agy-task lane -n N` once before a batch of N) and start
+  it on the lane printed: `agy` → `agy-task`, `opencode` → `opencode-task`
+  on its lane default (no `--effort`). It weighs Gemini and OpenCode Go
+  quota headroom and the workers already running; `none` means both quotas
+  are spent, so tell the user. Overrides, in order: a client repo not
+  cleared for Google never goes to agy; a worker that must run tests itself
+  (TDD, debugging a failing run) goes to `opencode-task` unless `lane`
+  reports opencode blocked, then agy and you run the tests; before the
+  first opencode run in a repo `opencode-task client-repo` must be known;
+  review roles keep their lanes. agy has no shell, so you run the verify
+  after an agy task lands (cap its output, e.g. `| tail -n 40`).
+  - Hydrogen (`--model hydrogen`, high by default), when the lane is agy: implementation from an
     approved plan, including domain work (a specialist's "use proactively"
     means `agy-task --agent <name>`, not the Claude subagent); writing tests;
     any investigation needing more than ~3 file reads (`--review`, returns

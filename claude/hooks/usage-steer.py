@@ -66,7 +66,7 @@ def note(report):
              f"weekly {week if week is not None else '?'}%)."]
     if level >= HANDOFF:
         parts.append("Hand the rest of this task to a worker now: write a self-contained brief and start "
-                     "agy-task (opencode-task if it must run tests). Keep your own turns to review and merge.")
+                     "the worker on the lane `agy-task lane` prints. Keep your own turns to review and merge.")
     else:
         parts.append("Send all implementation, tests, surveys and second-opinion reviews to agy/opencode "
                      "workers; spend your own turns on planning, security and final review only.")

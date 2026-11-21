@@ -26,14 +26,14 @@ Everything else in the plan goes to a worker.
 
 | Task | Worker |
 |---|---|
-| Well-specified implementation, tests to write (default; you run the verify) | `agy-task --model hydrogen`, `--agent <specialist>` when a specialty applies, see `agy-delegate` |
+| Well-specified implementation, tests to write, investigations (`--review`) | the lane `agy-task lane` prints: `agy-task --model hydrogen` (you run the verify) or `opencode-task` on its lane default; `--agent <specialist>` when a specialty applies |
 | Trivial bulk or mechanical edits | `agy-task --model hydrogen --effort low` |
 | Hard implementation (tricky logic, multi-file refactor), or the fresh-start retry after Hydrogen high failed its one resume | `agy-task --model hydrogen --effort xhigh` |
 | Implementation where the worker must iterate on a test run itself (failing test, TDD, debugging) | `opencode-task` (free `opencode-go/` model), `--agent <specialist>` when a specialty applies (lane model, never `lead-dev-hybrid`), see `opencode-delegate` |
 | Second opinion on your own diff | `agy-task --review --model neon --effort high` |
 | Cross-review of a worker's branch | see below |
 
-In Claude Code, UI, styling, motion and 3D work never goes to a worker: it goes to the Claude `frontend-specialist` / `animation-specialist` subagent (Sonnet). agy first: a task goes to `opencode-task` only when the worker must run tests itself.
+In Claude Code, UI, styling, motion and 3D work never goes to a worker: it goes to the Claude `frontend-specialist` / `animation-specialist` subagent (Sonnet). Lane by quota: before each implementation or investigation worker, run `agy-task lane` (`agy-task lane -n N` once before a batch of N) and start it on the lane printed: `agy` → `agy-task`, `opencode` → `opencode-task` on its lane default (no `--effort`). It weighs Gemini and OpenCode Go quota headroom and the workers already running; `none` means both quotas are spent, so tell the user. Overrides, in order: a client repo not cleared for Google never goes to agy; a worker that must run tests itself (TDD, debugging a failing run) goes to `opencode-task` unless `lane` reports opencode blocked, then agy and you run the tests; before the first opencode run in a repo `opencode-task client-repo` must be known; review roles keep their lanes.
 
 Claude Code runs both lanes. From OpenCode use only `agy-task` (`opencode-task` refuses under OpenCode). Antigravity runs no workers.
 

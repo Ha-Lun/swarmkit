@@ -9,7 +9,7 @@ description: Use when handing a self-contained task to a headless Antigravity (a
 
 ## When
 
-agy is the default worker lane. Use `opencode-task` instead only when the worker must run tests itself (agy has no shell). Pick the model by the task:
+Pick the lane first: run `agy-task lane` (`-n N` before a batch) and use agy when it prints `agy`. A worker that must run tests itself goes to `opencode-task` (agy has no shell) unless `lane` reports opencode blocked. Review roles keep their lanes. On agy, pick the model by the task:
 
 | Model | For |
 |---|---|
