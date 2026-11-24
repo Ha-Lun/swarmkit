@@ -96,6 +96,7 @@ export interface FleetBackend {
   agents(cwd: string): Promise<AgentsResponse>;
   cwds(): Promise<string[]>;
   dirs(path?: string, hidden?: boolean): Promise<DirListing>;
+  mkdir(parent: string, name: string): Promise<{ path: string }>;
   stars(): Promise<string[]>;
   setStar(path: string, starred: boolean): Promise<string[]>;
   workers(): Promise<WorkerTask[]>;
@@ -179,6 +180,8 @@ export const apiBackend: FleetBackend = {
     const s = q.toString();
     return request(s ? `/api/dirs?${s}` : '/api/dirs');
   },
+  mkdir: (parent, name) =>
+    request('/api/dirs', { method: 'POST', body: JSON.stringify({ parent, name }) }),
   stars: () => request('/api/stars'),
   setStar: (path, starred) =>
     request('/api/stars', { method: 'POST', body: JSON.stringify({ path, starred }) }),

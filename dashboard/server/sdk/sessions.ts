@@ -62,7 +62,7 @@ export interface PageStartOptions extends StartSessionBody {
   title?: string;
   /** The Claude session this fallback lead continues. */
   fallbackOf?: { sessionId: string; title: string };
-  /** Haiku triage classification when triage picked the start model. */
+  /** Triage classification when triage picked the start model. */
   triage?: TriageInfo;
 }
 
@@ -186,7 +186,7 @@ interface PageSession {
   hookSecret?: string;
   /** Lead model for this session (default for the next resume and summary fallback before init). */
   model?: string;
-  /** Haiku triage outcome when triage picked the start model. */
+  /** Triage outcome when triage picked the start model. */
   triage?: TriageInfo;
   /** First line of the first prompt, clamped to 120 chars for the title. */
   title: string;

@@ -1,5 +1,6 @@
-// Haiku triage: classifies a Claude start prompt into trivial/normal/hard and maps
-// that level to the lead's start model and effort (only `level` comes from Haiku).
+// Model triage: Sonnet classifies a Claude start prompt into trivial/normal/hard and maps
+// that level to the lead's start model and effort (only `level` comes from the model).
+// The rubric leans hard (Opus) whenever the scope is unclear.
 import os from 'node:os';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { Options } from '@anthropic-ai/claude-agent-sdk';
@@ -9,14 +10,18 @@ import type { Runtime, TriageInfo, TriageLevel } from '../src/shared/types.ts';
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_PROMPT_CHARS = 4_000;
 const MAX_REASON_CHARS = 80;
-const TRIAGE_MODEL = 'claude-haiku-5-5';
+const TRIAGE_MODEL = 'claude-sonnet-5-5';
 
 const TRIAGE_INSTRUCTION =
   'You route requests for a coding-agent dashboard. Classify the request. ' +
   'trivial = one small, obvious step; ' +
-  'normal = a few steps or files, clear approach; ' +
-  'hard = debugging an unknown cause, multi-file design or refactor, security or data-sensitive work. ' +
+  'normal = a few steps or files, clear approach and clear scope; ' +
+  'hard = debugging an unknown cause, a new feature or behaviour change in an existing app (especially UI plus server), ' +
+  'multi-file design or refactor, security or data-sensitive work. ' +
+  'Vague or open-ended requests whose scope you cannot see (fix it, something broke, improve X, check this) are hard. ' +
+  'When unsure between two levels, pick the higher one. ' +
   'Examples: a release or version bump is trivial; ' +
+  'renaming a UI label is trivial; ' +
   'clearing up disk space on a server is normal; ' +
   'adding rate limiting or changing auth is hard. ' +
   'Reply with only JSON {"level":"trivial|normal|hard","reason":"<8 words"}.';
@@ -32,7 +37,7 @@ export interface TriageResult {
   model: 'sonnet' | 'opus';
   effort: 'medium' | 'high';
   reason: string;
-  source: 'haiku' | 'fallback';
+  source: 'model' | 'fallback';
   ms: number;
 }
 
@@ -91,14 +96,14 @@ function parseTriageReply(raw: string): { level: TriageLevel; reason: string } |
   return { level: record.level, reason };
 }
 
-/** Builds the classification prompt sent to Haiku. */
+/** Builds the classification prompt sent to the triage model. */
 function buildTriagePrompt(prompt: string, hasAttachments?: boolean): string {
   const clipped = prompt.slice(0, MAX_PROMPT_CHARS);
   const attachmentNote = hasAttachments ? ' The request has attachments.' : '';
   return `${TRIAGE_INSTRUCTION}${attachmentNote} Request: ${JSON.stringify(clipped)}`;
 }
 
-/** Classifies a start prompt with Haiku; never throws (falls back to Opus/high on any failure). */
+/** Classifies a start prompt with the triage model; never throws (falls back to Opus/high on any failure). */
 export async function triage(prompt: string, opts?: TriageOptions): Promise<TriageResult> {
   const startedAt = Date.now();
   if (opts?.signal?.aborted) {
@@ -126,6 +131,7 @@ export async function triage(prompt: string, opts?: TriageOptions): Promise<Tria
   const options: Options = {
     cwd: os.homedir(),
     model: TRIAGE_MODEL,
+    effort: 'low',
     persistSession: false,
     settingSources: [],
     mcpServers: {},
@@ -167,7 +173,7 @@ export async function triage(prompt: string, opts?: TriageOptions): Promise<Tria
       model: route.model,
       effort: route.effort,
       reason: parsed.reason,
-      source: 'haiku',
+      source: 'model',
       ms: Math.max(0, Date.now() - startedAt),
     };
   } catch {

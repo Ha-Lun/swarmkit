@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import type { FleetBackend, Guard } from './api';
 import { AttachButton, AttachDropzone, AttachmentTray } from './AttachmentTray';
 import { filesFromPaste } from './attachments';
+import { appendTranscript, MicButton, useDictation } from './Dictation';
 import { useEnterToSend } from './enterToSend';
 import { FolderPicker } from './FolderPicker';
 import { PendingChat } from './PendingChat';
@@ -38,16 +39,19 @@ export function NewSession({ backend, guard, onClose, onStarted }: Props) {
   } = useStartForm(backend, guard, onStarted);
 
   const promptRef = useRef<HTMLTextAreaElement>(null);
+  const dictation = useDictation((chunk) => setPrompt((t) => appendTranscript(t, chunk)));
   const promptEnter = useEnterToSend(promptRef, () => {
+    dictation.abort();
     promptRef.current?.form?.requestSubmit();
   });
 
   // Back on the form after a failed start: put the cursor back in the prompt.
   const wasPending = useRef(false);
   useEffect(() => {
+    if (pending !== null) dictation.abort();
     if (wasPending.current && !pending) promptRef.current?.focus();
     wasPending.current = pending !== null;
-  }, [pending]);
+  }, [pending, dictation.abort]);
 
   return (
     <div
@@ -60,7 +64,10 @@ export function NewSession({ backend, guard, onClose, onStarted }: Props) {
       }}
     >
       {pending && <PendingChat draft={pending} label="Choosing a model…" />}
-      <form className="dialog" role="dialog" aria-modal="true" aria-labelledby="ns-title" onSubmit={submit} hidden={pending !== null}>
+      <form className="dialog" role="dialog" aria-modal="true" aria-labelledby="ns-title" onSubmit={(e) => {
+          dictation.abort();
+          void submit(e);
+        }} hidden={pending !== null}>
         <h2 id="ns-title">New session</h2>
 
         <label htmlFor="ns-prompt">Prompt</label>
@@ -86,6 +93,7 @@ export function NewSession({ backend, guard, onClose, onStarted }: Props) {
         <AttachmentTray items={attachments.items} onRemove={attachments.remove} />
         <div className="prompt-attach-row">
           <AttachButton onFiles={attachments.addFiles} />
+          <MicButton dictation={dictation} />
           {attachments.error && (
             <p className="attach-error" role="alert">
               {attachments.error}

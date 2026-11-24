@@ -186,7 +186,7 @@ export function createMockBackend(): FleetBackend {
     costUsd: 0.12,
     agent: 'lead-dev-hybrid',
     model: 'claude-sonnet-5-5',
-    triage: { level: 'trivial', reason: 'single-file doc draft', source: 'haiku' },
+    triage: { level: 'trivial', reason: 'single-file doc draft', source: 'model' },
     nodeCount: 1,
     pendingPermissions: 0,
     resumable: true,
@@ -1320,12 +1320,12 @@ A claim with a footnote.[^1]
       const id = uid('page');
       const title = body.prompt.split('\n')[0].slice(0, 120) || 'New session';
       const runtime = body.runtime ?? 'claude';
-      // Claude without a model: the server's Haiku triage picks it (here by keyword, after a short wait).
+      // Claude without a model: the server's triage picks it (here by keyword, after a short wait).
       const triaged = runtime === 'claude' && !body.model;
       const triage: TriageInfo | undefined = triaged
         ? /typo|rename|pdf/i.test(body.prompt)
-          ? { level: 'trivial', reason: 'small mechanical edit', source: 'haiku' }
-          : { level: 'hard', reason: 'multi-step change across files', source: 'haiku' }
+          ? { level: 'trivial', reason: 'small mechanical edit', source: 'model' }
+          : { level: 'hard', reason: 'multi-step change across files', source: 'model' }
         : undefined;
       const model = triage ? (triage.level === 'hard' ? 'claude-opus-5-5' : 'claude-sonnet-5-5') : body.model;
       const s: SessionSummary = {
@@ -1528,6 +1528,16 @@ A claim with a footnote.[^1]
       };
       return Promise.resolve(listing);
     },
+    mkdir: (parent, rawName) => {
+      const name = rawName.trim();
+      if (!name || name.startsWith('.') || /[/\\]/.test(name)) return Promise.reject(new Error('invalid folder name'));
+      const siblings = dirTree.get(parent) ?? [];
+      if (siblings.some((e) => e.name === name)) return Promise.reject(new Error('a folder with that name already exists'));
+      const path = `${parent}/${name}`;
+      dirTree.set(parent, [...siblings, { name, path, isGitRepo: false }].sort((a, b) => a.name.localeCompare(b.name)));
+      dirTree.set(path, []);
+      return Promise.resolve({ path });
+    },
     stars: () => Promise.resolve([...mockStars]),
     setStar: (path, starred) => {
       const clean = path.trim();
@@ -1704,7 +1714,7 @@ A claim with a footnote.[^1]
     },
   };
 
-  // The real server waits on the Haiku triage (5-15 s) before a Claude session without a model starts.
+  // The real server waits on the model triage (5-15 s) before a Claude session without a model starts.
   // ?startDelay=<ms> stretches the wait (to look at the pending chat); ?startFail makes it fail.
   const query = new URLSearchParams(typeof location === 'undefined' ? '' : location.search);
   const startDelay = Number(query.get('startDelay')) || 1500;

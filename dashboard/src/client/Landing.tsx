@@ -6,6 +6,7 @@ import type { FleetBackend, Guard } from './api';
 import { AttachButton, AttachmentTray } from './AttachmentTray';
 import { filesFromPaste } from './attachments';
 import { PromptShell } from './Composer';
+import { appendTranscript, MicButton, useDictation } from './Dictation';
 import { useEnterToSend } from './enterToSend';
 import { UNTRUSTED_NOTICE } from './format';
 import { FolderPicker } from './FolderPicker';
@@ -65,7 +66,11 @@ export function Landing({ backend, guard, sessions, onStarted }: Props) {
   } = useStartForm(backend, guard, onStarted);
 
   const ref = useRef<HTMLTextAreaElement>(null);
+  const dictation = useDictation((chunk) => {
+    setPrompt((t) => appendTranscript(t, chunk));
+  });
   const enterToSend = useEnterToSend(ref, () => {
+    dictation.abort();
     ref.current?.form?.requestSubmit();
   });
 
@@ -110,9 +115,10 @@ export function Landing({ backend, guard, sessions, onStarted }: Props) {
   // Back on the form after a failed start: the box is shown again, put the cursor back in it.
   const wasPending = useRef(false);
   useEffect(() => {
+    if (pending !== null) dictation.abort();
     if (wasPending.current && !pending && !window.matchMedia('(pointer: coarse)').matches) ref.current?.focus();
     wasPending.current = pending !== null;
-  }, [pending]);
+  }, [pending, dictation.abort]);
 
   const canStart = (prompt.trim().length > 0 || attachments.items.length > 0) && cwd.trim().length > 0 && !starting;
   const untrusted = sessions.some((s) => s.cwd === cwd.trim() && s.untrustedProject);
@@ -126,7 +132,10 @@ export function Landing({ backend, guard, sessions, onStarted }: Props) {
           <PromptShell
             variant="landing"
             runtime={runtime}
-            onSubmit={submit}
+            onSubmit={(e) => {
+              dictation.abort();
+              void submit(e);
+            }}
             onFiles={attachments.addFiles}
             tray={<AttachmentTray items={attachments.items} files={attachments.files} onRemove={attachments.remove} onRemoveFile={attachments.removeFile} />}
             textarea={
@@ -221,6 +230,7 @@ export function Landing({ backend, guard, sessions, onStarted }: Props) {
                   <span><b>enter</b> start</span>
                 </span>
                 <SecretsButton onClick={() => secretGuard.open()} disabled={!cwd.trim()} />
+                <MicButton dictation={dictation} />
                 <AttachButton onFiles={attachments.addFiles} />
                 <button type="submit" className="btn btn-primary btn-sm" disabled={!canStart}>
                   {starting ? 'starting…' : 'start'}

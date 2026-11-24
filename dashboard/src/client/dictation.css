@@ -1,0 +1,61 @@
+/* Dictation (speech-to-text) mic button in composer rows.
+   Reads only the shared tokens from styles.css. */
+
+.dictate-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.dictate-btn:hover:not(:disabled) {
+  background: var(--violet-soft);
+  color: var(--ink);
+}
+
+.dictate-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.dictate-btn.is-listening {
+  background: var(--fail-soft);
+  color: var(--fail);
+}
+
+.dictate-btn.is-listening:hover:not(:disabled) {
+  background: var(--fail-soft);
+  color: var(--fail);
+}
+
+@media (pointer: coarse), (max-width: 768px) {
+  .dictate-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dictate-btn.is-listening {
+    animation: dictate-pulse 1.8s ease-in-out infinite;
+  }
+}
+
+@keyframes dictate-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 0 3px var(--fail-soft); }
+}
+
+.dictate-error {
+  font-size: 11px;
+  color: var(--fail);
+  white-space: nowrap;
+}

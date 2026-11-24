@@ -1153,7 +1153,7 @@ describe('SdkSessions', () => {
           await new Promise<void>(() => {});
         })() as unknown as AsyncIterable<SDKMessage>;
       const sdk = new SdkSessions(() => {}, noInit);
-      const triage = { level: 'trivial' as const, reason: 'version bump', source: 'haiku' as const };
+      const triage = { level: 'trivial' as const, reason: 'version bump', source: 'model' as const };
       const id = sdk.start({
         prompt: 'bump version',
         cwd: homeDir,

@@ -6,6 +6,7 @@ import type { FleetBackend, Guard } from './api';
 import { filesFromPaste, useAttachments } from './attachments';
 import { AttachButton, AttachmentTray } from './AttachmentTray';
 import { ComposerWhere, MetaLine, PromptShell, providerName } from './Composer';
+import { appendTranscript, MicButton, useDictation } from './Dictation';
 import { useEnterToSend } from './enterToSend';
 import { canUseOpus, modelLabel } from './format';
 import { useSecretGuard } from './Secrets';
@@ -39,10 +40,16 @@ export function Continue({ backend, guard, session, git, sessionId, source, onRe
   const secretGuard = useSecretGuard(session.cwd, session.id);
   const ref = useRef<HTMLTextAreaElement>(null);
   const slash = useSlashMenu(text, setText, loadCommands, ref);
+  const dictation = useDictation((chunk) => {
+    setText((t) => appendTranscript(t, chunk));
+    secretGuard.reset();
+    slash.onChange();
+  });
 
   const opusOffered = canUseOpus(session);
 
   const submit = async (force = false) => {
+    dictation.abort();
     const t = text.trim();
     const images = fork ? [] : attachments.toPayload();
     const files = fork ? [] : attachments.toFiles();
@@ -159,6 +166,7 @@ export function Continue({ backend, guard, session, git, sessionId, source, onRe
             ) : (
               source === 'terminal' && <span className="continue-hint">Continuing makes it page-owned.</span>
             )}
+            <MicButton dictation={dictation} />
             {!fork && <AttachButton onFiles={attachments.addFiles} />}
             <button type="submit" className="btn btn-primary btn-sm" disabled={!canSend || busy}>
               {busy ? 'continuing…' : 'continue'}

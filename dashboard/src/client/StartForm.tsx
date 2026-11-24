@@ -1,8 +1,8 @@
 // Shared start-session form state and model selects (used by Landing and NewSession).
 // Every setup runs the lead-dev-hybrid agent; only the runtime/model vary. The Claude setup has no
-// model or effort choice: the server picks both per task with a Haiku triage.
+// model or effort choice: the server picks both per task with a Sonnet triage.
 import { useEffect, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, SetStateAction } from 'react';
 import { RUNTIME_MODELS } from '../shared/types';
 import type { Runtime, RuntimesResponse, StartSessionBody } from '../shared/types';
 import type { FleetBackend, Guard } from './api';
@@ -69,7 +69,7 @@ export function useStartForm(
   const [pending, setPending] = useState<StartDraft | null>(null);
   const attachments: UseAttachments = useAttachments();
   const secretGuard = useSecretGuard(cwd.trim());
-  const setPrompt = (v: string) => {
+  const setPrompt = (v: SetStateAction<string>) => {
     setPromptRaw(v);
     secretGuard.reset();
   };
@@ -251,7 +251,7 @@ export function AgentModelFields({
       <div className="amf-summary">
         <span className="amf-summary-text">{summary}</span>
         {runtime === 'claude' ? (
-          <span className="amf-note">Model picked per task (Haiku)</span>
+          <span className="amf-note">Model picked per task</span>
         ) : (
           <button
             type="button"
@@ -374,7 +374,7 @@ export function SetupPopover({ runtime, availability, model, onRuntime, onModel 
             })}
           </div>
           {runtime === 'claude' ? (
-            <p className="setup-menu-note">Model picked per task (Haiku)</p>
+            <p className="setup-menu-note">Model picked per task</p>
           ) : (
             <>
               <label className="setup-menu-h" htmlFor="land-model">model</label>

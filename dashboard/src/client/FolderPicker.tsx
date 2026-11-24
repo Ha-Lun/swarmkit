@@ -1,12 +1,33 @@
 // Reusable folder browser: current-folder box, breadcrumb, up, listing, hidden toggle, recents.
 // Used by the landing card and the new-session dialog.
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { DirListing } from '../shared/types';
 import type { FleetBackend, Guard } from './api';
 import { FolderIcon, StarIcon, UpIcon } from './icons';
 import { useStars } from './stars';
 
 const CWD_KEY = 'fleet.cwd';
+
+/** Folder outline with a plus badge, local to the picker (icons.tsx is untouched). */
+function NewFolderIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2h9A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" />
+      <path d="M12 11v5M9.5 13.5h5" />
+    </svg>
+  );
+}
 
 export function loadStoredCwd(): string {
   try {
@@ -51,6 +72,11 @@ export function FolderPicker({ backend, guard, cwd, onCwd, labelledby }: Props) 
   const [failed, setFailed] = useState(false);
   const [reload, setReload] = useState(0);
   const [home, setHome] = useState('');
+  const [showNew, setShowNew] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState('');
+  const newFolderBtnRef = useRef<HTMLButtonElement>(null);
   const { stars, toggle } = useStars(backend);
 
   useEffect(() => {
@@ -118,6 +144,50 @@ export function FolderPicker({ backend, guard, cwd, onCwd, labelledby }: Props) 
     onCwd(path);
   };
 
+  const canList = listing !== undefined && !failed;
+
+  // A new folder is made in the folder on screen: close the name row when that folder changes.
+  useEffect(() => {
+    setShowNew(false);
+    setNewName('');
+    setCreateError('');
+  }, [listing?.path]);
+
+  const openNew = () => {
+    setNewName('');
+    setCreateError('');
+    setShowNew(true);
+  };
+
+  const cancelNew = () => {
+    setShowNew(false);
+    setNewName('');
+    setCreateError('');
+    setCreating(false);
+    newFolderBtnRef.current?.focus();
+  };
+
+  const doCreate = async () => {
+    if (!listing || creating) return;
+    if (newName.trim().length === 0) return;
+    setCreating(true);
+    setCreateError('');
+    try {
+      const res = await guard(backend.mkdir(listing.path, newName));
+      if (res) {
+        setShowNew(false);
+        setNewName('');
+        setCreateError('');
+        choose(res.path);
+        newFolderBtnRef.current?.focus();
+      }
+    } catch (e) {
+      setCreateError(e instanceof Error ? e.message : 'Could not create folder');
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const path = listing?.path ?? cwd;
   const visibleRecents = recents.filter((r) => !stars.includes(r));
   const underHome = home !== '' && (path === home || path.startsWith(`${home}/`));
@@ -180,11 +250,68 @@ export function FolderPicker({ backend, guard, cwd, onCwd, labelledby }: Props) 
             </Fragment>
           ))}
         </nav>
+        <button
+          type="button"
+          ref={newFolderBtnRef}
+          className="icon-btn"
+          aria-label="New folder"
+          title="New folder"
+          disabled={!canList || creating}
+          onClick={() => (showNew ? cancelNew() : openNew())}
+        >
+          <NewFolderIcon size={16} />
+        </button>
         <label className="fp-hidden">
           <input type="checkbox" checked={hidden} onChange={(e) => setHidden(e.target.checked)} />
           Show hidden
         </label>
       </div>
+
+      {showNew && (
+        <div
+          className="fp-new"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              e.stopPropagation();
+              cancelNew();
+            }
+          }}
+        >
+          <input
+            type="text"
+            className="fp-new-input"
+            autoFocus
+            placeholder="Folder name"
+            aria-label="Folder name"
+            value={newName}
+            readOnly={creating}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                void doCreate();
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={creating || newName.trim().length === 0}
+            onClick={() => void doCreate()}
+          >
+            {creating ? 'Creating…' : 'Create'}
+          </button>
+          <button type="button" className="btn btn-sm btn-ghost" disabled={creating} onClick={cancelNew}>
+            Cancel
+          </button>
+          {createError && (
+            <p className="fp-new-error" role="alert">
+              {createError}
+            </p>
+          )}
+        </div>
+      )}
 
       {stars.length > 0 && (
         <div className="fp-recents">

@@ -154,15 +154,15 @@ describe('fable pricing', () => {
 
 describe('triageText', () => {
   it('shows level, the session model and the reason', () => {
-    expect(triageText({ level: 'trivial', reason: 'single-file rename', source: 'haiku' }, 'sonnet')).toBe('trivial → Sonnet · single-file rename');
-    expect(triageText({ level: 'normal', reason: 'new endpoint', source: 'haiku' }, 'claude-sonnet-5-5')).toBe('normal → Sonnet 5.5 · new endpoint');
+    expect(triageText({ level: 'trivial', reason: 'single-file rename', source: 'model' }, 'sonnet')).toBe('trivial → Sonnet · single-file rename');
+    expect(triageText({ level: 'normal', reason: 'new endpoint', source: 'model' }, 'claude-sonnet-5-5')).toBe('normal → Sonnet 5.5 · new endpoint');
   });
   it('shows the model now in use, even after a switch to Opus', () => {
-    expect(triageText({ level: 'trivial', reason: 'typo', source: 'haiku' }, 'opus')).toBe('trivial → Opus · typo');
+    expect(triageText({ level: 'trivial', reason: 'typo', source: 'model' }, 'opus')).toBe('trivial → Opus · typo');
   });
   it('falls back to the model the level implies when the session has none', () => {
-    expect(triageText({ level: 'trivial', reason: '', source: 'haiku' })).toBe('trivial → Sonnet');
-    expect(triageText({ level: 'hard', reason: 'cross-cutting', source: 'haiku' })).toBe('hard → Opus · cross-cutting');
+    expect(triageText({ level: 'trivial', reason: '', source: 'model' })).toBe('trivial → Sonnet');
+    expect(triageText({ level: 'hard', reason: 'cross-cutting', source: 'model' })).toBe('hard → Opus · cross-cutting');
   });
   it('names a failed triage and keeps a non-empty reason', () => {
     expect(triageText({ level: 'hard', reason: '', source: 'fallback' }, 'opus')).toBe('failed → Opus');
@@ -189,14 +189,14 @@ describe('canUseOpus', () => {
 
 describe('triageNote', () => {
   it('names the picked model with its version, the level and the reason', () => {
-    expect(triageNote({ level: 'trivial', reason: 'single typo fix', source: 'haiku' }, 'claude-sonnet-5-5')).toBe('Auto picked Sonnet 5.5 · trivial · single typo fix');
-    expect(triageNote({ level: 'hard', reason: '', source: 'haiku' }, 'opus')).toBe('Auto picked Opus · hard');
+    expect(triageNote({ level: 'trivial', reason: 'single typo fix', source: 'model' }, 'claude-sonnet-5-5')).toBe('Auto picked Sonnet 5.5 · trivial · single typo fix');
+    expect(triageNote({ level: 'hard', reason: '', source: 'model' }, 'opus')).toBe('Auto picked Opus · hard');
   });
   it('says when triage failed', () => {
     expect(triageNote({ level: 'hard', reason: '', source: 'fallback' }, 'claude-opus-5-5')).toBe('Auto picked Opus 5.5 · triage failed');
   });
   it('keeps the original pick after a switch to Opus, and works before the model is known', () => {
-    expect(triageNote({ level: 'normal', reason: 'ui toggle', source: 'haiku' }, 'claude-opus-5-5')).toBe('Auto picked Sonnet · normal · ui toggle');
-    expect(triageNote({ level: 'trivial', reason: 'x', source: 'haiku' })).toBe('Auto picked Sonnet · trivial · x');
+    expect(triageNote({ level: 'normal', reason: 'ui toggle', source: 'model' }, 'claude-opus-5-5')).toBe('Auto picked Sonnet · normal · ui toggle');
+    expect(triageNote({ level: 'trivial', reason: 'x', source: 'model' })).toBe('Auto picked Sonnet · trivial · x');
   });
 });

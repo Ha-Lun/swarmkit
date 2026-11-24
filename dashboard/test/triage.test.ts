@@ -11,7 +11,7 @@ function fakeTriageQuery(reply: string, opts?: { inResult?: boolean; isError?: b
   const queryFn: QueryFn = ({ prompt, options }) => {
     calls.push({ prompt, options });
     return (async function* (): AsyncGenerator<unknown, void> {
-      yield { type: 'system', subtype: 'init', model: 'claude-haiku-5-5' };
+      yield { type: 'system', subtype: 'init', model: 'claude-sonnet-5-5' };
       if (opts?.inResult) {
         yield { type: 'result', subtype: opts.isError ? 'error' : 'success', is_error: opts.isError, result: reply };
       } else {
@@ -42,7 +42,7 @@ describe('triage', () => {
         model: c.model,
         effort: c.effort,
         reason: c.reason,
-        source: 'haiku',
+        source: 'model',
       });
       expect(res.ms).toBeGreaterThanOrEqual(0);
     }
@@ -58,7 +58,7 @@ describe('triage', () => {
       model: 'sonnet',
       effort: 'high',
       reason: 'two-file edit',
-      source: 'haiku',
+      source: 'model',
     });
   });
 
@@ -173,7 +173,7 @@ describe('triage', () => {
     expect(resNoReason.reason).toBe('');
   });
 
-  it('isolates the Haiku query options and builds the expected prompt', async () => {
+  it('isolates the triage query options and builds the expected prompt', async () => {
     const { queryFn, calls } = fakeTriageQuery('{"level":"trivial","reason":"ok"}');
     const longUserText = `${'x'.repeat(4500)} tail-beyond-4000`;
     await triage(longUserText, { queryFn, hasAttachments: true });
@@ -181,7 +181,8 @@ describe('triage', () => {
     expect(calls).toHaveLength(1);
     const { prompt, options } = calls[0]!;
     expect(options).toMatchObject({
-      model: 'claude-haiku-5-5',
+      model: 'claude-sonnet-5-5',
+      effort: 'low',
       persistSession: false,
       tools: [],
       settingSources: [],
@@ -228,7 +229,7 @@ describe('triageStartBody', () => {
     expect(out.triage).toEqual({
       level: 'trivial',
       reason: 'one-line fix',
-      source: 'haiku',
+      source: 'model',
     });
   });
 

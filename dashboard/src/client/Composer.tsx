@@ -6,6 +6,7 @@ import type { GitInfo, FileAttachment, ImageAttachment, Runtime, SessionSummary,
 import { filesFromPaste, useAttachments } from './attachments';
 import { PauseIcon, SendIcon, StopIcon } from './icons';
 import { AttachButton, AttachDropzone, AttachmentTray } from './AttachmentTray';
+import { appendTranscript, MicButton, useDictation } from './Dictation';
 import { useEnterToSend } from './enterToSend';
 import { modelLabel } from './format';
 import { SecretsButton, useSecretGuard } from './Secrets';
@@ -182,6 +183,11 @@ export function Composer({ session, git, onSend, onInterrupt, onStop, loadComman
   const secretGuard = useSecretGuard(session.cwd, session.id);
 
   const slash = useSlashMenu(text, setText, loadCommands, ref);
+  const dictation = useDictation((chunk) => {
+    setText((t) => appendTranscript(t, chunk));
+    secretGuard.reset();
+    slash.onChange();
+  });
 
   useEffect(() => {
     const el = ref.current;
@@ -203,6 +209,7 @@ export function Composer({ session, git, onSend, onInterrupt, onStop, loadComman
   };
 
   const send = (force = false) => {
+    dictation.abort();
     const t = text.trim();
     const images = attachments.toPayload();
     const files = attachments.toFiles();
@@ -271,6 +278,7 @@ export function Composer({ session, git, onSend, onInterrupt, onStop, loadComman
         left={<ComposerWhere session={session} git={git} />}
         right={
           <>
+            <MicButton dictation={dictation} />
             <AttachButton onFiles={attachments.addFiles} />
             {confirming ? (
               <span

@@ -270,8 +270,8 @@ export function sessionHint(s: SessionSummary): string {
 }
 
 /**
- * Info-panel value for the Haiku triage: `trivial → Sonnet 5.5 · single-file rename`, or
- * `failed → Opus` when Haiku did not answer. The model is the session's current one (it may have
+ * Info-panel value for the model triage: `trivial → Sonnet 5.5 · single-file rename`, or
+ * `failed → Opus` when the triage did not answer. The model is the session's current one (it may have
  * been raised to Opus on a later resume); without it the level's own pick is shown.
  */
 export function triageText(triage: TriageInfo, model?: string): string {

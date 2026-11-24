@@ -149,18 +149,18 @@ export interface SessionSummary {
   limitReached?: LimitReached;
   /** Set on the session a fallback lead started from: the Claude session it continues. */
   fallbackOf?: { sessionId: string; title: string };
-  /** How the Haiku triage picked this Claude page session's model (only set when it ran). */
+  /** How the triage picked this Claude page session's model (only set when it ran). */
   triage?: TriageInfo;
 }
 
 /** Triage level: trivial and normal run on Sonnet, hard on Opus. */
 export type TriageLevel = 'trivial' | 'normal' | 'hard';
-/** The triage outcome shown in the info panel; source 'fallback' = Haiku failed or was skipped, Opus used. */
+/** The triage outcome shown in the info panel; source 'fallback' = the triage failed or was skipped, Opus used. */
 export interface TriageInfo {
   level: TriageLevel;
   /** Short reason, at most 80 chars (empty on a fallback). */
   reason: string;
-  source: 'haiku' | 'fallback';
+  source: 'model' | 'fallback';
 }
 
 /** The plan limit stopped this Claude session; `fallback` is the session that took over, or null when no lane was free. */

@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SessionSummary } from '../shared/types';
 import { MetaLine, PromptShell, providerName } from './Composer';
+import { appendTranscript, MicButton, useDictation } from './Dictation';
 import { useEnterToSend } from './enterToSend';
 import { modelLabel } from './format';
 import { useSecretGuard } from './Secrets';
@@ -23,8 +24,13 @@ export function TerminalComposer({ session, onSend }: Props) {
   // The registry says the claude process is mid-turn (or a prompt is up): refuse a send.
   const busyInTerminal = session.terminal?.busy === true || session.status === 'running' || session.status === 'waiting';
   const disabled = busy || busyInTerminal;
+  const dictation = useDictation((chunk) => {
+    setText((t) => appendTranscript(t, chunk));
+    secretGuard.reset();
+  });
 
   const send = async (force = false) => {
+    dictation.abort();
     const t = text.trim();
     if (!t || disabled || sendingRef.current) return;
     if (!force && secretGuard.check(t)) return;
@@ -105,6 +111,7 @@ export function TerminalComposer({ session, onSend }: Props) {
             ) : (
               <span className="continue-hint">Sends into your terminal session</span>
             )}
+            <MicButton dictation={dictation} disabled={disabled} />
             <button type="button" className="btn btn-primary btn-sm" disabled={disabled || text.trim().length === 0} onClick={() => void send()}>
               {busy ? 'sending…' : 'send'}
             </button>

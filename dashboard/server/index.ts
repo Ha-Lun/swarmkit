@@ -25,7 +25,7 @@ import {
   tokenMatches,
 } from './auth.ts';
 import { listAgents } from './agents.ts';
-import { DirError, listDirs } from './dirs.ts';
+import { DirError, createDir, listDirs } from './dirs.ts';
 import { gitInfo } from './git.ts';
 import { listStars, setStar } from './stars.ts';
 import { createPushNotifier, createPushStore } from './push.ts';
@@ -943,10 +943,16 @@ async function main(): Promise<void> {
     }
 
     if (url.pathname === '/api/dirs') {
-      if (method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
-      const target = url.searchParams.get('path') ?? undefined;
-      const hidden = url.searchParams.get('hidden') === '1';
-      return sendJson(res, 200, await listDirs(target, hidden));
+      if (method === 'GET') {
+        const target = url.searchParams.get('path') ?? undefined;
+        const hidden = url.searchParams.get('hidden') === '1';
+        return sendJson(res, 200, await listDirs(target, hidden));
+      }
+      if (method === 'POST') {
+        const body = requireObject(await readJson(req, 4 * 1024));
+        return sendJson(res, 201, await createDir(body.parent, body.name));
+      }
+      return sendJson(res, 405, { error: 'method not allowed' });
     }
 
     if (parts[1] === 'push') return handlePush(req, res, parts, method);

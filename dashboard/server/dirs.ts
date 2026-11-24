@@ -1,9 +1,9 @@
 // Folder picker backend: lists directories under $HOME only (never outside it).
-import { readdir, realpath, stat } from 'node:fs/promises';
+import { mkdir, readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { Dirent } from 'node:fs';
 import type { DirEntry, DirListing } from '../src/shared/types';
-import { homeReal, isInside } from './paths.ts';
+import { homeReal, isInside, resolveDirInHome } from './paths.ts';
 
 /** Thrown for requests the folder picker must answer with an HTTP error status. */
 export class DirError extends Error {
@@ -65,4 +65,38 @@ export async function listDirs(rawPath?: string, hidden = false): Promise<DirLis
   const listing: DirListing = { path: target, entries };
   if (target !== home) listing.parent = path.dirname(target);
   return listing;
+}
+
+/**
+ * Creates a single folder `name` directly inside `parent` (both must stay inside
+ * $HOME). Returns the created absolute path.
+ */
+export async function createDir(parent: unknown, name: unknown): Promise<{ path: string }> {
+  const resolved = await resolveDirInHome(parent);
+  if ('error' in resolved) throw new DirError(400, resolved.error);
+  if (typeof name !== 'string') throw new DirError(400, 'folder name must be a string');
+  const trimmed = name.trim();
+  if (trimmed.length === 0) throw new DirError(400, 'folder name is required');
+  if (Buffer.byteLength(trimmed, 'utf8') > 255) throw new DirError(400, 'folder name is too long');
+  if (trimmed === '.' || trimmed === '..') throw new DirError(400, 'folder name is reserved');
+  if (trimmed.startsWith('.')) throw new DirError(400, 'folder name must not start with a dot');
+  if (trimmed.includes('/') || trimmed.includes('\\')) throw new DirError(400, 'folder name must not contain slashes');
+  // NUL and other control characters are never valid in a folder name.
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1f\x7f]/.test(trimmed)) throw new DirError(400, 'folder name contains invalid characters');
+  const created = path.join(resolved.dir, trimmed);
+  try {
+    await mkdir(created);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === 'EEXIST') throw new DirError(409, 'a folder with that name already exists');
+    if (code === 'EACCES' || code === 'EPERM' || code === 'EROFS') {
+      throw new DirError(403, 'permission denied: cannot create a folder here');
+    }
+    if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'ENAMETOOLONG' || code === 'EINVAL') {
+      throw new DirError(400, 'cannot create a folder here');
+    }
+    throw err;
+  }
+  return { path: created };
 }
