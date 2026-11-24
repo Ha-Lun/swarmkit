@@ -63,6 +63,27 @@ class LeadBash(unittest.TestCase):
         ]:
             self.assertIsNotNone(lead(cmd), cmd)
 
+    def test_artifacts_dir(self):
+        # a dashboard session hands the user a file by copying it into $SWARMKIT_ARTIFACTS_DIR
+        old = os.environ.get("SWARMKIT_ARTIFACTS_DIR")
+        os.environ["SWARMKIT_ARTIFACTS_DIR"] = "/home/u/.cache/swarmkit/artifacts/abc"
+        try:
+            self.assertIsNone(lead("cp app/build/app-release.aab /home/u/.cache/swarmkit/artifacts/abc/"))
+            self.assertIsNone(lead("cp x.pdf /home/u/.cache/swarmkit/artifacts/abc/x.pdf"))
+            self.assertIsNone(lead('cp app-release.aab "$SWARMKIT_ARTIFACTS_DIR/"'))
+            self.assertIsNone(lead("cp a.pdf ${SWARMKIT_ARTIFACTS_DIR}/a.pdf"))
+            self.assertIsNotNone(lead('cp a.pdf "$SWARMKIT_ARTIFACTS_DIR/../../proj/a.pdf"'))
+            self.assertIsNotNone(lead("cp a.pdf $SWARMKIT_ARTIFACTS_DIRX"))
+            self.assertIsNotNone(lead("cp x.pdf /home/u/.cache/swarmkit/artifacts/abcd/x.pdf"))
+            self.assertIsNotNone(lead("cp x.pdf /home/u/.cache/swarmkit/artifacts/abc/../../../proj/x.pdf"))
+            del os.environ["SWARMKIT_ARTIFACTS_DIR"]
+            self.assertIsNotNone(lead("cp app-release.aab /home/u/.cache/swarmkit/artifacts/abc/"))
+        finally:
+            if old is None:
+                os.environ.pop("SWARMKIT_ARTIFACTS_DIR", None)
+            else:
+                os.environ["SWARMKIT_ARTIFACTS_DIR"] = old
+
     def test_subagent_calls_pass(self):
         # main-thread agent hooks also fire for its subagents; the lead rule is for the lead only
         self.assertIsNone(lead("cat > src/a.js <<'EOF'\nx\nEOF", agent_type="junior-dev"))

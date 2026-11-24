@@ -261,11 +261,22 @@ HEREDOC = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)([A-Za-z_][\w-]*)\1[^\n]*\n(.*?
 
 def scratch(path, cwd):
     target = os.path.realpath(os.path.join(cwd or '.', os.path.expanduser(path)))
-    return target == '/dev/null' or target == '/tmp' or target.startswith('/tmp/')
+    if target == '/dev/null' or target == '/tmp' or target.startswith('/tmp/'):
+        return True
+    # The dashboard's download folder: handing the user a file (an .aab, a PDF) is copying it there.
+    artifacts = os.environ.get('SWARMKIT_ARTIFACTS_DIR')
+    if not artifacts:
+        return False
+    artifacts = os.path.realpath(artifacts)
+    return target == artifacts or target.startswith(artifacts + os.sep)
 
 
 def lead_bash_problem(cmd, cwd=None):
     """Why a lead-dev-hybrid Bash command changes files, or None. A speed bump: it reads the command, not its effects."""
+    # $SWARMKIT_ARTIFACTS_DIR is the dashboard's download folder; check the copy against its real path.
+    artifacts = os.environ.get('SWARMKIT_ARTIFACTS_DIR', '')
+    if re.fullmatch(r'/[\w./-]+', artifacts):
+        cmd = re.sub(r'\$\{SWARMKIT_ARTIFACTS_DIR\}|\$SWARMKIT_ARTIFACTS_DIR\b', artifacts, cmd)
     bodies = [m.group(3) for m in HEREDOC.finditer(cmd)]
     # Keep the heredoc header line (it may hold `> file`), drop the body: it is data, not shell words.
     shell = HEREDOC.sub(lambda m: m.group(0).split('\n', 1)[0] + '\n', cmd)
