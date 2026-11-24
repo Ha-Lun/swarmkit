@@ -18,7 +18,10 @@ const TRIAGE_INSTRUCTION =
   'normal = a few steps or files, clear approach and clear scope; ' +
   'hard = debugging an unknown cause, a new feature or behaviour change in an existing app (especially UI plus server), ' +
   'multi-file design or refactor, security or data-sensitive work. ' +
-  'Vague or open-ended requests whose scope you cannot see (fix it, something broke, improve X, check this) are hard. ' +
+  'Vague or open-ended requests whose scope you cannot see (fix it, something broke, improve X, check this with no clear target) are hard. ' +
+  'Rate what this message asks for now, not the work it might lead to later. ' +
+  'A question or opinion about the code or a design (should we X?, is Y still needed?, what does Z do?) is normal, ' +
+  'even when the topic is a big change; it is hard only if answering means debugging, or if it also asks you to make the change. ' +
   'When unsure between two levels, pick the higher one. ' +
   'Examples: a release or version bump is trivial; ' +
   'renaming a UI label is trivial; ' +
